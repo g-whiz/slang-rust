@@ -1,0 +1,9 @@
+[package]
+name = "slang-sys"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[build-dependencies]
+bindgen = {workspace = true}
