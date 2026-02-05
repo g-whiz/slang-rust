@@ -1,9 +1,17 @@
 [package]
 name = "slang-sys"
+build = "build.rs"
+links = "slang-compiler"
+authors.workspace = true
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 
 [build-dependencies]
-bindgen = {workspace = true}
+bindgen = { workspace = true }
+cmake = { workspace = true }
+
+[features]
+# when enabled: builds and statically links slang
+static-slang = []
