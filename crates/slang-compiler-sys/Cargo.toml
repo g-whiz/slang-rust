@@ -1,5 +1,5 @@
 [package]
-name = "slang-sys"
+name = "slang-compiler-sys"
 build = "build.rs"
 links = "slang-compiler"
 authors.workspace = true
@@ -14,4 +14,4 @@ cmake = { workspace = true }
 
 [features]
 # when enabled: builds and statically links slang
-static-slang = []
+dynamic = []
