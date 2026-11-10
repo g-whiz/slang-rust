@@ -59,6 +59,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slang-compiler"
+version = "0.1.0"
+dependencies = [
+ "slang-compiler-sys",
+]
+
+[[package]]
 name = "slang-compiler-sys"
 version = "0.1.0"
 
