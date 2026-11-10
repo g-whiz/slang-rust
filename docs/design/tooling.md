@@ -194,6 +194,7 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | `check-bindings` | `checks` | The regeneration test of TEST-8 of the coding standard, alone | No, because `test-gpu` runs the same test | M1 |
 | `generate-bindings` | `rust` | The binding generator | No | M1 |
 | `check-doc-without-slang` | `checks` | The documentation command of Section 4.8 with `DOCS_RS` set and `VULKAN_SDK` unset (Section 10) | Yes, through `check-rust` | M1 |
+| `test-static` | `rust` | A build of the workspace on the static route and the smoke test on it, with the `SLANG_SOURCE_DIR` that the developer supplies, failing with a message that names the variable when it is absent (Section 9.3 of `docs/design/slang-compiler-sys.md`) | No, because it builds Slang from source | M1 |
 | `check-typos` | `checks` | The typos command of Section 4.8 on the whole repository, with `typos.toml` (TOOL-30) | Yes | Exists |
 | `check-toml` | `checks` | The taplo command of Section 4.8, with `taplo.toml` (TOOL-30) | Yes | Exists |
 | `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes | Exists |
@@ -204,9 +205,9 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | `check-semver` | `checks` | cargo semver-checks against the last published version of each published crate | No, the planned CI job `semver` runs it | M7, with the first release (Section 10) |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate, and it fails while no crate contains a function | No, the planned CI job `coverage` runs it | Exists |
 
-`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which inherits from `default` when `.config/nextest.toml` does not define it. M0 does not define it, because the skeleton crate has no tests. Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang, so `check-miri` covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation. A filter in a `[profile.default-miri]` table excludes the tests that call native code. Which tests it excludes is open (Section 15, TQ-5).
+`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which inherits from `default` when `.config/nextest.toml` does not define it. M0 does not define it, because the skeleton crate has no tests. Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang, so `check-miri` covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation. A filter in a `[profile.default-miri]` table excludes the tests that call native code: every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 5. Tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`). The first change of M1 that adds such a test adds the table.
 
-How the checks that pass `--all-features` and the feature matrix of `check-features` treat a feature that selects the static build of Slang is open (Section 15, TQ-2).
+No Cargo feature selects the static build of Slang, which the environment variable `SLANG_SOURCE_DIR` selects (Section 9.1 of `docs/design/slang-compiler-sys.md`), so the checks that pass `--all-features` and the feature matrix of `check-features` never build Slang from source.
 
 ### 4.3. Aggregate Recipes
 
@@ -350,7 +351,7 @@ pub fn scale() -> f32 {
 src/lib.rs:3: comment other than API documentation or a safety comment
 ```
 
-The checker does not report line 4, because the slashes there are inside a string literal. Generated files are checked like any other file. If the binding generator of M1 has to emit other comments, the design document of `slang-compiler-sys` decides whether the generated file gets an exemption, and the change that adds one adds it to Section 7.2 of the writing guide and to this checker together.
+The checker does not report line 4, because the slashes there are inside a string literal. Generated files are checked like any other file. The generated bindings of M1 get no exemption, because the binding generator emits no comments other than one module-level `//!` line (Section 5.10 of `docs/design/slang-compiler-sys.md`).
 
 ### 7.3. Heading Checker
 
@@ -446,7 +447,7 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 
 The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. Whether every platform can run the GPU tier while SPIR-V is the only shader target is open (Section 17, Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. That lavapipe, WARP, and hosted Metal work as adapters on hosted runners is an assumption of the architecture design (Section 16, A-17 and A-18 of the architecture design). No `gpu` test exists yet, so `just test-gpu` has not used an adapter on any runner, and the `check` job does not install lavapipe yet.
 
-No job runs the `hw_gpu` tests, which run only on a developer's hardware GPU through `just test-hw-gpu`. No job builds the static route until the design document of `slang-compiler-sys` decides whether CI builds it (Section 17, Q-28 of the architecture design).
+No job runs the `hw_gpu` tests, which run only on a developer's hardware GPU through `just test-hw-gpu`. No job builds the static route, because it compiles several hundred C++ files, and a recipe verifies it locally instead (SCS-36 of `docs/design/slang-compiler-sys.md`).
 
 CI installs the tools on each runner, because no container image is published for CI to run in. Each job installs only the tools that its recipes need:
 
@@ -472,7 +473,7 @@ TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret,
 
 ### 8.3. The Vulkan SDK on CI Runners
 
-Every job needs the pinned Vulkan software development kit (SDK) for Slang from M1, when `slang-compiler-sys` first links Slang. No job of M0 needs it, because the skeleton crate does not link Slang. How the SDK is installed on each platform, including the download address, checksum verification, and caching, is open (Section 15, TQ-1, which is Q-27 of the architecture design). It is settled when the step that installs the SDK is first written and run in CI.
+Every job needs the pinned Vulkan software development kit (SDK) for Slang from M1, when `slang-compiler-sys` first links Slang. No job of M0 needs it, because the skeleton crate does not link Slang. How the SDK is installed on each platform, including the download address, checksum verification, and caching, is open (Section 15, TQ-1, which is Q-27 of the architecture design). It is settled when the step that installs the SDK is first written and run in CI, which is step 2 of Section 15 of `docs/design/slang-compiler-sys.md`, and SCS-35 of that document states what the step does on each platform.
 
 LunarG publishes a SHA-256 checksum of each SDK download, as 64 hexadecimal characters at a documented address of the form `https://sdk.lunarg.com/sdk/sha/<version>/<platform>/<file>.txt`, which is served from the same host as the download. A checksum fetched from that host at run time detects a corrupted download, but not a download that an attacker at the host replaced together with its checksum. The step therefore records the expected value in the workflow and does not fetch it at run time, which the pinned version of the SDK allows, unlike the latest-version installs of Section 8.1.
 
@@ -591,13 +592,11 @@ Each row is a question that this document leaves open. The design document in th
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
-| TQ-1 | How is the pinned Vulkan SDK installed on each CI runner, including its download address, checksum verification, and caching? This is Q-27 of the architecture design, and any answer meets TOOL-21 and TOOL-23. Section 8.3 states where LunarG publishes the checksum of each download. | This document | M1, when the step is first written and run |
-| TQ-2 | How do the checks that pass `--all-features`, which are Clippy, the documentation build, the doctests, and the tests, and the feature matrix of `check-features`, treat a feature that selects the static build of Slang, which needs a Slang source tree and a long native build? This is part of Q-7 of the architecture design. | `docs/design/slang-compiler-sys.md` | M1 |
+| TQ-1 | How is the pinned Vulkan SDK installed on each CI runner, including its download address, checksum verification, and caching? This is Q-27 of the architecture design, and any answer meets TOOL-21 and TOOL-23, as well as SCS-23 and SCS-35 of `docs/design/slang-compiler-sys.md`, which require the step to read the pin through a recipe, to run on Linux, Windows, and macOS, to set `VULKAN_SDK`, and to put the SDK's library directory on the platform's library path. Section 8.3 states where LunarG publishes the checksum of each download. | This document | M1, in step 2 of Section 15 of `docs/design/slang-compiler-sys.md` |
 | TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M7 |
-| TQ-5 | Which tests does the filter of the nextest profile `default-miri` exclude from `check-miri`, because they call native code? The mechanism is that filter (Section 4.2). | The design document of the first crate whose tests call native code: `docs/design/slang-compiler-sys.md`, whose smoke test of M1 calls Slang, or `docs/design/slang-compiler.md` | M1 or M2 |
 | TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 10)? | This document | M7 |
 
-Section 8.1 records the answer to the removed question TQ-3, which is that CI installs the tools on each runner, and Section 7.8 records the answer to TQ-7, which is the checker `check-workflow-pins`. An identifier is never reused, so the next question takes TQ-8.
+Section 8.1 records the answer to the removed question TQ-3, which is that CI installs the tools on each runner, and Section 7.8 records the answer to TQ-7, which is the checker `check-workflow-pins`. Section 4.2 records the answers of `docs/design/slang-compiler-sys.md` to the removed questions TQ-2, which is that no Cargo feature selects the static build, so the checks that pass `--all-features` are unaffected, and TQ-5, which is that the profile `default-miri` excludes the modules named `ffi`, `gpu`, and `hw_gpu`. An identifier is never reused, so the next question takes TQ-8.
 
 ## 16. Security Considerations
 
@@ -633,7 +632,8 @@ This table lists every environment variable that the recipes, the hooks, or the 
 | --- | --- | --- |
 | `CARGO_BUILD_WARNINGS` | Cargo, in the commands of Section 4.8 of the coding standard | The recipes set it to `deny` for those commands. Outside them it is unset, and Cargo reports warnings without failing. |
 | `VULKAN_SDK` | The build script of `slang-compiler-sys`, from M1 | Section 19.2 of the architecture design. The development container sets it. |
-| `SLANG_SOURCE_DIR` (proposed) | The build script of `slang-compiler-sys`, from M1 | Section 19.2 of the architecture design |
+| `SLANG_SOURCE_DIR` | The build script of `slang-compiler-sys`, from M1 | Section 19.2 of the architecture design. The development container does not set it. |
+| `LIBCLANG_PATH` | `clang-sys`, when the binding generator or its tests run, from M1 | Section 19.2 of `docs/design/slang-compiler-sys.md` |
 | `DOCS_RS` | The build script of `slang-compiler-sys`, from M1 | Unset, so the build proceeds on the selected route. `check-doc-without-slang` sets it. |
 | `LD_LIBRARY_PATH` | The dynamic loader on Linux, when a test binary starts | In a login shell, the container includes `$VULKAN_SDK/lib` in it. A process that no login shell started lacks that directory until the next image rebuild (Section 11). Without it, a test binary that links Slang fails to start. |
 | `CLAUDE_PROJECT_DIR` | The hook in `.claude/settings.json` | Set by Claude Code. The hook does not run outside it. |
@@ -727,6 +727,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded the answers of `docs/design/slang-compiler-sys.md` to TQ-2 and TQ-5 in Section 4.2 and removed both questions, pointed TQ-1 and Section 8.3 to the requirements of that document, recorded in Section 8.1 that no job builds the static route, updated the environment variables of Section 17.2, added the recipe `test-static` to Section 4.2, and recorded in Section 7.2 that the generated bindings get no exemption from the comment checker.
 - 2026-11-10: Recorded the fixes from a code review of the custom checkers: the escaping of their output and the terminal escape injection that it prevents in Sections 7.1 and 16, unterminated input as a read error, stable error wording, the handling of a shebang line, and the new placeholders and marker file of the self-test runner in Section 7.1, the Claude Code hook on Rust files in Section 6, and the new failures in Section 17.4.
 - 2026-11-10: Recorded M0 as complete and changed the Status to "Living document", described the custom checkers, their self-test runner, the CI workflow, and the new hooks as implemented, added Section 7.8 for the workflow pin checker, corrected TOOL-15, reworded TOOL-21 to the checksum verification that the workflow performs, and removed TQ-3 and TQ-7 as answered.
 - 2026-11-10: Recorded steps 1 to 4 of Section 13 as done in Sections 1.6, 12, and 13, corrected the order of `check-rust`, the commands of `check-features` and `check-msrv`, and the description of `typos.toml` to match the implementation, and recorded the first run of `check-msrv`.

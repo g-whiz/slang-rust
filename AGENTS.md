@@ -24,7 +24,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete, and milestone M1 is next. The agent updates this section, and its date, in the same change that alters what exists.
+As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete. Milestone M1, the binding generator and `slang-compiler-sys`, has started: its design document exists, and no code of M1 exists yet. The agent updates this section, and its date, in the same change that alters what exists.
 
 What exists and works:
 
@@ -42,16 +42,19 @@ What exists and works:
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and pinned, and the roadmap of milestones M0 to M7.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
+- The design of `slang-compiler-sys` and the binding generator, `docs/design/slang-compiler-sys.md`, which milestone M1 implements in the order that its Section 15 gives. None of it is implemented yet.
 
 `just check` passes in the development container and in CI. The test recipes pass with a warning that no test ran, because no test exists yet.
 
 What does not exist yet:
 
 - Any crate of the design with an API, and the binding generator. The only crate is the placeholder `crates/slang-compiler-sys`.
+- The generated bindings, the pin file `crates/slang-compiler-sys/pin.rs`, and the build script of `slang-compiler-sys`.
 - Tests and examples.
 - The recipes `check-bindings`, `generate-bindings`, and `check-doc-without-slang`, which arrive in M1, and `check-semver`, which arrives with the first release in M7.
+- The installation of the Vulkan SDK in CI, which arrives in M1.
 - The CI jobs `semver`, which arrives in M7, and `coverage`, which arrives with the first crate that contains a function.
-- The design document of each crate, which is written as the first task of the milestone that delivers the crate.
+- The design document of each crate other than `slang-compiler-sys`, which is written as the first task of the milestone that delivers the crate.
 
 The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The custom checkers enforce the rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, on the `# Features` section, and on ASCII punctuation, semicolons, and listed spellings in API documentation, and the rules of Section 8.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions. Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule. `check-features` and `check-msrv` run outside `just check`, and CI runs them on every pull request and every push to `main`. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
 
@@ -74,6 +77,7 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and pinned, the examples, the test tiers, platform support, publishing, and the roadmap.
 - `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
+- `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator, which is authoritative for the scope and shape of the generated bindings, the supported targets, the generator, the pin file, the build script on both routes, and the tests of the crate.
 - `justfile`: The root `justfile`, with the groups `checks`, `git`, and `rust`.
 - `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies.
 - `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
@@ -99,12 +103,13 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 
 These locations are planned and do not exist yet:
 
-- `docs/design/<crate-name>.md`: One design document for each crate, written as the first task of the crate's milestone.
-- One directory for each planned crate other than `slang-compiler-sys`, for the binding generator, and for the examples, as Section 3.1 of `docs/design/architecture.md` lists.
+- `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, written as the first task of the crate's milestone.
+- One directory for each planned crate other than `slang-compiler-sys`, for the binding generator at `tools/bindings-generator/`, and for the examples, as Section 3.1 of `docs/design/architecture.md` lists.
+- `crates/slang-compiler-sys/pin.rs`, `crates/slang-compiler-sys/build.rs`, and `crates/slang-compiler-sys/src/bindings.rs`: The pin file, the build script, and the generated bindings, which M1 adds.
 
 ## Technology Decisions
 
-`docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and pinned, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree. `docs/design/tooling.md` is the design for the toolchain configuration, the recipes, the hooks, the CI workflow, and the requirements on the container image, and it prevails over this section on those topics. Milestone M0 implements it, and its Section 1.6 says which parts exist.
+`docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and pinned, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree. `docs/design/tooling.md` is the design for the toolchain configuration, the recipes, the hooks, the CI workflow, and the requirements on the container image, and it prevails over this section on those topics. Milestone M0 implemented it, and its Section 1.6 says which parts exist. `docs/design/slang-compiler-sys.md` is the design of `slang-compiler-sys` and the binding generator, and it prevails over this section on those topics.
 
 The planned crates are:
 
@@ -118,9 +123,9 @@ The planned crates are:
 
 Bindings for slang-rhi, `slang-rhi-sys` and `slang-rhi`, are deferred and not part of the first plan.
 
-The binding generator produces the `#[repr(C)]` vtable structs, UUID constants, and thunks through which Rust calls the Slang interfaces in the style of the Component Object Model (COM). None of them is written by hand. The raw bindings are checked in, and a test regenerates them and fails if the result differs, so users of the crates need no libclang.
+The binding generator produces the `#[repr(C)]` vtable structs, UUID constants, and thunks through which Rust calls the Slang interfaces in the style of the Component Object Model (COM). None of them is written by hand. Every C++ enumeration becomes a `#[repr(transparent)]` integer newtype with associated constants, never a Rust `enum`. The raw bindings are checked in, and a test regenerates them and fails if the result differs, so users of the crates need no libclang. The bindings support 64-bit targets only, and `slang-compiler-sys` stops compilation on any other.
 
-The Slang version is always the one that ships in the latest stable LunarG Vulkan software development kit (SDK). The first target is Vulkan SDK 1.4.363.1, whose `slangc` reports `2026.17-25-gc7954ebd1`. That is a commit past the tag `v2026.17`, so the pin is the SDK version together with the Slang commit, not a Slang tag. Slang is obtained in exactly one of two ways. By default, the build uses an installed Vulkan SDK and links Slang dynamically. As an opt-in, a static build builds Slang from source and links it statically. There is no prebuilt download and no other way.
+The Slang version is always the one that ships in the latest stable LunarG Vulkan software development kit (SDK). The first target is Vulkan SDK 1.4.363.1, whose `slangc` reports `2026.17-25-gc7954ebd1`. That is a commit past the tag `v2026.17`, so the pin is the SDK version together with the Slang commit, not a Slang tag. The pin is recorded only in `crates/slang-compiler-sys/pin.rs`, which every consumer reads. Slang is obtained in exactly one of two ways. By default, the build uses an installed Vulkan SDK and links Slang dynamically. As an opt-in, a static build builds Slang from source and links it statically, selected by setting the environment variable `SLANG_SOURCE_DIR` to a Slang source tree at the pinned commit. No Cargo feature selects the route. There is no prebuilt download and no other way.
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates. The crates use edition 2024 and Cargo resolver 3. The licence is GPL-3.0-or-later, and `LICENSE` holds its text.
 

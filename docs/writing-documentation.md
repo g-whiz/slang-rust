@@ -226,8 +226,8 @@ Checked by: judgement.
 Rust source files in this repository contain only these comments:
 
 - API documentation on every public item, except generated raw bindings, which Section 7.9 exempts.
-- A `# Safety` section on every unsafe function and every unsafe trait, whatever its visibility, as Section 7.6 defines.
-- A safety comment on every `unsafe` block and every `unsafe impl`, as Section 7.6 defines.
+- A `# Safety` section on every unsafe function and every unsafe trait, whatever its visibility, as Section 7.6 defines, except in generated raw bindings under the conditions of Section 7.9.
+- A safety comment on every `unsafe` block and every `unsafe impl`, as Section 7.6 defines, except in generated raw bindings under the conditions of Section 7.9.
 
 In other files, such as the `justfile`, scripts, and configuration files, the only comments are text addressed to a human, such as the help comment of a recipe, the usage text of a script, or the description of a setting.
 
@@ -321,7 +321,7 @@ These sections state the contract of an item:
 
 A safety comment sits directly above every `unsafe` block and every `unsafe impl`. It names each condition that the unsafe operation requires, citing the `# Safety` section of the function it calls or the documented contract of the Slang API, and states why each condition holds at that point in the code. It does not restate what the code does.
 
-An author MUST write these sections and comments with this content, because a caller who does not know an error or panic condition cannot handle it, and a caller or maintainer who does not know a safety condition can cause undefined behaviour that no test detects.
+An author MUST write these sections and comments with this content, because a caller who does not know an error or panic condition cannot handle it, and a caller or maintainer who does not know a safety condition can cause undefined behaviour that no test detects. Generated raw bindings are the one exception to the `# Safety` sections and safety comments, under the conditions of Section 7.9.
 
 This illustration shows a safety comment. The names in it are examples of the form:
 
@@ -343,7 +343,7 @@ Checked by: `rustdoc::broken_intra_doc_links`, `rustdoc::private_intra_doc_links
 
 ### 7.8. Cargo Features and Platform Support
 
-The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. It names each feature in a code span. A crate that has no features still has the section, and the section says so. An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `static` feature." An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
+The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. It names each feature in a code span. A crate that has no features still has the section, and the section says so. An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `example-feature` feature." The name `example-feature` is an illustration and names no planned feature. An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
 
 An item that is unavailable or behaves differently on a platform or a graphics backend has a `# Platform support` section that names each such platform or backend and the difference.
 
@@ -353,9 +353,13 @@ Checked by: `check-feature-docs`, which reads the features of each library from 
 
 A crate of generated raw bindings, such as `slang-compiler-sys`, has full crate-level documentation as Section 7.4 defines. That documentation also says that the generated items mirror the Slang API, links to the Slang documentation for their meaning, and points users to the safe crate.
 
-The generated items are exempt from item documentation and from the naming and API lints that generated code cannot meet. The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined at each regeneration. An author MUST NOT list a lint that does not fire, because rustc reports such an expectation through `unfulfilled_lint_expectations`, which fails the check. An author MUST NOT apply the exemption to the whole crate or to hand-written code, because a broad exemption hides every undocumented hand-written item from the lints. Hand-written items in the same crate follow Sections 7.2 to 7.8 in full.
+The generated items are exempt from item documentation, from `# Safety` sections and safety comments, and from the naming and API lints that generated code cannot meet.
 
-This illustration shows the form of the exemption, with a typical set of lints:
+The exemption from `# Safety` sections and safety comments holds only when the crate-level documentation states one safety contract that applies to every generated function and thunk. The contract says what the caller must guarantee, which is that every pointer it passes is valid, correctly typed, live, and obtained from Slang. It states the threading and lifetime rules of Slang that a caller follows. It says that a call that breaks the contract is undefined behaviour. An author MUST write this contract before the exception lists a lint of safety documentation, because the generated unsafe code has no safety documentation of its own, so without the contract a caller has no statement of what makes a call sound. The exemption exists because the generator cannot write a contract for each item, since the headers state none, and the generator emits no comments at all.
+
+The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined at each regeneration. An author MUST NOT list a lint that does not fire, because rustc reports such an expectation through `unfulfilled_lint_expectations`, which fails the check. An author MUST NOT apply the exemption to the whole crate or to hand-written code, because a broad exemption hides every undocumented hand-written item from the lints. Hand-written items in the same crate follow Sections 7.2 to 7.8 in full.
+
+This illustration shows the form of the exemption, with a typical set of lints for bindings that contain thunks:
 
 ```rust
 #[expect(
@@ -365,12 +369,14 @@ This illustration shows the form of the exemption, with a typical set of lints:
     missing_docs,
     clippy::exhaustive_structs,
     clippy::exhaustive_enums,
-    reason = "generated bindings mirror the Slang API, which names and documents each item"
+    clippy::missing_safety_doc,
+    clippy::undocumented_unsafe_blocks,
+    reason = "generated bindings mirror the Slang API, which names and documents each item, and the crate documentation states their shared safety contract"
 )]
 pub mod generated;
 ```
 
-Checked by: `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` require the exemption to be an `#[expect]` with a reason. Rustc warns through `unfulfilled_lint_expectations` when an expected lint no longer fires, so a stale exemption is reported.
+Checked by: `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` require the exemption to be an `#[expect]` with a reason. Rustc warns through `unfulfilled_lint_expectations` when an expected lint no longer fires, so a stale exemption is reported. Whether the crate-level documentation states the shared safety contract, and what the contract says, are judgement rules.
 
 ### 7.10. README and Crate Documentation
 
@@ -429,6 +435,7 @@ This table summarizes how each rule in this section is checked.
 | Default and effect of each feature, items that need a feature, and platform support | 7.8 | Judgement |
 | Exemption for generated bindings is an `#[expect]` with a reason | 7.9 | `clippy::allow_attributes`, `clippy::allow_attributes_without_reason` |
 | Exemption applies to generated items only | 7.9 | Judgement |
+| A shared safety contract in the crate documentation covers generated unsafe code that has no `# Safety` section or safety comment | 7.9 | Judgement |
 | Rust code in the README compiles | 7.10 | `cargo test --doc` |
 | Language of the README | 7.10 | `check-prose` |
 | Division of content between README and crate documentation | 7.10 | Judgement |
@@ -584,6 +591,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-10: Widened the exemption of Section 7.9 for generated raw bindings to `# Safety` sections and safety comments, on the condition that the crate-level documentation states one shared safety contract, and added cross-references in Sections 7.2 and 7.6 and a row in Section 7.12, and replaced the feature name in the example sentence of Section 7.8 with an illustrative one.
 - 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.
 - 2026-11-10: Moved the rules that the new custom checkers and the extended prose checker enforce from judgement to enforced in Sections 7.2 to 7.5, 7.8, 7.11, 7.12, and 8, and made the heading rule of Section 7.3 a MUST NOT that matches the heading checker.
 - 2026-11-10: Initial version.
