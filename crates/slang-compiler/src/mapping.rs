@@ -21,16 +21,9 @@ pub(crate) enum Failure {
 }
 
 /// The rows of the mapping that apply only to some operations.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
     TargetSupportCheck,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the module loaders arrive in a later step, and the unit tests of the mapping use this class"
-        )
-    )]
     ModuleLoader,
     #[cfg_attr(
         not(test),
@@ -90,35 +83,27 @@ pub(crate) fn error(operation: Operation, failure: Failure, diagnostics: Diagnos
 )]
 fn classify(class: Class, failure: Failure, diagnostics: &Diagnostics) -> ErrorKind {
     let explained = !diagnostics.is_empty();
-    match (class, failure) {
-        (_, Failure::FileSystem) => ErrorKind::FileSystem,
-        (Class::TargetSupportCheck, Failure::Code(_)) => ErrorKind::Unsupported,
-        (Class::ModuleLoader, Failure::Null) if !explained => ErrorKind::NotFound,
-        (_, Failure::Code(SlangResult::SLANG_E_INVALID_ARG)) => ErrorKind::InvalidArgument,
-        (_, Failure::Code(SlangResult::SLANG_E_NOT_FOUND | SlangResult::SLANG_E_CANNOT_OPEN)) => {
+    match failure {
+        Failure::FileSystem => ErrorKind::FileSystem,
+        Failure::Code(_) if class == Class::TargetSupportCheck => ErrorKind::Unsupported,
+        Failure::Null if class == Class::ModuleLoader && !explained => ErrorKind::NotFound,
+        Failure::Code(SlangResult::SLANG_E_INVALID_ARG) => ErrorKind::InvalidArgument,
+        Failure::Code(SlangResult::SLANG_E_NOT_FOUND | SlangResult::SLANG_E_CANNOT_OPEN) => {
             ErrorKind::NotFound
         }
-        (_, Failure::Code(SlangResult::SLANG_E_NOT_AVAILABLE)) if explained => ErrorKind::Compile,
-        (
-            _,
-            Failure::Code(
-                SlangResult::SLANG_E_NOT_IMPLEMENTED
-                | SlangResult::SLANG_E_NOT_AVAILABLE
-                | SlangResult::SLANG_E_NO_INTERFACE,
-            ),
+        Failure::Code(SlangResult::SLANG_E_NOT_AVAILABLE) if explained => ErrorKind::Compile,
+        Failure::Code(
+            SlangResult::SLANG_E_NOT_IMPLEMENTED
+            | SlangResult::SLANG_E_NOT_AVAILABLE
+            | SlangResult::SLANG_E_NO_INTERFACE,
         ) => ErrorKind::Unsupported,
-        (_, Failure::Code(SlangResult::SLANG_E_INTERNAL_FAIL)) => ErrorKind::Internal,
-        (_, Failure::Code(SlangResult::SLANG_FAIL) | Failure::Null) if explained => {
-            ErrorKind::Compile
-        }
-        (Class::LookupByName, Failure::Code(SlangResult::SLANG_FAIL) | Failure::Null) => {
-            ErrorKind::NotFound
-        }
-        (
-            Class::TargetSupportCheck | Class::ModuleLoader | Class::Other,
-            Failure::Code(SlangResult::SLANG_FAIL) | Failure::Null,
-        ) => ErrorKind::Internal,
-        (_, Failure::Code(_)) => ErrorKind::Unrecognized,
+        Failure::Code(SlangResult::SLANG_E_INTERNAL_FAIL) => ErrorKind::Internal,
+        Failure::Code(SlangResult::SLANG_FAIL) | Failure::Null if explained => ErrorKind::Compile,
+        Failure::Code(SlangResult::SLANG_FAIL) | Failure::Null => match class {
+            Class::LookupByName => ErrorKind::NotFound,
+            Class::TargetSupportCheck | Class::ModuleLoader | Class::Other => ErrorKind::Internal,
+        },
+        Failure::Code(_) => ErrorKind::Unrecognized,
     }
 }
 
