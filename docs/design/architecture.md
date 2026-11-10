@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates and the direction of the dependencies between them, how the native Slang library is obtained and which version is pinned, what each crate is responsible for and what it must not do, the examples that also serve as the integration testbed, the tiers of tests that need a graphics processing unit, the supported platforms, and the plan for publishing. It records each architectural decision with the alternatives considered and the reason. It sets out the roadmap as milestones M0 to M7, each with deliverables, dependencies, exit criteria, and the design document that must exist before work on its code starts. It lists the facts that are still to be confirmed and the open questions that each later design document must answer. No crate of this design is implemented yet.
+This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates and the direction of the dependencies between them, how the native Slang library is obtained and which version is pinned, what each crate is responsible for and what it must not do, the examples that also serve as the integration testbed, the tiers of tests that need a graphics processing unit, the supported platforms, and the plan for publishing. It records each architectural decision with the alternatives considered and the reason. It sets out the roadmap as milestones M0 to M7, each with deliverables, dependencies, exit criteria, and the design document that must exist before work on its code starts. It lists the facts that are still to be confirmed and the open questions that each later design document must answer. The binding generator and the pin file of `slang-compiler-sys` exist, while every published crate of this design is still a placeholder or absent.
 
 ## 1. Introduction
 
@@ -34,7 +34,7 @@ This document does not specify the public API of any crate. Each crate's design 
 
 ### 1.6. Current State
 
-The repository holds the standards documents and the repository tooling, but no crate of this design. Milestone M0 is complete (Section 15.3). Milestone M1 has started: its design document, `docs/design/slang-compiler-sys.md`, exists, and no code of M1 exists yet (Section 15.4). M0 replaced the abandoned sketch in `crates/slang-compiler-sys` with a placeholder crate that has documentation and no API, and it added the workspace lint configuration, the configuration of the other tools, the recipes that run the Rust checks, the custom checkers of `docs/design/tooling.md`, the CI workflow, the licence file, and `README.md`. The Project Status section of `AGENTS.md` describes the current state in full.
+The repository holds the standards documents and the repository tooling, but no crate of this design with its API. Milestone M0 is complete (Section 15.3). Milestone M1 has started: its design document, `docs/design/slang-compiler-sys.md`, exists, and the first of its steps is done, which added the pin file `crates/slang-compiler-sys/pin.rs` and the binding generator `tools/bindings-generator` (Section 15.4). M0 replaced the abandoned sketch in `crates/slang-compiler-sys` with a placeholder crate that has documentation and no API, and it added the workspace lint configuration, the configuration of the other tools, the recipes that run the Rust checks, the custom checkers of `docs/design/tooling.md`, the CI workflow, the licence file, and `README.md`. The Project Status section of `AGENTS.md` describes the current state in full.
 
 The development container provides the LunarG Vulkan software development kit (SDK) 1.4.363.1, the Slang source tree at the same commit, and two Vulkan devices. The Technology Decisions section of `AGENTS.md` lists the container's contents in full.
 
@@ -413,7 +413,7 @@ The exit criteria of every milestone include every check passing and every affec
 | Milestone | Delivers | Depends on | Design document before any code |
 | --- | --- | --- | --- |
 | M0 | Tooling and skeleton, complete | The container image, which provides every tool | `docs/design/tooling.md` |
-| M1 | Binding generator and `slang-compiler-sys` | M0 | `docs/design/slang-compiler-sys.md` |
+| M1 | Binding generator and `slang-compiler-sys`, in progress | M0 | `docs/design/slang-compiler-sys.md` |
 | M2 | `slang-compiler` and example 1 | M1 | `docs/design/slang-compiler.md` |
 | M3 | `slango` compute kernels and example 2 | M2 | `docs/design/slango.md` |
 | M4 | `slango` rendering and example 3 | M3 | The rendering section of `docs/design/slango.md` |
@@ -426,7 +426,7 @@ The exit criteria of every milestone include every check passing and every affec
 - Deliverables: the contents of `docs/design/tooling.md`, which include deleting the abandoned sketch in `crates/slang-compiler-sys`, an empty and documented skeleton crate so that every tool has something to check (Section 3.2 of `docs/design/tooling.md`), the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflow, and the publication metadata, so that it is checked from the start. The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M7 (Section 15.10).
 - Depends on: the container image defined in the repository slang-rs-env, which provides every tool that M0 needs.
 - Design document, which exists before any code of the milestone: `docs/design/tooling.md`.
-- Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflow passes on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job arrives with the first crate that contains a function, because the coverage recipe fails while no crate has code. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
+- Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflow passes on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job is not part of M0, and a later change of M1 adds it. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
 - Progress: M0 is complete. Every deliverable exists, including the custom checkers of Section 7 of `docs/design/tooling.md`, the CI workflow, and the recipe that runs actionlint. Every exit criterion holds. `just check` passes with the Rust checks, Miri, typos, taplo, actionlint, cargo machete, and the custom checkers included. On its first run on GitHub, every job of the CI workflow passed: `just check` on Linux, Clippy, the doctests, and the tests on Windows and macOS, and the jobs for the feature combinations and the MSRV. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state. The parts of CI that need an adapter, which are lavapipe on Linux, WARP on Windows, and hosted Metal on macOS, arrive with the first `gpu` test in M3, so A-17 and A-18 of Section 16 remain unconfirmed.
 
 ### 15.4. M1: Binding Generator and `slang-compiler-sys`
@@ -435,7 +435,7 @@ The exit criteria of every milestone include every check passing and every affec
 - Depends on: M0.
 - Design document, which exists before any code of the milestone: `docs/design/slang-compiler-sys.md`, which also covers the binding generator.
 - Exit criteria: every check passes, including the two binding tests and the smoke test in the default tier. The smoke test passes on both routes in the development container. CI does not build the static route on every pull request, and a recipe verifies it locally (Section 12 of `docs/design/slang-compiler-sys.md`). No example exists yet. `AGENTS.md`, `README.md` with how to obtain Slang, and this document are updated, and Section 4.4 of the coding standard is updated if the lints that fire on the generated module differ from its list.
-- Progress: the design document exists, and Section 15 of it gives the order of the changes of M1. No code of M1 exists yet.
+- Progress: the design document exists, and Section 15 of it gives the order of the changes of M1. Step 1 of that order is done: the pin file `crates/slang-compiler-sys/pin.rs` with the recipe that prints it, the binding generator with its rule set and unit tests, the profile of Miri that skips tests of native code, and the installation of libclang in the Linux CI job exist, and the generator's tests pass in CI. The checked-in bindings, the two tests of TEST-8, the build script, and the smoke test do not exist yet. Section 1.6 of the design document describes the state in full.
 
 ### 15.5. M2: `slang-compiler`
 
@@ -630,6 +630,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded in the abstract and in Sections 1.6, 15.2, and 15.4 that step 1 of M1 is done, with the pin file and the binding generator, and moved the arrival of the coverage job in Section 15.3 to a later change of M1.
 - 2026-11-10: Recorded the decisions of `docs/design/slang-compiler-sys.md`: the environment variable `SLANG_SOURCE_DIR` selects the static route and no Cargo feature exists, in Sections 4.1 to 4.3, 4.5, 19.1, 19.2, and Appendix A, the pin file in Section 5.1, the restriction to 64-bit targets in Section 12, and the start of M1 in Sections 1.6 and 15.4, removed A-1 and A-3 as confirmed, A-2, A-4, and A-5 as no longer needed, and Q-1 to Q-9 and Q-28 as answered, and pointed A-8 and Q-27 to that document.
 - 2026-11-10: Recorded M0 as complete in Sections 1.6, 15.2, and 15.3, recorded in Sections 11 and 12 that CI runs the default test tier on Linux, Windows, and macOS while the GPU tier stays planned, corrected the confirmation point of A-17 and A-18 to the first `gpu` test in CI, and updated the residual risk of Section 18.
 - 2026-11-10: Recorded in Sections 1.6 and 15.3 which deliverables of M0 exist, with the placeholder crate in place of the deleted sketch, and narrowed the residual risk of Section 18 to the parts of M0 that remain.

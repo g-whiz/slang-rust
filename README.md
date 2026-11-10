@@ -10,7 +10,7 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage, and no crate is usable yet. The workspace holds one crate, `slang-compiler-sys`. It is a placeholder with documentation and no API. It marks the place of the raw bindings, which milestone M1 of the roadmap adds. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` is a placeholder that records the pinned version of Slang and marks the place of the raw bindings, which milestone M1 of the roadmap adds. The binding generator, which will write those bindings from the Slang headers, exists and is tested, but its bindings are not checked in yet. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
@@ -18,13 +18,13 @@ Every crate in this table is planned. Each crate gets a link to its documentatio
 
 | Crate | State | Purpose |
 | --- | --- | --- |
-| `slang-compiler-sys` | Planned, placeholder present | Raw bindings to the native Slang library, generated from the Slang headers |
+| `slang-compiler-sys` | Planned, placeholder with the pinned Slang version present | Raw bindings to the native Slang library, generated from the Slang headers |
 | `slang-compiler` | Planned | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
 | `slang-slint` | Planned | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
 
-The repository will also hold a binding generator, which writes the raw bindings, and examples that also serve as integration tests. Neither will be published.
+The repository also holds the binding generator, which writes the raw bindings, and will hold examples that also serve as integration tests. Neither is published.
 
 ## Obtaining Slang
 
@@ -54,6 +54,7 @@ just check
 
 - [Architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md): The crates, how Slang is obtained and pinned, and the roadmap.
 - [Tooling design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/tooling.md): The tool configuration, the recipes, the hooks, the custom checkers, and the continuous integration.
+- [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator, the pin, and the build script.
 - [Rust coding standards](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-coding-standards.md): The rules for Rust code.
 - [Writing guide](https://github.com/g-whiz/slang-rust/blob/main/docs/writing-documentation.md): The rules for documentation.
 - [Reference list](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-references.md): The external sources behind the coding standards.

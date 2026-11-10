@@ -135,6 +135,27 @@ fmt:
     cargo fmt --all
     taplo fmt
 
+# Print the pin of slang-compiler-sys as NAME=value lines: the Vulkan SDK version, the Slang build tag, and the Slang commit
+[group('rust')]
+pin:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pin_file=crates/slang-compiler-sys/pin.rs
+    pattern='^pub const ([A-Z_]+): &str = "([^"]+)";$'
+    declare -A values=()
+    while IFS= read -r line; do
+        if [[ "${line}" =~ ${pattern} ]]; then
+            values["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+        fi
+    done <"${pin_file}"
+    for name in VULKAN_SDK_VERSION SLANG_BUILD_TAG SLANG_COMMIT; do
+        if [[ -z "${values[${name}]:-}" ]]; then
+            printf '%s does not define %s as a string constant\n' "${pin_file}" "${name}" >&2
+            exit 1
+        fi
+        printf '%s=%s\n' "${name}" "${values[${name}]}"
+    done
+
 # Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation, doctests, tests, and Miri
 [group('checks')]
 check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doctest test-gpu check-miri
