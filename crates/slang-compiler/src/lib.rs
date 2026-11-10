@@ -88,8 +88,19 @@
 //! When Slang is linked statically, from a build of Slang's source, it does
 //! not include `slang-glslang`, the library through which Slang optimizes
 //! SPIR-V and validates it when the environment variable
-//! `SLANG_RUN_SPIRV_VALIDATION` is `1`. Without that library, Slang returns
-//! SPIR-V that is neither optimized nor validated. This crate
+//! `SLANG_RUN_SPIRV_VALIDATION` is `1`. When the dynamic loader then finds no
+//! `slang-glslang` shared library at run time, generating SPIR-V still
+//! succeeds, but the SPIR-V is neither optimized nor validated. Slang reports
+//! the missing library once in each [`GlobalSession`], in the diagnostics of
+//! the first code generation, which begin
+//! `error[E00100]: failed to load downstream compiler 'spirv-opt'` although
+//! the generation succeeds.
+//! `spirv-opt` is the SPIR-V optimizer, which Slang loads as a separate tool.
+//! No message says that validation was skipped. When the dynamic loader finds
+//! a `slang-glslang` shared library, such as the one in the library directory
+//! of the Vulkan SDK, the statically linked Slang loads it and behaves as the
+//! Slang shared library does, so the output of such a program depends on the
+//! environment in which it runs. This crate
 //! does not detect which way Slang was linked, and it returns what Slang
 //! reports. What [`GlobalSession::check_target_support`] reports for SPIR-V
 //! on that build has not been established.
