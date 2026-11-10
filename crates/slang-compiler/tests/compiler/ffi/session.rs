@@ -61,13 +61,18 @@ fn assert_rejected(builder: SessionBuilder, kind: ErrorKind, text: &str) {
     }
 }
 
+/// Shows only that the pinned Slang accepts a session descriptor that holds
+/// every setting, and creates the session. No module can be loaded yet, so the
+/// test observes no effect of any setting on what Slang compiles.
 #[test]
 fn a_session_with_four_targets_and_every_setting_is_created() {
     let global = GlobalSession::new().expect("Slang creates a global session");
     let uniformity =
         OptionName::new(CompilerOptionName::ValidateUniformity.0).expect("a stored option");
     let mut options = every_typed_option();
-    // SAFETY: Slang reads `ValidateUniformity` as an integer that is 0 or 1.
+    // SAFETY: the pinned Slang reads `ValidateUniformity` with
+    // `getBoolOption`, from the first integer of the entry, and any value is
+    // valid for it.
     unsafe { options.set_int(uniformity, 1, 0) };
     let session = four_targets(&global)
         .search_path("/tmp/slang-compiler-shaders")
@@ -232,25 +237,86 @@ fn a_session_keeps_its_global_session_alive_after_the_handle_is_dropped() {
     GlobalSession::new().expect("no global session is alive on this thread");
 }
 
+/// Shows only that the pinned Slang accepts each of the four settings that
+/// Slang takes from fields of the target descriptor, set on the session, on a
+/// target, and on both. No module can be loaded yet, so the test observes no
+/// effect of them on generated code.
+#[test]
+fn sessions_with_the_settings_of_the_target_descriptor_are_created() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let mut session_options = CompilerOptions::default();
+    session_options
+        .floating_point_mode(FloatingPointMode::Fast)
+        .line_directive_mode(LineDirectiveMode::None)
+        .glsl_force_scalar_layout(Toggle::On)
+        .emit_spirv_directly(Toggle::Off);
+    let mut target_options = CompilerOptions::default();
+    target_options
+        .floating_point_mode(FloatingPointMode::Precise)
+        .line_directive_mode(LineDirectiveMode::Standard)
+        .glsl_force_scalar_layout(Toggle::Off)
+        .emit_spirv_directly(Toggle::On);
+    let cases = [
+        (session_options.clone(), CompilerOptions::default()),
+        (CompilerOptions::default(), session_options.clone()),
+        (session_options, target_options),
+    ];
+    for (session, target) in cases {
+        let session = Session::builder(&global)
+            .target(spirv().options(target.clone()))
+            .target(Target::new(TargetFormat::Glsl).options(target))
+            .target(Target::new(TargetFormat::Hlsl))
+            .options(session)
+            .build()
+            .expect("Slang creates the session");
+        assert_eq!(session.target_count(), 3);
+    }
+}
+
 #[test]
 fn into_raw_and_from_raw_hand_the_session_over() {
     let global = GlobalSession::new().expect("Slang creates a global session");
-    let raw = Session::builder(&global)
+    let (raw, parent) = Session::builder(&global)
         .target(spirv())
         .target(Target::new(TargetFormat::Hlsl))
         .build()
         .expect("Slang creates the session")
         .into_raw();
+    assert_eq!(parent.as_raw(), global.as_raw());
     // SAFETY: `raw` is a live session, because the test owns the reference
     // that `into_raw` gave up, and only this thread uses it.
     let raw_global = unsafe { ISession::getGlobalSession(raw.as_ptr()) };
     assert_eq!(raw_global, global.as_raw().as_ptr());
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    // session of the pinned build that `global` created with two targets, and
+    // session of the pinned build that `parent` created with two targets, and
     // only this thread uses it.
-    let session = unsafe { Session::from_raw(raw, global.clone(), 2) };
+    let session = unsafe { Session::from_raw(raw, parent, 2) };
     assert_eq!(session.as_raw(), raw);
     session
         .target_index(1)
         .expect("the session has two targets");
+}
+
+#[test]
+fn the_global_session_of_into_raw_outlives_the_release_of_the_raw_session() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let (raw, parent) = Session::builder(&global)
+        .target(spirv())
+        .build()
+        .expect("Slang creates the session")
+        .into_raw();
+    drop(global);
+    assert_eq!(
+        GlobalSession::new().map(drop).map_err(|error| error.kind()),
+        Err(ErrorKind::AlreadyExists)
+    );
+    // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
+    // live session of the pinned build that only this thread uses, and
+    // `parent` keeps its global session alive past this release.
+    unsafe { ISession::release(raw.as_ptr()) };
+    parent
+        .check_target_support(TargetFormat::Spirv)
+        .expect("the global session still works");
+    drop(parent);
+    GlobalSession::new().expect("no global session is alive on this thread");
 }

@@ -4,6 +4,7 @@ use std::ptr;
 
 use slang_compiler_sys::{
     CompilerOptionEntry, CompilerOptionName, CompilerOptionValue, CompilerOptionValueKind,
+    SlangEmitSpirvMethod,
 };
 
 use crate::enums::{
@@ -231,10 +232,12 @@ impl CompilerOptions {
     /// Sets how strictly the generated code follows the rules of
     /// floating-point arithmetic, as Slang's option `FloatingPointMode`.
     ///
-    /// Set it in the options of a [`Target`](crate::Target). In the options
-    /// of a session it has no effect, because Slang sets this option of each
-    /// target again from the target's own settings, which this crate leaves
-    /// at Slang's default.
+    /// Slang takes this setting of each target from a field of the target's
+    /// descriptor, which overrides the options that the target inherits from
+    /// the session. The session builder therefore fills that field from the
+    /// options of the target when they set this option, and otherwise from
+    /// the options of the session, so the setting applies in both places and
+    /// the target's own value wins.
     ///
     /// # Examples
     ///
@@ -250,10 +253,11 @@ impl CompilerOptions {
     /// Slang source that each part came from, as Slang's option
     /// `LineDirectiveMode`.
     ///
-    /// Set it in the options of a [`Target`](crate::Target). In the options
-    /// of a session it has no effect, because Slang sets this option of each
-    /// target again from the target's own settings, which this crate leaves
-    /// at Slang's default.
+    /// Slang takes this setting of each target from a field of the target's
+    /// descriptor, which the session builder fills as it does for
+    /// [`CompilerOptions::floating_point_mode`], so the setting applies in the
+    /// options of the session and of a target, and the target's own value
+    /// wins.
     ///
     /// # Examples
     ///
@@ -286,10 +290,12 @@ impl CompilerOptions {
     /// is Slang's default, so leave the option unset for the default.
     /// [`Toggle::Off`] makes Slang generate source in the OpenGL Shading
     /// Language (GLSL) first and compile that with glslang, the GLSL compiler
-    /// that Slang loads as a library. Set it in the options of a
-    /// [`Target`](crate::Target). In the options of a session it has no
-    /// effect, because Slang sets the method of each target again from the
-    /// target's own settings, which this crate leaves at Slang's default.
+    /// that Slang loads as a library. Slang takes the method of each target
+    /// from a flag of the target's descriptor, which overrides the method
+    /// that the target inherits from the session. The session builder
+    /// therefore sets that flag from the options of the target when they set
+    /// the method, and otherwise from the options of the session, so the
+    /// setting applies in both places and the target's own value wins.
     ///
     /// # Examples
     ///
@@ -301,8 +307,10 @@ impl CompilerOptions {
     /// Sets whether Slang skips the validation of the SPIR-V that it
     /// generates, as Slang's option `SkipSPIRVValidation`.
     ///
-    /// SPIR-V is the binary shader format of Vulkan. Slang validates it with
-    /// glslang, a library that it loads, by default.
+    /// SPIR-V is the binary shader format of Vulkan. The pinned Slang build
+    /// validates the SPIR-V that it generates directly only when the
+    /// environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, and
+    /// [`Toggle::On`] skips that validation even then.
     ///
     /// # Examples
     ///
@@ -315,11 +323,12 @@ impl CompilerOptions {
     /// Slang's option `GLSLForceScalarLayout`.
     ///
     /// In a scalar layout, each value is aligned only to the size of its
-    /// scalar elements, which Vulkan allows through an extension. Set it in
-    /// the options of a [`Target`](crate::Target). In the options of a
-    /// session it has no effect, because Slang sets this option of each
-    /// target again from the target's own settings, which this crate leaves
-    /// at Slang's default.
+    /// scalar elements, which Vulkan allows through an extension. Slang takes
+    /// this setting of each target from a field of the target's descriptor,
+    /// which the session builder fills as it does for
+    /// [`CompilerOptions::floating_point_mode`], so the setting applies in the
+    /// options of the session and of a target, and the target's own value
+    /// wins.
     ///
     /// # Examples
     ///
@@ -371,8 +380,10 @@ impl CompilerOptions {
     ///
     /// # Examples
     ///
-    /// This example turns on the uniformity analysis of Slang, whose value
-    /// Slang's documentation describes as one integer that is 0 or 1:
+    /// This example turns on the uniformity analysis of Slang. Neither
+    /// Slang's header nor its user guide states the kind of the value, and
+    /// the pinned Slang build reads the first integer of the entry, as a
+    /// Boolean that any value other than 0 turns on:
     ///
     /// ```
     /// use slang_compiler::{CompilerOptions, OptionName};
@@ -380,7 +391,8 @@ impl CompilerOptions {
     ///
     /// let mut options = CompilerOptions::default();
     /// let name = OptionName::new(CompilerOptionName::ValidateUniformity.0)?;
-    /// // SAFETY: Slang reads this option as an integer, and 1 turns it on.
+    /// // SAFETY: the pinned Slang build reads this option as an integer, and
+    /// // accepts any value.
     /// unsafe { options.set_int(name, 1, 0) };
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -470,6 +482,58 @@ impl CompilerOptions {
             value: Value::Text(text, String::new()),
         });
         self
+    }
+
+    /// Returns the first integer of the first entry of `name`, which is the
+    /// value that Slang reads for an option that holds one value, or `None`
+    /// when no entry sets the option. Slang reads 0 from an entry of kind
+    /// `String`.
+    pub(crate) fn first_int(&self, name: CompilerOptionName) -> Option<i32> {
+        self.entries
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(Entry::int0)
+    }
+
+    /// Returns the method of generating SPIR-V that Slang derives from these
+    /// options when it loads them, as a value of `SlangEmitSpirvMethod`, or
+    /// `None` when no entry sets it.
+    pub(crate) fn spirv_method(&self) -> Option<i32> {
+        const DEFAULT: i32 = SlangEmitSpirvMethod::SLANG_EMIT_SPIRV_DEFAULT
+            .0
+            .cast_signed();
+        const VIA_GLSL: i32 = SlangEmitSpirvMethod::SLANG_EMIT_SPIRV_VIA_GLSL
+            .0
+            .cast_signed();
+        const DIRECTLY: i32 = SlangEmitSpirvMethod::SLANG_EMIT_SPIRV_DIRECTLY
+            .0
+            .cast_signed();
+        let mut method: Vec<i32> = Vec::new();
+        for entry in &self.entries {
+            let value = entry.int0();
+            match entry.name {
+                CompilerOptionName::EmitSpirvMethod => method.push(value),
+                CompilerOptionName::EmitSpirvDirectly => {
+                    method = vec![if value == 0 { VIA_GLSL } else { DIRECTLY }];
+                }
+                CompilerOptionName::EmitSpirvViaGLSL
+                    if method.first().copied().unwrap_or(DEFAULT) == DEFAULT && value != 0 =>
+                {
+                    method = vec![VIA_GLSL];
+                }
+                _ => {}
+            }
+        }
+        method.first().copied()
+    }
+}
+
+impl Entry {
+    fn int0(&self) -> i32 {
+        match self.value {
+            Value::Int(value0, _) => value0,
+            Value::Text(..) => 0,
+        }
     }
 }
 

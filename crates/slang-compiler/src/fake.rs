@@ -499,12 +499,14 @@ impl FakeBlob {
     }
 }
 
-/// The state of a fake global session: its build tag and the result of every
-/// check of target support.
+/// The state of a fake global session: its build tag, the result of every
+/// check of target support, and the counter that a session's destructor
+/// increments, as Slang's does.
 struct GlobalSessionState {
     build_tag: CString,
     target_support: SlangResult,
     session_result: Cell<Option<SlangResult>>,
+    epoch: Cell<u64>,
 }
 
 /// The profile that the fake global session knows, and its number.
@@ -535,6 +537,7 @@ impl FakeGlobalSession {
             build_tag: CString::new(SLANG_BUILD_TAG).unwrap_or_default(),
             target_support,
             session_result: Cell::new(None),
+            epoch: Cell::new(0),
         };
         GlobalSessionObject::create(
             &GLOBAL_SESSION_VTABLE,
@@ -853,10 +856,22 @@ struct SessionState {
 }
 
 impl Drop for SessionState {
+    /// Releases the global session and then writes into it, in the order of
+    /// Slang's session, whose syntax tree builder increments a counter of the
+    /// global session after the session released its reference to it. When
+    /// that was the last reference, the write is a use after free, which Miri
+    /// reports.
     fn drop(&mut self) {
         // SAFETY: `FakeSession::create` added the reference that this releases,
         // and the global session is live because of it.
         unsafe { IGlobalSession::release(self.global.as_ptr()) };
+        // SAFETY: the global session is live only while another reference to
+        // it exists, which the crate's wrappers guarantee by releasing a
+        // session before its global session (Section 11.2 of
+        // `docs/design/slang-compiler.md`). A test that breaks that order makes
+        // this a use after free on purpose, so that Miri reports it.
+        let global = unsafe { GlobalSessionObject::from_this(self.global.as_ptr()) };
+        global.state.epoch.set(global.state.epoch.get() + 1);
     }
 }
 

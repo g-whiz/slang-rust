@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
-    CompilerOptionName, IGlobalSession, ISession, PreprocessorMacroDesc, SessionDesc,
-    SlangProfileID, TargetDesc,
+    CompilerOptionName, IGlobalSession, ISession, PreprocessorMacroDesc,
+    SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY, SessionDesc, SlangEmitSpirvMethod,
+    SlangFloatingPointMode, SlangLineDirectiveMode, SlangProfileID, TargetDesc,
 };
 
 use crate::enums::{MatrixLayout, TargetFormat, Toggle};
@@ -196,11 +197,11 @@ impl Session {
     ///     .target(Target::new(TargetFormat::Spirv))
     ///     .build()?;
     /// let target_count = session.target_count();
-    /// let raw = session.into_raw();
+    /// let (raw, parent) = session.into_raw();
     /// // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    /// // session that `global` created with `target_count` targets, and this
+    /// // session that `parent` created with `target_count` targets, and this
     /// // thread alone uses it.
-    /// let session = unsafe { Session::from_raw(raw, global, target_count) };
+    /// let session = unsafe { Session::from_raw(raw, parent, target_count) };
     /// # let _ = session;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -239,23 +240,25 @@ impl Session {
 
     /// Gives up this handle's reference to the session without releasing it,
     /// and returns the pointer for use with the raw bindings of
-    /// `slang-compiler-sys`.
+    /// `slang-compiler-sys`, together with this handle's handle to the global
+    /// session that the session was created from.
     ///
-    /// The caller then owns the reference and releases it. The handle to the
-    /// global session that this session held is dropped, so the raw session
-    /// can outlive the crate's last handle to its global session, which the
-    /// caller then has to prevent, because Slang requires that a global
-    /// session is released after every object created from it.
+    /// The caller then owns the reference to the session and releases it.
+    /// Keep the returned [`GlobalSession`] until after that release, or pass
+    /// both back to [`Session::from_raw`]. Slang's session holds a reference
+    /// to its global session of its own, but when that is the last reference,
+    /// releasing the session frees the global session first and then writes
+    /// into it, so the release order is safe only while another handle keeps
+    /// the global session alive. The returned handle also keeps the global
+    /// session counted as the live global session of this thread.
     ///
     /// # Examples
     ///
     /// See the example of [`Session::from_raw`].
     #[must_use]
-    pub fn into_raw(self) -> NonNull<ISession> {
+    pub fn into_raw(self) -> (NonNull<ISession>, GlobalSession) {
         let Self { raw, global, .. } = self;
-        let raw = raw.into_raw();
-        drop(global);
-        raw
+        (raw.into_raw(), global)
     }
 
     /// Returns the pointer to the session without changing its reference
@@ -595,10 +598,12 @@ impl SessionBuilder {
     /// from, and replaces any options set earlier.
     ///
     /// The options of a [`Target`] override these for that target. Slang
-    /// sets the floating-point mode, the line directive mode, the scalar
-    /// layout of GLSL buffers, the profile, and the method of generating
-    /// SPIR-V of each target from the target's own settings, so those options
-    /// have an effect only in the options of a target.
+    /// takes the floating-point mode, the line directive mode, the scalar
+    /// layout of buffers, and the method of generating SPIR-V of each target
+    /// from fields of the target's descriptor rather than from the options it
+    /// inherits, so [`SessionBuilder::build`] fills those fields from the
+    /// options of the target when they set the option, and otherwise from
+    /// these options.
     ///
     /// # Examples
     ///
@@ -701,7 +706,7 @@ impl SessionBuilder {
         let targets = self
             .targets
             .iter()
-            .map(PendingTarget::new)
+            .map(|target| PendingTarget::new(target, &self.options))
             .collect::<Result<Vec<_>>>()?;
         let global = self.global.as_raw();
         let targets = targets
@@ -786,6 +791,37 @@ struct PendingTarget {
     profile: Option<CString>,
     capabilities: Vec<CString>,
     options: PreparedOptions,
+    fields: TargetFields,
+}
+
+/// The settings that Slang's `addTarget` sets on each target from fields of
+/// the target descriptor, after the target inherited the session's options,
+/// each taken from the options of the target when they set it, otherwise
+/// from the options of the session, so that a setting of the session reaches
+/// every target that does not set its own. `None` keeps the field's default.
+struct TargetFields {
+    floating_point_mode: Option<i32>,
+    line_directive_mode: Option<i32>,
+    glsl_force_scalar_layout: Option<i32>,
+    spirv_via_glsl: bool,
+}
+
+impl TargetFields {
+    fn new(target: &CompilerOptions, session: &CompilerOptions) -> Self {
+        let effective = |name| target.first_int(name).or_else(|| session.first_int(name));
+        let method = target.spirv_method().or_else(|| session.spirv_method());
+        Self {
+            floating_point_mode: effective(CompilerOptionName::FloatingPointMode),
+            line_directive_mode: effective(CompilerOptionName::LineDirectiveMode),
+            glsl_force_scalar_layout: effective(CompilerOptionName::GLSLForceScalarLayout),
+            spirv_via_glsl: method
+                == Some(
+                    SlangEmitSpirvMethod::SLANG_EMIT_SPIRV_VIA_GLSL
+                        .0
+                        .cast_signed(),
+                ),
+        }
+    }
 }
 
 /// A target whose profile and capabilities Slang resolved.
@@ -793,10 +829,11 @@ struct ResolvedTarget {
     format: TargetFormat,
     profile: SlangProfileID,
     options: PreparedOptions,
+    fields: TargetFields,
 }
 
 impl PendingTarget {
-    fn new(target: &Target) -> Result<Self> {
+    fn new(target: &Target, session: &CompilerOptions) -> Result<Self> {
         let operation = Operation::CreateSession;
         let mut options = PreparedOptions::default();
         options.append(&target.options, operation)?;
@@ -813,6 +850,7 @@ impl PendingTarget {
                 .map(|capability| c_string(capability, operation, "the capability"))
                 .collect::<Result<Vec<_>>>()?,
             options,
+            fields: TargetFields::new(&target.options, session),
         })
     }
 
@@ -824,6 +862,7 @@ impl PendingTarget {
             profile,
             capabilities,
             mut options,
+            fields,
         } = self;
         let profile = match profile {
             None => SlangProfileID::SLANG_PROFILE_UNKNOWN,
@@ -851,18 +890,39 @@ impl PendingTarget {
             format,
             profile,
             options,
+            fields,
         })
     }
 }
 
 impl ResolvedTarget {
     fn desc(&self, options: &RawOptions<'_>) -> TargetDesc {
+        let default = TargetDesc::default();
+        let fields = &self.fields;
         TargetDesc {
             format: self.format.to_raw(),
             profile: self.profile,
+            flags: if fields.spirv_via_glsl {
+                default.flags & !SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
+            } else {
+                default.flags
+            },
+            floatingPointMode: fields
+                .floating_point_mode
+                .map_or(default.floatingPointMode, |mode| {
+                    SlangFloatingPointMode(mode.cast_unsigned())
+                }),
+            lineDirectiveMode: fields
+                .line_directive_mode
+                .map_or(default.lineDirectiveMode, |mode| {
+                    SlangLineDirectiveMode(mode.cast_unsigned())
+                }),
+            forceGLSLScalarBufferLayout: fields
+                .glsl_force_scalar_layout
+                .map_or(default.forceGLSLScalarBufferLayout, |value| value != 0),
             compilerOptionEntries: options.as_ptr(),
             compilerOptionEntryCount: options.count(),
-            ..TargetDesc::default()
+            ..default
         }
     }
 }
@@ -909,7 +969,10 @@ mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::PathBuf;
 
-    use slang_compiler_sys::{CompilerOptionName, ISession, SlangResult, TargetDesc};
+    use slang_compiler_sys::{
+        CompilerOptionName, ISession, SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY,
+        SlangEmitSpirvMethod, SlangResult, TargetDesc,
+    };
 
     use super::{Session, SessionBuilder, Target};
     use crate::fake::{
@@ -917,8 +980,8 @@ mod tests {
         SessionSnapshot, TargetSnapshot, panic_message,
     };
     use crate::{
-        CompilerOptions, ErrorKind, GlobalSession, MatrixLayout, Operation, OptimizationLevel,
-        TargetFormat, Toggle, guard,
+        CompilerOptions, ErrorKind, FloatingPointMode, GlobalSession, LineDirectiveMode,
+        MatrixLayout, Operation, OptimizationLevel, OptionName, TargetFormat, Toggle, guard,
     };
 
     fn adopt(log: &Log) -> GlobalSession {
@@ -1062,6 +1125,180 @@ mod tests {
             )
         );
         assert_eq!(calls.len(), 3);
+    }
+
+    /// Builds a session with `session` as its options and one target with
+    /// `target` as its options, and returns the target descriptor that the
+    /// fake received.
+    fn target_desc(session: &CompilerOptions, target: &CompilerOptions) -> TargetSnapshot {
+        let log = Log::new();
+        let global = adopt(&log);
+        Session::builder(&global)
+            .target(spirv().options(target.clone()))
+            .options(session.clone())
+            .build()
+            .expect("the fake creates the session");
+        let mut snapshots = created(&log);
+        assert_eq!(snapshots.len(), 1);
+        let mut targets = snapshots.remove(0).targets;
+        assert_eq!(targets.len(), 1);
+        targets.remove(0)
+    }
+
+    /// Checks one setting that Slang takes from a field of the target
+    /// descriptor: set on the session only, on the target only, on both with
+    /// different values, and on neither. `field` reads the field from the
+    /// descriptor, and the session's value is `a`, the target's `b`.
+    fn assert_field_follows_the_effective_option<T: PartialEq + std::fmt::Debug>(
+        set_a: impl Fn(&mut CompilerOptions),
+        set_b: impl Fn(&mut CompilerOptions),
+        field: impl Fn(&TargetSnapshot) -> T,
+        (a, b, default): (T, T, T),
+    ) {
+        let none = CompilerOptions::default();
+        let mut session = CompilerOptions::default();
+        set_a(&mut session);
+        let mut target = CompilerOptions::default();
+        set_b(&mut target);
+        assert_eq!(field(&target_desc(&session, &none)), a, "session only");
+        assert_eq!(field(&target_desc(&none, &target)), b, "target only");
+        assert_eq!(field(&target_desc(&session, &target)), b, "both");
+        assert_eq!(field(&target_desc(&none, &none)), default, "neither");
+    }
+
+    #[test]
+    fn the_floating_point_mode_of_the_session_reaches_the_target_descriptor() {
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.floating_point_mode(FloatingPointMode::Fast);
+            },
+            |options| {
+                options.floating_point_mode(FloatingPointMode::Precise);
+            },
+            |desc| desc.floating_point_mode,
+            (
+                FloatingPointMode::Fast.to_raw().0,
+                FloatingPointMode::Precise.to_raw().0,
+                TargetDesc::default().floatingPointMode.0,
+            ),
+        );
+    }
+
+    #[test]
+    fn the_line_directive_mode_of_the_session_reaches_the_target_descriptor() {
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.line_directive_mode(LineDirectiveMode::None);
+            },
+            |options| {
+                options.line_directive_mode(LineDirectiveMode::Standard);
+            },
+            |desc| desc.line_directive_mode,
+            (
+                LineDirectiveMode::None.to_raw().0,
+                LineDirectiveMode::Standard.to_raw().0,
+                TargetDesc::default().lineDirectiveMode.0,
+            ),
+        );
+    }
+
+    #[test]
+    fn the_scalar_layout_of_the_session_reaches_the_target_descriptor() {
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.glsl_force_scalar_layout(Toggle::On);
+            },
+            |options| {
+                options.glsl_force_scalar_layout(Toggle::Off);
+            },
+            |desc| desc.force_glsl_scalar_layout,
+            (
+                true,
+                false,
+                TargetDesc::default().forceGLSLScalarBufferLayout,
+            ),
+        );
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.glsl_force_scalar_layout(Toggle::Off);
+            },
+            |options| {
+                options.glsl_force_scalar_layout(Toggle::On);
+            },
+            |desc| desc.force_glsl_scalar_layout,
+            (false, true, false),
+        );
+    }
+
+    #[test]
+    fn the_spirv_method_of_the_session_reaches_the_target_flags() {
+        let default = TargetDesc::default().flags;
+        let via_glsl = default & !SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+        assert_ne!(default, via_glsl);
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.emit_spirv_directly(Toggle::Off);
+            },
+            |options| {
+                options.emit_spirv_directly(Toggle::On);
+            },
+            |desc| desc.flags,
+            (via_glsl, default, default),
+        );
+        assert_field_follows_the_effective_option(
+            |options| {
+                options.emit_spirv_directly(Toggle::On);
+            },
+            |options| {
+                options.emit_spirv_directly(Toggle::Off);
+            },
+            |desc| desc.flags,
+            (default, via_glsl, default),
+        );
+    }
+
+    #[test]
+    fn the_target_fields_follow_raw_entries_as_slang_reads_them() {
+        let int = |name: CompilerOptionName, value: i32| {
+            let mut options = CompilerOptions::default();
+            let name = OptionName::new(name.0).expect("a stored option");
+            // SAFETY: the options are only encoded and passed to the fake,
+            // which reads but never interprets them.
+            unsafe { options.set_int(name, value, 0) };
+            options
+        };
+        let none = CompilerOptions::default();
+        let default = TargetDesc::default();
+        let via_glsl = default.flags & !SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+        let mut first_wins = int(CompilerOptionName::FloatingPointMode, 1);
+        // SAFETY: as above.
+        unsafe {
+            first_wins.set_int(
+                OptionName::new(CompilerOptionName::FloatingPointMode.0).expect("stored"),
+                2,
+                0,
+            );
+        }
+        assert_eq!(target_desc(&first_wins, &none).floating_point_mode, 1);
+        let glsl = int(CompilerOptionName::EmitSpirvViaGLSL, 1);
+        assert_eq!(target_desc(&glsl, &none).flags, via_glsl);
+        let method = int(
+            CompilerOptionName::EmitSpirvMethod,
+            SlangEmitSpirvMethod::SLANG_EMIT_SPIRV_VIA_GLSL
+                .0
+                .cast_signed(),
+        );
+        assert_eq!(target_desc(&none, &method).flags, via_glsl);
+        let mut directly_then_glsl = int(CompilerOptionName::EmitSpirvDirectly, 1);
+        // SAFETY: as above.
+        unsafe {
+            directly_then_glsl.set_int(
+                OptionName::new(CompilerOptionName::EmitSpirvViaGLSL.0).expect("stored"),
+                1,
+                0,
+            );
+        }
+        assert_eq!(target_desc(&directly_then_glsl, &none).flags, default.flags);
     }
 
     #[test]
@@ -1325,21 +1562,49 @@ mod tests {
             .build()
             .expect("the fake creates the session");
         let before = log.events().len();
-        let raw = session.into_raw();
-        assert_eq!(
-            log.events().split_off(before),
-            [Event::release("global", 2)]
-        );
+        let (raw, parent) = session.into_raw();
+        assert_eq!(log.events().split_off(before), []);
+        assert_eq!(parent.as_raw(), global.as_raw());
         // SAFETY: `raw` is a live fake session, as `ISession::getGlobalSession`
         // requires, and the test owns a reference to it.
         let raw_global = unsafe { ISession::getGlobalSession(raw.as_ptr()) };
         assert_eq!(raw_global, global.as_raw().as_ptr());
         // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-        // fake session that `global` created with two targets.
-        let session = unsafe { Session::from_raw(raw, global.clone(), 2) };
+        // fake session that `parent` created with two targets.
+        let session = unsafe { Session::from_raw(raw, parent, 2) };
         assert_eq!(session.as_raw(), raw);
         assert_eq!(session.target_count(), 2);
         assert!(session.target_index(1).is_ok());
+    }
+
+    #[test]
+    fn into_raw_returns_the_handle_that_keeps_the_global_session_alive() {
+        let log = Log::new();
+        let global = adopt(&log);
+        let (raw, parent) = Session::builder(&global)
+            .target(spirv())
+            .build()
+            .expect("the fake creates the session")
+            .into_raw();
+        drop(global);
+        assert!(guard::GlobalSessionRecord::begin().is_none());
+        let before = log.events().len();
+        // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
+        // live fake session, and `parent` keeps its global session alive past
+        // this release, as `into_raw` requires.
+        unsafe { ISession::release(raw.as_ptr()) };
+        drop(parent);
+        assert_eq!(
+            log.events().split_off(before),
+            [
+                Event::release(FAKE_SESSION, 0),
+                Event::freed(FAKE_SESSION),
+                Event::release("global", 1),
+                Event::release("global", 0),
+                Event::freed("global"),
+            ]
+        );
+        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
