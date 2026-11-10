@@ -1,0 +1,26 @@
+[package]
+name = "slang-compiler"
+description = "Safe Rust wrappers over the Slang shader compiler."
+keywords = ["slang", "shader", "compiler", "spirv", "gpu"]
+categories = ["api-bindings", "graphics", "compilers"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[package.metadata.docs.rs]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+[dependencies]
+slang-compiler-sys.workspace = true
+
+[lints]
+workspace = true
