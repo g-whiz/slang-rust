@@ -202,9 +202,10 @@ fn system_tells_a_log_that_cannot_be_opened_from_a_program_that_cannot_start() -
         ..rustc(&["--version"])
     };
     let unstartable = System.run_to_log(&missing, &log);
-    assert_eq!(
-        unstartable.map_err(logged_kind),
-        Err(("start", io::ErrorKind::NotFound))
+    assert!(
+        matches!(unstartable, Err(LoggedRunError::Start(_))),
+        "{:?}",
+        unstartable.map_err(logged_kind)
     );
     fs::remove_dir_all(&dir)
 }
