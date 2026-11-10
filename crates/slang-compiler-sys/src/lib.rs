@@ -55,22 +55,44 @@
 //!
 //! # Examples
 //!
-//! This example prepares the descriptor that [`slang_createGlobalSession2`]
-//! takes, and reads the UUID that `queryInterface` takes to ask an object for
-//! the interface [`IGlobalSession`]. It calls no Slang function, so it needs
-//! no Slang library:
+//! This example creates the global session that every compilation starts
+//! from, checks that the Slang library that the program loaded is the build
+//! of the pin, and releases the session. It needs the Slang shared library at
+//! run time, which the dynamic loader must find as [Linking Slang](#linking-slang)
+//! describes, so it is compiled but not run:
 //!
-//! ```
-//! use slang_compiler_sys::{IGlobalSession, Interface, SlangGlobalSessionDesc};
+//! ```no_run
+//! use std::ffi::CStr;
+//! use std::ptr;
+//!
+//! use slang_compiler_sys::{
+//!     IGlobalSession, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
+//!     slang_createGlobalSession2,
+//! };
 //!
 //! let desc = SlangGlobalSessionDesc::default();
-//! assert_eq!(
-//!     usize::try_from(desc.structureSize)?,
-//!     size_of::<SlangGlobalSessionDesc>()
-//! );
+//! let mut session: *mut IGlobalSession = ptr::null_mut();
+//! // SAFETY: `desc` is a live descriptor whose size field holds its own size,
+//! // which `Default` sets, and `session` is a live out-pointer.
+//! let result = unsafe { slang_createGlobalSession2(&raw const desc, &raw mut session) };
+//! if result != SlangResult::SLANG_OK || session.is_null() {
+//!     return Err(format!("cannot create a global session: {result:?}").into());
+//! }
 //!
-//! let uuid = <IGlobalSession as Interface>::UUID;
-//! println!("IGlobalSession has the UUID {:08x}-{:04x}-{:04x}", uuid.data1, uuid.data2, uuid.data3);
+//! // SAFETY: `session` is the live global session that Slang returned above,
+//! // and only this thread uses it.
+//! let tag = unsafe { IGlobalSession::getBuildTagString(session) };
+//! let matches = !tag.is_null()
+//!     // SAFETY: `tag` is non-null and points to the null-terminated build tag,
+//!     // which Slang keeps for as long as the library stays loaded.
+//!     && unsafe { CStr::from_ptr(tag) }.to_bytes() == SLANG_BUILD_TAG.as_bytes();
+//!
+//! // SAFETY: `session` holds the one reference that Slang returned, and the
+//! // example does not use `session` or `tag` after this release.
+//! unsafe { IGlobalSession::release(session) };
+//! if !matches {
+//!     return Err(format!("the loaded Slang library is not the build {SLANG_BUILD_TAG}").into());
+//! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -95,20 +117,64 @@
 //!
 //! # Linking Slang
 //!
-//! This version of the crate does not link the Slang library, because it has
-//! no build script. A program that calls a function of this crate links the
-//! Slang shared library of the pinned Vulkan SDK itself, or it fails to link.
-//! On Linux, for example, the build script of the program prints
-//! `cargo::rustc-link-search=native=` followed by the directory `lib` of the
-//! SDK, and `cargo::rustc-link-lib=dylib=slang-compiler`. A program that uses
-//! only the types and constants of this crate, as the example above does,
-//! needs no Slang library.
+//! The build script of this crate links the Slang shared library of an
+//! installed Vulkan SDK, which has to be the SDK that [`VULKAN_SDK_VERSION`]
+//! names. The SDK is available from <https://vulkan.lunarg.com>. When the
+//! build script runs, it reads the environment variable `VULKAN_SDK`, which
+//! holds the absolute path of the directory of the SDK that contains
+//! `include/slang` and `lib`. That is the directory `x86_64` of the SDK on
+//! Linux, the directory `macOS` on macOS, and the installation directory on
+//! Windows. The setup script of the SDK sets `VULKAN_SDK` on Linux and macOS,
+//! and its installer sets it on Windows.
+//!
+//! Before it links anything, the build script reads the build tag that
+//! `SLANG_TAG_VERSION` defines in `$VULKAN_SDK/include/slang/slang-tag-version.h`,
+//! and it stops the build when that tag differs from [`SLANG_BUILD_TAG`],
+//! because the bindings match only that Slang build. No setting skips this
+//! check. It then tells Cargo to link the library `slang-compiler`
+//! dynamically from `$VULKAN_SDK/lib`, which holds the import library
+//! `slang-compiler.lib` on Windows. It uses no pkg-config, sets no run-time
+//! search path (rpath), and searches no other location.
+//!
+//! The build stops with an error that says what to set when `VULKAN_SDK` is
+//! unset, empty, or not an absolute path, when the header is missing or does
+//! not define the build tag, when the build tag is another one, and when
+//! `$VULKAN_SDK/lib` is missing.
+//!
+//! The environment variable `SLANG_SOURCE_DIR` is reserved for the other way
+//! to obtain Slang, which builds Slang from a source tree and links it
+//! statically. This version of the crate does not implement it. When
+//! `SLANG_SOURCE_DIR` is present, whatever its value, the build stops with an
+//! error, and it does not fall back to the Vulkan SDK.
+//!
+//! When the environment variable `DOCS_RS` is present, whatever its value, as
+//! on docs.rs, the build script reads nothing else and links nothing, so the
+//! documentation builds without Slang. A program built that way does not link.
+//!
+//! The manifest key `links` of this crate is `slang-compiler`, so the build
+//! script of a crate that depends on this one reads the directory of the
+//! Slang headers from `DEP_SLANG_COMPILER_INCLUDE` and the directory of the
+//! library from `DEP_SLANG_COMPILER_LIB`. They are `$VULKAN_SDK/include` and
+//! `$VULKAN_SDK/lib`, and neither is set when `DOCS_RS` is present.
 //!
 //! The dynamic loader of the operating system finds the shared library when
-//! the program starts, so the directory `lib` of the SDK is on
-//! `LD_LIBRARY_PATH` on Linux and on `DYLD_LIBRARY_PATH` on macOS, and the
-//! directory that holds the Slang DLL is on `PATH` on Windows. Otherwise the
-//! program stops before `main` with an error from the loader.
+//! the program starts, and the build script cannot tell it where the library
+//! is, so the environment of the program does:
+//!
+//! - Linux: `$VULKAN_SDK/lib` is on `LD_LIBRARY_PATH`. The setup script of
+//!   the SDK puts it there.
+//! - macOS: `$VULKAN_SDK/lib` is on `DYLD_LIBRARY_PATH`. The setup script of
+//!   the SDK puts it there. macOS removes the variables whose names start with
+//!   `DYLD_` when it starts a protected program, such as `/bin/bash`, so a
+//!   variable that a script exports may not reach the program. Setting it on
+//!   the command line of Cargo itself, as in
+//!   `DYLD_LIBRARY_PATH="$VULKAN_SDK/lib" cargo test`, avoids that.
+//! - Windows: `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, is on
+//!   `PATH`. The installer of the SDK puts it there.
+//!
+//! Otherwise the program, including a test binary, stops before `main` with
+//! an error from the loader. On Linux, the error ends with "cannot open shared
+//! object file: No such file or directory".
 //!
 //! # Safety
 //!

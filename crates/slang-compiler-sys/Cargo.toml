@@ -3,6 +3,7 @@ name = "slang-compiler-sys"
 description = "Raw bindings to the Slang shader compiler, generated from the Slang headers."
 keywords = ["slang", "shader", "ffi", "bindings", "gpu"]
 categories = ["external-ffi-bindings", "graphics"]
+links = "slang-compiler"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
