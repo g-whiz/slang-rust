@@ -172,8 +172,8 @@ pin:
         fi
         printf '%s=%s\n' "${name}" "${value}"
     done
+
 # Regenerate crates/slang-compiler-sys/src/bindings.rs and the list of its C functions, crates/slang-compiler-sys/tests/sys/symbols.rs, from the Slang headers of the Vulkan SDK that VULKAN_SDK names, which needs libclang and rustfmt
-# Regenerate crates/slang-compiler-sys/src/bindings.rs from the Slang headers of the Vulkan SDK that VULKAN_SDK names, which needs libclang and rustfmt
 [group('rust')]
 generate-bindings:
     cargo run --quiet -p bindings-generator
