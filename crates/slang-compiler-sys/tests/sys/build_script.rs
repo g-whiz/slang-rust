@@ -242,7 +242,14 @@ fn configure_rejects_a_vulkan_sdk_that_is_relative_not_utf8_or_has_line_breaks()
         };
         let (directives, result) = run(&host);
         let message = result.expect_err("the path must be rejected");
-        assert_contains_all(&message, &[VULKAN_SDK, "absolute path", VULKAN_SDK_VERSION]);
+        assert_contains_all(
+            &message,
+            &[
+                VULKAN_SDK,
+                "is not an absolute path in UTF-8 without line breaks",
+                VULKAN_SDK_VERSION,
+            ],
+        );
         assert!(!message.contains(['\n', '\r']), "{message:?}");
         assert_no_link_directives(&directives);
     }

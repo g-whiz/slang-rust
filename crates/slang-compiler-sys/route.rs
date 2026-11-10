@@ -68,28 +68,26 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
 }
 
 fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError> {
+    let fail = |problem: String| lib_error(sdk, lib, &problem);
     match host.kind(lib) {
         Ok(EntryKind::Directory) => {}
-        Ok(_) => return Err(lib_error(sdk, lib, &format!("{} is not a directory", lib.display()))),
-        Err(error) => {
-            return Err(lib_error(sdk, lib, &format!("cannot access {}: {error}", lib.display())));
-        }
+        Ok(_) => return Err(fail(format!("{} is not a directory", lib.display()))),
+        Err(error) => return Err(fail(format!("cannot access {}: {error}", lib.display()))),
     }
     let target_os = host.var(TARGET_OS);
-    let Some(target_os) = target_os.as_ref().and_then(|os| os.to_str()) else {
-        return Ok(());
-    };
-    if target_os != host.host_os() {
-        return Ok(());
-    }
-    let Some(name) = library_file(target_os) else {
+    let Some(name) = target_os
+        .as_ref()
+        .and_then(|os| os.to_str())
+        .filter(|os| *os == host.host_os())
+        .and_then(library_file)
+    else {
         return Ok(());
     };
     let file = lib.join(name);
     match host.kind(&file) {
         Ok(EntryKind::File) => Ok(()),
-        Ok(_) => Err(lib_error(sdk, lib, &format!("{} is not a file", file.display()))),
-        Err(error) => Err(lib_error(sdk, lib, &format!("cannot access {}: {error}", file.display()))),
+        Ok(_) => Err(fail(format!("{} is not a file", file.display()))),
+        Err(error) => Err(fail(format!("cannot access {}: {error}", file.display()))),
     }
 }
 
