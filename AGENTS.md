@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Every coding agent reads this file before it works in this repository. `CLAUDE.md` imports it, so Claude Code loads the same instructions. The repository is meant to hold an idiomatic Rust library for the Slang shader language and runtime. It is at a very early stage and holds standards documents, design documents, repository tooling, the configuration of the Rust checks, a placeholder crate that records the pinned Slang version, and the binding generator, but no bindings yet, as Project Status describes. Development happens inside the development container that the sibling repository slang-rs-env defines.
+Every coding agent reads this file before it works in this repository. `CLAUDE.md` imports it, so Claude Code loads the same instructions. The repository is meant to hold an idiomatic Rust library for the Slang shader language and runtime. It is at a very early stage and holds standards documents, design documents, repository tooling, the configuration of the Rust checks, the binding generator, and the crate `slang-compiler-sys` with its checked-in raw bindings and the pinned Slang version, but no crate that links Slang yet, as Project Status describes. Development happens inside the development container that the sibling repository slang-rs-env defines.
 
 Best Current Practice (BCP) 14 defines the key words in the next paragraph.
 
@@ -24,35 +24,36 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete. Milestone M1, the binding generator and `slang-compiler-sys`, has started: its design document exists, and steps 1 and 2 of its Section 15 are done. Step 1 added the pin file, the binding generator, and their tests. Step 2 added the installation of the pinned Vulkan SDK in every CI job and the CI job `coverage`. The agent updates this section, and its date, in the same change that alters what exists.
+As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete. Milestone M1, the binding generator and `slang-compiler-sys`, has started: its design document exists, and steps 1 to 3 of its Section 15 are done. Step 1 added the pin file, the binding generator, and their tests. Step 2 added the installation of the pinned Vulkan SDK in every CI job and the CI job `coverage`. Step 3 checked in the generated bindings with their crate documentation, and added the regeneration test, the recipes `generate-bindings` and `check-bindings`, and `.gitattributes`. Steps 4 to 6 remain. The agent updates this section, and its date, in the same change that alters what exists.
 
 What exists and works:
 
-- The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks, the recipe `pin`, which prints the pin, and the recipes `install-vulkan-sdk` and `check-vulkan-sdk`, which install the pinned Vulkan SDK on a CI runner and check an installed SDK against the pin.
+- The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks, the recipe `pin`, which prints the pin, the recipes `generate-bindings` and `check-bindings`, which regenerate the bindings and check them against a regeneration, and the recipes `install-vulkan-sdk` and `check-vulkan-sdk`, which install the pinned Vulkan SDK on a CI runner and check an installed SDK against the pin.
 - The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 7 of `docs/design/tooling.md`: `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, and `check-workflow-pins`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
 - The git hooks in `.pre-commit-config.yaml`.
 - The CI workflow `.github/workflows/ci.yml`, which runs on every pull request and every push to `main`. Every job installs the pinned Vulkan SDK, verified against a SHA-256 checksum that the workflow records, and checks it against the pin, on Linux, Windows, and macOS. The job `coverage` measures test coverage on Linux and keeps the report as an artifact. Section 8 of `docs/design/tooling.md` specifies the jobs. On 2026-11-10, all six jobs, counting each entry of a matrix, passed on GitHub.
 - The editor settings in `.editorconfig`.
-- The Claude Code settings in `.claude/settings.json`, which run the prose checker after every edit of a Markdown file or a Rust file.
+- The Claude Code settings in `.claude/settings.json`, which allow a list of recipes to run without asking and run the prose checker after every edit of a Markdown file or a Rust file.
+- The root `.gitattributes`, which keeps LF line endings in every checkout on every platform.
 - `CLAUDE.md`, which imports this file.
 - The workspace manifest `Cargo.toml`, with the `[workspace.package]` fields that every member inherits and the workspace lint tables of Section 4.2 of the coding standard.
 - The tool configuration: `clippy.toml`, `deny.toml`, `.config/nextest.toml`, `taplo.toml`, and `typos.toml`.
-- `crates/slang-compiler-sys`, a placeholder crate with publication metadata and crate-level documentation, and with no build script and no dependencies. Its only API is the three constants of the pin, which its root includes from `crates/slang-compiler-sys/pin.rs`, the only record of the pinned Vulkan SDK version, Slang build tag, and Slang commit. Its integration-test binary `tests/sys/` tests the consistency of those constants. Milestone M1 adds the raw bindings to it.
-- The binding generator `tools/bindings-generator`, a library with a thin binary, which parses the Slang headers with libclang and writes the raw bindings, with its rule set, its shim headers, and its unit tests. Its binary has not been run in the repository yet, because the bindings that it writes arrive in step 3 of Section 15 of `docs/design/slang-compiler-sys.md`.
+- `crates/slang-compiler-sys`, with publication metadata, the raw bindings that the binding generator wrote and that are checked in as `src/bindings.rs`, re-exported at the crate root, and crate-level documentation that states the safety contract that every generated function shares. Its root also includes the three constants of the pin from `crates/slang-compiler-sys/pin.rs`, the only record of the pinned Vulkan SDK version, Slang build tag, and Slang commit. Its integration-test binary `tests/sys/` tests the consistency of those constants. It has no build script and no dependencies, so it links no Slang library, and a program that calls one of its functions links Slang itself, as its crate documentation says.
+- The binding generator `tools/bindings-generator`, a library with a thin binary, which parses the Slang headers with libclang and writes the raw bindings, with its rule set, its shim headers, and its unit tests. Its integration-test binary `tests/generator/` holds the regeneration test, which runs the generator on the headers at `VULKAN_SDK` and fails when the result differs from the checked-in `src/bindings.rs` in any byte.
 - `LICENSE` and `README.md`.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and pinned, and the roadmap of milestones M0 to M7.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
 - The design of `slang-compiler-sys` and the binding generator, `docs/design/slang-compiler-sys.md`, which milestone M1 implements in the order that its Section 15 gives. Its Section 1.6 says which parts exist.
 
-`just check` passes in the development container and in CI. The tests of the binding generator and of the pin run in the default tier, and no test of a GPU tier exists yet.
+`just check` passes in the development container and in CI. The tests of the binding generator, including the regeneration test on Linux, and the tests of the pin run in the default tier, and no test of a GPU tier exists yet.
 
 What does not exist yet:
 
-- Any crate of the design with its API. `crates/slang-compiler-sys` holds only the pin.
-- The generated bindings `crates/slang-compiler-sys/src/bindings.rs`, the regeneration test, the smoke test, and the build script of `slang-compiler-sys`.
+- Any crate of the design with a safe API, and any crate that links Slang.
+- The build script of `slang-compiler-sys`, the smoke test, the test of TEST-8 that references native symbols, and the static route that builds Slang from source.
 - Examples, and tests of the GPU tiers.
-- The recipes `check-bindings`, `generate-bindings`, `check-doc-without-slang`, and `test-static`, which arrive in M1, and `check-semver`, which arrives with the first release in M7.
+- The recipes `check-doc-without-slang` and `test-static`, which arrive in later steps of M1, and `check-semver`, which arrives with the first release in M7.
 - The CI job `semver`, which arrives in M7.
 - The design document of each crate other than `slang-compiler-sys`, which is written as the first task of the milestone that delivers the crate.
 
@@ -66,17 +67,19 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `Cargo.lock`: The lock file of the workspace.
 - `LICENSE`: The text of version 3 of the GNU General Public License.
 - `README.md`: The README, which is also the readme of every member through the inherited `readme` field.
-- `crates/slang-compiler-sys/`: The placeholder crate that Project Status describes, with `Cargo.toml` and `src/lib.rs`.
+- `crates/slang-compiler-sys/`: The crate of raw bindings that Project Status describes, with `Cargo.toml`, whose `[package.metadata.docs.rs]` table lists the four supported targets, and `src/lib.rs`, which holds the crate-level documentation, the opt-out of `unsafe_code`, the declaration of the module `bindings` with its lint exception, the re-export of its items, and the inclusion of the pin.
+- `crates/slang-compiler-sys/src/bindings.rs`: The generated raw bindings, which `just generate-bindings` writes. The file is generated and never edited by hand (Hard Rule 7), and the regeneration test fails on any difference between it and a fresh regeneration.
 - `crates/slang-compiler-sys/pin.rs`: The pin file, the only record of the pinned Vulkan SDK version, Slang build tag, and Slang commit, which the crate root and the binding generator include and the recipe `pin` prints (Section 8.1 of `docs/design/slang-compiler-sys.md`).
 - `crates/slang-compiler-sys/tests/sys/`: The integration-test binary of the crate, with `main.rs` and the module `pin.rs`, which tests the constants of the pin.
 - `tools/bindings-generator/`: The binding generator, an unpublished workspace member with `Cargo.toml`, the library under `src/` with the modules `parse`, `rules`, `check`, `emit`, `model`, and `error`, the unit tests in `src/tests.rs` and in the modules, and the binary `src/main.rs`.
+- `tools/bindings-generator/tests/generator/`: The generator's integration-test binary, with `main.rs` and the module `ffi.rs`, which compiles for Linux only and holds the regeneration test (Section 7.6 of `docs/design/slang-compiler-sys.md`).
 - `tools/bindings-generator/src/rules.rs`: The rule set of the binding generator, which decides every declaration and macro of the Slang headers (Section 4 of `docs/design/slang-compiler-sys.md`).
 - `tools/bindings-generator/shim/`: The shim headers that replace the system headers when the generator parses for each target.
 - `clippy.toml`: The Clippy configuration of Section 4.3 of the coding standard.
 - `deny.toml`: The cargo-deny configuration of Section 9 of `docs/design/tooling.md`, whose licence allow-list holds `GPL-3.0-or-later`, `Apache-2.0`, and `ISC`.
 - `.config/nextest.toml`: The nextest profiles `default`, `gpu`, and `hw-gpu`, which implement the test tiers as Section 5 of `docs/design/tooling.md` defines, and `default-miri`, which Miri uses and which skips the modules named `ffi`, `gpu`, and `hw_gpu`.
 - `taplo.toml`: The taplo configuration, with four-space indentation and the exclusion of `target/` and `.worktrees/`.
-- `typos.toml`: The typos configuration, which ignores two correct patterns that typos would otherwise report.
+- `typos.toml`: The typos configuration, which ignores two correct patterns that typos would otherwise report, and accepts three whole identifiers of the generated bindings that the Slang headers misspell (Section 5.10 of `docs/design/slang-compiler-sys.md`).
 - `docs/writing-documentation.md`: The normative writing guide.
 - `docs/rust-coding-standards.md`: The normative Rust coding standard, with the specification of the lint and tool configuration.
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
@@ -84,8 +87,8 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
 - `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator, which is authoritative for the scope and shape of the generated bindings, the supported targets, the generator, the pin file, the build script on both routes, and the tests of the crate.
 - `justfile`: The root `justfile`, with the groups `checks`, `ci`, `git`, and `rust`. The group `ci` holds `install-vulkan-sdk`, which only the CI workflow runs.
-- `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies. It has the jobs `check`, `test`, `ci-only`, and `coverage`, each of which reads the pin through `just pin` and installs and checks the pinned Vulkan SDK. Its top-level `env` records the SHA-256 checksums of the SDK downloads, and its `check` and `coverage` jobs install libclang for the tests of the binding generator.
-- `scripts/install-vulkan-sdk`: The script that downloads the Vulkan SDK on a GitHub Actions runner, verifies it against a checksum, installs it, and exports `VULKAN_SDK` and the library path to the later steps of the job (Section 8.3 of `docs/design/tooling.md`).
+- `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies. It has the jobs `check`, `test`, `ci-only`, and `coverage`, each of which reads the pin through `just pin` and installs and checks the pinned Vulkan SDK. Its top-level `env` records the SHA-256 checksums of the SDK downloads, and its `check` and `coverage` jobs install libclang for the tests of the binding generator, which include the regeneration test.
+- `scripts/install-vulkan-sdk`: The script that downloads the Vulkan SDK on a GitHub Actions runner, verifies it against a checksum, installs it, and exports `VULKAN_SDK`, the library path on Linux and macOS, and the directory of the SDK's programs to the later steps of the job (Section 8.3 of `docs/design/tooling.md`).
 - `scripts/check-vulkan-sdk`: The script that checks that the SDK at `VULKAN_SDK` provides the Slang headers, library, and `slangc` of the build tag of the pin.
 - `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
 - `scripts/check-rust-comments`: The checker that Rust source holds only API documentation and safety comments.
@@ -102,8 +105,9 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `scripts/merge-branch`: The squash merge that `just merge` runs.
 - `scripts/worktree-prune`: The cleanup of squash-merged branches that `just worktree-prune` and the `post-merge` hook run.
 - `.pre-commit-config.yaml`: The `pre-commit`, `commit-msg`, and `post-merge` hooks.
-- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands, which include `just check` and most of the recipes that it runs, and the hook that runs the prose checker after every edit of a Markdown file or a Rust file.
+- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands and the hook that runs the prose checker after every edit of a Markdown file or a Rust file. The allowed commands include `just check`, every recipe that it runs, `check-bindings`, `check-vulkan-sdk`, `check-features`, `check-commit-message`, `pin`, and the three test recipes, and they exclude recipes such as `fmt`, `generate-bindings`, `merge`, `check-msrv`, and `coverage` (Section 6 of `docs/design/tooling.md`).
 - `.editorconfig`: The character set, line endings, final newline, and indentation for each file type.
+- `.gitattributes`: The single line `* text=auto eol=lf`, which keeps LF line endings in every checkout on every platform (Section 3.4 of `docs/design/tooling.md`).
 - `.gitignore`: The files that git ignores.
 
 `target/`, `.worktrees/`, `.code-review/`, and `.idea/` are local and ignored by git.
@@ -112,7 +116,7 @@ These locations are planned and do not exist yet:
 
 - `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, written as the first task of the crate's milestone.
 - One directory for each planned crate other than `slang-compiler-sys`, and for the examples, as Section 3.1 of `docs/design/architecture.md` lists.
-- `crates/slang-compiler-sys/build.rs` and `crates/slang-compiler-sys/src/bindings.rs`: The build script and the generated bindings, which M1 adds.
+- `crates/slang-compiler-sys/build.rs`: The build script, which step 4 of M1 adds.
 
 ## Technology Decisions
 
@@ -120,7 +124,7 @@ These locations are planned and do not exist yet:
 
 The planned crates are:
 
-- `slang-compiler-sys`: The raw bindings only, generated and checked in, with a build script that links the native library and the manifest key `links = "slang-compiler"`. Until M1 adds the bindings, its directory holds the placeholder with the pin that Project Status describes.
+- `slang-compiler-sys`: The raw bindings only, generated and checked in, with a build script that links the native library and the manifest key `links = "slang-compiler"`. Its directory holds the checked-in bindings and the pin, and until step 4 of M1 adds the build script, the crate links nothing, as Project Status describes.
 - `slang-compiler`: Safe, idiomatic wrappers over `slang-compiler-sys`, with no graphics processing unit (GPU) dependency.
 - `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its first runtime backend is wgpu, and its design does not rule out a slang-rhi backend later. It first offers a runtime call API driven by reflection, and its first milestone covers compute kernels compiled to SPIR-V only. Rendering and a shader target configurable per backend follow.
 - `slango-macros`: A later build-time macro that generates typed Rust bindings to Slang code on the same core as the runtime API.
@@ -205,7 +209,19 @@ just test-gpu
 just test-hw-gpu
 ```
 
-The tests of the binding generator in modules named `ffi` load libclang or start `rustfmt`, so they need both, which the development container provides. They compile for Linux only, so they do not run on Windows or macOS.
+The tests of the binding generator in modules named `ffi` load libclang or start `rustfmt`, so they need both, which the development container provides. The regeneration test also needs `VULKAN_SDK`, and it fails, never skips, without any of the three. These tests compile for Linux only, so they do not run on Windows or macOS.
+
+To regenerate `crates/slang-compiler-sys/src/bindings.rs` after a change to the binding generator, its rule set, or the pin, run this recipe. It needs `VULKAN_SDK`, libclang, and rustfmt. An agent whose change alters the generator's output MUST commit the regenerated file in the same change, because the regeneration test fails on any difference between the checked-in file and a regeneration, so a change without the regenerated file fails `just check`. The file is never edited by hand (Hard Rule 7):
+
+```sh
+just generate-bindings
+```
+
+To run the regeneration test alone, run this recipe. It works on Linux only, because the test compiles for Linux only and the recipe fails when it selects no test:
+
+```sh
+just check-bindings
+```
 
 To print the pin of `slang-compiler-sys`, which is the pinned Vulkan SDK version, Slang build tag, and Slang commit, as `NAME=value` lines:
 

@@ -167,6 +167,16 @@ pin:
         printf '%s=%s\n' "${name}" "${value}"
     done
 
+# Regenerate crates/slang-compiler-sys/src/bindings.rs from the Slang headers of the Vulkan SDK that VULKAN_SDK names, which needs libclang and rustfmt
+[group('rust')]
+generate-bindings:
+    cargo run --quiet -p bindings-generator
+
+# Check that the checked-in bindings equal a regeneration from the Slang headers of the Vulkan SDK that VULKAN_SDK names, failing when the test cannot run
+[group('checks')]
+check-bindings:
+    CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=fail -E 'package(bindings-generator) & binary(generator) & test(=ffi::checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk)'
+
 # Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation, doctests, tests, and Miri
 [group('checks')]
 check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doctest test-gpu check-miri

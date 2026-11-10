@@ -1088,6 +1088,105 @@ struct IConvention : public IRoot
     }
 
     #[test]
+    fn generate_refuses_an_interface_with_a_data_member() {
+        let header = r"
+struct IData : public IRoot
+{
+    TEST_UUID
+    int32_t count;
+};
+";
+        let error = fail("interface_data_member", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct IData"),
+            &["interface IData has a data member"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_an_interface_with_a_virtual_destructor() {
+        let header = r"
+struct IDestroyed : public IRoot
+{
+    TEST_UUID
+    virtual ~IDestroyed() = 0;
+};
+";
+        let error = fail("virtual_destructor", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct IDestroyed"),
+            &["interface IDestroyed has a virtual destructor"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_record_with_a_base_class() {
+        let header = r"
+struct Base
+{
+    int32_t a;
+};
+struct Derived : public Base
+{
+    int32_t b;
+};
+";
+        let error = fail("record_base", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct Derived"),
+            &["record Derived has a base class"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_default_member_initializer_in_a_union() {
+        let header = r"
+union Choice
+{
+    int32_t whole = 1;
+    float part;
+};
+";
+        let error = fail("union_initializer", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "int32_t whole"),
+            &["field Choice::whole has a default member initializer in a union"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_an_array_parameter() {
+        let header = "\nextern \"C\" void takeArray(int32_t values[4]);\n";
+        let error = fail("array_parameter", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "takeArray"),
+            &["parameter values of function takeArray is an array, which C passes as a pointer"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_void_outside_a_pointer() {
+        let header = "\ntypedef void Nothing;\n";
+        let error = fail("void_outside_pointer", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "typedef void Nothing"),
+            &["typedef Nothing has the type void outside a pointer"],
+        );
+    }
+
+    #[test]
     fn generate_refuses_two_items_with_the_same_rust_name() {
         let header = "\nnamespace first\n{\nstruct Twin\n{\n    int32_t a;\n};\n}\nstruct Twin\n{\n    int32_t b;\n};\n";
         let error = fail("name_collision", header);
