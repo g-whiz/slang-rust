@@ -150,12 +150,22 @@ worktree-prune:
 fmt:
     #!/usr/bin/env bash
     set -euo pipefail
+    listing="$(mktemp)"
+    trap 'rm -f "${listing}"' EXIT
+    if ! git ls-files -z --cached --others --exclude-standard -- '*.rs' >"${listing}"; then
+        printf '%s\n' "fmt: git ls-files failed, so the Rust files that a crate pulls in with include! cannot be listed." >&2
+        exit 1
+    fi
     files=()
     while IFS= read -r -d '' file; do
         if [[ -f "${file}" ]]; then
             files+=("${file}")
         fi
-    done < <(git ls-files -z --cached --others --exclude-standard -- '*.rs')
+    done <"${listing}"
+    if [[ "${#files[@]}" -eq 0 ]]; then
+        printf '%s\n' "fmt: git ls-files listed no Rust file, so the Rust files that a crate pulls in with include! cannot be listed." >&2
+        exit 1
+    fi
     cargo fmt --all -- "${files[@]}"
     taplo fmt
 
@@ -200,12 +210,22 @@ check-rust: check-rust-comments check-doc-headings check-doctest-attributes chec
 check-fmt:
     #!/usr/bin/env bash
     set -euo pipefail
+    listing="$(mktemp)"
+    trap 'rm -f "${listing}"' EXIT
+    if ! git ls-files -z --cached --others --exclude-standard -- '*.rs' >"${listing}"; then
+        printf '%s\n' "check-fmt: git ls-files failed, so the Rust files that a crate pulls in with include! cannot be listed." >&2
+        exit 1
+    fi
     files=()
     while IFS= read -r -d '' file; do
         if [[ -f "${file}" ]]; then
             files+=("${file}")
         fi
-    done < <(git ls-files -z --cached --others --exclude-standard -- '*.rs')
+    done <"${listing}"
+    if [[ "${#files[@]}" -eq 0 ]]; then
+        printf '%s\n' "check-fmt: git ls-files listed no Rust file, so the Rust files that a crate pulls in with include! cannot be listed." >&2
+        exit 1
+    fi
     cargo fmt --all --check -- "${files[@]}"
 
 # Run Clippy on every target and feature of the workspace, failing on any warning

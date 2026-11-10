@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -93,6 +93,7 @@ trait Host {
     fn kind(&self, path: &Path) -> io::Result<EntryKind>;
     fn host_os(&self) -> &str;
     fn run(&self, invocation: &Invocation) -> io::Result<Finished>;
+    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> io::Result<Exit>;
     fn files(&self, root: &Path) -> io::Result<Vec<PathBuf>>;
     fn sync_file(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn remove_file(&self, path: &Path) -> io::Result<()>;
@@ -113,7 +114,6 @@ struct Invocation {
     dir: Option<PathBuf>,
     env: Vec<(&'static str, &'static str)>,
     env_remove: Vec<&'static str>,
-    log: Option<PathBuf>,
 }
 
 impl fmt::Display for Invocation {
@@ -126,24 +126,34 @@ impl fmt::Display for Invocation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Finished {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Exit {
     code: Option<i32>,
-    stdout: String,
-    stderr: String,
 }
 
-impl Finished {
-    fn success(&self) -> bool {
+impl Exit {
+    fn success(self) -> bool {
         self.code == Some(0)
     }
 
-    fn status(&self) -> String {
+    fn status(self) -> String {
         self.code.map_or_else(
             || "no exit status, because a signal ended it".to_owned(),
             |code| format!("exit status {code}"),
         )
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Finished {
+    exit: Exit,
+    stdout: String,
+    stderr: String,
+}
+
+enum KindError {
+    Wrong,
+    Inaccessible(io::Error),
 }
 
 struct BuildError(String);
@@ -221,12 +231,11 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
 }
 
 fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError> {
-    let fail = |problem: String| lib_error(sdk, lib, &problem);
-    match host.kind(lib) {
-        Ok(EntryKind::Directory) => {}
-        Ok(_) => return Err(fail(format!("{} is not a directory", lib.display()))),
-        Err(error) => return Err(fail(format!("cannot access {}: {error}", lib.display()))),
-    }
+    let fail = |path: &Path, want: EntryKind, error: KindError| {
+        lib_error(sdk, lib, &kind_problem(path, want, error))
+    };
+    expect_kind(host, lib, EntryKind::Directory)
+        .map_err(|error| fail(lib, EntryKind::Directory, error))?;
     let target_os = host.var(TARGET_OS);
     let Some(name) = target_os
         .as_ref()
@@ -237,11 +246,34 @@ fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError>
         return Ok(());
     };
     let file = lib.join(name);
-    match host.kind(&file) {
-        Ok(EntryKind::File) => Ok(()),
-        Ok(_) => Err(fail(format!("{} is not a file", file.display()))),
-        Err(error) => Err(fail(format!("cannot access {}: {error}", file.display()))),
+    expect_kind(host, &file, EntryKind::File).map_err(|error| fail(&file, EntryKind::File, error))
+}
+
+fn expect_kind(host: &impl Host, path: &Path, want: EntryKind) -> Result<(), KindError> {
+    match host.kind(path) {
+        Ok(kind) if kind == want => Ok(()),
+        Ok(_) => Err(KindError::Wrong),
+        Err(error) => Err(KindError::Inaccessible(error)),
     }
+}
+
+fn kind_problem(path: &Path, want: EntryKind, error: KindError) -> String {
+    let noun = match want {
+        EntryKind::Directory => "directory",
+        EntryKind::File => "file",
+        EntryKind::Other => "special file",
+    };
+    match error {
+        KindError::Wrong => format!("{} is not a {noun}", path.display()),
+        KindError::Inaccessible(error) => format!("cannot access {}: {error}", path.display()),
+    }
+}
+
+fn directive_safe_path(value: &OsStr) -> Option<PathBuf> {
+    value
+        .to_str()
+        .filter(|text| !text.contains(['\n', '\r']) && Path::new(text).is_absolute())
+        .map(PathBuf::from)
 }
 
 fn library_file(target_os: &str) -> Option<&'static str> {
@@ -260,16 +292,13 @@ fn sdk_dir(value: Option<OsString>) -> Result<PathBuf, BuildError> {
     if value.is_empty() {
         return Err(unset_error("is set but empty"));
     }
-    match value.to_str() {
-        Some(text) if !text.contains(['\n', '\r']) && Path::new(text).is_absolute() => {
-            Ok(PathBuf::from(text))
-        }
-        _ => Err(BuildError(format!(
+    directive_safe_path(&value).ok_or_else(|| {
+        BuildError(format!(
             "{VULKAN_SDK} is \"{}\", which is not an absolute path in UTF-8 without line breaks, so the build cannot check the Slang that it names and pass its library to the linker. {}.",
             value.to_string_lossy().escape_debug(),
             sdk_advice()
-        ))),
-    }
+        ))
+    })
 }
 
 fn parse_tag(text: &str) -> Result<&str, TagError> {
@@ -295,20 +324,16 @@ fn parse_tag(text: &str) -> Result<&str, TagError> {
 fn static_route(
     host: &impl Host,
     directives: &mut Vec<String>,
-    value: &OsString,
+    value: &OsStr,
 ) -> Result<(), BuildError> {
     let source = source_dir(value)?;
-    match host.kind(&source) {
-        Ok(EntryKind::Directory) => {}
-        Ok(_) => return Err(source_error(&source, "which is not a directory")),
-        Err(error) => {
-            return Err(source_error(
-                &source,
-                &format!("which cannot be accessed: {error}"),
-            ));
+    expect_kind(host, &source, EntryKind::Directory).map_err(|error| match error {
+        KindError::Wrong => source_error(&source, "which is not a directory"),
+        KindError::Inaccessible(error) => {
+            source_error(&source, &format!("which cannot be accessed: {error}"))
         }
-    }
-    let out = out_dir(host.var(OUT_DIR))?;
+    })?;
+    let out = out_dir(host.var(OUT_DIR).as_deref())?;
     let platform = static_platform(host)?;
     let commit = verify_checkout(host, directives, &source)?;
     verify_unmodified(host, &source)?;
@@ -333,7 +358,6 @@ fn static_route(
             program: "cmake",
             args: configure_args,
             env_remove: vec!["SLANG_USE_SCCACHE"],
-            log: Some(layout.log.clone()),
             ..invocation()
         };
         run_logged(host, &configure, &layout.log, "configure")?;
@@ -354,7 +378,6 @@ fn static_route(
         program: "cmake",
         args: build_args,
         env_remove: vec!["SLANG_USE_SCCACHE"],
-        log: Some(layout.log.clone()),
         ..invocation()
     };
     run_logged(host, &build, &layout.log, "build")?;
@@ -387,7 +410,6 @@ fn invocation() -> Invocation {
         dir: None,
         env: Vec::new(),
         env_remove: Vec::new(),
-        log: None,
     }
 }
 
@@ -398,42 +420,35 @@ fn git(dir: &Path, args: &[&str]) -> Invocation {
         dir: Some(dir.to_path_buf()),
         env: vec![("GIT_OPTIONAL_LOCKS", "0")],
         env_remove: GIT_REPOSITORY_VARIABLES.to_vec(),
-        log: None,
     }
 }
 
-fn source_dir(value: &OsString) -> Result<PathBuf, BuildError> {
+fn source_dir(value: &OsStr) -> Result<PathBuf, BuildError> {
     if value.is_empty() {
         return Err(BuildError(format!(
             "{SLANG_SOURCE_DIR} is set but empty, which selects building Slang from source without naming a source tree. {}.",
             source_advice()
         )));
     }
-    match value.to_str() {
-        Some(text) if !text.contains(['\n', '\r']) && Path::new(text).is_absolute() => {
-            Ok(PathBuf::from(text))
-        }
-        _ => Err(BuildError(format!(
+    directive_safe_path(value).ok_or_else(|| {
+        BuildError(format!(
             "{SLANG_SOURCE_DIR} is \"{}\", which is not an absolute path in UTF-8 without line breaks, so the build cannot check the Slang source tree that it names and build it. {}.",
             value.to_string_lossy().escape_debug(),
             source_advice()
-        ))),
-    }
+        ))
+    })
 }
 
-fn out_dir(value: Option<OsString>) -> Result<PathBuf, BuildError> {
-    match value.as_ref().and_then(|value| value.to_str()) {
-        Some(text) if !text.contains(['\n', '\r']) && Path::new(text).is_absolute() => {
-            Ok(PathBuf::from(text))
-        }
-        _ => Err(BuildError(format!(
+fn out_dir(value: Option<&OsStr>) -> Result<PathBuf, BuildError> {
+    value.and_then(directive_safe_path).ok_or_else(|| {
+        BuildError(format!(
             "{OUT_DIR} is {}, which is not an absolute path in UTF-8 without line breaks, so the build has no directory in which to build Slang from source. Cargo sets {OUT_DIR} for every build script, so build slang-compiler-sys through Cargo, with a target directory whose path is UTF-8.",
             value.map_or_else(
                 || "not set".to_owned(),
                 |value| format!("\"{}\"", value.to_string_lossy().escape_debug())
             )
-        ))),
-    }
+        ))
+    })
 }
 
 fn static_platform(host: &impl Host) -> Result<Platform, BuildError> {
@@ -442,7 +457,17 @@ fn static_platform(host: &impl Host) -> Result<Platform, BuildError> {
             .map(|value| value.to_string_lossy().into_owned())
             .unwrap_or_default()
     };
-    let (target, host_triple) = (text(TARGET), text(HOST));
+    let required = |name: &str| {
+        host.var(name)
+            .map(|value| value.to_string_lossy().into_owned())
+            .ok_or_else(|| {
+                BuildError(format!(
+                    "{name} is not set, so the build of Slang from source that {SLANG_SOURCE_DIR} selects cannot compare the target with the host. Cargo sets {name} for every build script, so build slang-compiler-sys through Cargo."
+                ))
+            })
+    };
+    let target = required(TARGET)?;
+    let host_triple = required(HOST)?;
     if target != host_triple {
         return Err(BuildError(format!(
             "the target {target} differs from the host {host_triple}, and the build of Slang from source that {SLANG_SOURCE_DIR} selects cannot cross-compile, because Slang's build runs programs that it builds for the target. Build on a host of the target, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names."
@@ -499,12 +524,12 @@ fn verify_checkout(
             "HEAD^{commit}",
         ],
     );
-    let finished = start(host, &query, source)?;
-    if !finished.success() {
+    let finished = start(host, &query, Some(source))?;
+    if !finished.exit.success() {
         return Err(BuildError(format!(
             "`{query}` in {} failed with {}: {}. {SLANG_SOURCE_DIR} has to name the top level of a git checkout of Slang, because the build verifies the commit of the tree through git, and a tree without git metadata, such as a source archive, cannot be verified. {}.",
             source.display(),
-            finished.status(),
+            finished.exit.status(),
             finished.stderr.trim(),
             source_advice()
         )));
@@ -659,10 +684,12 @@ fn sync_copy(
     Ok(())
 }
 
+fn numeric_version(tag: &str) -> &str {
+    tag.split_once('-').map_or(tag, |(numeric, _)| numeric)
+}
+
 fn configure_arguments(layout: &Layout, platform: &Platform) -> Vec<String> {
-    let numeric = SLANG_BUILD_TAG
-        .split_once('-')
-        .map_or(SLANG_BUILD_TAG, |(numeric, _)| numeric);
+    let numeric = numeric_version(SLANG_BUILD_TAG);
     let mut args = vec![
         "-S".to_owned(),
         layout.copy.display().to_string(),
@@ -695,8 +722,10 @@ fn run_logged(
     log: &Path,
     step: &str,
 ) -> Result<(), BuildError> {
-    let finished = start(host, invocation, Path::new(""))?;
-    if finished.success() {
+    let exit = host
+        .run_to_log(invocation, log)
+        .map_err(|error| start_error(invocation, None, &error))?;
+    if exit.success() {
         return Ok(());
     }
     let tail = match host.read(log) {
@@ -708,7 +737,7 @@ fn run_logged(
     };
     Err(BuildError(format!(
         "`{invocation}` failed with {}, so the {step} step of the build of Slang from source failed. The full output is in {}, and it ends with these lines:\n{tail}",
-        finished.status(),
+        exit.status(),
         log.display()
     )))
 }
@@ -720,16 +749,8 @@ fn verify_build(host: &impl Host, layout: &Layout, platform: &Platform) -> Resul
         } else {
             format!("lib{library}.a")
         });
-        match host.kind(&file) {
-            Ok(EntryKind::File) => {}
-            Ok(_) => return Err(layout_error(&format!("{} is not a file", file.display()))),
-            Err(error) => {
-                return Err(layout_error(&format!(
-                    "cannot access {}: {error}",
-                    file.display()
-                )));
-            }
-        }
+        expect_kind(host, &file, EntryKind::File)
+            .map_err(|error| layout_error(&kind_problem(&file, EntryKind::File, error)))?;
     }
     let header = layout.include.join("slang-tag-version.h");
     let text = host
@@ -753,18 +774,23 @@ fn verify_build(host: &impl Host, layout: &Layout, platform: &Platform) -> Resul
     Ok(())
 }
 
-fn start(host: &impl Host, invocation: &Invocation, source: &Path) -> Result<Finished, BuildError> {
-    host.run(invocation).map_err(|error| {
-        let place = if source.as_os_str().is_empty() {
-            String::new()
-        } else {
-            format!(" from the source tree at {}", source.display())
-        };
-        BuildError(format!(
-            "cannot start {} for `{invocation}`: {error}. The build of Slang from source that {SLANG_SOURCE_DIR} selects needs git, CMake 3.22 or later, and Ninja on PATH to build Slang{place}. Install the missing program, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names.",
-            invocation.program
-        ))
-    })
+fn start(
+    host: &impl Host,
+    invocation: &Invocation,
+    source: Option<&Path>,
+) -> Result<Finished, BuildError> {
+    host.run(invocation)
+        .map_err(|error| start_error(invocation, source, &error))
+}
+
+fn start_error(invocation: &Invocation, source: Option<&Path>, error: &io::Error) -> BuildError {
+    let place = source.map_or_else(String::new, |source| {
+        format!(" from the source tree at {}", source.display())
+    });
+    BuildError(format!(
+        "cannot start {} for `{invocation}`: {error}. The build of Slang from source that {SLANG_SOURCE_DIR} selects needs git, CMake 3.22 or later, and Ninja on PATH to build Slang{place}. Install the missing program, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names.",
+        invocation.program
+    ))
 }
 
 fn check_success(
@@ -772,8 +798,8 @@ fn check_success(
     invocation: &Invocation,
     source: &Path,
 ) -> Result<Finished, BuildError> {
-    let finished = start(host, invocation, source)?;
-    if finished.success() {
+    let finished = start(host, invocation, Some(source))?;
+    if finished.exit.success() {
         return Ok(finished);
     }
     Err(BuildError(format!(
@@ -783,7 +809,7 @@ fn check_success(
             .as_ref()
             .map(|dir| format!(" in {}", dir.display()))
             .unwrap_or_default(),
-        finished.status(),
+        finished.exit.status(),
         finished.stderr.trim()
     )))
 }

@@ -174,10 +174,10 @@
 //! `ninja`, and a C++ compiler that `cmake` finds on the build machine, and it
 //! downloads nothing. Slang's build writes into its source tree, so the build
 //! script copies the files that git tracks in the clone and in the submodules
-//! that the build uses into the output directory of the build script, then
-//! configures and
-//! builds that copy with `cmake` and `ninja`, with every file under that
-//! directory. The first build takes several minutes. A later run of the
+//! that the build uses into `slang/source` in the output directory of the
+//! build script. It then configures and builds that copy with `cmake` and
+//! `ninja`, keeps the build tree in `slang/build`, and puts the static
+//! libraries in `slang/lib`. The first build takes several minutes. A later run of the
 //! build script copies and configures again only when `SLANG_SOURCE_DIR`, the
 //! commit, or the configuration has changed, and `ninja` rebuilds only what
 //! changed. The output of `cmake` and `ninja` goes to the file `slang/build.log`
