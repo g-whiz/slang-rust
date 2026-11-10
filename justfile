@@ -5,16 +5,21 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list --unsorted
 
-# Run every check: prose, shell, the commit message checker, spelling, TOML formatting and the Rust checks
+# Run every check: prose, shell, the self-tests of the checkers, spelling, TOML formatting and the Rust checks
 [group('checks')]
-check: check-prose check-shell check-commit-message-self-test check-typos check-toml check-rust
+check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-typos check-toml check-rust
 
-# Check Markdown prose in the given files, or in every Markdown file when none are given
+# Check the prose of Markdown files and of Rust documentation comments in the given files, or in every Markdown and Rust file when none are given
 [group('checks')]
 [no-cd]
 [no-exit-message]
 check-prose *paths:
     @python3 -I "{{ justfile_directory() }}/scripts/check-prose" "$@"
+
+# Check that the prose checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-prose-self-test:
+    @python3 -I scripts/self-test-checker check-prose
 
 # Run shellcheck on every shell script and on the shell inside every recipe
 [group('checks')]
@@ -44,6 +49,54 @@ check-commit-message-self-test:
     fi
     printf 'check-commit-message self-test passed\n'
 
+# Check that Rust source holds only API documentation and safety comments, in the given files or in every Rust file when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-rust-comments *paths:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-rust-comments" "$@"
+
+# Check that the Rust comment checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-rust-comments-self-test:
+    @python3 -I scripts/self-test-checker check-rust-comments
+
+# Check the names and order of the headings in item documentation, in the given files or in every Rust file when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-doc-headings *paths:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-doc-headings" "$@"
+
+# Check that the heading checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-doc-headings-self-test:
+    @python3 -I scripts/self-test-checker check-doc-headings
+
+# Check that no documentation code block is marked ignore, in the given files or in every Rust file and README.md when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-doctest-attributes *paths:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-doctest-attributes" "$@"
+
+# Check that the doctest attribute checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-doctest-attributes-self-test:
+    @python3 -I scripts/self-test-checker check-doctest-attributes
+
+# Check that crate-level documentation names every Cargo feature, for the given manifests or for the workspace when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-feature-docs *manifests:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-feature-docs" "$@"
+
+# Check that the feature documentation checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-feature-docs-self-test:
+    @python3 -I scripts/self-test-checker check-feature-docs
+
 # Install the pre-commit, commit-msg and post-merge git hooks
 [group('checks')]
 hooks-install:
@@ -65,9 +118,9 @@ fmt:
     cargo fmt --all
     taplo fmt
 
-# Run the Rust checks: formatting, unused and denied dependencies, Clippy, documentation, doctests, tests and Miri
+# Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation, doctests, tests and Miri
 [group('checks')]
-check-rust: check-fmt check-unused-deps check-deny check-clippy check-doc check-doctest test-gpu check-miri
+check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doctest test-gpu check-miri
 
 # Check that the Rust code of the workspace is formatted
 [group('checks')]

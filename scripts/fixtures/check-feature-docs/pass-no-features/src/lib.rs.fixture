@@ -1,0 +1,6 @@
+//! A crate without features.<<CR>>
+//!<<CR>>
+//! # Features<<CR>>
+//!<<CR>>
+//! This crate has no Cargo features.<<CR>>
+pub fn f() {}<<EOF>>

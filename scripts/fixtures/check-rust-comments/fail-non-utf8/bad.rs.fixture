@@ -1,0 +1,2 @@
+/// Documented.
+pub const NAME: &str = "<<FF>>";

@@ -1,0 +1,11 @@
+lib.rs:3: heading '# Failures' is not a standard heading
+lib.rs:5: heading '# Example' is not a standard heading, did you mean '# Examples'
+lib.rs:7: heading '# examples' must be written as the standard heading '# Examples'
+lib.rs:9: heading '# Platform Support' must be written as the standard heading '# Platform support'
+lib.rs:11: heading '## Examples' must be written as the standard heading '# Examples'
+lib.rs:13: heading '## Notes' is not a standard heading
+lib.rs:22: heading '# Errors' is out of order, it must come before '# Panics' at line 20
+lib.rs:24: heading '# Panics' repeats the heading at line 20
+lib.rs:26: heading '# Notes' is not a standard heading
+lib.rs:31: heading '# Examples' is out of order, it must come before '# Panics' at line 20
+lib.rs:44: heading '## Notes' is not a standard heading

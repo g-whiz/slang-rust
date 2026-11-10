@@ -1,0 +1,4 @@
+/// Summary.<<CR>>
+///<<CR>>
+/// The color; here.<<CR>>
+pub fn f() {}<<EOF>>

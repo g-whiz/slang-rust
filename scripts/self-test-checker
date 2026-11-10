@@ -1,0 +1,124 @@
+#!/usr/bin/env -S python3 -I
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+USAGE = """usage: self-test-checker <checker>
+
+Runs the checker scripts/<checker> on each case under
+scripts/fixtures/<checker>/ and fails unless every case gives exactly its
+expected result. A case is a directory. Each of its files whose name ends
+in .fixture is copied, without that suffix and at the same relative path,
+into a new git repository in a temporary directory, so the checkers never
+read the fixtures as real files. The copy replaces these placeholders:
+<<TODO>> and <<FIXME>> by those marker words, so that no committed file
+holds a marker, <<CR>> by a carriage return, <<FF>> by the byte 0xFF, and
+<<EOF>> followed by the final newline by nothing, which ends the file
+without a final newline. The checker runs in the repository with the lines
+of the file arguments of the case as its arguments, or with none when the
+case has no such file. The case passes when the standard output equals the
+file expected-output, the standard error equals the file expected-errors,
+or is empty when there is no such file, and the exit status equals the
+number in the file expected-status, or, without that file, 1 when
+expected-output is not empty and 0 when it is. Exits 1 if a case fails,
+and 2 if the checker or its cases cannot be read."""
+
+PLACEHOLDERS = [
+    (b"<<TODO>>", b"TODO"),
+    (b"<<FIXME>>", b"FIXME"),
+    (b"<<CR>>", b"\r"),
+    (b"<<FF>>", b"\xff"),
+]
+SUFFIX = ".fixture"
+
+
+class SetupError(Exception):
+    pass
+
+
+def materialize(case, work):
+    for source in sorted(case.rglob("*" + SUFFIX)):
+        target = work / source.relative_to(case).with_name(source.name[: -len(SUFFIX)])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = source.read_bytes()
+        if data.endswith(b"<<EOF>>\n"):
+            data = data[: -len(b"<<EOF>>\n")]
+        for placeholder, value in PLACEHOLDERS:
+            data = data.replace(placeholder, value)
+        target.write_bytes(data)
+
+
+def optional_text(path):
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def run_case(checker, case, environment):
+    expected_output = optional_text(case / "expected-output")
+    if expected_output is None:
+        raise SetupError(f"case {case.name} has no expected-output file")
+    expected_errors = optional_text(case / "expected-errors") or ""
+    status_text = optional_text(case / "expected-status")
+    expected_status = int(status_text) if status_text is not None else (1 if expected_output else 0)
+    arguments_text = optional_text(case / "arguments")
+    arguments = arguments_text.splitlines() if arguments_text is not None else []
+    with tempfile.TemporaryDirectory(prefix="self-test-") as directory:
+        work = Path(directory)
+        materialize(case, work)
+        subprocess.run(["git", "init", "-q"], cwd=work, env=environment, check=True)
+        result = subprocess.run(
+            [sys.executable, "-I", str(checker), *arguments],
+            cwd=work,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    problems = []
+    if result.returncode != expected_status:
+        problems.append(f"exit status {result.returncode}, expected {expected_status}")
+    if result.stdout != expected_output:
+        problems.append("standard output differs\n--- expected\n" + expected_output + "--- actual\n" + result.stdout)
+    if result.stderr != expected_errors:
+        problems.append("standard error differs\n--- expected\n" + expected_errors + "--- actual\n" + result.stderr)
+    return problems
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ("-h", "--help"):
+        print(USAGE, file=sys.stdout if argv[:1] in (["-h"], ["--help"]) else sys.stderr)
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    name = argv[0]
+    scripts = Path(__file__).resolve().parent
+    checker = scripts / name
+    fixtures = scripts / "fixtures" / name
+    if "/" in name or not checker.is_file():
+        print(f"self-test-checker: no checker scripts/{name}", file=sys.stderr)
+        return 2
+    cases = sorted(path for path in fixtures.iterdir() if path.is_dir()) if fixtures.is_dir() else []
+    if not cases:
+        print(f"self-test-checker: no cases under scripts/fixtures/{name}", file=sys.stderr)
+        return 2
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    failed = 0
+    for case in cases:
+        try:
+            problems = run_case(checker, case, environment)
+        except (OSError, ValueError, SetupError, subprocess.CalledProcessError) as error:
+            print(f"self-test-checker: {name}: {error}", file=sys.stderr)
+            return 2
+        if problems:
+            failed += 1
+            print(f"FAIL {name} {case.name}")
+            for problem in problems:
+                print("    " + problem.replace("\n", "\n    "))
+    if failed:
+        print(f"{name} self-test failed: {failed} of {len(cases)} cases")
+        return 1
+    print(f"{name} self-test passed: {len(cases)} cases")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

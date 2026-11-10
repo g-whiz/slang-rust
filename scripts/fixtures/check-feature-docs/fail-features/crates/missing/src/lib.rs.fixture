@@ -1,0 +1,6 @@
+// An ordinary comment before the documentation.
+//! A crate that has a feature and no features section.
+//!
+//! # Platform support
+//!
+//! Every platform.

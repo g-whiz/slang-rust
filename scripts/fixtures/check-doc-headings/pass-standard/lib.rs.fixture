@@ -1,0 +1,57 @@
+//! Crate documentation has its own headings, which this checker does not read.
+//!
+//! # Features
+//!
+//! # Anything Else
+
+/// Compiles one module.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use std::error::Error;
+/// # Errors in a hidden line are not a heading
+/// let text = "# Panics";
+/// # Ok::<(), Box<dyn Error>>(())
+/// ```
+///
+/// ~~~text
+/// # Not a heading inside a tilde fence
+/// ~~~
+///
+/// # Errors
+///
+/// Returns an error when the source is invalid. A # in a sentence is not a heading.
+#[must_use]
+/// # Panics
+///
+/// Panics when the session is closed. This line follows an attribute and
+/// belongs to the same item.
+///
+/// # Safety
+///
+/// The caller keeps the session alive.
+///
+/// # Platform support
+///
+/// The same on every platform.
+pub unsafe fn compile() -> u8 {
+    0
+}
+
+/// A second item starts its own order.
+///
+/// # Examples
+///
+/// ```
+/// let _ = 1;
+/// ```
+pub fn second() {}
+
+/// A list item is not a setext heading:
+///
+/// - first
+/// ---
+///
+/// #Examples without a space is not a heading.
+pub fn third() {}

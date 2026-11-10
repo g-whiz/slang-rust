@@ -1,0 +1,8 @@
+crlf.rs:3: semicolon
+crlf.rs:3: non-Canadian spelling 'color'
+lib.rs:1: semicolon
+lib.rs:3: non-Canadian spelling 'color'
+lib.rs:5: non-ASCII character U+2014 '\u2014'
+lib.rs:8: semicolon
+lib.rs:13: unclosed code fence opened at line 13
+lib.rs:17: semicolon

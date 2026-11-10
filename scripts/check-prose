@@ -5,17 +5,32 @@ import subprocess
 import sys
 from pathlib import Path
 
-USAGE = """usage: check-prose [file.md ...]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-prose: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-prose [file.md | file.rs ...]
 
 Checks Markdown prose for non-ASCII characters, a UTF-8 byte order mark,
 semicolons, and the non-Canadian spellings listed in
 scripts/prose-wordlist.txt. Fenced code blocks and inline code spans are
 ignored, and a code fence left open at the end of a file is a finding.
-With no files, checks every Markdown file in the git repository that
-contains the current directory, tracked or not ignored, and prints paths
-relative to its root. Prints one path:line: message line per finding.
-Exits 1 if there are findings, and 2 if a file cannot be read or the
-setup is broken, after checking every readable file."""
+A file whose name ends in .rs is Rust: the checks apply to the Markdown
+text of its /// and //! documentation comments, with each run of comments
+that documents one item read as one Markdown document, and every line
+number is the line in the Rust file. Documentation written as a
+#[doc = ...] attribute or a /** */ block comment is not read. A Rust file
+that is not valid UTF-8 cannot be read. Every other file is Markdown.
+With no files, checks every Markdown file and every Rust file in the git
+repository that contains the current directory, tracked or not ignored,
+and prints paths relative to its root. Prints one path:line: message line
+per finding. Exits 1 if there are findings, and 2 if a file cannot be read
+or the setup is broken, after checking every readable file."""
 
 FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 BACKTICK_RUN = re.compile(r"`+")
@@ -51,10 +66,10 @@ def git(*args):
     return result.stdout.decode("utf-8", "surrogateescape")
 
 
-def tracked_markdown():
+def tracked_files():
     root = git("rev-parse", "--show-toplevel").rstrip("\n")
     os.chdir(root)
-    output = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md")
+    output = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md", "*.rs")
     names = [n for n in output.split("\0") if n]
     return [n for n in names if Path(n).is_file()]
 
@@ -131,15 +146,36 @@ def display(path):
     return path.replace("\n", "\\n").replace("\r", "\\r")
 
 
+def rust_documents(text):
+    source = rust_lexer.Source(text)
+    for doc in ("outer", "inner"):
+        for group in rust_lexer.doc_groups(source, doc):
+            yield [number for number, _ in group], [line for _, line in group]
+
+
 def check_file(path, words):
     findings = []
     shown = display(path)
-    text = Path(path).read_text(encoding="utf-8", errors="surrogateescape")
+    if path.endswith(".rs"):
+        text = rust_lexer.read_source(path)
+    else:
+        text = Path(path).read_text(encoding="utf-8", errors="surrogateescape")
     if text.startswith(BOM):
         findings.append((1, f"{shown}:1: UTF-8 byte order mark"))
         text = text[len(BOM):]
-    segments, unclosed = prose_segments(text.splitlines())
-    for number, prose in segments:
+    if path.endswith(".rs"):
+        for numbers, lines in rust_documents(text):
+            check_document(shown, words, numbers, lines, findings)
+    else:
+        lines = text.splitlines()
+        check_document(shown, words, list(range(1, len(lines) + 1)), lines, findings)
+    return [finding for _, finding in sorted(findings, key=lambda f: f[0])]
+
+
+def check_document(shown, words, numbers, lines, findings):
+    segments, unclosed = prose_segments(lines)
+    for index, prose in segments:
+        number = numbers[index - 1]
         for char in prose:
             code = ord(char)
             if 0xDC80 <= code <= 0xDCFF:
@@ -152,8 +188,8 @@ def check_file(path, words):
             for match in words.finditer(prose):
                 findings.append((number, f"{shown}:{number}: non-Canadian spelling '{match.group(0)}'"))
     if unclosed is not None:
+        unclosed = numbers[unclosed - 1]
         findings.append((unclosed, f"{shown}:{unclosed}: unclosed code fence opened at line {unclosed}"))
-    return [finding for _, finding in sorted(findings, key=lambda f: f[0])]
 
 
 def emit(text, stream=sys.stdout):
@@ -166,7 +202,7 @@ def main(argv):
         return 0
     try:
         words = load_words()
-        paths = argv or tracked_markdown()
+        paths = argv or tracked_files()
     except SetupError as error:
         emit(f"check-prose: {error}", sys.stderr)
         return 2
@@ -177,6 +213,9 @@ def main(argv):
             findings.extend(check_file(path, words))
         except OSError as error:
             emit(f"check-prose: cannot read {display(path)}: {error.strerror}", sys.stderr)
+            unreadable = True
+        except rust_lexer.SourceError as error:
+            emit(f"check-prose: cannot read {display(path)}: {error}", sys.stderr)
             unreadable = True
     for finding in findings:
         emit(finding)

@@ -1,0 +1,5 @@
+# Project
+
+```rust,ignore
+let _ = 1;
+```

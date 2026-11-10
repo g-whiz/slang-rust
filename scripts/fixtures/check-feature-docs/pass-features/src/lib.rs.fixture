@@ -1,0 +1,21 @@
+#![doc = "An attribute before the documentation comments."]
+//! A crate with features.
+//!
+//! # Features
+//!
+//! - `fast`: on by default. Turn it off with `default-features = false` in
+//!   `Cargo.toml`.
+//! - `static-link`: off by default.
+//! - `dep`: off by default, the feature of the optional dependency.
+//!
+//! ```toml
+//! [dependencies]
+//! fixture = { version = "0.1", features = ["missing"] }
+//! ```
+//!
+//! # Platform support
+//!
+//! The section ends at the next heading, so `not-a-feature` here is not read.
+
+/// An item.
+pub fn f() {}

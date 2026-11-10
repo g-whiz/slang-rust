@@ -1,0 +1,37 @@
+//! Crate documentation.
+//!
+//! ```no_run
+//! let _ = 1;
+//! ```
+
+/// Examples that rustdoc compiles.
+///
+/// ```
+/// let _ = "```ignore";
+/// ```
+///
+/// ```rust,no_run
+/// let _ = 1;
+/// ```
+///
+/// ```rust {.ignore}
+/// let _ = 1;
+/// ```
+///
+/// ```rust,"no_run ignore"
+/// let _ = 1;
+/// ```
+///
+/// ~~~text
+/// ignore
+/// ~~~
+///
+/// ````text
+/// ```ignore
+/// ````
+///
+/// ```ignore_this
+/// let _ = 1;
+/// ```
+// ```ignore in an ordinary comment is not documentation
+pub fn f() {}

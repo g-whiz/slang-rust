@@ -25,7 +25,7 @@ repos:
         name: check-prose
         entry: just check-prose
         language: system
-        files: \.md$
+        files: \.(md|rs)$
         stages: [pre-commit]
       - id: check-shell
         name: check-shell

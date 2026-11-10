@@ -1,0 +1,7 @@
+/// Reads a byte.<<CR>>
+pub fn read() -> u8 {<<CR>>
+    let value = 0_u8;<<CR>>
+    // SAFETY: the pointer comes from a reference, so it is valid,<<CR>>
+    // and this line continues the safety comment.<<CR>>
+    unsafe { core::ptr::read(&value) }<<CR>>
+}<<EOF>>

@@ -1,0 +1,10 @@
+/// Summary.<<CR>>
+///<<CR>>
+/// # Errors<<CR>>
+///<<CR>>
+/// Fails.<<CR>>
+///<<CR>>
+/// # Panics<<CR>>
+///<<CR>>
+/// Panics.<<CR>>
+pub fn f() {}<<EOF>>

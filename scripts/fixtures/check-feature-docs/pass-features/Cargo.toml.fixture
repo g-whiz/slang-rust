@@ -1,0 +1,13 @@
+[package]
+name = "fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+dep = { path = "dep", optional = true }
+
+[features]
+default = ["fast"]
+fast = []
+static-link = []

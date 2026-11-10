@@ -1,0 +1,1 @@
+check-prose: cannot read bad.rs: invalid UTF-8 byte 0xFF at line 1
