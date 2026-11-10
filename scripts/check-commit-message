@@ -1,0 +1,119 @@
+#!/usr/bin/env -S python3 -I
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+USAGE = """usage: check-commit-message <message-file>
+
+Checks a git commit message file. Fails on attribution lines, non-ASCII
+characters, an empty subject, a subject longer than 72 characters after
+trailing whitespace is removed, and a non-empty second line when there is
+a body. Everything from the scissors line down is ignored. The attribution
+check reads every other line, including comment lines, because git keeps
+them when the message comes from -m or a cleanup mode other than strip.
+The other checks skip comment lines, unless the message has only comment
+lines. The comment character is core.commentChar when it is set in a git
+repository, otherwise #. Prints one path:line: reason line per failure
+and exits 1 if there are failures."""
+
+ATTRIBUTION = re.compile(r"co-authored-by|claude\.ai/code|claude-session", re.IGNORECASE)
+GENERATED = re.compile(r"generated\s+(?:with|by)", re.IGNORECASE)
+VENDOR = re.compile(r"claude|anthropic", re.IGNORECASE)
+SCISSORS = " ------------------------ >8 ------------------------"
+SUBJECT_LIMIT = 72
+
+
+def git_output(*args):
+    try:
+        result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.rstrip("\n")
+
+
+def comment_char():
+    if git_output("rev-parse", "--git-dir") is None:
+        return "#"
+    value = git_output("config", "--get", "core.commentChar")
+    if not value or value == "auto":
+        return "#"
+    return value
+
+
+def attribution(line):
+    match = ATTRIBUTION.search(line)
+    if match:
+        return match.group(0)
+    match = GENERATED.search(line)
+    if match and VENDOR.search(line):
+        return match.group(0)
+    return None
+
+
+def strip_leading_blank(lines):
+    while lines and not lines[0][1].strip():
+        lines.pop(0)
+    return lines
+
+
+def check(text, comment):
+    failures = []
+    scissors = comment + SCISSORS
+    all_lines = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line == scissors:
+            break
+        all_lines.append((number, line))
+    for number, line in all_lines:
+        found = attribution(line)
+        if found:
+            failures.append((number, f"attribution line matching '{found}'"))
+    lines = strip_leading_blank([(n, l) for n, l in all_lines if not l.startswith(comment)])
+    if not lines:
+        lines = strip_leading_blank(list(all_lines))
+    for number, line in lines:
+        for char in line:
+            code = ord(char)
+            if 0xDC80 <= code <= 0xDCFF:
+                failures.append((number, f"invalid UTF-8 byte 0x{code - 0xDC00:02X}"))
+            elif code > 0x7F:
+                failures.append((number, f"non-ASCII character U+{code:04X} {char!r}"))
+    if not lines:
+        failures.append((1, "empty subject"))
+        return failures
+    subject_number, subject = lines[0]
+    length = len(subject.rstrip())
+    if length > SUBJECT_LIMIT:
+        failures.append(
+            (subject_number, f"subject is {length} characters, longer than {SUBJECT_LIMIT}")
+        )
+    rest = lines[1:]
+    if any(line.strip() for _, line in rest) and rest[0][1].strip():
+        failures.append((rest[0][0], "second line must be empty when there is a body"))
+    return failures
+
+
+def main(argv):
+    if argv in (["-h"], ["--help"]):
+        print(USAGE)
+        return 0
+    if len(argv) != 1:
+        print(USAGE, file=sys.stderr)
+        return 2
+    path = argv[0]
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="surrogateescape")
+    except OSError as error:
+        print(f"check-commit-message: cannot read {path}: {error.strerror}", file=sys.stderr)
+        return 2
+    failures = sorted(check(text, comment_char()), key=lambda failure: failure[0])
+    for number, reason in failures:
+        print(f"{path}:{number}: {reason}".encode("ascii", "backslashreplace").decode("ascii"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

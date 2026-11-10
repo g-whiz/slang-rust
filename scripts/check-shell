@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: check-shell" "" \
+        "Runs shellcheck on every shell script that git tracks or does not ignore," \
+        "and on the shell inside every recipe of the root justfile." \
+        "Exits 1 on findings, and 2 when git, shellcheck, just, or python3 is missing."
+}
+
+if [[ $# -gt 0 ]]; then
+    usage
+    [[ "$1" == "-h" || "$1" == "--help" ]] && exit 0
+    exit 2
+fi
+
+for tool in git shellcheck just python3; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'check-shell: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${root}"
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf -- "${work_dir}"' EXIT
+file_list="${work_dir}/files"
+recipes_dir="${work_dir}/recipes"
+mkdir "${recipes_dir}"
+
+git ls-files -z --cached --others --exclude-standard >"${file_list}"
+
+scripts=()
+while IFS= read -r -d '' file; do
+    [[ -f "${file}" ]] || continue
+    case "${file}" in
+        *.sh | *.bash)
+            scripts+=("${file}")
+            continue
+            ;;
+    esac
+    first_line=""
+    IFS= read -r first_line <"${file}" || true
+    if [[ "${first_line}" =~ ^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$) ]]; then
+        scripts+=("${file}")
+    fi
+done <"${file_list}"
+
+status=0
+if [[ ${#scripts[@]} -gt 0 ]]; then
+    shellcheck -- "${scripts[@]}" || status=1
+fi
+
+just --justfile "${root}/justfile" --working-directory "${root}" --dump --dump-format json |
+    python3 -I "${root}/scripts/justfile-recipes" "${recipes_dir}"
+
+recipe_files=()
+for file in "${recipes_dir}"/*.bash; do
+    [[ -e "${file}" ]] || continue
+    recipe_files+=("$(basename "${file}")")
+done
+
+if [[ ${#recipe_files[@]} -gt 0 ]]; then
+    (cd "${recipes_dir}" && shellcheck --shell=bash -- "${recipe_files[@]}") || status=1
+fi
+
+exit "${status}"

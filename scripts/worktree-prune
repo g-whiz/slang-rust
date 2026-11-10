@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+usage: worktree-prune
+
+Removes the worktrees and local branches that are already squash-merged into
+main. A branch counts as merged when merging it into main would leave the tree
+of main unchanged and it has at least one commit that main does not reach.
+Skips the current branch, the current worktree and worktrees with uncommitted
+or untracked changes.
+EOF
+}
+
+readonly MAIN=main
+
+if [[ $# -gt 0 ]]; then
+    usage
+    [[ "$1" == "-h" || "$1" == "--help" ]] && exit 0
+    exit 2
+fi
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    printf 'worktree-prune: not inside a git working tree\n' >&2
+    exit 1
+}
+git show-ref --verify --quiet "refs/heads/${MAIN}" || exit 0
+
+git worktree prune
+here="$(git rev-parse --show-toplevel)"
+here_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+main_tree="$(git rev-parse "${MAIN}^{tree}")"
+
+declare -A worktree_of=()
+current=""
+while IFS= read -r line; do
+    case "${line}" in
+        "worktree "*) current="${line#worktree }" ;;
+        "branch refs/heads/"*) worktree_of["${line#branch refs/heads/}"]="${current}" ;;
+    esac
+done < <(git worktree list --porcelain)
+
+while IFS= read -r branch; do
+    [[ "${branch}" != "${MAIN}" && "${branch}" != "${here_branch}" ]] || continue
+    tip="$(git rev-parse --verify --quiet "refs/heads/${branch}^{commit}")" || continue
+    [[ "$(git rev-list --count "${MAIN}..${tip}")" -gt 0 ]] || continue
+    merged_tree="$(git merge-tree --write-tree "${MAIN}" "${tip}" 2>/dev/null | head -n 1)" || continue
+    [[ "${merged_tree}" == "${main_tree}" ]] || continue
+    worktree="${worktree_of["${branch}"]:-}"
+    if [[ -n "${worktree}" ]]; then
+        if [[ "${worktree}" == "${here}" ]]; then
+            printf 'worktree-prune: skipping %s, it is the current worktree\n' "${branch}"
+            continue
+        fi
+        if [[ -d "${worktree}" && -n "$(git -C "${worktree}" status --porcelain)" ]]; then
+            printf 'worktree-prune: skipping %s, its worktree %s has changes\n' "${branch}" "${worktree}"
+            continue
+        fi
+        git worktree remove "${worktree}"
+        printf 'worktree-prune: removed the worktree %s\n' "${worktree}"
+    fi
+    if ! git update-ref -d "refs/heads/${branch}" "${tip}" 2>/dev/null; then
+        printf 'worktree-prune: skipping %s, it moved after the merged check\n' "${branch}"
+        continue
+    fi
+    printf 'worktree-prune: deleted the merged branch %s\n' "${branch}"
+done < <(git for-each-ref --format='%(refname:short)' refs/heads/)

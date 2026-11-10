@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(just --list)",
+      "Bash(just check)",
+      "Bash(just check-shell)",
+      "Bash(just check-prose:*)",
+      "Bash(shellcheck:*)",
+      "Bash(git status:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/claude-hook-prose"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+minimum_pre_commit_version: 4.2.0
+default_install_hook_types: [pre-commit, commit-msg, post-merge]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c
+    hooks:
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-json
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+      - id: detect-private-key
+        stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: check-prose
+        name: check-prose
+        entry: just check-prose
+        language: system
+        files: \.md$
+        stages: [pre-commit]
+      - id: check-shell
+        name: check-shell
+        entry: just check-shell
+        language: system
+        files: (^|/)(justfile|scripts/)
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check-commit-message
+        name: check-commit-message
+        entry: just check-commit-message
+        language: system
+        stages: [commit-msg]
+      - id: worktree-prune
+        name: worktree-prune
+        entry: just worktree-prune
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-merge]

@@ -14,14 +14,10 @@
     - all PRs must be linked to an issue (otherwise auto-closed)
     - all feature-related discussion must happen in the issue
     - PR discussion is limited strictly to review of PR code
-    - absolutely no AI usage allowed for drafting issues, PR descriptions, or comments
     - strict zero-tolerance for emojis in code and commit messages :P
     - PRs lacking appropriate commit hygiene will be closed without further review (
       see https://gist.github.com/efischer19/5d05178edd20054b3a9d85bd656f54f2#2-small-patchy-changes)
-- AI usage policy
-    - AI usage for writing code is allowed, but must be disclosed in the PR description
-    - AI usage for writing documentation is allowed, but must be disclosed in the PR description
-    - AI usage for writing commit messages is strictly prohibited
+- a future contributing policy may require disclosure of AI usage in pull request descriptions
 - github workflows for PR lints, style checks, etc.
 
 ### DevOps ToDo

@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+usage: merge-branch BRANCH [--message SUBJECT] [--no-push]
+
+Squash-merges BRANCH onto main from the main checkout. Refuses when the main
+checkout or the branch's worktree has uncommitted or untracked changes. The
+commit subject is SUBJECT, or by default the subject of the branch's first
+commit, and the body holds the subject and body of every commit on the branch,
+oldest first, with attribution lines removed. Then removes the branch's worktree
+with git worktree remove and deletes the branch, both only while the branch
+still points at the squashed commit. Unless --no-push is given, then pushes main
+to origin and deletes BRANCH on origin when its tip there is part of the squash.
+EOF
+}
+
+die() {
+    printf 'merge-branch: %s\n' "$*" >&2
+    exit 1
+}
+
+readonly MAIN=main
+readonly ATTRIBUTION='co-authored-by|claude\.ai/code|claude-session|generated (with|by) .*(claude|anthropic)'
+
+branch=""
+subject=""
+push=true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --message | -m)
+            [[ $# -ge 2 ]] || die "--message needs a subject"
+            subject="$2"
+            shift 2
+            ;;
+        --message=*)
+            subject="${1#--message=}"
+            shift
+            ;;
+        --no-push)
+            push=false
+            shift
+            ;;
+        -*) die "unknown option $1" ;;
+        *)
+            if [[ -z "${branch}" ]]; then
+                branch="$1"
+            elif [[ -z "${subject}" ]]; then
+                subject="$1"
+            else
+                die "unexpected argument $1"
+            fi
+            shift
+            ;;
+    esac
+done
+[[ -n "${branch}" ]] || {
+    usage >&2
+    exit 2
+}
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git working tree"
+git_dir="$(git rev-parse --path-format=absolute --git-dir)"
+common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+[[ "${git_dir}" == "${common_dir}" ]] || die "run this from the main checkout, not from a linked worktree"
+[[ "$(git symbolic-ref --quiet --short HEAD || true)" == "${MAIN}" ]] || die "the main checkout is not on ${MAIN}"
+[[ "${branch}" != "${MAIN}" ]] || die "cannot merge ${MAIN} into itself"
+git show-ref --verify --quiet "refs/heads/${branch}" || die "no local branch ${branch}"
+[[ -z "$(git status --porcelain)" ]] || die "the main checkout has uncommitted or untracked changes"
+
+worktree=""
+current=""
+while IFS= read -r line; do
+    case "${line}" in
+        "worktree "*) current="${line#worktree }" ;;
+        "branch refs/heads/${branch}") worktree="${current}" ;;
+    esac
+done < <(git worktree list --porcelain)
+if [[ -n "${worktree}" && -d "${worktree}" ]]; then
+    [[ -z "$(git -C "${worktree}" status --porcelain)" ]] \
+        || die "the worktree ${worktree} of ${branch} has uncommitted or untracked changes"
+fi
+
+tip="$(git rev-parse --verify "refs/heads/${branch}^{commit}")"
+mapfile -t commits < <(git rev-list --reverse "${MAIN}..${tip}")
+[[ ${#commits[@]} -gt 0 ]] || die "${branch} has no commits that are not on ${MAIN}"
+
+if [[ -z "${subject}" ]]; then
+    subject="$(git log -1 --format=%s "${commits[0]}")"
+fi
+[[ "${subject}" != *$'\n'* ]] || die "the subject must be a single line"
+
+message="$(mktemp)"
+trap 'rm -f "${message}"' EXIT
+{
+    printf '%s\n' "${subject}"
+    for commit in "${commits[@]}"; do
+        printf '\n'
+        git log -1 --format=%B "${commit}" | { grep -viE "${ATTRIBUTION}" || true; }
+    done
+} >"${message}"
+
+if ! git merge --squash "${tip}" >/dev/null; then
+    git reset --hard --quiet HEAD
+    die "squash-merging ${branch} failed with conflicts, ${MAIN} is unchanged"
+fi
+if git diff --cached --quiet; then
+    git reset --hard --quiet HEAD
+    die "${branch} changes nothing on ${MAIN}"
+fi
+if ! git commit --quiet --cleanup=whitespace --file "${message}"; then
+    git reset --hard --quiet HEAD
+    die "the commit failed, ${MAIN} is unchanged"
+fi
+printf 'merge-branch: squash-merged %s onto %s as %s\n' "${branch}" "${MAIN}" "$(git rev-parse --short HEAD)"
+
+moved=false
+if [[ "$(git rev-parse --verify --quiet "refs/heads/${branch}")" != "${tip}" ]]; then
+    moved=true
+else
+    if [[ -n "${worktree}" ]]; then
+        git worktree remove "${worktree}"
+        printf 'merge-branch: removed the worktree %s\n' "${worktree}"
+    fi
+    if git update-ref -d "refs/heads/${branch}" "${tip}" 2>/dev/null; then
+        printf 'merge-branch: deleted the branch %s\n' "${branch}"
+    else
+        moved=true
+    fi
+fi
+if [[ "${moved}" == true ]]; then
+    printf 'merge-branch: %s moved after the squash of %s, so the branch is left in place\n' "${branch}" "$(git rev-parse --short "${tip}")" >&2
+fi
+
+if [[ "${push}" == true ]]; then
+    if ! git remote get-url origin >/dev/null 2>&1; then
+        printf 'merge-branch: no origin remote, nothing pushed\n'
+        exit 0
+    fi
+    git push origin "${MAIN}"
+    remote_tip="$(git ls-remote --heads origin "refs/heads/${branch}" | cut -f 1)"
+    if [[ -n "${remote_tip}" ]]; then
+        if git merge-base --is-ancestor "${remote_tip}" "${tip}" 2>/dev/null; then
+            git push --force-with-lease="refs/heads/${branch}:${remote_tip}" origin --delete "${branch}"
+        else
+            printf 'merge-branch: origin/%s has commits that were not squashed, so it is left in place\n' "${branch}" >&2
+        fi
+    fi
+fi

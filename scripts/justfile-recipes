@@ -1,0 +1,90 @@
+#!/usr/bin/env -S python3 -I
+import json
+import re
+import sys
+from pathlib import Path
+
+USAGE = """usage: just --dump --dump-format json | justfile-recipes <output-directory>
+
+Writes the shell inside every recipe of the dumped justfile, including
+modules, to files in the output directory, so shellcheck can check it.
+A linewise recipe gives one <recipe>.<line>.bash file per command, because
+just runs each command in its own shell, with lines ending in a backslash
+joined to the next. A shebang recipe for sh or bash, and a [script] recipe
+whose interpreter is the default, sh, or bash, give one <recipe>.bash file.
+Each interpolation becomes ${JUST_INTERPOLATION}, so shellcheck reports it
+when it is unquoted."""
+
+PLACEHOLDER = "${JUST_INTERPOLATION}"
+HEADER = "#!/usr/bin/env bash\nset -euo pipefail\n"
+SHEBANG_SHELL = re.compile(r"^#!\s*(\S*/)?(env\s+(-S\s+)?)?(ba)?sh(\s|$)")
+SHELL_COMMAND = re.compile(r"^(\S*/)?(ba)?sh$")
+
+
+def render(line):
+    return "".join(f if isinstance(f, str) else PLACEHOLDER for f in line)
+
+
+def recipes(module, prefix=""):
+    for name, recipe in sorted(module.get("recipes", {}).items()):
+        yield prefix + name, recipe
+    for name, child in sorted(module.get("modules", {}).items()):
+        yield from recipes(child, f"{prefix}{name}::")
+
+
+def script_attribute(recipe):
+    for attribute in recipe.get("attributes", []):
+        if isinstance(attribute, dict) and "script" in attribute:
+            return True, attribute["script"]
+    return False, None
+
+
+def commands(lines):
+    current = []
+    for number, line in enumerate(lines, start=1):
+        if not current:
+            if not line.strip():
+                continue
+            start = number
+            line = line.lstrip("@-") if line[:1] in "@-" else line
+        current.append(line)
+        if not line.endswith("\\"):
+            yield start, current
+            current = []
+    if current:
+        yield start, current
+
+
+def scripts_for(name, recipe):
+    lines = [render(line) for line in recipe["body"]]
+    if not lines:
+        return []
+    if recipe["shebang"]:
+        is_script, script = script_attribute(recipe)
+        if is_script:
+            if script is not None and not SHELL_COMMAND.match(script.get("command", "")):
+                return []
+            return [(f"{name}.bash", HEADER + "\n".join(lines) + "\n")]
+        if not SHEBANG_SHELL.match(lines[0]):
+            return []
+        return [(f"{name}.bash", "\n".join(lines) + "\n")]
+    return [
+        (f"{name}.{number}.bash", HEADER + "\n".join(command) + "\n")
+        for number, command in commands(lines)
+    ]
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ("-h", "--help"):
+        print(USAGE, file=sys.stderr)
+        return 2
+    output = Path(argv[0])
+    dump = json.load(sys.stdin)
+    for name, recipe in recipes(dump):
+        for filename, script in scripts_for(name.replace("::", "-"), recipe):
+            (output / filename).write_text(script, encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
