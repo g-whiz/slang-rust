@@ -1,0 +1,5 @@
+fn pointers(raw: *mut IModule) {
+    let name = IModule::getName;
+    let tag = slang_compiler_sys::spGetBuildTagString;
+    unsafe { guard::abort_on_exception("IModule::getName", || name(raw)) };
+}

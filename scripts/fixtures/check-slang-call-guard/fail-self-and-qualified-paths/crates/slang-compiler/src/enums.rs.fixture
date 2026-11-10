@@ -1,0 +1,9 @@
+impl Release for IModule {
+    unsafe fn release(this: *mut Self) -> u32 {
+        unsafe { Self::release(this) }
+    }
+}
+
+fn name(raw: *mut IModule) {
+    unsafe { <IModule>::getName(raw) };
+}

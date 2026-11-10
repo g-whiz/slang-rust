@@ -1,0 +1,3 @@
+fn unterminated() {
+    let x = "open;
+}

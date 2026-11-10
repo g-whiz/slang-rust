@@ -1,0 +1,3 @@
+fn link(raw: *mut IModule, out: *mut *mut IModule) -> i32 {
+    unsafe { slang_compiler_sys::IModule::link(raw, out) }
+}

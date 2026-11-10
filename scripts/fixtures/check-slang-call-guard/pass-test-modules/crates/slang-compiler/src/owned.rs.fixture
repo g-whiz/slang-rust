@@ -1,0 +1,21 @@
+pub(crate) fn live() {}
+
+#[cfg(test)]
+mod tests {
+    use slang_compiler_sys::IModule;
+
+    #[test]
+    fn releases_without_the_guard() {
+        unsafe { IModule::release(raw()) };
+        let f = IModule::getName;
+    }
+
+    #[cfg(test)]
+    #[expect(unsafe_code, reason = "the tests call Slang")]
+    pub(crate) mod ffi {
+        fn tag() {
+            unsafe { spGetBuildTagString() };
+            unsafe { guard::abort_on_exception("Test::call", || 1) };
+        }
+    }
+}

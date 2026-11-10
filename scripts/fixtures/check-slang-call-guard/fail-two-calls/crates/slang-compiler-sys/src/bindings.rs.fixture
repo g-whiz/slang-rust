@@ -1,0 +1,46 @@
+//! The raw Slang bindings.
+
+#[repr(transparent)]
+pub struct SlangStage(pub u32);
+impl SlangStage {
+    pub const SLANG_STAGE_NONE: Self = Self(0);
+}
+
+#[repr(C)]
+pub struct ISlangBlob {
+    pub vtable: *const ISlangBlobVtbl,
+}
+
+impl ISlangBlob {
+    pub unsafe fn release(this: *mut Self) -> u32 {
+        unsafe { ((*(*this).vtable).base.release)(this.cast()) }
+    }
+
+    pub unsafe fn getBufferSize(this: *mut Self) -> usize {
+        unsafe { ((*(*this).vtable).getBufferSize)(this) }
+    }
+}
+
+#[repr(C)]
+pub struct IModule {
+    pub vtable: *const IModuleVtbl,
+}
+
+impl IModule {
+    pub unsafe fn release(this: *mut Self) -> u32 {
+        unsafe { ((*(*this).vtable).base.base.release)(this.cast()) }
+    }
+
+    pub unsafe fn getName(this: *mut Self) -> *const ::core::ffi::c_char {
+        unsafe { ((*(*this).vtable).getName)(this) }
+    }
+
+    pub unsafe fn link(this: *mut Self, out: *mut *mut IModule) -> i32 {
+        unsafe { ((*(*this).vtable).base.link)(this.cast(), out.cast()) }
+    }
+}
+
+unsafe extern "C-unwind" {
+    pub fn spGetBuildTagString() -> *const ::core::ffi::c_char;
+    pub fn slang_createBlob(data: *const ::core::ffi::c_void, size: usize) -> *mut ISlangBlob;
+}

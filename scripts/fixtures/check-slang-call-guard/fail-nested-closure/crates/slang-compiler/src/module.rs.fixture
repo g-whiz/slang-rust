@@ -1,0 +1,35 @@
+fn name(raw: *mut IModule) -> *const c_char {
+    unsafe {
+        guard::abort_on_exception("IModule::getName", || {
+            let call = || IModule::getName(raw);
+            call()
+        })
+    }
+}
+
+fn release(raw: *mut IModule) -> u32 {
+    unsafe {
+        guard::abort_on_exception("IModule::release", || {
+            fn inner(raw: *mut IModule) -> u32 {
+                IModule::release(raw)
+            }
+            inner(raw)
+        })
+    }
+}
+
+fn guarded_in_a_nested_closure(raw: *mut IModule) -> u32 {
+    let call = || unsafe { guard::abort_on_exception("IModule::release", || IModule::release(raw)) };
+    call()
+}
+
+fn matched(raw: *mut IModule, flag: bool) -> u32 {
+    unsafe {
+        guard::abort_on_exception("IModule::release", || {
+            let call = match flag {
+                _ => || IModule::release(raw),
+            };
+            call()
+        })
+    }
+}

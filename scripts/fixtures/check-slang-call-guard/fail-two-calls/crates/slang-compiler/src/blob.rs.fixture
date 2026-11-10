@@ -1,0 +1,9 @@
+fn both(raw: *mut ISlangBlob) -> usize {
+    unsafe {
+        guard::abort_on_exception("ISlangBlob::getBufferSize", || {
+            let size = ISlangBlob::getBufferSize(raw);
+            ISlangBlob::release(raw);
+            size
+        })
+    }
+}

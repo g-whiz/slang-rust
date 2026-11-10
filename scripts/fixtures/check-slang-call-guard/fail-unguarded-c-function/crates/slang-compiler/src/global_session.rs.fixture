@@ -1,0 +1,11 @@
+use slang_compiler_sys::{slang_createBlob, spGetBuildTagString};
+
+fn tag() -> *const c_char {
+    #[expect(ffi_unwind_calls, reason = "unguarded")]
+    unsafe { spGetBuildTagString() }
+}
+
+fn blob(bytes: &[u8]) -> *mut ISlangBlob {
+    let callee = guard::abort_on_exception("slang_createBlob", || bytes.len());
+    unsafe { slang_compiler_sys::slang_createBlob(bytes.as_ptr().cast(), callee) }
+}

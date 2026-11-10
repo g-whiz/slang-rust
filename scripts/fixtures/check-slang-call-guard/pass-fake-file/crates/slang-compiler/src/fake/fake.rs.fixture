@@ -1,0 +1,3 @@
+fn name(raw: *mut IModule) {
+    unsafe { IModule::getName(raw) };
+}

@@ -1,0 +1,9 @@
+fn forms(raw: *mut IModule, call: impl FnOnce() -> u32) {
+    guard::abort_on_exception("IModule::release", call);
+    unsafe { guard::abort_on_exception("IModule::release", move || IModule::release(raw)) };
+    guard::abort_on_exception("IModule::release");
+}
+
+pub(crate) fn abort_on_exception<R>(callee: &'static str, call: impl FnOnce() -> R) -> R {
+    call()
+}

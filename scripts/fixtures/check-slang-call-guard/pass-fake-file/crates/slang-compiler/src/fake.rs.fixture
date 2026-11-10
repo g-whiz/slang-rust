@@ -1,0 +1,3 @@
+fn release(raw: *mut IModule) -> u32 {
+    unsafe { IModule::release(raw) + spGetBuildTagString() as u32 }
+}

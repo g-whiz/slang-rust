@@ -1,0 +1,1 @@
+crates/slang-compiler/src/session.rs:2: the closure passed to abort_on_exception makes no call into Slang (SLC-32)

@@ -1,0 +1,11 @@
+fn name(raw: *mut IModule) -> *const c_char {
+    // SAFETY: the raw pointer is live.
+    unsafe { IModule::getName(raw) }
+}
+
+fn release(raw: *mut ISlangBlob) -> u32 {
+    unsafe {
+        guard::abort_on_exception("ISlangBlob::getBufferSize", || ISlangBlob::getBufferSize(raw));
+        ISlangBlob::release(raw)
+    }
+}

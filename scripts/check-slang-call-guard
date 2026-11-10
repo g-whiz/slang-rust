@@ -1,0 +1,398 @@
+#!/usr/bin/env -S python3 -I
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-slang-call-guard: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-slang-call-guard [file.rs ...]
+
+Checks rule SLC-32 of docs/design/slang-compiler.md: in the crate
+slang-compiler, every call into Slang runs inside a closure passed to
+abort_on_exception, which is the innermost frame around exactly one such
+call. A call into Slang is a call of a C function or of a generated thunk
+of slang-compiler-sys. The checker learns both from the generated
+bindings crates/slang-compiler-sys/src/bindings.rs of the git repository
+that contains the current directory: the C functions are the functions of
+its unsafe extern "C-unwind" block, and the thunks are the unsafe fn
+methods of its inherent impl blocks, whose types are the interfaces.
+
+A C function is recognized by its name, with or without a path. A thunk
+is recognized as a path Q::m or <Q>::m, where m is a thunk of interface
+Q, or where Q is Self or a macro metavariable other than $crate, such as
+$interface, and m is the name of any thunk. A name that a use item
+imports with as, or that a type alias names, counts as the name it
+stands for. A thunk name after any other qualifier, such as T::release
+or component::link, and every method call written with a dot, is not a
+call into Slang, because a thunk takes no self receiver and is reached
+only through its interface.
+
+Reports a call into Slang that is not inside the closure argument of
+abort_on_exception, a call inside a closure or fn item nested in that
+closure, a C function or thunk that is named without being called, a
+closure argument that makes no call or more than one call into Slang, an
+argument of abort_on_exception that is not a closure literal, and a move
+closure, which captures by value. Ignores every file named fake.rs, every
+inline module whose attributes include #[cfg(test)], use items,
+comments, and literals. Whether a closure captures a value with a destructor in another
+way, a call that a macro defined outside the checked files makes, and a
+call through a function pointer read from a vtable are not checked.
+
+With no files, checks every .rs file under crates/slang-compiler/src in
+the git repository that contains the current directory, tracked or not
+ignored, and prints paths relative to its root. Prints one path:line:
+message line per finding. Exits 1 if there are findings, and 2 if a file
+cannot be read, is not valid UTF-8, or the setup is broken, which
+includes bindings that declare no C function or no thunk, after checking
+every readable file."""
+
+NAME = "check-slang-call-guard"
+BINDINGS = "crates/slang-compiler-sys/src/bindings.rs"
+CRATE_SOURCES = "crates/slang-compiler/src/*.rs"
+EXCLUDED_FILE = "fake.rs"
+GUARD = "abort_on_exception"
+RULE = "(SLC-32)"
+OPEN = {"(": ")", "[": "]", "{": "}"}
+CLOSE = {")": "(", "]": "[", "}": "{"}
+CLOSURE_BEFORE = {"(", "[", "{", ",", "=", ";", ":", ">", "&", "return", "break", "move"}
+
+
+class Code:
+    def __init__(self, source):
+        self.source = source
+        self.tokens = []
+        for token in source.tokens:
+            if token.kind == "comment":
+                continue
+            text = source.text[token.start:token.end] if token.kind != "literal" else ""
+            self.tokens.append((token.kind, text, token.start))
+        self.match = self.pair_brackets()
+
+    def text(self, index):
+        if 0 <= index < len(self.tokens):
+            return self.tokens[index][1]
+        return ""
+
+    def is_word(self, index):
+        return 0 <= index < len(self.tokens) and self.tokens[index][0] == "word"
+
+    def line(self, index):
+        return self.source.line(self.tokens[index][2])
+
+    def pair_brackets(self):
+        match = {}
+        stack = []
+        for index, (kind, text, _) in enumerate(self.tokens):
+            if kind != "punct":
+                continue
+            if text in OPEN:
+                stack.append(index)
+            elif text in CLOSE:
+                if not stack or self.text(stack[-1]) != CLOSE[text]:
+                    raise rust_lexer.SourceError(f"unbalanced '{text}' at line {self.line(index)}")
+                opener = stack.pop()
+                match[opener] = index
+                match[index] = opener
+        if stack:
+            raise rust_lexer.SourceError(f"unclosed '{self.text(stack[-1])}' at line {self.line(stack[-1])}")
+        return match
+
+    def skip_attribute(self, index):
+        k = index + 1
+        if self.text(k) == "!":
+            k += 1
+        if self.text(k) != "[":
+            return None
+        return self.match[k] + 1
+
+    def statement_end(self, index, stop):
+        k = index
+        while k < len(self.tokens) and self.text(k) not in stop:
+            if self.text(k) in OPEN:
+                k = self.match[k]
+            elif self.text(k) in CLOSE:
+                return k
+            k += 1
+        return k
+
+    def expression_end(self, index):
+        return self.statement_end(index, (",", ";"))
+
+    def path_qualifier(self, index):
+        if self.text(index - 1) != ":" or self.text(index - 2) != ":":
+            return None
+        k = index - 3
+        if self.text(k) == ">":
+            depth = 0
+            while k >= 0:
+                if self.text(k) == ">":
+                    depth += 1
+                elif self.text(k) == "<":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k -= 1
+            inner = [self.text(j) for j in range(k + 1, index - 3)]
+            if "as" in inner or not inner or not self.is_word(k + 1):
+                return ("other", "")
+            return ("type", self.text(k + 1))
+        if not self.is_word(k):
+            return ("other", "")
+        if self.text(k - 1) == "$" and self.text(k) != "crate":
+            return ("metavariable", "$" + self.text(k))
+        return ("type", self.text(k))
+
+
+def bindings_names(root):
+    path = Path(root) / BINDINGS
+    try:
+        code = Code(rust_lexer.Source(rust_lexer.read_source(path)))
+    except OSError as error:
+        raise rust_lexer.SetupError(f"cannot read {BINDINGS}: {rust_lexer.os_error(error)}") from None
+    except rust_lexer.SourceError as error:
+        raise rust_lexer.SetupError(f"cannot read {BINDINGS}: {error}") from None
+    functions = set()
+    thunks = {}
+    index = 0
+    tokens = code.tokens
+    while index < len(tokens):
+        if code.text(index) == "extern" and code.source.text[tokens[index + 1][2]:].startswith('"C-unwind"'):
+            body = index + 2
+            if code.text(body) == "{":
+                for k in range(body + 1, code.match[body]):
+                    if code.text(k) == "fn" and code.is_word(k + 1):
+                        functions.add(code.text(k + 1))
+                index = code.match[body]
+        elif code.text(index) == "impl" and code.is_word(index + 1) and code.text(index + 2) == "{":
+            body = index + 2
+            for k in range(body + 1, code.match[body]):
+                if code.text(k) == "unsafe" and code.text(k + 1) == "fn" and code.is_word(k + 2):
+                    thunks.setdefault(code.text(index + 1), set()).add(code.text(k + 2))
+            index = code.match[body]
+        index += 1
+    if not functions:
+        raise rust_lexer.SetupError(f'{BINDINGS} declares no C function in an unsafe extern "C-unwind" block')
+    if not thunks:
+        raise rust_lexer.SetupError(f"{BINDINGS} declares no thunk in an impl block")
+    return functions, thunks
+
+
+class FileCheck:
+    def __init__(self, code, functions, thunks):
+        self.code = code
+        self.functions = {name: name for name in functions}
+        self.interfaces = {name: name for name in thunks}
+        self.thunks = thunks
+        self.thunk_names = set().union(*thunks.values())
+        self.excluded = []
+        self.uses = []
+        self.findings = []
+
+    def add(self, index, message):
+        self.findings.append((self.code.line(index), f"{message} {RULE}"))
+
+    def inside(self, ranges, index):
+        return any(start <= index <= end for start, end in ranges)
+
+    def scan_items(self):
+        code = self.code
+        for index in range(len(code.tokens)):
+            text = code.text(index)
+            if text == "#" and self.is_cfg_test(index):
+                self.exclude_module(index)
+            elif text == "use" and code.is_word(index) and code.text(index + 1) != "<":
+                end = code.statement_end(index, (";",))
+                self.uses.append((index, end))
+                self.learn_renames(index, end)
+            elif text == "type" and code.is_word(index + 1) and code.text(index + 2) == "=":
+                end = code.statement_end(index, (";",))
+                if end - 1 > index + 2 and code.is_word(end - 1):
+                    self.learn_alias(code.text(end - 1), code.text(index + 1))
+
+    def is_cfg_test(self, index):
+        code = self.code
+        return (
+            code.text(index + 1) == "["
+            and code.text(index + 2) == "cfg"
+            and code.text(index + 3) == "("
+            and code.text(index + 4) == "test"
+            and code.text(index + 5) == ")"
+            and code.text(index + 6) == "]"
+        )
+
+    def exclude_module(self, index):
+        code = self.code
+        k = index
+        while code.text(k) == "#":
+            after = code.skip_attribute(k)
+            if after is None:
+                return
+            k = after
+        if code.text(k) == "pub":
+            k += 1
+            if code.text(k) == "(":
+                k = code.match[k] + 1
+        if code.text(k) == "mod" and code.is_word(k + 1) and code.text(k + 2) == "{":
+            self.excluded.append((index, code.match[k + 2]))
+
+    def learn_renames(self, start, end):
+        code = self.code
+        for k in range(start + 1, end - 1):
+            if code.text(k) == "as" and code.is_word(k - 1) and code.is_word(k + 1):
+                self.learn_alias(code.text(k - 1), code.text(k + 1))
+
+    def learn_alias(self, original, alias):
+        if original in self.functions:
+            self.functions[alias] = self.functions[original]
+        if original in self.interfaces:
+            self.interfaces[alias] = self.interfaces[original]
+
+    def slang_name(self, index):
+        code = self.code
+        if not code.is_word(index) or code.text(index - 1) in (".", "fn"):
+            return None
+        word = code.text(index)
+        if word in self.thunk_names:
+            qualifier = code.path_qualifier(index)
+            if qualifier is not None:
+                kind, name = qualifier
+                if kind == "metavariable" or (kind == "type" and name == "Self"):
+                    return f"{name}::{word}"
+                if kind == "type" and word in self.thunks.get(self.interfaces.get(name), ()):
+                    return f"{self.interfaces[name]}::{word}"
+        if word in self.functions and code.text(index + 1) != ":":
+            return self.functions[word]
+        return None
+
+    def guard_body(self, index):
+        code = self.code
+        open_paren = index + 1
+        close = code.match[open_paren]
+        comma = code.statement_end(open_paren + 1, (",",))
+        if comma >= close:
+            self.add(index, f"{GUARD} is called without a closure argument")
+            return None
+        start = comma + 1
+        end = close - 1
+        if code.text(end) == ",":
+            end -= 1
+        if code.text(start) == "move":
+            self.add(index, f"the closure passed to {GUARD} is a move closure, which captures by value")
+            start += 1
+        if code.text(start) != "|":
+            self.add(index, f"the second argument of {GUARD} is not a closure literal, so no check can see its call")
+            return None
+        params_end = code.statement_end(start + 1, ("|",))
+        return params_end + 1, end
+
+    def nested_frames(self, start, end):
+        code = self.code
+        frames = []
+        k = start
+        while k <= end:
+            text = code.text(k)
+            if text == "fn" and code.is_word(k + 1):
+                body = k + 2
+                while body <= end and code.text(body) != "{":
+                    body = code.match[body] if code.text(body) in OPEN else body
+                    body += 1
+                if body <= end:
+                    frames.append((k, code.match[body]))
+            elif text == "|" and (k == start or code.text(k - 1) in CLOSURE_BEFORE):
+                params_end = code.statement_end(k + 1, ("|",))
+                frames.append((k, min(code.expression_end(params_end + 1) - 1, end)))
+                k = params_end
+            k += 1
+        return frames
+
+    def run(self):
+        code = self.code
+        self.scan_items()
+        guards = []
+        sites = []
+        for index in range(len(code.tokens)):
+            if self.inside(self.excluded, index) or self.inside(self.uses, index):
+                continue
+            if code.text(index) == GUARD and code.text(index + 1) == "(" and code.text(index - 1) != "fn":
+                body = self.guard_body(index)
+                if body is not None:
+                    guards.append((index, body, self.nested_frames(*body), []))
+                continue
+            callee = self.slang_name(index)
+            if callee is not None:
+                sites.append((index, callee))
+        for index, callee in sites:
+            if code.text(index + 1) != "(":
+                self.add(index, f"{callee} is named without being called, so no check can follow the call")
+                continue
+            enclosing = [guard for guard in guards if guard[1][0] <= index <= guard[1][1]]
+            if not enclosing:
+                self.add(index, f"call of {callee} is not inside a closure passed to {GUARD}")
+                continue
+            guard = max(enclosing, key=lambda found: found[1][0])
+            if self.inside(guard[2], index):
+                self.add(index, f"call of {callee} is inside a closure or fn nested in the closure passed to {GUARD}")
+                continue
+            guard[3].append(callee)
+        for index, _, _, calls in guards:
+            if not calls:
+                self.add(index, f"the closure passed to {GUARD} makes no call into Slang")
+            elif len(calls) > 1:
+                self.add(
+                    index,
+                    f"the closure passed to {GUARD} makes {len(calls)} calls into Slang, "
+                    f"{', '.join(calls)}, instead of exactly one",
+                )
+        self.findings.sort(key=lambda finding: finding[0])
+        return self.findings, len(guards)
+
+
+def check_file(path, functions, thunks):
+    code = Code(rust_lexer.Source(rust_lexer.read_source(path)))
+    findings, _ = FileCheck(code, functions, thunks).run()
+    return findings
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        root = rust_lexer.git("rev-parse", "--show-toplevel").rstrip("\n")
+        functions, thunks = bindings_names(root)
+        paths = argv or rust_lexer.repository_files(CRATE_SOURCES)
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"{NAME}: {error}", sys.stderr)
+        return 2
+    findings = []
+    unreadable = False
+    for path in paths:
+        if Path(path).name == EXCLUDED_FILE:
+            continue
+        shown = rust_lexer.display(path)
+        try:
+            found = check_file(path, functions, thunks)
+        except OSError as error:
+            rust_lexer.emit(f"{NAME}: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"{NAME}: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        findings.extend(f"{shown}:{line}: {message}" for line, message in found)
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

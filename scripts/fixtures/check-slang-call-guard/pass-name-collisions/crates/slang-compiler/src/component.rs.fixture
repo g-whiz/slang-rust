@@ -1,0 +1,25 @@
+fn release<T: ComInterface>(raw: *mut T, blob: &Blob) -> u32 {
+    let release = 1;
+    blob.release();
+    guard::release(raw);
+    Event::release(release);
+    unsafe { T::release(raw) }
+}
+
+fn link<I: ComponentInterface>(raw: *mut I, module: &Module) {
+    component::link(module);
+    unsafe { I::link(raw, out) };
+    unsafe { <IModule as ComponentInterface>::link(raw, out) };
+    module.link().getName();
+}
+
+fn getName(value: u32) -> u32 {
+    getName(value)
+}
+
+macro_rules! release_through_the_crate {
+    ($value:expr) => {
+        $crate::guard::release($value);
+        $crate::release($value)
+    };
+}

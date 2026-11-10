@@ -13,7 +13,7 @@ default:
 
 # Run every check: prose, shell, the self-tests of the checkers, spelling, TOML formatting, workflows, and the Rust checks
 [group('checks')]
-check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-workflow-pins-self-test check-typos check-toml check-workflows check-workflow-pins check-rust
+check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-typos check-toml check-workflows check-workflow-pins check-rust
 
 # Check the prose of Markdown files and of Rust documentation comments in the given files, or in every Markdown and Rust file when none are given
 [group('checks')]
@@ -102,6 +102,18 @@ check-feature-docs *manifests:
 [group('checks')]
 check-feature-docs-self-test:
     @python3 -I scripts/self-test-checker check-feature-docs
+
+# Check that every call of slang-compiler into Slang runs inside the closure of abort_on_exception, in the given files or in every Rust file of crates/slang-compiler/src when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-slang-call-guard *paths:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-slang-call-guard" "$@"
+
+# Check that the Slang call guard checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-slang-call-guard-self-test:
+    @python3 -I scripts/self-test-checker check-slang-call-guard
 
 # Check every GitHub Actions workflow with actionlint
 [group('checks')]
@@ -201,9 +213,9 @@ generate-bindings:
 check-bindings:
     {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=fail -E 'package(bindings-generator) & binary(generator) & test(=ffi::checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk)'
 
-# Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation with and without Slang, doctests, tests, and Miri
+# Run the Rust checks: comments, headings, doctest attributes, feature documentation, the Slang call guard, formatting, unused and denied dependencies, Clippy, documentation with and without Slang, doctests, tests, and Miri
 [group('checks')]
-check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doc-without-slang check-doctest test-gpu check-miri
+check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-slang-call-guard check-fmt check-unused-deps check-deny check-clippy check-doc check-doc-without-slang check-doctest test-gpu check-miri
 
 # Check that the Rust code of the workspace and every Rust file that git tracks or does not ignore, which includes the files that a crate pulls in with include!, is formatted
 [group('checks')]

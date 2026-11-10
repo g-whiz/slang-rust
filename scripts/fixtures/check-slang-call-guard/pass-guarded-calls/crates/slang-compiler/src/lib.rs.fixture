@@ -1,0 +1,53 @@
+use slang_compiler_sys::{IModule, ISlangBlob, slang_createBlob, spGetBuildTagString};
+
+fn name(raw: *mut IModule) -> *const c_char {
+    // SAFETY: the raw pointer is live.
+    unsafe { guard::abort_on_exception("IModule::getName", || IModule::getName(raw)) }
+}
+
+fn size(raw: *mut ISlangBlob) -> usize {
+    unsafe {
+        crate::guard::abort_on_exception("ISlangBlob::getBufferSize", || {
+            slang_compiler_sys::ISlangBlob::getBufferSize(raw)
+        })
+    }
+}
+
+fn qualified(raw: *mut IModule) -> u32 {
+    unsafe { guard::abort_on_exception("IModule::release", || <IModule>::release(raw)) }
+}
+
+fn tag() -> *const c_char {
+    unsafe {
+        guard::abort_on_exception("spGetBuildTagString", || {
+            #[expect(ffi_unwind_calls, reason = "the call runs inside the abort")]
+            spGetBuildTagString()
+        })
+    }
+}
+
+fn blob(bytes: &[u8]) -> *mut ISlangBlob {
+    unsafe {
+        guard::abort_on_exception("slang_createBlob", |  | {
+            let data = bytes.as_ptr().cast();
+            slang_createBlob(data, bytes.len())
+        })
+    }
+}
+
+macro_rules! release_all {
+    ($($interface:ident),+) => {$(
+        impl Release for $interface {
+            unsafe fn release(this: *mut Self) -> u32 {
+                unsafe {
+                    guard::abort_on_exception(
+                        concat!(stringify!($interface), "::release"),
+                        || $interface::release(this),
+                    )
+                }
+            }
+        }
+    )+};
+}
+
+release_all!(IModule, ISlangBlob);

@@ -1,0 +1,3 @@
+check-slang-call-guard: cannot read crates/slang-compiler/src/bad.rs: invalid UTF-8 byte 0xFF at line 1
+check-slang-call-guard: cannot read crates/slang-compiler/src/unbalanced.rs: unbalanced '}' at line 3
+check-slang-call-guard: cannot read crates/slang-compiler/src/unterminated.rs: unterminated string literal at line 2

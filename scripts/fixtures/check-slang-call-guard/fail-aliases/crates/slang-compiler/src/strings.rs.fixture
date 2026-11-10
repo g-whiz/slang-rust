@@ -1,0 +1,9 @@
+use slang_compiler_sys::{IModule as Module, spGetBuildTagString as build_tag};
+
+type Blob = slang_compiler_sys::ISlangBlob;
+
+fn calls(raw: *mut Module, blob: *mut Blob) {
+    unsafe { Module::getName(raw) };
+    unsafe { Blob::release(blob) };
+    unsafe { build_tag() };
+}

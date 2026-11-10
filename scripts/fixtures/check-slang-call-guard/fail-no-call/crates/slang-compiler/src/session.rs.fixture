@@ -1,0 +1,3 @@
+fn count(session: &Session) -> u32 {
+    guard::abort_on_exception("ISession::getLoadedModuleCount", || session.count())
+}

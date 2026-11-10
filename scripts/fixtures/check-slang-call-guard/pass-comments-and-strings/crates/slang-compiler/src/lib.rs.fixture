@@ -1,0 +1,13 @@
+//! Calls IModule::getName(raw) and spGetBuildTagString() through the guard.
+
+/// Calls `IModule::release(raw)`.
+pub fn text() -> [&'static str; 4] {
+    // IModule::release(raw) and spGetBuildTagString()
+    /* ISlangBlob::release(raw) */
+    [
+        "IModule::getName(raw)",
+        r#"spGetBuildTagString()"#,
+        b"slang_createBlob(data, 0)",
+        c"ISlangBlob::release(raw)",
+    ]
+}
