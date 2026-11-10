@@ -19,7 +19,7 @@ No crate in this table is published. Each crate gets a link to its documentation
 | Crate | State | Purpose |
 | --- | --- | --- |
 | `slang-compiler-sys` | Built and not published, with the raw bindings, the pinned Slang version, the linking of the Slang of an installed Vulkan SDK, and the static build of Slang from source | Raw bindings to the native Slang library, generated from the Slang headers |
-| `slang-compiler` | Planned | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
+| `slang-compiler` | Planned, with its design written and no code yet | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
 | `slang-slint` | Planned | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
@@ -59,6 +59,7 @@ just check
 - [Architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md): The crates, how Slang is obtained and pinned, and the roadmap.
 - [Tooling design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/tooling.md): The tool configuration, the recipes, the hooks, the custom checkers, and the continuous integration.
 - [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator, the pin, and the build script.
+- [Design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md): The safe compile and reflection API and the compile-and-reflect example, which are not implemented yet.
 - [Rust coding standards](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-coding-standards.md): The rules for Rust code.
 - [Writing guide](https://github.com/g-whiz/slang-rust/blob/main/docs/writing-documentation.md): The rules for documentation.
 - [Reference list](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-references.md): The external sources behind the coding standards.
