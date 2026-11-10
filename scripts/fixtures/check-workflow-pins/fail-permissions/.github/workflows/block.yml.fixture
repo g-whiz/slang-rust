@@ -1,0 +1,6 @@
+on: push
+permissions:
+  contents: write # needed to push
+  issues: read
+  id-token: write
+jobs: {}

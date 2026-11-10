@@ -25,6 +25,9 @@
       "Bash(just check-unused-deps)",
       "Bash(just check-miri)",
       "Bash(just check-features)",
+      "Bash(just check-workflows)",
+      "Bash(just check-workflow-pins:*)",
+      "Bash(just check-workflow-pins-self-test)",
       "Bash(shellcheck:*)",
       "Bash(git status:*)"
     ]

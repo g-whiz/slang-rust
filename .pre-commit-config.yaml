@@ -55,6 +55,20 @@ repos:
         files: \.toml$
         pass_filenames: false
         stages: [pre-commit]
+      - id: check-workflows
+        name: check-workflows
+        entry: just check-workflows
+        language: system
+        files: ^\.github/
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check-workflow-pins
+        name: check-workflow-pins
+        entry: just check-workflow-pins
+        language: system
+        files: ^\.github/
+        pass_filenames: false
+        stages: [pre-commit]
       - id: check-commit-message
         name: check-commit-message
         entry: just check-commit-message

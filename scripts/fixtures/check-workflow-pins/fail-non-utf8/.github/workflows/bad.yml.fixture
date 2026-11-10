@@ -1,0 +1,5 @@
+on: push
+name: <<FF>>
+permissions:
+  contents: read
+jobs: {}

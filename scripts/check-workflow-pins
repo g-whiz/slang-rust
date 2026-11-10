@@ -1,0 +1,213 @@
+#!/usr/bin/env -S python3 -I
+import re
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-workflow-pins: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-workflow-pins [workflow.yml | action.yml ...]
+
+Checks the GitHub Actions rules of Section 8.2 of docs/design/tooling.md
+that a tool can check. In every workflow and composite action, reports a
+uses: whose reference is not a full 40-character lowercase hexadecimal
+commit SHA, except a local action, which starts with ./, and a docker://
+reference pinned by an @sha256: digest. In every workflow, also reports
+the pull_request_target event under the top-level on: key, a workflow
+without a top-level permissions: key, and a top-level permission other
+than read or none, such as write-all or contents: write. A file named
+action.yml or action.yaml is read as a composite action, and any other
+file as a workflow.
+The files are read line by line, not with a YAML parser, so these limits
+apply: keys are read only in block style, one per line, or as the value
+of permissions: in a one-line flow mapping such as { contents: read }.
+The text of a block scalar, such as the script of run: |, is skipped. A
+uses: inside a flow mapping, or a scalar continued over several lines
+without a block indicator, is not read. The text after a # that starts a
+line or follows a space is read as a comment, except inside quotes.
+With no files, checks every .yml and .yaml file under .github/workflows/
+and every action.yml and action.yaml file under .github/actions/ in the
+git repository that contains the current directory, tracked or not
+ignored, and prints paths relative to its root. Prints one path:line:
+message line per finding. Exits 1 if there are findings, and 2 if a file
+cannot be read, is not valid UTF-8, or the setup is broken, after
+checking every readable file."""
+
+KEY = re.compile(r"""^(\s*)((?:-\s+)?)(["']?)([A-Za-z0-9_-]+)\3\s*:(?:\s+(.*))?$""")
+BLOCK_SCALAR = re.compile(r"^[|>][0-9+-]*$")
+COMMIT_SHA = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
+DOCKER_DIGEST = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-f]{64}$")
+PULL_REQUEST_TARGET = re.compile(r"(^|[^A-Za-z0-9_-])pull_request_target([^A-Za-z0-9_-]|$)")
+READ_ONLY = ("read", "none")
+WORKFLOW_PATTERNS = (".github/workflows/*.yml", ".github/workflows/*.yaml")
+ACTION_PATTERNS = (".github/actions/*/action.yml", ".github/actions/*/action.yaml")
+
+
+def strip_comment(line):
+    quote = None
+    for index, character in enumerate(line):
+        if quote:
+            if character == quote:
+                quote = None
+        elif character in "'\"" and (index == 0 or line[index - 1] in " \t[{,:"):
+            quote = character
+        elif character == "#" and (index == 0 or line[index - 1] in " \t"):
+            return line[:index].rstrip()
+    return line.rstrip()
+
+
+def unquote(value):
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1]
+    return value
+
+
+def logical_lines(text):
+    if text.startswith(rust_lexer.BOM):
+        text = text[1:]
+    block_indent = None
+    for number, raw in enumerate(text.split("\n"), start=1):
+        raw = raw.rstrip("\r")
+        indent = len(raw) - len(raw.lstrip(" "))
+        if block_indent is not None:
+            if not raw.strip() or indent > block_indent:
+                continue
+            block_indent = None
+        line = strip_comment(raw)
+        if not line.strip() or line.startswith(("---", "...")):
+            continue
+        match = KEY.match(line)
+        if match is None:
+            yield number, indent, None, line.strip()
+            continue
+        key_column = len(match.group(1)) + len(match.group(2))
+        value = (match.group(5) or "").strip()
+        if BLOCK_SCALAR.match(value):
+            block_indent = key_column
+            value = ""
+        yield number, key_column, match.group(4), value
+
+
+def check_uses(value):
+    reference = unquote(value)
+    if reference.startswith("./"):
+        return None
+    if reference.startswith("docker://"):
+        if DOCKER_DIGEST.match(reference):
+            return None
+        return f"uses: '{reference}' is a docker reference not pinned by an @sha256: digest"
+    if COMMIT_SHA.match(reference):
+        return None
+    return f"uses: '{reference}' is not pinned to a full 40-character commit SHA"
+
+
+def flow_permissions(value):
+    inner = value[1:-1].strip() if value.endswith("}") else value[1:]
+    pairs = []
+    for item in inner.split(","):
+        if not item.strip():
+            continue
+        name, _, level = item.partition(":")
+        pairs.append((unquote(name.strip()), unquote(level.strip())))
+    return pairs
+
+
+def check_permission(name, level):
+    if level in READ_ONLY:
+        return None
+    return f"top-level permission '{name}: {level}' grants more than read access"
+
+
+def check_text(text, workflow):
+    findings = []
+    top = None
+    permissions_line = None
+    permissions_entries = 0
+    for number, column, key, value in logical_lines(text):
+        if key == "uses":
+            message = check_uses(value)
+            if message:
+                findings.append((number, message))
+        if not workflow:
+            continue
+        if column == 0 and key is not None:
+            if top == "permissions" and permissions_entries == 0:
+                findings.append((permissions_line, "top-level permissions key has no value"))
+            top = key
+            if key == "permissions":
+                permissions_line = number
+                permissions_entries = 0
+                if value:
+                    permissions_entries = 1
+                    level = unquote(value)
+                    if level.startswith("{"):
+                        for name, entry in flow_permissions(level):
+                            message = check_permission(name, entry)
+                            if message:
+                                findings.append((number, message))
+                    elif level != "read-all":
+                        findings.append((number, f"top-level permissions '{level}' grant more than read access"))
+        elif top == "permissions" and column > 0:
+            permissions_entries += 1
+            name = key if key is not None else value
+            message = check_permission(name, unquote(value) if key is not None else "")
+            if message:
+                findings.append((number, message))
+        if top in ("on", "true") and PULL_REQUEST_TARGET.search(value if column == 0 else f"{key or ''} {value}"):
+            findings.append((number, "workflow uses the pull_request_target event"))
+    if workflow:
+        if permissions_line is None:
+            findings.append((1, "workflow has no top-level permissions key"))
+        elif top == "permissions" and permissions_entries == 0:
+            findings.append((permissions_line, "top-level permissions key has no value"))
+    return findings
+
+
+def is_action(path):
+    return Path(path).name in ("action.yml", "action.yaml")
+
+
+def emit(text, stream=sys.stdout):
+    print(text.encode("ascii", "backslashreplace").decode("ascii"), file=stream)
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        paths = argv or rust_lexer.repository_files(*WORKFLOW_PATTERNS, *ACTION_PATTERNS)
+    except rust_lexer.SetupError as error:
+        emit(f"check-workflow-pins: {error}", sys.stderr)
+        return 2
+    findings = []
+    unreadable = False
+    for path in paths:
+        shown = rust_lexer.display(path)
+        try:
+            found = check_text(rust_lexer.read_source(path), not is_action(path))
+        except OSError as error:
+            emit(f"check-workflow-pins: cannot read {shown}: {error.strerror}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            emit(f"check-workflow-pins: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        found.sort(key=lambda finding: finding[0])
+        findings.extend(f"{shown}:{number}: {message}" for number, message in found)
+    for finding in findings:
+        emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

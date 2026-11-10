@@ -1,0 +1,25 @@
+name: CI
+"on":
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  issues: none
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: "./.github/actions/setup"
+      - uses: docker://alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - name: Mention the forbidden words in a script
+        run: |
+          echo "uses: actions/checkout@v4"
+          echo "permissions: write-all"
+        env:
+          EVENT: pull_request_target
+  reuse:
+    uses: owner/repo/.github/workflows/reusable.yml@3d3c42e5aac5ba805825da76410c181273ba90b1
+    permissions:
+      contents: write

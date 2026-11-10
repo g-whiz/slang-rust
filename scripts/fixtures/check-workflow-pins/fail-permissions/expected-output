@@ -1,0 +1,6 @@
+.github/workflows/block.yml:3: top-level permission 'contents: write' grants more than read access
+.github/workflows/block.yml:5: top-level permission 'id-token: write' grants more than read access
+.github/workflows/empty.yml:2: top-level permissions key has no value
+.github/workflows/flow.yml:2: top-level permission 'pull-requests: write' grants more than read access
+.github/workflows/missing.yml:1: workflow has no top-level permissions key
+.github/workflows/write-all.yml:2: top-level permissions 'write-all' grant more than read access
