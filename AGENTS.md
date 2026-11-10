@@ -114,14 +114,16 @@ The published crates are planned for crates.io, including docs.rs builds that wo
 
 The development container provides this environment:
 
-- Rust stable 1.99.1 with Clippy and rustfmt. No nightly toolchain and no Miri yet.
-- cargo-nextest, cargo-deny, cargo-insta, cargo-expand, the bindgen command-line interface (CLI), `just`, pre-commit, shellcheck, and `gh`.
-- The LunarG Vulkan SDK 1.4.363.1 at `$VULKAN_SDK`, which ships Slang. Its `slangc` reports `2026.17-25-gc7954ebd1`, the headers are under `$VULKAN_SDK/include/slang`, `libslang-compiler.so` is under `$VULKAN_SDK/lib`, and the pkg-config file is `slang-compiler.pc`. `$VULKAN_SDK/lib` is not on `LD_LIBRARY_PATH`.
+- Rust stable 1.99.1, the default toolchain, with Clippy, rustfmt, rust-src, and llvm-tools.
+- A nightly toolchain with Miri and rust-src, used only for checkers.
+- cargo-nextest, cargo-deny, cargo-insta, cargo-expand, cargo-semver-checks, cargo-hack, cargo-machete, cargo-llvm-cov, the bindgen command-line interface (CLI), typos, taplo, actionlint, `just`, pre-commit, shellcheck, `gh`, CMake, and Ninja.
+- GitHub's Secure Shell (SSH) host keys in the known hosts file.
+- The LunarG Vulkan SDK 1.4.363.1 at `$VULKAN_SDK`, which ships Slang. Its `slangc` reports `2026.17-25-gc7954ebd1`, the headers are under `$VULKAN_SDK/include/slang`, `libslang-compiler.so` is under `$VULKAN_SDK/lib`, and the pkg-config file is `slang-compiler.pc`. A login shell has `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH`. A process that no login shell started does not, until the next rebuild of the container image applies the fix that slang-rs-env already contains.
 - The Slang source tree at `/opt/slang`, at the same commit as the SDK's Slang. It is source only and not built.
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-These tools are not installed yet and are planned additions to the container image, which slang-rs-env defines: cargo-semver-checks, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, actionlint, and the nightly toolchain with Miri. Section 4.8 of the coding standard lists what each one will check, and Section 11 of `docs/design/tooling.md` lists every requirement on the image.
+No recipe runs cargo-semver-checks, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, actionlint, or Miri yet. Milestone M0 adds the recipes, except the one for cargo-semver-checks, which arrives with the first release. Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 11 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
 
 ## Development Workflow
 

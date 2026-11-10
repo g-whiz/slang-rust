@@ -27,9 +27,9 @@ This document applies to every Rust crate, build script, example, test, and tool
 
 Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are deferred and out of scope. Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`.
 
-This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate. This document does not name `just` recipes or define continuous integration (CI) workflows. The recipes arrive with the change that adds the lint and tool configuration, and a design document may specify them first. A design document will define the CI workflows.
+This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate. This document does not name `just` recipes or define continuous integration (CI) workflows. `docs/design/tooling.md` specifies them.
 
-Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3, unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint. Statements in this document that describe what a lint or a tool reported come from that run.
+Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3, unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint. The commands of Section 4.8 for the other tools were run on a scratch workspace with cargo-semver-checks 0.51.0, cargo-hack 0.6.46, cargo-machete 0.9.2, cargo-llvm-cov 0.9.1, typos 1.52.1, taplo 0.10.0, actionlint 1.7.12, and the nightly toolchain 1.102.0 of 2026-11-09 with Miri. Statements in this document that describe what a lint or a tool reported come from those runs.
 
 ### 1.2. How to Use This Document
 
@@ -454,7 +454,7 @@ Each entry that this section first recorded was run on the toolchain of Section 
 
 ### 4.8. Other Tools
 
-Each deterministic check that is not a lint belongs to one tool. A tool marked "Planned" is not in the development container yet, so each rule it would enforce stays a judgement rule until the container provides the tool and the check runs it, as Section 3.5 of the writing guide states.
+Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, and the table marks each one as available. No recipe runs any of them yet, and none of their configuration exists in the repository (Section 4.1). Milestone M0 adds the recipes and the configuration. Until the check runs a tool, each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
 
 | Tool | What it owns | Status |
 | --- | --- | --- |
@@ -465,33 +465,49 @@ Each deterministic check that is not a lint belongs to one tool. A tool marked "
 | `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Available |
 | `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Available |
 | `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Available |
-| `cargo semver-checks` | Breaking changes to the public API against the last release | Planned |
-| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset` | Planned |
-| `cargo machete` | Unused dependencies | Planned |
-| `cargo llvm-cov` | Test coverage | Planned |
-| `typos` | Spelling mistakes in identifiers and text | Planned |
-| `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Planned |
-| `actionlint` | GitHub Actions workflow files | Planned |
-| Miri | Undefined behaviour in unsafe code under test (TEST-7), run with `cargo miri test` on the nightly toolchain | Planned |
+| `cargo semver-checks` | Breaking changes to the public API against the last release | Available |
+| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Available |
+| `cargo machete` | Unused dependencies | Available |
+| `cargo llvm-cov` | Test coverage | Available |
+| `typos` | Spelling mistakes in identifiers and text | Available |
+| `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Available |
+| `actionlint` | GitHub Actions workflow files | Available |
+| Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain | Available |
 
-These commands run the available checks:
+These commands run the checks of the tools from `cargo fmt` to `cargo deny`:
 
 ```sh
 cargo fmt --all --check
 CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features
-CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features
+CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=warn
 CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
 CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
 cargo deny check
 ```
 
-`CARGO_BUILD_WARNINGS=deny` is stable and needs no `-Z` flag. It fails `cargo check`, `cargo clippy`, and `cargo nextest run` on any warning. It fails `cargo doc` on any rustdoc lint warning, so the documentation command needs no `RUSTDOCFLAGS` setting. It fails `cargo test --doc` on warnings in the library build, but not on warnings in the code inside a doctest, which no tool reports (Section 7.5 of the writing guide).
+These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV:
+
+```sh
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --each-feature
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --feature-powerset
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --rust-version
+cargo machete
+cargo llvm-cov nextest --workspace --all-features --no-tests=warn
+cargo +nightly miri nextest run --workspace --no-tests=warn
+typos
+taplo fmt --check
+actionlint
+```
+
+The command for `cargo semver-checks` is chosen with the first release, because the tool fails on a crate that has no published version. The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report and prints a summary. That command fails with "no coverage data found" while no crate contains a function, so no CI job runs it before a crate has code. Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that. Miri runs through nextest, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call that Miri does not support.
+
+`CARGO_BUILD_WARNINGS=deny` is stable and needs no `-Z` flag. It fails `cargo check`, `cargo hack check`, `cargo clippy`, and `cargo nextest run` on any warning. It fails `cargo doc` on any rustdoc lint warning, so the documentation command needs no `RUSTDOCFLAGS` setting. It fails `cargo test --doc` on warnings in the library build, but not on warnings in the code inside a doctest, which no tool reports (Section 7.5 of the writing guide).
 
 The doctest command runs on the whole workspace, which skips packages without a library target. The form `cargo test --doc -p <package>` fails with "no library targets found" on a package that has only binary targets.
 
-An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence, and MUST either give every path dependency between workspace members a version or set `bans.allow-wildcard-paths = true`, because `cargo deny check` fails on the workspace otherwise.
+An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence, and MUST give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
 
-This section names no `just` recipes. The recipes arrive with the change that adds the lint and tool configuration, and a design document may specify them first (Section 1.1). The CI workflows come from a design document, which decides how these commands are grouped.
+This section names no `just` recipes. `docs/design/tooling.md` specifies the recipes and the CI workflows, and decides how these commands are grouped.
 
 ## 5. API Design
 
@@ -915,7 +931,7 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 **TEST-6.** Test the failure paths, not only success: malformed shader source, invalid UTF-8, interior NUL bytes, missing files, and each branch of code that takes a lock. Assert that each returns the documented error kind, and inject Slang failures through the fake implementation of TEST-7. Reason: failure paths rarely run in normal use, so users find their bugs, and a panic on malformed input violates ERR-5. [IR-36] [IR-84] [S-10]
 
-**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness. Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. Miri is a planned tool (Section 4.8). [S-8] [S-10] [IR-27]
+**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness. Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. Miri is installed, and no recipe runs it yet (Section 4.8). [S-8] [S-10] [IR-27]
 
 **TEST-8.** Keep two tests for the bindings: one that runs the binding generator into a temporary location and fails if the result differs from the checked-in bindings, and one that references the native symbols, so that a broken link fails a test instead of a user's build. Reason: checked-in bindings diverge silently from the generator and the headers, and the linker resolves a symbol only when code uses it. [S-3] [S-4]
 
@@ -1034,7 +1050,7 @@ The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep
 
 These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it. Defects in GPU drivers lie below every crate here. Attacks on the repository itself, such as a malicious change, are a matter of access control, not of coding rules.
 
-The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, until the configuration of Section 4 exists and the planned tools join the container, the rules they would enforce depend on review. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
+The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, until the configuration of Section 4 exists and the check runs the tools of Section 4.8, the rules they would enforce depend on review. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
 
 ## 21. References
 
@@ -1161,4 +1177,5 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-10: Marked the tools of Section 4.8 as installed, added their verified commands with `--no-tests=warn` and the nextest form of Miri, corrected the `deny.toml` rule on path dependencies, and recorded the arguments of the `coverage` recipe.
 - 2026-11-10: Initial version.
