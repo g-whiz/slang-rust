@@ -56,6 +56,10 @@ jobs:
           mkdir -p "${HOME}/.local/bin"
           install -m 0755 "${work}/actionlint" "${HOME}/.local/bin/actionlint"
           printf '%s\n' "${HOME}/.local/bin" >>"${GITHUB_PATH}"
+      - name: Install libclang for the tests of the binding generator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libclang-dev
       - name: Run just check
         run: just check
 

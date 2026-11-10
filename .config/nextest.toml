@@ -11,3 +11,8 @@ default-filter = "not test(/(^|::)hw_gpu::/)"
 # Every profile inherits `default-filter` from `default`, so this one sets it.
 [profile.hw-gpu]
 default-filter = "all()"
+
+# Miri cannot call foreign code, so the tests that call Slang or libclang sit in
+# modules named `ffi`, which Miri skips together with the GPU tiers.
+[profile.default-miri]
+default-filter = "not test(/(^|::)(ffi|gpu|hw_gpu)::/)"

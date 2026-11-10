@@ -1,0 +1,17 @@
+[package]
+name = "bindings-generator"
+description = "Generates the raw Rust bindings of slang-compiler-sys from the Slang headers."
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+clang.workspace = true
+
+[lints]
+workspace = true
