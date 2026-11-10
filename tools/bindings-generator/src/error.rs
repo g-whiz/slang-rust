@@ -8,7 +8,8 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
-    /// A file could not be read, or the header directory does not exist.
+    /// The header directory could not be read, such as when it does not
+    /// exist.
     Io,
     /// libclang, the C and C++ parser library of the LLVM project, could not
     /// be loaded, or it failed to parse a file.
