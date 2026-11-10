@@ -1,40 +1,22 @@
 use std::ffi::c_void;
 use std::fmt;
 use std::mem::ManuallyDrop;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
-use slang_compiler_sys::{
-    IGlobalSession, ISlangBlob, ISlangUnknown, Interface, SlangResult, SlangUUID,
-};
+use slang_compiler_sys::{IGlobalSession, ISlangBlob, Interface};
 
-use crate::error::{Operation, Result};
 use crate::guard::{self, Release};
-use crate::mapping;
 
 /// The counting methods of a generated interface type of the Slang API.
 ///
 /// # Safety
 ///
-/// An implementer guarantees that `Self` is a generated interface type whose
-/// [`Interface::UUID`] identifies that interface, and that each function calls
-/// the method of the same name of `ISlangUnknown` through the vtable of the
-/// object that `this` points to. Breaking either condition is undefined
-/// behaviour, because [`Owned`] then counts or casts through the wrong vtable
-/// entry.
+/// An implementer guarantees that `Self` is a generated interface type, and
+/// that each function calls the method of the same name of `ISlangUnknown`
+/// through the vtable of the object that `this` points to. Breaking either
+/// condition is undefined behaviour, because [`Owned`] then counts through the
+/// wrong vtable entry.
 pub(crate) unsafe trait ComInterface: Interface {
-    /// Calls `queryInterface` on the object.
-    ///
-    /// # Safety
-    ///
-    /// `this` points to a live object that implements `Self`, `uuid` points to
-    /// a live identifier, and `out` points to a live pointer that the call may
-    /// write. Breaking any of them is undefined behaviour.
-    unsafe fn query_interface(
-        this: *mut Self,
-        uuid: *const SlangUUID,
-        out: *mut *mut c_void,
-    ) -> SlangResult;
-
     /// Calls `addRef` on the object.
     ///
     /// # Safety
@@ -55,22 +37,10 @@ pub(crate) unsafe trait ComInterface: Interface {
 
 macro_rules! com_interfaces {
     ($($interface:ident),+ $(,)?) => {$(
-        // SAFETY: `$interface` is a generated interface type, the generator
-        // attached the identifier of the same interface to it (COM-4), and its
+        // SAFETY: `$interface` is a generated interface type, and its
         // generated thunks call the methods of `ISlangUnknown` through the
         // object's own vtable (COM-9).
         unsafe impl ComInterface for $interface {
-            unsafe fn query_interface(
-                this: *mut Self,
-                uuid: *const SlangUUID,
-                out: *mut *mut c_void,
-            ) -> SlangResult {
-                // SAFETY: the caller upholds the contract of
-                // `ComInterface::query_interface`, which is the contract of
-                // the thunk.
-                unsafe { $interface::queryInterface(this, uuid, out) }
-            }
-
             unsafe fn add_ref(this: *mut Self) -> u32 {
                 // SAFETY: the caller guarantees that `this` points to a live
                 // object that implements the interface.
@@ -87,7 +57,7 @@ macro_rules! com_interfaces {
     )+};
 }
 
-com_interfaces!(ISlangUnknown, ISlangBlob, IGlobalSession);
+com_interfaces!(ISlangBlob, IGlobalSession);
 
 /// An owning interface pointer, which holds exactly one reference to a Slang
 /// object (SLC-2).
@@ -152,40 +122,6 @@ impl<T: ComInterface> Owned<T> {
     pub(crate) fn into_raw(self) -> NonNull<T> {
         ManuallyDrop::new(self).raw
     }
-
-    /// Returns an owning pointer to the interface `U` of the same object, from
-    /// `queryInterface` (COM-3).
-    ///
-    /// A failure is classified for `operation`, so an object that does not
-    /// implement `U` is reported with the kind that the mapping of SLC-11
-    /// gives to `SLANG_E_NO_INTERFACE`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no operation of the first step needs another interface of an object, and the unit tests use this cast"
-        )
-    )]
-    pub(crate) fn cast<U: ComInterface>(&self, operation: Operation) -> Result<Owned<U>> {
-        let uuid = U::UUID;
-        let mut out: *mut c_void = ptr::null_mut();
-        let result = {
-            let _raised = guard::raise();
-            // SAFETY: `self.raw` points to a live object that implements `T`
-            // (Section 11.1 of `docs/design/slang-compiler.md`), `uuid` and
-            // `out` are live locals, and the call runs with the Slang call
-            // guard raised (SLC-28).
-            unsafe { T::query_interface(self.raw.as_ptr(), &raw const uuid, &raw mut out) }
-        };
-        mapping::check(operation, result, crate::Diagnostics::default())?;
-        let raw = NonNull::new(out.cast::<U>())
-            .ok_or_else(|| mapping::null(operation, crate::Diagnostics::default()))?;
-        // SAFETY: `queryInterface` succeeded, so `raw` points to the same live
-        // object as the interface `U`, whose identifier the call received, and
-        // carries one new reference, which Section 5.3 of
-        // `docs/design/slang-compiler.md` records.
-        Ok(unsafe { Owned::adopt(raw) })
-    }
 }
 
 impl<T: ComInterface> Clone for Owned<T> {
@@ -231,11 +167,9 @@ unsafe fn release_erased<T: ComInterface>(raw: NonNull<c_void>) {
 
 #[cfg(test)]
 mod tests {
-    use slang_compiler_sys::{IGlobalSession, ISlangBlob, ISlangUnknown};
+    use slang_compiler_sys::ISlangBlob;
 
     use super::Owned;
-    use crate::ErrorKind;
-    use crate::error::Operation;
     use crate::fake::{Event, FakeBlob, Log};
 
     #[test]
@@ -292,53 +226,6 @@ mod tests {
                 Event::release("blob", 1),
                 Event::release("blob", 0),
                 Event::freed("blob"),
-            ]
-        );
-    }
-
-    #[test]
-    fn cast_to_an_implemented_interface_adopts_the_queried_reference() {
-        let log = Log::new();
-        // SAFETY: the new fake blob carries one reference, which `adopt` takes.
-        let blob = unsafe { Owned::<ISlangBlob>::adopt(FakeBlob::create(&log, "blob", b"")) };
-        let unknown = blob
-            .cast::<ISlangUnknown>(Operation::CreateGlobalSession)
-            .expect("the fake blob implements ISlangUnknown");
-        assert_eq!(unknown.as_ptr().cast::<ISlangBlob>(), blob.as_ptr());
-        drop(blob);
-        drop(unknown);
-        assert_eq!(
-            log.events(),
-            [
-                Event::query("blob", true),
-                Event::add_ref("blob", 2),
-                Event::release("blob", 1),
-                Event::release("blob", 0),
-                Event::freed("blob"),
-            ]
-        );
-    }
-
-    #[test]
-    fn cast_to_an_interface_the_object_lacks_fails_with_unsupported() {
-        let log = Log::new();
-        // SAFETY: the new fake blob carries one reference, which `adopt` takes.
-        let blob = unsafe { Owned::<ISlangBlob>::adopt(FakeBlob::create(&log, "blob", b"")) };
-        let error = blob
-            .cast::<IGlobalSession>(Operation::CreateGlobalSession)
-            .expect_err("the fake blob does not implement IGlobalSession");
-        assert_eq!(error.kind(), ErrorKind::Unsupported);
-        assert_eq!(
-            error.code(),
-            Some(slang_compiler_sys::SlangResult::SLANG_E_NO_INTERFACE.0)
-        );
-        drop(blob);
-        assert_eq!(
-            log.events(),
-            [
-                Event::query("blob", false),
-                Event::release("blob", 0),
-                Event::freed("blob")
             ]
         );
     }
