@@ -1,35 +1,11 @@
-//! Links the Slang library of the Vulkan SDK that `VULKAN_SDK` names, after
-//! checking that its build tag is the build tag of the pin.
+//! Links the Slang library that the pin names: the shared library of the
+//! Vulkan SDK that `VULKAN_SDK` names, after checking its build tag, or, when
+//! `SLANG_SOURCE_DIR` is present, a static library that it builds from the
+//! Slang source tree that the variable names, after checking its commit.
 
 include!("pin.rs");
 include!("route.rs");
-
-struct System;
-
-impl Host for System {
-    fn var(&self, name: &str) -> Option<OsString> {
-        std::env::var_os(name)
-    }
-
-    fn read(&self, path: &Path) -> io::Result<String> {
-        std::fs::read_to_string(path)
-    }
-
-    fn kind(&self, path: &Path) -> io::Result<EntryKind> {
-        let metadata = std::fs::metadata(path)?;
-        Ok(if metadata.is_dir() {
-            EntryKind::Directory
-        } else if metadata.is_file() {
-            EntryKind::File
-        } else {
-            EntryKind::Other
-        })
-    }
-
-    fn host_os(&self) -> &str {
-        std::env::consts::OS
-    }
-}
+include!("system.rs");
 
 fn main() -> Result<(), BuildError> {
     let mut directives = Vec::new();

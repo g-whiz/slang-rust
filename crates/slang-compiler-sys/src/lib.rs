@@ -117,10 +117,15 @@
 //!
 //! # Linking Slang
 //!
-//! The build script of this crate links the Slang shared library of an
-//! installed LunarG Vulkan SDK, which has to be the SDK that
-//! [`VULKAN_SDK_VERSION`] names. The SDK is available from
-//! <https://vulkan.lunarg.com>. When the
+//! The build script of this crate obtains Slang in one of two ways. By
+//! default, it links the Slang shared library of an installed LunarG Vulkan
+//! SDK. When the environment variable `SLANG_SOURCE_DIR` is present, whatever
+//! its value, it builds Slang from source instead and links it statically. No
+//! Cargo feature selects the way, and the build never falls back from one way
+//! to the other.
+//!
+//! On the default way, the SDK has to be the one that [`VULKAN_SDK_VERSION`]
+//! names, which is available from <https://vulkan.lunarg.com>. When the
 //! build script runs, it reads the environment variable `VULKAN_SDK`, which
 //! holds the absolute path of the directory of the SDK that contains
 //! `include/slang` and `lib`. That is the directory `x86_64` of the SDK on
@@ -153,11 +158,52 @@
 //! library of the host. Commands that do not link, such as `cargo check` and
 //! `cargo clippy`, then work, and a build that links fails in the linker.
 //!
-//! The environment variable `SLANG_SOURCE_DIR` is reserved for the other way
-//! to obtain Slang, which builds Slang from a source tree and links it
-//! statically. This version of the crate does not implement it. When
-//! `SLANG_SOURCE_DIR` is present, whatever its value, the build stops with an
-//! error, and it does not fall back to the Vulkan SDK.
+//! On the static way, the build script does not read `VULKAN_SDK`.
+//! `SLANG_SOURCE_DIR` holds the absolute path of the top-level directory of a
+//! git clone of Slang at the commit [`SLANG_COMMIT`], with its submodules.
+//! The build script asks git about that directory, and it stops the build
+//! when the directory is not the top level of a git work tree, when its commit
+//! differs from [`SLANG_COMMIT`], when a tracked file or a submodule differs
+//! from that commit as `git status` reports it, or when a submodule that the
+//! build needs is missing. A tree without git metadata, such as a source
+//! archive, is refused, because its commit cannot be verified. The build
+//! script runs git so that it does not write to the clone, and it never
+//! changes the clone.
+//!
+//! The static build needs the programs `git`, `cmake` 3.22 or later, and
+//! `ninja`, and a C++ compiler that `cmake` finds on the build machine, and it
+//! downloads nothing. Slang's build writes into its source tree, so the build
+//! script copies the files that git tracks in the clone and in the submodules
+//! that the build uses into `slang/source` in the output directory of the
+//! build script. It then configures and builds that copy with `cmake` and
+//! `ninja`, keeps the build tree in `slang/build`, and puts the static
+//! libraries in `slang/lib`. The first build takes several minutes. A later run of the
+//! build script copies and configures again only when `SLANG_SOURCE_DIR`, the
+//! commit, or the configuration has changed, and `ninja` rebuilds only what
+//! changed. The output of `cmake` and `ninja` goes to the file `slang/build.log`
+//! in the output directory, and a step that fails stops the build with an
+//! error that names the log and shows its last lines. After the build, the
+//! build script checks that the built Slang reports the build tag
+//! [`SLANG_BUILD_TAG`].
+//!
+//! The static build then links the static libraries `slang-compiler`,
+//! `compiler-core`, `core`, `cmark-gfm`, `miniz`, and `lz4`, followed by the
+//! C++ standard library of the target, which is `stdc++` on Linux, `c++` on
+//! macOS, and none with the Microsoft toolchain. It supports Linux with the
+//! GNU C library, macOS, and Windows with the Microsoft toolchain, and it
+//! stops the build when the target differs from the host, because Slang's
+//! build runs programs that it builds. A program linked this way needs no
+//! Slang library at run time.
+//!
+//! The static build leaves out `slang-glslang`, the shared module of Slang
+//! that holds glslang and SPIRV-Tools. Compiling to SPIR-V still works, but
+//! Slang neither optimizes nor validates the SPIR-V, and it says nothing about
+//! that, while output as SPIR-V assembly fails, as does every other feature
+//! that needs the module. The statically linked Slang still loads a
+//! `slang-glslang` shared library by name when the dynamic loader finds one,
+//! such as the one in `$VULKAN_SDK/lib` when that directory is on the library
+//! path, and those features then work with that library. The standard
+//! modules of Slang, such as `slang.neural`, are not built either.
 //!
 //! When the environment variable `DOCS_RS` is present, whatever its value, as
 //! on docs.rs, the build script reads nothing else and links nothing, so the
@@ -166,12 +212,16 @@
 //! The manifest key `links` of this crate is `slang-compiler`, so the build
 //! script of a crate that depends on this one reads the directory of the
 //! Slang headers from `DEP_SLANG_COMPILER_INCLUDE` and the directory of the
-//! library from `DEP_SLANG_COMPILER_LIB`. They are `$VULKAN_SDK/include` and
-//! `$VULKAN_SDK/lib`, and neither is set when `DOCS_RS` is present.
+//! library from `DEP_SLANG_COMPILER_LIB`. On the default way, they are
+//! `$VULKAN_SDK/include`, which holds the headers under `slang`, and
+//! `$VULKAN_SDK/lib`. On the static way, they are `slang/build/Release/include`
+//! and `slang/lib` in the output directory of the build script, and the
+//! former holds the headers and `slang-tag-version.h` directly. Neither is set
+//! when `DOCS_RS` is present.
 //!
-//! The dynamic loader of the operating system finds the shared library when
-//! the program starts, and the build script cannot tell it where the library
-//! is, so the environment of the program does:
+//! On the default way, the dynamic loader of the operating system finds the
+//! shared library when the program starts, and the build script cannot tell
+//! it where the library is, so the environment of the program does:
 //!
 //! - Linux: `$VULKAN_SDK/lib` is on `LD_LIBRARY_PATH`. The setup script of
 //!   the SDK puts it there.
