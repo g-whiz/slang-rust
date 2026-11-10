@@ -10,7 +10,7 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. It does not link the Slang library yet, because its build script arrives later in milestone M1 of the roadmap. The binding generator is the other crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version. Building Slang from source arrives later in milestone M1 of the roadmap. The binding generator is the other crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
@@ -18,7 +18,7 @@ No crate in this table is complete. Each crate gets a link to its documentation 
 
 | Crate | State | Purpose |
 | --- | --- | --- |
-| `slang-compiler-sys` | In progress, with the raw bindings and the pinned Slang version present, and no linking of Slang yet | Raw bindings to the native Slang library, generated from the Slang headers |
+| `slang-compiler-sys` | In progress, with the raw bindings, the pinned Slang version, and the linking of the Slang of an installed Vulkan SDK present, and no build from source yet | Raw bindings to the native Slang library, generated from the Slang headers |
 | `slang-compiler` | Planned | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
@@ -28,11 +28,13 @@ The repository also holds the binding generator, which writes the raw bindings, 
 
 ## Obtaining Slang
 
-The crates will obtain the native Slang library in one of two ways. By default, the build will use the Slang that ships in an installed LunarG Vulkan software development kit (SDK) and link it dynamically. Vulkan is a graphics programming interface, and the SDK is a package of Vulkan tools and libraries. As an opt-in, the build will compile Slang from a source tree and link it statically. There will be no prebuilt download. Sections 4 and 5 of the [architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md) define both routes and the pinned Slang version.
+The crates obtain the native Slang library in one of two ways. By default, the build uses the Slang that ships in an installed LunarG Vulkan software development kit (SDK) and links it dynamically. Vulkan is a graphics programming interface, and the SDK is a package of Vulkan tools and libraries. As an opt-in, the build will compile Slang from a source tree and link it statically, which does not exist yet. There is no prebuilt download. Sections 4 and 5 of the [architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md) define both routes and the pinned Slang version.
 
 ## Requirements
 
 The workspace needs Rust 1.99 or later, as the `rust-version` field of its manifest declares.
+
+Building the workspace also needs the LunarG Vulkan SDK 1.4.363.1, from <https://vulkan.lunarg.com>, with the environment variable `VULKAN_SDK` set to its directory. The build of `slang-compiler-sys` stops with a message that says what to install and set when the variable is missing or the SDK ships another Slang build. Sections 9 and 10 of the [design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md) give the details, including how a program finds the Slang shared library when it runs.
 
 ## Development
 
