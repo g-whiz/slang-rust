@@ -3,7 +3,7 @@
 //! thread (SLC-29).
 
 use std::ffi::{CStr, c_void};
-use std::ptr::{self, NonNull};
+use std::ptr;
 
 use slang_compiler_sys::{
     IComponentType, IEntryPoint, IGlobalSession, IModule, ISession, ISlangBlob, Interface,
@@ -80,19 +80,36 @@ unsafe extern "C" {
     fn mallopt(param: std::ffi::c_int, value: std::ffi::c_int) -> std::ffi::c_int;
 }
 
-/// Makes glibc overwrite every block that it frees, so that a read of freed
-/// memory reads garbage instead of the old value.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn overwrite_freed_memory() {
-    const M_PERTURB: std::ffi::c_int = -6;
-    // SAFETY: `mallopt` with `M_PERTURB` only sets a byte that glibc writes
-    // into freed blocks and returns whether it accepted the setting.
-    let accepted = unsafe { mallopt(M_PERTURB, 0x5A) };
-    assert_eq!(accepted, 1);
+const M_PERTURB: std::ffi::c_int = -6;
+
+/// Makes glibc overwrite every block that `free` releases while the value
+/// lives, so that a read of freed memory reads garbage instead of the old
+/// value, and restores glibc's default, which overwrites nothing, when it
+/// drops.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+struct FreedBlocksPoisoned;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl FreedBlocksPoisoned {
+    fn set() -> Self {
+        // SAFETY: `mallopt` with `M_PERTURB` only sets the byte that glibc
+        // writes into freed blocks and returns whether it accepted the
+        // setting.
+        let accepted = unsafe { mallopt(M_PERTURB, 0x5A) };
+        assert_eq!(accepted, 1);
+        Self
+    }
 }
 
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-fn overwrite_freed_memory() {}
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl Drop for FreedBlocksPoisoned {
+    fn drop(&mut self) {
+        // SAFETY: `mallopt` with `M_PERTURB` and zero only restores glibc's
+        // default of overwriting nothing.
+        unsafe { mallopt(M_PERTURB, 0) };
+    }
+}
 
 /// Allocates and frees many blocks of many sizes, filled with a pattern, and
 /// keeps every second one, so that freed memory is reused and overwritten.
@@ -139,11 +156,57 @@ unsafe fn take_text(blob: *mut ISlangBlob) -> String {
     text
 }
 
+/// One reference to a Slang object, which the value releases when it drops.
+///
+/// A local drops before every local declared earlier, and a field before
+/// every field declared after it, on the normal path and on unwinding alike,
+/// so an object declared after the object it was created from is released
+/// first.
+struct Ref<T> {
+    raw: *mut T,
+    release: unsafe fn(*mut T) -> u32,
+}
+
+impl<T> Ref<T> {
+    /// Takes over the reference that `raw` carries, and fails the test when
+    /// `raw` is null.
+    ///
+    /// # Safety
+    ///
+    /// `raw` is null or points to a live Slang object whose one reference the
+    /// caller transfers, `release` releases one reference of such an object,
+    /// and every object that Slang creates from it and that holds no counted
+    /// reference to it, such as a program of a session, is held by a `Ref`
+    /// that drops before the returned value.
+    unsafe fn adopt(raw: *mut T, release: unsafe fn(*mut T) -> u32, what: &str) -> Self {
+        assert!(!raw.is_null(), "{what} returned null");
+        Self { raw, release }
+    }
+
+    fn as_ptr(&self) -> *mut T {
+        self.raw
+    }
+}
+
+impl<T> Drop for Ref<T> {
+    fn drop(&mut self) {
+        // SAFETY: `adopt` received a live object with one reference that
+        // `release` releases, `drop` runs once, and the caller of `adopt`
+        // guaranteed that every object created from this one that holds no
+        // counted reference to it was released before.
+        unsafe { (self.release)(self.raw) };
+    }
+}
+
 /// A global session and a session with one SPIR-V target, created through the
 /// raw bindings.
+///
+/// The session is declared before the global session, so it drops first.
+/// Every program that `link` returns is held in a local that the test
+/// declares after the `RawSession`, so it drops before it.
 struct RawSession {
-    global: *mut IGlobalSession,
-    session: *mut ISession,
+    session: Ref<ISession>,
+    _global: Ref<IGlobalSession>,
 }
 
 impl RawSession {
@@ -154,7 +217,10 @@ impl RawSession {
         // size, and `global` is a live out-pointer.
         let result = unsafe { slang_createGlobalSession2(&raw const desc, &raw mut global) };
         check(result, "slang_createGlobalSession2");
-        assert!(!global.is_null());
+        // SAFETY: `slang_createGlobalSession2` succeeded and returned a new
+        // reference, and its one session is held in the field `session`, which
+        // drops first.
+        let global = unsafe { Ref::adopt(global, IGlobalSession::release, "the global session") };
 
         let target = TargetDesc {
             format: SlangCompileTarget::SLANG_SPIRV,
@@ -169,23 +235,32 @@ impl RawSession {
         // SAFETY: `global` is live, `session_desc` and the target it points to
         // are live locals, and `session` is a live out-pointer.
         let result = unsafe {
-            IGlobalSession::createSession(global, &raw const session_desc, &raw mut session)
+            IGlobalSession::createSession(
+                global.as_ptr(),
+                &raw const session_desc,
+                &raw mut session,
+            )
         };
         check(result, "createSession");
-        assert!(!session.is_null());
-        Self { global, session }
+        // SAFETY: `createSession` succeeded and returned a new reference, and
+        // every program created from the session is held in a `Ref` that the
+        // test declares after this `RawSession`.
+        let session = unsafe { Ref::adopt(session, ISession::release, "createSession") };
+        Self {
+            session,
+            _global: global,
+        }
     }
 
     /// Loads `SOURCE` as the module `name`, links it with its entry point
-    /// `main`, and returns the linked program, whose one reference the caller
-    /// owns.
-    fn link(&self, name: &CStr, path: &CStr) -> *mut IComponentType {
+    /// `main`, and returns the linked program.
+    fn link(&self, name: &CStr, path: &CStr) -> Ref<IComponentType> {
         let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
-        // SAFETY: `self.session` is live, the three strings are live and
+        // SAFETY: the session is live, the three strings are live and
         // null-terminated, and `diagnostics` is a live out-pointer.
         let module = unsafe {
             ISession::loadModuleFromSourceString(
-                self.session,
+                self.session.as_ptr(),
                 name.as_ptr(),
                 path.as_ptr(),
                 SOURCE.as_ptr(),
@@ -203,23 +278,28 @@ impl RawSession {
             IModule::findEntryPointByName(module, c"main".as_ptr(), &raw mut entry_point)
         };
         check(result, "findEntryPointByName");
+        // SAFETY: `findEntryPointByName` succeeded and returned a new
+        // reference, and the component type queried from it is the same
+        // object with a counted reference of its own.
+        let entry_point =
+            unsafe { Ref::adopt(entry_point, IEntryPoint::release, "findEntryPointByName") };
 
-        let module_component = query_component_type(module.cast::<c_void>(), |uuid, out| {
+        let module_component = query_component_type(|uuid, out| {
             // SAFETY: `module` is live, and `uuid` and `out` are live.
             unsafe { IModule::queryInterface(module, uuid, out) }
         });
-        let entry_component = query_component_type(entry_point.cast::<c_void>(), |uuid, out| {
+        let entry_component = query_component_type(|uuid, out| {
             // SAFETY: `entry_point` is live, and `uuid` and `out` are live.
-            unsafe { IEntryPoint::queryInterface(entry_point, uuid, out) }
+            unsafe { IEntryPoint::queryInterface(entry_point.as_ptr(), uuid, out) }
         });
-        let components = [module_component, entry_component];
+        let components = [module_component.as_ptr(), entry_component.as_ptr()];
         let mut composite: *mut IComponentType = ptr::null_mut();
         let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
-        // SAFETY: `self.session` is live, `components` holds two live
-        // component types, and both out-pointers are live.
+        // SAFETY: the session is live, `components` holds two live component
+        // types, and both out-pointers are live.
         let result = unsafe {
             ISession::createCompositeComponentType(
-                self.session,
+                self.session.as_ptr(),
                 components.as_ptr(),
                 2,
                 &raw mut composite,
@@ -229,66 +309,68 @@ impl RawSession {
         // SAFETY: `diagnostics` is null or a blob whose reference this owns.
         let text = unsafe { take_text(diagnostics) };
         check(result, &format!("createCompositeComponentType: {text}"));
+        // SAFETY: `createCompositeComponentType` succeeded and returned a new
+        // reference, and the program linked from it holds a counted reference
+        // to it.
+        let composite = unsafe {
+            Ref::adopt(
+                composite,
+                IComponentType::release,
+                "createCompositeComponentType",
+            )
+        };
 
         let mut linked: *mut IComponentType = ptr::null_mut();
         let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
         // SAFETY: `composite` is live, and both out-pointers are live.
-        let result =
-            unsafe { IComponentType::link(composite, &raw mut linked, &raw mut diagnostics) };
+        let result = unsafe {
+            IComponentType::link(composite.as_ptr(), &raw mut linked, &raw mut diagnostics)
+        };
         // SAFETY: `diagnostics` is null or a blob whose reference this owns.
         let text = unsafe { take_text(diagnostics) };
         check(result, &format!("link: {text}"));
-        assert!(!linked.is_null());
-
-        for component in [composite, entry_component, module_component] {
-            // SAFETY: each of these carries one reference that this function
-            // owns, and the linked program holds what it needs.
-            unsafe { IComponentType::release(component) };
-        }
-        // SAFETY: `findEntryPointByName` returned a new reference, which this
-        // releases.
-        unsafe { IEntryPoint::release(entry_point) };
-        linked
+        // SAFETY: `link` succeeded and returned a new reference, and the
+        // caller holds the program in a local declared after this
+        // `RawSession`. Nothing that the test creates from the program is
+        // counted.
+        unsafe { Ref::adopt(linked, IComponentType::release, "link") }
     }
 }
 
-impl Drop for RawSession {
-    fn drop(&mut self) {
-        // SAFETY: `self.session` carries the one reference of `createSession`,
-        // and every object created from it was released before.
-        unsafe { ISession::release(self.session) };
-        // SAFETY: `self.global` carries the one reference of
-        // `slang_createGlobalSession2`, and its session is released above.
-        unsafe { IGlobalSession::release(self.global) };
-    }
-}
-
+/// Queries the `IComponentType` interface of an object through `query`.
 fn query_component_type(
-    object: *mut c_void,
     query: impl FnOnce(*const slang_compiler_sys::SlangUUID, *mut *mut c_void) -> SlangResult,
-) -> *mut IComponentType {
-    assert!(!object.is_null());
+) -> Ref<IComponentType> {
     let uuid = IComponentType::UUID;
     let mut out: *mut c_void = ptr::null_mut();
     check(query(&raw const uuid, &raw mut out), "queryInterface");
-    assert!(!out.is_null());
-    out.cast::<IComponentType>()
+    // SAFETY: `queryInterface` succeeded and returned a new reference of the
+    // same object, and the composite that the test creates from it holds a
+    // counted reference to it.
+    unsafe {
+        Ref::adopt(
+            out.cast::<IComponentType>(),
+            IComponentType::release,
+            "queryInterface",
+        )
+    }
 }
 
-/// Returns the program layout of a linked program for target 0.
+/// Returns the program layout of a linked program for target 0, and fails
+/// the test when the program has none.
 ///
 /// # Safety
 ///
 /// `program` is a live linked program.
-unsafe fn layout(program: *mut IComponentType) -> Result<NonNull<SlangReflection>, String> {
+unsafe fn layout(program: &Ref<IComponentType>) -> *mut SlangReflection {
     let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
     // SAFETY: `program` is live, as the caller guarantees, target 0 exists,
     // and `diagnostics` is a live out-pointer.
-    let layout = unsafe { IComponentType::getLayout(program, 0, &raw mut diagnostics) };
+    let layout = unsafe { IComponentType::getLayout(program.as_ptr(), 0, &raw mut diagnostics) };
     // SAFETY: `diagnostics` is null or a blob whose reference this owns.
     let text = unsafe { take_text(diagnostics) };
-    NonNull::new(layout.cast::<SlangReflection>())
-        .ok_or_else(|| format!("the program has no layout: {text}"))
+    assert!(!layout.is_null(), "the program has no layout: {text}");
+    layout.cast::<SlangReflection>()
 }
 
 /// A description of everything that reflection reports about a program, and
@@ -306,19 +388,19 @@ impl Reflected {
     /// # Safety
     ///
     /// `layout` is the live program layout of a live linked program.
-    unsafe fn of(layout: NonNull<SlangReflection>) -> Self {
+    unsafe fn of(layout: *mut SlangReflection) -> Self {
         let mut reflected = Self::default();
         // SAFETY: `layout` is live, as the caller guarantees.
-        let count = unsafe { spReflection_GetParameterCount(layout.as_ptr()) };
+        let count = unsafe { spReflection_GetParameterCount(layout) };
         for index in 0..count {
             // SAFETY: `layout` is live, and `index` is below its count.
-            let parameter = unsafe { spReflection_GetParameterByIndex(layout.as_ptr(), index) };
+            let parameter = unsafe { spReflection_GetParameterByIndex(layout, index) };
             // SAFETY: `parameter` is null or a variable layout of `layout`.
             unsafe { reflected.variable_layout(parameter, 0) };
         }
         for name in TYPE_NAMES {
             // SAFETY: `layout` is live, and `name` is a null-terminated literal.
-            let ty = unsafe { spReflection_FindTypeByName(layout.as_ptr(), name.as_ptr()) };
+            let ty = unsafe { spReflection_FindTypeByName(layout, name.as_ptr()) };
             reflected.line(0, &format!("lookup {name:?}"));
             // SAFETY: `ty` is null or a type of the program.
             unsafe { reflected.ty(ty, 1) };
@@ -480,25 +562,22 @@ fn text_of(text: *const std::ffi::c_char) -> String {
         .into_owned()
 }
 
-/// Checks CA-14: reflection on the objects of one global session stays the
-/// same after a second global session on the same thread was created, used,
-/// and destroyed.
+/// Runs the sequence of CA-14: reflection on a program of a first global
+/// session before a second global session exists on the same thread, while it
+/// is alive, after it compiled a program, after it was destroyed, and after
+/// freed memory was reused, and a new program of the first, and asserts that
+/// every description and every type handle stays the same.
 ///
 /// The second global session makes its syntax tree builder the current one of
 /// the thread. Reflection on the first then resolves types while that builder
 /// is current, and any node that resolution allocates there and caches in a
-/// node of the first would dangle once the second is destroyed. The test
-/// compares every description and every type handle that reflection returns
-/// before the second global session exists, while it is alive, and after it
-/// is destroyed and freed memory was overwritten and reused.
-#[test]
-fn reflection_on_a_first_global_session_survives_a_second_one_on_the_thread() {
-    overwrite_freed_memory();
+/// node of the first would dangle once the second is destroyed.
+fn reflect_across_a_second_global_session() {
     let first = RawSession::create();
     let program = first.link(c"first", c"first.slang");
     // SAFETY: `program` is a live linked program of `first`.
-    let layout = unsafe { layout(program) }.expect("the program has a layout");
-    // SAFETY: `layout` belongs to `program`, which stays alive until the end.
+    let layout = unsafe { layout(&program) };
+    // SAFETY: `layout` belongs to `program`, which lives until the end.
     let before = unsafe { Reflected::of(layout) };
     assert!(before.text.contains("variable material"), "{}", before.text);
     assert!(before.text.contains("Pair<float3>"), "{}", before.text);
@@ -510,8 +589,7 @@ fn reflection_on_a_first_global_session_survives_a_second_one_on_the_thread() {
     let other_program = second.link(c"second", c"second.slang");
     // SAFETY: as above, after the second global session compiled a program.
     let after_compiling = unsafe { Reflected::of(layout) };
-    // SAFETY: `other_program` carries the one reference of `link`.
-    unsafe { IComponentType::release(other_program) };
+    drop(other_program);
     drop(second);
 
     let mut kept = churn_the_heap();
@@ -522,7 +600,7 @@ fn reflection_on_a_first_global_session_survives_a_second_one_on_the_thread() {
     let after_churn = unsafe { Reflected::of(layout) };
     let relinked = first.link(c"first_again", c"first_again.slang");
     // SAFETY: `relinked` is a live linked program of `first`.
-    let relinked_layout = unsafe { self::layout(relinked) }.expect("the program has a layout");
+    let relinked_layout = unsafe { self::layout(&relinked) };
     // SAFETY: `relinked_layout` belongs to `relinked`, which is live.
     let after_relink = unsafe { Reflected::of(relinked_layout) };
     drop(kept);
@@ -547,11 +625,34 @@ fn reflection_on_a_first_global_session_survives_a_second_one_on_the_thread() {
         after_relink.text, before.text,
         "a new program of the first global session differs"
     );
+}
 
-    // SAFETY: each program carries the one reference of `link`, and nothing
-    // uses it or its layout after this.
-    unsafe { IComponentType::release(relinked) };
-    // SAFETY: as above.
-    unsafe { IComponentType::release(program) };
-    drop(first);
+/// Checks CA-14 on Linux with glibc, with every block that `free` releases
+/// overwritten.
+///
+/// A reflection call that reads a node which the second global session
+/// allocated with `malloc` and freed reads the overwritten bytes, so a
+/// description changes or the process crashes. The test cannot detect a read
+/// of memory that Slang's own allocators reuse without calling `free`, or a
+/// read of freed memory whose result never reaches a description. The
+/// setting applies to the whole process while the test runs and is reset when
+/// it ends, and nextest runs each test in a process of its own.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[test]
+fn reflection_on_a_first_global_session_is_unchanged_by_a_second_one_with_freed_blocks_poisoned() {
+    let _poisoned = FreedBlocksPoisoned::set();
+    reflect_across_a_second_global_session();
+}
+
+/// Checks CA-14 on every platform other than Linux with glibc, where the
+/// allocator does not overwrite freed blocks.
+///
+/// The test checks only that the sequence does not crash and that reflection
+/// stays the same. A read of freed memory that still holds its old value, or
+/// that no reuse by the heap churn overwrote, passes unnoticed, so this test
+/// is weaker than the one on Linux with glibc.
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+#[test]
+fn reflection_on_a_first_global_session_is_unchanged_by_a_second_one_without_poisoning() {
+    reflect_across_a_second_global_session();
 }
