@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: check-vulkan-sdk" "" \
+        "Checks that the Vulkan SDK at VULKAN_SDK provides Slang with the build tag of" \
+        "the pin, which it reads with just pin: slang.h and slang-tag-version.h under" \
+        "include/slang, a SLANG_TAG_VERSION equal to the tag, the Slang compiler library" \
+        "of the platform, and a slangc whose -version prints the tag. Lists the files" \
+        "that it finds." \
+        "Exits 1 when a check fails, and 2 on a usage error, when VULKAN_SDK is unset," \
+        "or when just pin fails."
+}
+
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+    usage
+    exit 0
+fi
+if [[ $# -ne 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+justfile="$(dirname -- "${BASH_SOURCE[0]}")/../justfile"
+if ! pin="$(just --justfile "${justfile}" pin)"; then
+    printf 'check-vulkan-sdk: just pin failed\n' >&2
+    exit 2
+fi
+tag=""
+while IFS= read -r line; do
+    if [[ "${line}" == SLANG_BUILD_TAG=* ]]; then
+        tag="${line#SLANG_BUILD_TAG=}"
+    fi
+done <<<"${pin}"
+if [[ -z "${tag}" ]]; then
+    printf 'check-vulkan-sdk: just pin printed no SLANG_BUILD_TAG\n' >&2
+    exit 2
+fi
+
+if [[ -z "${VULKAN_SDK:-}" ]]; then
+    printf 'check-vulkan-sdk: VULKAN_SDK is not set\n' >&2
+    exit 2
+fi
+
+case "$(uname -s)" in
+    MINGW* | MSYS*) sdk="$(cygpath --unix "${VULKAN_SDK}")" ;;
+    *) sdk="${VULKAN_SDK}" ;;
+esac
+
+status=0
+fail() {
+    printf 'check-vulkan-sdk: %s\n' "$1" >&2
+    status=1
+}
+
+printf 'VULKAN_SDK=%s\n' "${VULKAN_SDK}"
+printf '\n$ ls %s\n' "${sdk}"
+ls "${sdk}"
+
+include="${sdk}/include/slang"
+printf '\n$ ls %s\n' "${include}"
+ls "${include}" || fail "no directory ${include}"
+for header in slang.h slang-tag-version.h; do
+    [[ -f "${include}/${header}" ]] || fail "no header ${include}/${header}"
+done
+if [[ -f "${include}/slang-tag-version.h" ]]; then
+    printf '\n$ cat %s\n' "${include}/slang-tag-version.h"
+    cat "${include}/slang-tag-version.h"
+    grep -qxF "#define SLANG_TAG_VERSION \"${tag}\"" <(tr -d '\r' <"${include}/slang-tag-version.h") ||
+        fail "slang-tag-version.h does not define SLANG_TAG_VERSION as \"${tag}\""
+fi
+
+for directory in lib bin; do
+    printf '\nFiles in %s whose names contain slang:\n' "${sdk}/${directory}"
+    find "${sdk}/${directory}" -maxdepth 1 -iname '*slang*' -exec ls -ld {} + || true
+done
+
+case "$(uname -s)" in
+    Linux) required=("lib/libslang-compiler.so") ;;
+    Darwin) required=("lib/libslang-compiler.dylib") ;;
+    *) required=("lib/slang-compiler.lib" "bin/slang-compiler.dll") ;;
+esac
+for library in "${required[@]}"; do
+    if [[ -e "${sdk}/${library}" ]]; then
+        printf '\nFound %s\n' "${sdk}/${library}"
+        if command -v file >/dev/null 2>&1; then
+            file -L "${sdk}/${library}"
+        fi
+    else
+        fail "no library ${sdk}/${library}"
+    fi
+done
+
+slangc="${sdk}/bin/slangc"
+printf '\n$ %s -version\n' "${slangc}"
+if output="$("${slangc}" -version 2>&1)"; then
+    printf '%s\n' "${output}"
+    [[ "$(tr -d '\r' <<<"${output}")" == *"${tag}"* ]] || fail "slangc -version does not print ${tag}"
+else
+    printf '%s\n' "${output}"
+    fail "slangc -version failed"
+fi
+
+if [[ "${status}" -eq 0 ]]; then
+    printf '\nThe Vulkan SDK provides Slang %s\n' "${tag}"
+fi
+exit "${status}"

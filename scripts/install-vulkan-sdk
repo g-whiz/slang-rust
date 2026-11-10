@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: install-vulkan-sdk VERSION SHA256" "" \
+        "Downloads the LunarG Vulkan SDK VERSION for the platform of a GitHub Actions" \
+        "runner, verifies the download against SHA256, installs the core SDK without" \
+        "optional components under RUNNER_TEMP, and appends VULKAN_SDK and the library" \
+        "path of the platform to GITHUB_ENV and the SDK's binary directory to GITHUB_PATH." \
+        "Linux x86_64 unpacks the archive, macOS runs the installer from the archive," \
+        "and Windows x86_64 runs the installer with copy_only=1." \
+        "Exits 1 on a failed download, checksum, or install, and 2 on a usage error" \
+        "or an unsupported platform."
+}
+
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+    usage
+    exit 0
+fi
+if [[ $# -ne 2 ]]; then
+    usage >&2
+    exit 2
+fi
+
+version="$1"
+expected="$2"
+
+if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf 'install-vulkan-sdk: malformed SDK version "%s"\n' "${version}" >&2
+    exit 2
+fi
+if [[ ! "${expected}" =~ ^[0-9a-f]{64}$ ]]; then
+    printf 'install-vulkan-sdk: malformed SHA-256 "%s"\n' "${expected}" >&2
+    exit 2
+fi
+for variable in RUNNER_TEMP GITHUB_ENV GITHUB_PATH; do
+    if [[ -z "${!variable:-}" ]]; then
+        printf 'install-vulkan-sdk: %s is not set, so this is not a GitHub Actions runner\n' "${variable}" >&2
+        exit 2
+    fi
+done
+
+machine="$(uname -m)"
+case "$(uname -s)" in
+    Linux)
+        platform=linux
+        file="vulkansdk-linux-x86_64-${version}.tar.xz"
+        [[ "${machine}" == x86_64 ]] || platform=""
+        ;;
+    Darwin)
+        platform=mac
+        file="vulkansdk-macos-${version}.zip"
+        ;;
+    MINGW* | MSYS*)
+        platform=windows
+        file="vulkansdk-windows-X64-${version}.exe"
+        [[ "${machine}" == x86_64 ]] || platform=""
+        ;;
+    *)
+        platform=""
+        ;;
+esac
+if [[ -z "${platform}" ]]; then
+    printf 'install-vulkan-sdk: unsupported platform %s %s\n' "$(uname -s)" "${machine}" >&2
+    exit 2
+fi
+
+temp="${RUNNER_TEMP}"
+if [[ "${platform}" == windows ]]; then
+    temp="$(cygpath --unix "${temp}")"
+fi
+work="${temp}/vulkan-sdk-download"
+root="${temp}/VulkanSDK/${version}"
+rm -rf -- "${work}" "${root}"
+mkdir -p "${work}" "${root}"
+
+SECONDS=0
+url="https://sdk.lunarg.com/sdk/download/${version}/${platform}/${file}"
+printf 'Downloading %s\n' "${url}"
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --retry 3 --output "${work}/${file}" "${url}"
+size="$(wc -c <"${work}/${file}")"
+printf 'Downloaded %s bytes in %s seconds\n' "${size// /}" "${SECONDS}"
+
+if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum <"${work}/${file}")"
+else
+    actual="$(shasum -a 256 <"${work}/${file}")"
+fi
+actual="${actual%% *}"
+if [[ "${actual}" != "${expected}" ]]; then
+    printf 'install-vulkan-sdk: SHA-256 mismatch for %s\n  expected %s\n  actual   %s\n' \
+        "${file}" "${expected}" "${actual}" >&2
+    exit 1
+fi
+printf 'Verified SHA-256 %s\n' "${actual}"
+
+SECONDS=0
+case "${platform}" in
+    linux)
+        tar -xJf "${work}/${file}" -C "${root}" --strip-components=1
+        sdk="${root}/x86_64"
+        printf 'VULKAN_SDK=%s\n' "${sdk}" >>"${GITHUB_ENV}"
+        printf 'LD_LIBRARY_PATH=%s\n' "${sdk}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >>"${GITHUB_ENV}"
+        printf '%s\n' "${sdk}/bin" >>"${GITHUB_PATH}"
+        ;;
+    mac)
+        unzip -q "${work}/${file}" -d "${work}/unpacked"
+        apps=("${work}/unpacked"/*.app)
+        if [[ ${#apps[@]} -ne 1 || ! -d "${apps[0]}" ]]; then
+            printf 'install-vulkan-sdk: expected one installer application in %s\n' "${file}" >&2
+            exit 1
+        fi
+        app="${apps[0]}"
+        name="$(basename "${app}" .app)"
+        printf 'Running the installer %s\n' "${name}"
+        "${app}/Contents/MacOS/${name}" --root "${root}" \
+            --accept-licenses --default-answer --confirm-command install
+        sdk="${root}/macOS"
+        printf 'VULKAN_SDK=%s\n' "${sdk}" >>"${GITHUB_ENV}"
+        printf 'DYLD_LIBRARY_PATH=%s\n' "${sdk}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" >>"${GITHUB_ENV}"
+        printf '%s\n' "${sdk}/bin" >>"${GITHUB_PATH}"
+        ;;
+    windows)
+        windows_root="$(cygpath --windows "${root}")"
+        "${work}/${file}" --root "${windows_root}" \
+            --accept-licenses --default-answer --confirm-command install copy_only=1
+        sdk="${windows_root}"
+        printf 'VULKAN_SDK=%s\n' "${sdk}" >>"${GITHUB_ENV}"
+        printf '%s\n' "${sdk}\\Bin" >>"${GITHUB_PATH}"
+        ;;
+esac
+printf 'Installed in %s seconds, VULKAN_SDK=%s\n' "${SECONDS}" "${sdk}"
+du -sh "${root}"
+rm -rf -- "${work}"

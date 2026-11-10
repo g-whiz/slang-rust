@@ -24,14 +24,14 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete. Milestone M1, the binding generator and `slang-compiler-sys`, has started: its design document exists, and step 1 of its Section 15 is done, which added the pin file, the binding generator, and their tests. The agent updates this section, and its date, in the same change that alters what exists.
+As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete. Milestone M1, the binding generator and `slang-compiler-sys`, has started: its design document exists, and steps 1 and 2 of its Section 15 are done. Step 1 added the pin file, the binding generator, and their tests. Step 2 added the installation of the pinned Vulkan SDK in every CI job and the CI job `coverage`. The agent updates this section, and its date, in the same change that alters what exists.
 
 What exists and works:
 
-- The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks and the recipe `pin`, which prints the pin.
-- The scripts under `scripts/`, which the recipes and hooks run, including the custom checkers of Section 7 of `docs/design/tooling.md`: `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, and `check-workflow-pins`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
+- The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks, the recipe `pin`, which prints the pin, and the recipes `install-vulkan-sdk` and `check-vulkan-sdk`, which install the pinned Vulkan SDK on a CI runner and check an installed SDK against the pin.
+- The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 7 of `docs/design/tooling.md`: `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, and `check-workflow-pins`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
 - The git hooks in `.pre-commit-config.yaml`.
-- The CI workflow `.github/workflows/ci.yml`, which runs on every pull request and every push to `main`, and whose jobs all passed on their first run on GitHub.
+- The CI workflow `.github/workflows/ci.yml`, which runs on every pull request and every push to `main`. Every job installs the pinned Vulkan SDK, verified against a SHA-256 checksum that the workflow records, and checks it against the pin, on Linux, Windows, and macOS. The job `coverage` measures test coverage on Linux and keeps the report as an artifact. Section 8 of `docs/design/tooling.md` specifies the jobs. On 2026-11-10, all six jobs, counting each entry of a matrix, passed on GitHub.
 - The editor settings in `.editorconfig`.
 - The Claude Code settings in `.claude/settings.json`, which run the prose checker after every edit of a Markdown file or a Rust file.
 - `CLAUDE.md`, which imports this file.
@@ -53,11 +53,10 @@ What does not exist yet:
 - The generated bindings `crates/slang-compiler-sys/src/bindings.rs`, the regeneration test, the smoke test, and the build script of `slang-compiler-sys`.
 - Examples, and tests of the GPU tiers.
 - The recipes `check-bindings`, `generate-bindings`, `check-doc-without-slang`, and `test-static`, which arrive in M1, and `check-semver`, which arrives with the first release in M7.
-- The installation of the Vulkan SDK in CI, which arrives in M1. CI installs only libclang for the tests of the binding generator.
-- The CI jobs `semver`, which arrives in M7, and `coverage`, which is added in a later change of milestone M1.
+- The CI job `semver`, which arrives in M7.
 - The design document of each crate other than `slang-compiler-sys`, which is written as the first task of the milestone that delivers the crate.
 
-The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The custom checkers enforce the rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, on the `# Features` section, and on ASCII punctuation, semicolons, and listed spellings in API documentation, and the rules of Section 8.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions. Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule. `check-features` and `check-msrv` run outside `just check`, and CI runs them on every pull request and every push to `main`. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
+The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The custom checkers enforce the rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, on the `# Features` section, and on ASCII punctuation, semicolons, and listed spellings in API documentation, and the rules of Section 8.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions. Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule. `check-features`, `check-msrv`, `check-vulkan-sdk`, and `coverage` run outside `just check`, and CI runs them on every pull request and every push to `main`. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
 
 ## Repository Layout
 
@@ -84,8 +83,10 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and pinned, the examples, the test tiers, platform support, publishing, and the roadmap.
 - `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
 - `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator, which is authoritative for the scope and shape of the generated bindings, the supported targets, the generator, the pin file, the build script on both routes, and the tests of the crate.
-- `justfile`: The root `justfile`, with the groups `checks`, `git`, and `rust`.
-- `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies, and whose Linux `check` job installs libclang for the tests of the binding generator.
+- `justfile`: The root `justfile`, with the groups `checks`, `ci`, `git`, and `rust`. The group `ci` holds `install-vulkan-sdk`, which only the CI workflow runs.
+- `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies. It has the jobs `check`, `test`, `ci-only`, and `coverage`, each of which reads the pin through `just pin` and installs and checks the pinned Vulkan SDK. Its top-level `env` records the SHA-256 checksums of the SDK downloads, and its `check` and `coverage` jobs install libclang for the tests of the binding generator.
+- `scripts/install-vulkan-sdk`: The script that downloads the Vulkan SDK on a GitHub Actions runner, verifies it against a checksum, installs it, and exports `VULKAN_SDK` and the library path to the later steps of the job (Section 8.3 of `docs/design/tooling.md`).
+- `scripts/check-vulkan-sdk`: The script that checks that the SDK at `VULKAN_SDK` provides the Slang headers, library, and `slangc` of the build tag of the pin.
 - `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
 - `scripts/check-rust-comments`: The checker that Rust source holds only API documentation and safety comments.
 - `scripts/check-doc-headings`: The checker of the headings in item documentation.
@@ -135,7 +136,7 @@ The Slang version is always the one that ships in the latest stable LunarG Vulka
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates. The crates use edition 2024 and Cargo resolver 3. The licence is GPL-3.0-or-later, and `LICENSE` holds its text.
 
-CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, and it runs the default test tier on all three. The GPU tier is planned there, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS, from the first test that needs an adapter. Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
+CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, installs the pinned Vulkan SDK on all three, and runs the default test tier on all three. The GPU tier is planned there, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS, from the first test that needs an adapter. Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
 The published crates are planned for crates.io, including docs.rs builds that work without Slang installed and checks for breaking changes. Nothing is published without the owner's explicit go-ahead.
 
@@ -150,7 +151,7 @@ The development container provides this environment:
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. One planned recipe does not exist yet: `check-semver`, which runs cargo-semver-checks and arrives with the first release. CI installs the latest version of each tool on its runners, so a tool version in CI can differ from the one in the container, as Section 8.1 of `docs/design/tooling.md` states. Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 11 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
+Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. One planned recipe does not exist yet: `check-semver`, which runs cargo-semver-checks and arrives with the first release. CI installs the latest version of each tool on its runners, and the Vulkan SDK of the pin, so a tool version in CI can differ from the one in the container, as Section 8.1 of `docs/design/tooling.md` states. Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 11 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
 
 ## Development Workflow
 
@@ -158,7 +159,7 @@ A change starts with the section of the design document that covers it: `docs/de
 
 `just hooks-install` installs the git hooks once per clone. At commit time, the hooks run the prose check on each changed Markdown file and each changed Rust file, the shell and commit message checks, the rustfmt check when a Rust file changes, typos on every commit, the TOML format check when a TOML file changes, `check-workflows` and `check-workflow-pins` when a file under `.github/` changes, and general checks for valid YAML and JSON, file endings, trailing whitespace, merge conflict markers, private keys, and large files. After a merge, they run `just worktree-prune`.
 
-CI runs the workflow `.github/workflows/ci.yml` on every pull request and every push to `main`, and a new push to a pull request cancels the earlier run of that pull request. It runs `just check` on Linux, `just check-clippy`, `just check-doctest`, and `just test-gpu` on Windows and macOS, and `just check-features` and `just check-msrv` on Linux. Every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container, as Section 8.1 of `docs/design/tooling.md` specifies.
+CI runs the workflow `.github/workflows/ci.yml` on every pull request and every push to `main`, and a new push to a pull request cancels the earlier run of that pull request. Every job installs and checks the pinned Vulkan SDK before its own steps, and every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container. Sections 8.1 and 8.3 of `docs/design/tooling.md` specify the jobs, their steps, and the artifact of the job `coverage`.
 
 Commits are small, and each holds one group of logically related changes, because a later reader reads history one commit at a time. The subject line is in the imperative mood, such as `Add the safe compiler session`, and the body says why the change was made. `just merge BRANCH` squash-merges the branch onto `main` from the main checkout with the subject and body of every commit in the message, removes the worktree and the branch, and pushes `main`. `just worktree-prune` removes branches that were squash-merged some other way. The agent never force-pushes `main`.
 
@@ -211,6 +212,14 @@ To print the pin of `slang-compiler-sys`, which is the pinned Vulkan SDK version
 ```sh
 just pin
 ```
+
+To check that the Vulkan SDK at `VULKAN_SDK` provides the Slang headers, library, and `slangc` of the build tag of the pin, which every CI job runs after it installs the SDK and which also works in the development container:
+
+```sh
+just check-vulkan-sdk
+```
+
+The recipe `install-vulkan-sdk` is for CI only. It refuses to run outside a GitHub Actions runner, and the agent does not run it.
 
 To check the dependencies after a change to a manifest:
 
@@ -277,7 +286,7 @@ To check `scripts/check-commit-message`:
 just check-commit-message-self-test
 ```
 
-Three recipes are not part of `just check`, because they are meant for CI. CI runs `check-features` and `check-msrv` on every pull request and every push to `main`, and a CI job that runs `coverage` is added in a later change of milestone M1. `check-features` compiles the workspace once for each combination of Cargo features. `check-msrv` checks the workspace with the toolchain that `rust-version` names, and its first run installs that toolchain with rustup, which needs network access. `coverage` writes a coverage report to `target/lcov.info`. An agent runs `check-features` after a change to the Cargo features and `check-msrv` after a change that may need a newer toolchain:
+Three more recipes are not part of `just check`, because they are meant for CI. CI runs all three on every pull request and every push to `main`. `check-features` compiles the workspace once for each combination of Cargo features. `check-msrv` checks the workspace with the toolchain that `rust-version` names, and its first run installs that toolchain with rustup, which needs network access. `coverage` writes a coverage report to `target/lcov.info` and prints no coverage summary, and the CI job `coverage` uploads that report as an artifact. An agent runs `check-features` after a change to the Cargo features and `check-msrv` after a change that may need a newer toolchain:
 
 ```sh
 just check-features
