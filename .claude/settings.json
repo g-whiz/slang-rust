@@ -5,6 +5,17 @@
       "Bash(just check)",
       "Bash(just check-shell)",
       "Bash(just check-prose:*)",
+      "Bash(just check-rust)",
+      "Bash(just check-fmt)",
+      "Bash(just check-clippy)",
+      "Bash(just check-doc)",
+      "Bash(just check-doctest)",
+      "Bash(just check-deny)",
+      "Bash(just check-typos)",
+      "Bash(just check-toml)",
+      "Bash(just check-unused-deps)",
+      "Bash(just check-miri)",
+      "Bash(just check-features)",
       "Bash(shellcheck:*)",
       "Bash(git status:*)"
     ]

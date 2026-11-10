@@ -34,6 +34,27 @@ repos:
         files: (^|/)(justfile|scripts/)
         pass_filenames: false
         stages: [pre-commit]
+      - id: check-fmt
+        name: check-fmt
+        entry: just check-fmt
+        language: system
+        files: \.rs$
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check-typos
+        name: check-typos
+        entry: just check-typos
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: check-toml
+        name: check-toml
+        entry: just check-toml
+        language: system
+        files: \.toml$
+        pass_filenames: false
+        stages: [pre-commit]
       - id: check-commit-message
         name: check-commit-message
         entry: just check-commit-message

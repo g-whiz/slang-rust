@@ -1,0 +1,13 @@
+# A test's tier is a whole module path segment named `gpu` or `hw_gpu`. The
+# trailing `::` keeps a test function named `gpu`, or a module such as
+# `gpu_buffers`, out of the tier.
+[profile.default]
+default-filter = "not test(/(^|::)(gpu|hw_gpu)::/)"
+retries = 0
+
+[profile.gpu]
+default-filter = "not test(/(^|::)hw_gpu::/)"
+
+# Every profile inherits `default-filter` from `default`, so this one sets it.
+[profile.hw-gpu]
+default-filter = "all()"

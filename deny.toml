@@ -1,0 +1,22 @@
+[graph]
+all-features = true
+
+[advisories]
+ignore = []
+unused-ignored-advisory = "deny"
+
+[licenses]
+allow = ["GPL-3.0-or-later"]
+confidence-threshold = 0.8
+unused-allowed-license = "deny"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = false
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
