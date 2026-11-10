@@ -469,7 +469,7 @@ Punctuation is ASCII. Prose uses no em dashes or en dashes, and an author writes
 
 Headings are in title case. A citation tag has square brackets with no space, such as [RFC2119], and a matching entry in the References section. A document may instead resolve a whole family of tags through one pointer, stated in its References section, to the reference list. Section 21 of `docs/rust-coding-standards.md` does this for its `[IR-<n>]` and `[S-<n>]` tags. A citation of a section reads "Section 6 of [RFC2119]". A Uniform Resource Identifier (URI) in a reference entry is enclosed in angle brackets. Dates use the International Organization for Standardization (ISO) 8601 format, such as 2026-10-30.
 
-The script `scripts/check-prose` checks every Markdown file, and the `///` and `//!` documentation comments of every Rust file, for non-ASCII characters, which include em dashes, en dashes, and smart quotes, for a UTF-8 byte order mark, for semicolons, and for the non-Canadian spellings listed in `scripts/prose-wordlist.txt`. It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file. Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
+The script `scripts/check-prose` checks every Markdown file, and the `///` and `//!` documentation comments of every Rust file, for non-ASCII characters, which include em dashes, en dashes, and smart quotes, for a UTF-8 byte order mark, for semicolons, and for the non-Canadian spellings listed in `scripts/prose-wordlist.txt`. It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file or a Rust file. Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
 
 This command checks one file:
 
@@ -584,5 +584,6 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.
 - 2026-11-10: Moved the rules that the new custom checkers and the extended prose checker enforce from judgement to enforced in Sections 7.2 to 7.5, 7.8, 7.11, 7.12, and 8, and made the heading rule of Section 7.3 a MUST NOT that matches the heading checker.
 - 2026-11-10: Initial version.

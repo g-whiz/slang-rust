@@ -173,10 +173,6 @@ def is_action(path):
     return Path(path).name in ("action.yml", "action.yaml")
 
 
-def emit(text, stream=sys.stdout):
-    print(text.encode("ascii", "backslashreplace").decode("ascii"), file=stream)
-
-
 def main(argv):
     if any(a in ("-h", "--help") for a in argv):
         print(USAGE)
@@ -184,7 +180,7 @@ def main(argv):
     try:
         paths = argv or rust_lexer.repository_files(*WORKFLOW_PATTERNS, *ACTION_PATTERNS)
     except rust_lexer.SetupError as error:
-        emit(f"check-workflow-pins: {error}", sys.stderr)
+        rust_lexer.emit(f"check-workflow-pins: {error}", sys.stderr)
         return 2
     findings = []
     unreadable = False
@@ -193,17 +189,17 @@ def main(argv):
         try:
             found = check_text(rust_lexer.read_source(path), not is_action(path))
         except OSError as error:
-            emit(f"check-workflow-pins: cannot read {shown}: {error.strerror}", sys.stderr)
+            rust_lexer.emit(f"check-workflow-pins: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
             unreadable = True
             continue
         except rust_lexer.SourceError as error:
-            emit(f"check-workflow-pins: cannot read {shown}: {error}", sys.stderr)
+            rust_lexer.emit(f"check-workflow-pins: cannot read {shown}: {error}", sys.stderr)
             unreadable = True
             continue
         found.sort(key=lambda finding: finding[0])
         findings.extend(f"{shown}:{number}: {message}" for number, message in found)
     for finding in findings:
-        emit(finding)
+        rust_lexer.emit(finding)
     if unreadable:
         return 2
     return 1 if findings else 0

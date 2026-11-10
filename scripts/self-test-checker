@@ -14,13 +14,17 @@ in .fixture is copied, without that suffix and at the same relative path,
 into a new git repository in a temporary directory, so the checkers never
 read the fixtures as real files. The copy replaces these placeholders:
 <<TODO>> and <<FIXME>> by those marker words, so that no committed file
-holds a marker, <<CR>> by a carriage return, <<FF>> by the byte 0xFF, and
-<<EOF>> followed by the final newline by nothing, which ends the file
-without a final newline. The checker runs in the repository with the lines
-of the file arguments of the case as its arguments, or with none when the
-case has no such file. The case passes when the standard output equals the
-file expected-output, the standard error equals the file expected-errors,
-or is empty when there is no such file, and the exit status equals the
+holds a marker, <<CR>> by a carriage return, <<ESC>> by an escape
+character, <<BEL>> by a bell character, <<BOM>> by a UTF-8 byte order
+mark, <<FF>> by the byte 0xFF, and <<EOF>> followed by the final newline
+by nothing, which ends the file without a final newline. The checker runs
+in the repository with the lines of the file arguments of the case as its
+arguments, with the same placeholders replaced, or with none when the case
+has no such file. A case that holds a file named no-git-repository gets
+no git repository, and the checker runs in a temporary directory outside
+any repository. The case passes when the standard output equals the file
+expected-output, the standard error equals the file expected-errors, or
+is empty when there is no such file, and the exit status equals the
 number in the file expected-status, or, without that file, 1 when
 expected-output is not empty and 0 when it is. Exits 1 if a case fails,
 and 2 if the checker or its cases cannot be read."""
@@ -29,6 +33,9 @@ PLACEHOLDERS = [
     (b"<<TODO>>", b"TODO"),
     (b"<<FIXME>>", b"FIXME"),
     (b"<<CR>>", b"\r"),
+    (b"<<ESC>>", b"\x1b"),
+    (b"<<BEL>>", b"\x07"),
+    (b"<<BOM>>", "\ufeff".encode("utf-8")),
     (b"<<FF>>", b"\xff"),
 ]
 SUFFIX = ".fixture"
@@ -45,9 +52,13 @@ def materialize(case, work):
         data = source.read_bytes()
         if data.endswith(b"<<EOF>>\n"):
             data = data[: -len(b"<<EOF>>\n")]
-        for placeholder, value in PLACEHOLDERS:
-            data = data.replace(placeholder, value)
-        target.write_bytes(data)
+        target.write_bytes(replace_placeholders(data))
+
+
+def replace_placeholders(data):
+    for placeholder, value in PLACEHOLDERS:
+        data = data.replace(placeholder, value)
+    return data
 
 
 def optional_text(path):
@@ -61,12 +72,17 @@ def run_case(checker, case, environment):
     expected_errors = optional_text(case / "expected-errors") or ""
     status_text = optional_text(case / "expected-status")
     expected_status = int(status_text) if status_text is not None else (1 if expected_output else 0)
-    arguments_text = optional_text(case / "arguments")
-    arguments = arguments_text.splitlines() if arguments_text is not None else []
+    arguments_path = case / "arguments"
+    arguments = []
+    if arguments_path.is_file():
+        arguments = [os.fsdecode(line) for line in replace_placeholders(arguments_path.read_bytes()).splitlines()]
     with tempfile.TemporaryDirectory(prefix="self-test-") as directory:
         work = Path(directory)
         materialize(case, work)
-        subprocess.run(["git", "init", "-q"], cwd=work, env=environment, check=True)
+        if (case / "no-git-repository").is_file():
+            environment = {**environment, "GIT_CEILING_DIRECTORIES": str(work.parent)}
+        else:
+            subprocess.run(["git", "init", "-q"], cwd=work, env=environment, check=True)
         result = subprocess.run(
             [sys.executable, "-I", str(checker), *arguments],
             cwd=work,

@@ -89,10 +89,6 @@ def check_source(shown, source):
     return [f"{shown}:{number}: {message}" for number, message in findings]
 
 
-def emit(text, stream=sys.stdout):
-    print(text.encode("ascii", "backslashreplace").decode("ascii"), file=stream)
-
-
 def main(argv):
     if any(a in ("-h", "--help") for a in argv):
         print(USAGE)
@@ -100,25 +96,25 @@ def main(argv):
     try:
         paths = argv or rust_lexer.repository_files("*.rs")
     except rust_lexer.SetupError as error:
-        emit(f"check-rust-comments: {error}", sys.stderr)
+        rust_lexer.emit(f"check-rust-comments: {error}", sys.stderr)
         return 2
     findings = []
     unreadable = False
     for path in paths:
         shown = rust_lexer.display(path)
         try:
-            source = rust_lexer.Source(rust_lexer.read_source(path))
+            found = check_source(shown, rust_lexer.Source(rust_lexer.read_source(path)))
         except OSError as error:
-            emit(f"check-rust-comments: cannot read {shown}: {error.strerror}", sys.stderr)
+            rust_lexer.emit(f"check-rust-comments: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
             unreadable = True
             continue
         except rust_lexer.SourceError as error:
-            emit(f"check-rust-comments: cannot read {shown}: {error}", sys.stderr)
+            rust_lexer.emit(f"check-rust-comments: cannot read {shown}: {error}", sys.stderr)
             unreadable = True
             continue
-        findings.extend(check_source(shown, source))
+        findings.extend(found)
     for finding in findings:
-        emit(finding)
+        rust_lexer.emit(finding)
     if unreadable:
         return 2
     return 1 if findings else 0

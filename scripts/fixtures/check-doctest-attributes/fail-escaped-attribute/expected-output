@@ -1,0 +1,1 @@
+lib.rs:3: code block marked 'ignore-\x1b[2J', mark it 'no_run' instead

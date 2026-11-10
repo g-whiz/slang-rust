@@ -1,0 +1,3 @@
+<<BOM>>#!/usr/bin/env run-cargo-script // part of the shebang
+// A comment after the shebang.
+pub fn f() {}

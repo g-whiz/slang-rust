@@ -4,11 +4,13 @@ set -euo pipefail
 if [[ $# -gt 0 ]]; then
     printf '%s\n' "usage: claude-hook-prose < hook-input.json" "" \
         "Claude Code PostToolUse hook. Reads the hook input JSON on stdin and, when" \
-        "tool_input.file_path ends in .md and resolves to a file inside the repository," \
-        "runs just check-prose on that file. A relative path is joined to the cwd field" \
-        "of the input, or to the repository root when cwd is absent. Input that is not" \
-        "a JSON object, or that lacks the path, is ignored. Prints the findings to" \
-        "stderr and exits 2 when there are findings."
+        "tool_input.file_path ends in .md or .rs and resolves to a file inside the" \
+        "repository, runs just check-prose on that file. A relative path is joined to" \
+        "the cwd field of the input, or to the repository root when cwd is absent." \
+        "Input that is not a JSON object, or that lacks the path, is ignored. Prints" \
+        "the findings to stderr and exits 2 when there are findings. When the checker" \
+        "fails for another reason, such as a Rust file that cannot be lexed while it is" \
+        "being edited, prints its message to stderr and exits 1, which does not block."
     [[ "$1" == "-h" || "$1" == "--help" ]] && exit 0
     exit 2
 fi
@@ -44,7 +46,7 @@ if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
 print(path)
 ' "${root}")"
 
-[[ "${file_path}" == *.md ]] || exit 0
+[[ "${file_path}" == *.md || "${file_path}" == *.rs ]] || exit 0
 
 cd "${root}"
 

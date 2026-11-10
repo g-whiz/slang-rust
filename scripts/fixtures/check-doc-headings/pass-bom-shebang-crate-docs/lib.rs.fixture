@@ -1,0 +1,9 @@
+<<BOM>>#!/usr/bin/env run-cargo-script /// # Not a heading
+//! Crate documentation.
+//!
+//! # Features
+
+/// Does something.
+///
+/// # Examples
+pub fn f() {}

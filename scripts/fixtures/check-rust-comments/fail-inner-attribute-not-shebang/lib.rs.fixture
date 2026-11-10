@@ -1,0 +1,3 @@
+#![allow(x)] // A comment after an inner attribute.
+// A comment on the next line.
+pub fn f() {}

@@ -1,0 +1,3 @@
+/// Documented.
+pub const A: &str = "open \" still open
+// A comment it would hide.

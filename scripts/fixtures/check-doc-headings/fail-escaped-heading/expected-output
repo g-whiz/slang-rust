@@ -1,0 +1,1 @@
+lib.rs:3: heading '# Bad\x1b[31mred\x07' is not a standard heading

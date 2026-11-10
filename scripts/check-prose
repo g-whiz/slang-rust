@@ -1,7 +1,5 @@
 #!/usr/bin/env -S python3 -I
-import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -37,41 +35,18 @@ BACKTICK_RUN = re.compile(r"`+")
 BOM = "\ufeff"
 
 
-class SetupError(Exception):
-    pass
-
-
 def load_words():
     wordlist = Path(__file__).resolve().parent / "prose-wordlist.txt"
     try:
         text = wordlist.read_text(encoding="utf-8")
     except OSError as error:
-        raise SetupError(f"cannot read word list {wordlist}: {error.strerror}") from None
+        raise rust_lexer.SetupError(f"cannot read word list {wordlist}: {rust_lexer.os_error(error)}") from None
     words = [w.strip().lower() for w in text.splitlines()]
     words = [w for w in words if w]
     if not words:
         return None
     alternatives = "|".join(re.escape(w) for w in sorted(set(words), key=len, reverse=True))
     return re.compile(r"(?<![^\W_])(" + alternatives + r")(?![^\W_])", re.IGNORECASE)
-
-
-def git(*args):
-    try:
-        result = subprocess.run(["git", *args], capture_output=True, check=False)
-    except OSError as error:
-        raise SetupError(f"cannot run git: {error.strerror}") from None
-    if result.returncode != 0:
-        message = result.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise SetupError(f"git {args[0]} failed: {message[0] if message else 'no output'}")
-    return result.stdout.decode("utf-8", "surrogateescape")
-
-
-def tracked_files():
-    root = git("rev-parse", "--show-toplevel").rstrip("\n")
-    os.chdir(root)
-    output = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md", "*.rs")
-    names = [n for n in output.split("\0") if n]
-    return [n for n in names if Path(n).is_file()]
 
 
 def escaped(text, start):
@@ -142,10 +117,6 @@ def closes_later(lines, index, start, length):
     return False
 
 
-def display(path):
-    return path.replace("\n", "\\n").replace("\r", "\\r")
-
-
 def rust_documents(text):
     source = rust_lexer.Source(text)
     for doc in ("outer", "inner"):
@@ -155,7 +126,7 @@ def rust_documents(text):
 
 def check_file(path, words):
     findings = []
-    shown = display(path)
+    shown = rust_lexer.display(path)
     if path.endswith(".rs"):
         text = rust_lexer.read_source(path)
     else:
@@ -192,19 +163,15 @@ def check_document(shown, words, numbers, lines, findings):
         findings.append((unclosed, f"{shown}:{unclosed}: unclosed code fence opened at line {unclosed}"))
 
 
-def emit(text, stream=sys.stdout):
-    print(text.encode("ascii", "backslashreplace").decode("ascii"), file=stream)
-
-
 def main(argv):
     if any(a in ("-h", "--help") for a in argv):
         print(USAGE)
         return 0
     try:
         words = load_words()
-        paths = argv or tracked_files()
-    except SetupError as error:
-        emit(f"check-prose: {error}", sys.stderr)
+        paths = argv or rust_lexer.repository_files("*.md", "*.rs")
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-prose: {error}", sys.stderr)
         return 2
     findings = []
     unreadable = False
@@ -212,13 +179,13 @@ def main(argv):
         try:
             findings.extend(check_file(path, words))
         except OSError as error:
-            emit(f"check-prose: cannot read {display(path)}: {error.strerror}", sys.stderr)
+            rust_lexer.emit(f"check-prose: cannot read {rust_lexer.display(path)}: {rust_lexer.os_error(error)}", sys.stderr)
             unreadable = True
         except rust_lexer.SourceError as error:
-            emit(f"check-prose: cannot read {display(path)}: {error}", sys.stderr)
+            rust_lexer.emit(f"check-prose: cannot read {rust_lexer.display(path)}: {error}", sys.stderr)
             unreadable = True
     for finding in findings:
-        emit(finding)
+        rust_lexer.emit(finding)
     if unreadable:
         return 2
     return 1 if findings else 0

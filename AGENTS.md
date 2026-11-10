@@ -33,7 +33,7 @@ What exists and works:
 - The git hooks in `.pre-commit-config.yaml`.
 - The CI workflow `.github/workflows/ci.yml`, which runs on every pull request and every push to `main`, and whose jobs all passed on their first run on GitHub.
 - The editor settings in `.editorconfig`.
-- The Claude Code settings in `.claude/settings.json`, which run the prose checker after every edit of a Markdown file.
+- The Claude Code settings in `.claude/settings.json`, which run the prose checker after every edit of a Markdown file or a Rust file.
 - `CLAUDE.md`, which imports this file.
 - The workspace manifest `Cargo.toml`, with the `[workspace.package]` fields that every member inherits and the workspace lint tables of Section 4.2 of the coding standard.
 - The tool configuration: `clippy.toml`, `deny.toml`, `.config/nextest.toml`, `taplo.toml`, and `typos.toml`.
@@ -87,11 +87,11 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `scripts/fixtures/`: The cases of each self-test, one directory per checker and per case, with input files that end in `.fixture`.
 - `scripts/check-shell`, `scripts/justfile-recipes`: The `shellcheck` run over every shell script and every recipe.
 - `scripts/check-commit-message`: The commit message checker.
-- `scripts/claude-hook-prose`: The Claude Code hook that runs the prose checker after an edit to a Markdown file.
+- `scripts/claude-hook-prose`: The Claude Code hook that runs the prose checker after an edit to a Markdown file or a Rust file.
 - `scripts/merge-branch`: The squash merge that `just merge` runs.
 - `scripts/worktree-prune`: The cleanup of squash-merged branches that `just worktree-prune` and the `post-merge` hook run.
 - `.pre-commit-config.yaml`: The `pre-commit`, `commit-msg`, and `post-merge` hooks.
-- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands, which include `just check` and most of the recipes that it runs, and the hook that runs the prose checker after every edit.
+- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands, which include `just check` and most of the recipes that it runs, and the hook that runs the prose checker after every edit of a Markdown file or a Rust file.
 - `.editorconfig`: The character set, line endings, final newline, and indentation for each file type.
 - `.gitignore`: The files that git ignores.
 
@@ -213,7 +213,7 @@ just check-typos
 just check-toml
 ```
 
-To check the prose of a Markdown file, or of the documentation comments of a Rust file, run this command. The Claude Code hook also runs it after every edit of a Markdown file:
+To check the prose of a Markdown file, or of the documentation comments of a Rust file, run this command. The Claude Code hook also runs it after every edit of a Markdown file or a Rust file:
 
 ```sh
 just check-prose docs/rust-coding-standards.md

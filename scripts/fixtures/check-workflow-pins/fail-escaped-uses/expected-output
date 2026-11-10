@@ -1,0 +1,1 @@
+.github/workflows/ci.yml:8: uses: 'actions/checkout@\x1b]0;title\x07v7\x1b[2J' is not pinned to a full 40-character commit SHA
