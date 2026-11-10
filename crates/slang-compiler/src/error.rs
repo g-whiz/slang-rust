@@ -328,9 +328,6 @@ impl fmt::Display for Diagnostics {
 /// record, so the messages are not lost. Read `diagnostics`, then take the
 /// value with [`Compiled::into_value`] or from the field `value`.
 ///
-/// The record is non-exhaustive, so a later version can add fields, and only
-/// this crate creates it.
-///
 /// # Examples
 ///
 /// This example shows the messages of a successful call and keeps its value:
@@ -346,8 +343,24 @@ impl fmt::Display for Diagnostics {
 /// }
 /// # let _ = keep::<()>;
 /// ```
+///
+/// The record has exactly these two fields, so a program can also take it
+/// apart with a pattern:
+///
+/// ```
+/// use slang_compiler::Compiled;
+///
+/// fn split<T>(compiled: Compiled<T>) -> (T, String) {
+///     let Compiled { value, diagnostics } = compiled;
+///     (value, diagnostics.to_string())
+/// }
+/// # let _ = split::<()>;
+/// ```
 #[must_use]
-#[non_exhaustive]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a value and its diagnostics close the meaning of the record, which API-9 exempts, and Section 6.8 of docs/design/slang-compiler.md defines it as a passive record with two public fields (API-10)"
+)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Compiled<T> {
     /// The value that the call returned.
