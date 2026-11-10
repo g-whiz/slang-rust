@@ -2,3 +2,10 @@
 # The shell name pattern `(ba)?sh` in the shebang checks, and the surname of a
 # cited author.
 extend-ignore-re = ["\\(ba\\)\\?sh", "Rob Ede"]
+
+# Names that the Slang headers misspell, which the generated bindings keep
+# because they must match the headers (SCS-14).
+[default.extend-identifiers]
+ISlangClonable = "ISlangClonable"
+ISlangClonableVtbl = "ISlangClonableVtbl"
+SLANG_LANGAUGE_VERSION_DEFAULT = "SLANG_LANGAUGE_VERSION_DEFAULT"

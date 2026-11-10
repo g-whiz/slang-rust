@@ -91,7 +91,7 @@ const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 ///
 /// Returns an [`Error`] whose [`ErrorKind`] says what failed:
 ///
-/// - [`ErrorKind::Io`] when the header directory or a header cannot be read.
+/// - [`ErrorKind::Io`] when the header directory cannot be read.
 /// - [`ErrorKind::Version`] when `slang-tag-version.h` does not define the
 ///   build tag of [`pin::SLANG_BUILD_TAG`].
 /// - [`ErrorKind::Libclang`] when libclang cannot be loaded or cannot parse.

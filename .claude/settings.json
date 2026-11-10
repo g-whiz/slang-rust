@@ -4,6 +4,8 @@
       "Bash(just --list)",
       "Bash(just check)",
       "Bash(just check-shell)",
+      "Bash(just check-commit-message:*)",
+      "Bash(just check-commit-message-self-test)",
       "Bash(just check-prose:*)",
       "Bash(just check-prose-self-test)",
       "Bash(just check-rust-comments:*)",
@@ -28,6 +30,12 @@
       "Bash(just check-workflows)",
       "Bash(just check-workflow-pins:*)",
       "Bash(just check-workflow-pins-self-test)",
+      "Bash(just check-bindings)",
+      "Bash(just check-vulkan-sdk)",
+      "Bash(just pin)",
+      "Bash(just test)",
+      "Bash(just test-gpu)",
+      "Bash(just test-hw-gpu)",
       "Bash(shellcheck:*)",
       "Bash(git status:*)"
     ]

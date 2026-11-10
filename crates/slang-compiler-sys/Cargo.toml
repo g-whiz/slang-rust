@@ -1,6 +1,6 @@
 [package]
 name = "slang-compiler-sys"
-description = "Raw bindings to the Slang shader compiler. A placeholder with no bindings yet."
+description = "Raw bindings to the Slang shader compiler, generated from the Slang headers."
 keywords = ["slang", "shader", "ffi", "bindings", "gpu"]
 categories = ["external-ffi-bindings", "graphics"]
 version.workspace = true
@@ -10,6 +10,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+
+[package.metadata.docs.rs]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
 
 [lints]
 workspace = true

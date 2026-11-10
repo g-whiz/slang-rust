@@ -10,15 +10,15 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` is a placeholder that records the pinned version of Slang and marks the place of the raw bindings, which milestone M1 of the roadmap adds. The binding generator, which will write those bindings from the Slang headers, exists and is tested, but its bindings are not checked in yet. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. It does not link the Slang library yet, because its build script arrives later in milestone M1 of the roadmap. The binding generator is the other crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
-Every crate in this table is planned. Each crate gets a link to its documentation when it has an API.
+No crate in this table is complete. Each crate gets a link to its documentation when it has an API.
 
 | Crate | State | Purpose |
 | --- | --- | --- |
-| `slang-compiler-sys` | Planned, placeholder with the pinned Slang version present | Raw bindings to the native Slang library, generated from the Slang headers |
+| `slang-compiler-sys` | In progress, with the raw bindings and the pinned Slang version present, and no linking of Slang yet | Raw bindings to the native Slang library, generated from the Slang headers |
 | `slang-compiler` | Planned | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
