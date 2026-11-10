@@ -13,12 +13,18 @@ fn spirv() -> Target {
 }
 
 fn every_typed_option() -> CompilerOptions {
-    let mut options = CompilerOptions::default();
+    let mut options = every_typed_option_of_a_target();
     options
         .language_version(LanguageVersion::V2026)
         .warnings_as_errors("30081")
         .enable_warning("30081")
-        .disable_warning("30081")
+        .disable_warning("30081");
+    options
+}
+
+fn every_typed_option_of_a_target() -> CompilerOptions {
+    let mut options = CompilerOptions::default();
+    options
         .optimization(OptimizationLevel::High)
         .debug_info(DebugInfoLevel::Minimal)
         .floating_point_mode(FloatingPointMode::Precise)
@@ -39,7 +45,7 @@ fn four_targets(global: &GlobalSession) -> SessionBuilder {
             spirv()
                 .profile("spirv_1_5")
                 .capability("spvInt64Atomics")
-                .options(every_typed_option()),
+                .options(every_typed_option_of_a_target()),
         )
         .target(Target::new(TargetFormat::Wgsl))
         .target(Target::new(TargetFormat::Hlsl).profile("sm_6_5"))
@@ -123,6 +129,11 @@ fn build_rejects_a_nul_byte_in_each_kind_of_string() {
     let global = GlobalSession::new().expect("Slang creates a global session");
     let mut warnings = CompilerOptions::default();
     warnings.enable_warning("30081\0");
+    let mut target_options = CompilerOptions::default();
+    let define = OptionName::new(CompilerOptionName::MacroDefine.0).expect("a stored option");
+    // SAFETY: Slang reads `MacroDefine` as two strings. The NUL byte stops
+    // `build` before the options reach Slang.
+    unsafe { target_options.set_string(define, "NAME", Some("1\0")) };
     let cases = [
         (
             Session::builder(&global)
@@ -157,8 +168,8 @@ fn build_rejects_a_nul_byte_in_each_kind_of_string() {
             "compiler option 21",
         ),
         (
-            Session::builder(&global).target(spirv().options(warnings)),
-            "compiler option 21",
+            Session::builder(&global).target(spirv().options(target_options)),
+            "compiler option 0",
         ),
     ];
     for (builder, text) in cases {
@@ -194,6 +205,25 @@ fn build_rejects_a_search_path_that_is_not_utf8() {
         ErrorKind::InvalidArgument,
         "not valid UTF-8",
     );
+}
+
+#[test]
+fn build_rejects_a_language_version_on_a_target_and_takes_it_on_the_session() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let mut options = CompilerOptions::default();
+    options.language_version(LanguageVersion::V2026);
+    assert_rejected(
+        Session::builder(&global).target(spirv().profile("spirv_1_5").options(options.clone())),
+        ErrorKind::InvalidArgument,
+        "the options of target 0 set `LanguageVersion`, which the pinned Slang build reads only \
+         from the options of the session, so set it on the session instead",
+    );
+    let session = Session::builder(&global)
+        .target(spirv().profile("spirv_1_5"))
+        .options(options)
+        .build()
+        .expect("Slang creates the session");
+    assert_eq!(session.target_count(), 1);
 }
 
 #[test]

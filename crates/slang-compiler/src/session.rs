@@ -412,6 +412,12 @@ impl Target {
     /// Sets the compiler options of the target, which override the options of
     /// the session for this target, and replaces any options set earlier.
     ///
+    /// The pinned Slang build never reads the options `LanguageVersion`,
+    /// `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` from the
+    /// options of a target, so [`SessionBuilder::build`] rejects a target
+    /// whose options hold an entry of any of them, also one that a raw setter
+    /// added. Set them in the options of the session instead.
+    ///
     /// # Examples
     ///
     /// See the example of [`Target`].
@@ -634,7 +640,13 @@ impl SessionBuilder {
     ///
     /// The checks run before anything is created, so a setting that Slang
     /// would not accept is reported here, with the setting that caused it,
-    /// instead of at a later call.
+    /// instead of at a later call. They run in this order, and the first
+    /// failure is returned: that the builder has a target, that no target's
+    /// options set an option that Slang reads only from the session, the
+    /// search paths, the macros, the options of the session, each target's
+    /// options, profile, and capabilities in the order of the targets, and
+    /// last the names of the profile and the capabilities of each target,
+    /// which only Slang can resolve.
     ///
     /// # Examples
     ///
@@ -647,8 +659,11 @@ impl SessionBuilder {
     /// - [`ErrorKind::InvalidArgument`] when the builder has no target, when a
     ///   search path is not valid UTF-8, when a search path, a macro name or
     ///   value, a profile, a capability, or a text value of the compiler
-    ///   options contains a NUL byte, or when there are more compiler options
-    ///   than Slang takes.
+    ///   options contains a NUL byte, when there are more compiler options
+    ///   than Slang takes, or when the options of a target set
+    ///   `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, or
+    ///   `DisableWarning`, which the pinned Slang build reads only from the
+    ///   options of the session, as [`Target::options`] states.
     /// - [`ErrorKind::NotFound`] when Slang does not know the name of a
     ///   profile or a capability of a target.
     /// - The kind that Slang's result code maps to when Slang cannot create
@@ -679,6 +694,17 @@ impl SessionBuilder {
         if self.targets.is_empty() {
             return Err(Error::new(ErrorKind::InvalidArgument, operation)
                 .with_detail("the builder has no target, and a session needs one".to_owned()));
+        }
+        for (position, target) in self.targets.iter().enumerate() {
+            if let Some(name) = target.options.first_session_only() {
+                return Err(
+                    Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
+                        "the options of target {position} set `{name}`, which the pinned Slang \
+                     build reads only from the options of the session, so set it on the \
+                     session instead"
+                    )),
+                );
+            }
         }
         let search_paths = self
             .search_paths
@@ -980,8 +1006,9 @@ mod tests {
         SessionSnapshot, TargetSnapshot, panic_message,
     };
     use crate::{
-        CompilerOptions, ErrorKind, FloatingPointMode, GlobalSession, LineDirectiveMode,
-        MatrixLayout, Operation, OptimizationLevel, OptionName, TargetFormat, Toggle, guard,
+        CompilerOptions, ErrorKind, FloatingPointMode, GlobalSession, LanguageVersion,
+        LineDirectiveMode, MatrixLayout, Operation, OptimizationLevel, OptionName, TargetFormat,
+        Toggle, guard,
     };
 
     fn adopt(log: &Log) -> GlobalSession {
@@ -1371,6 +1398,11 @@ mod tests {
         let global = adopt(&log);
         let mut options = CompilerOptions::default();
         options.disable_warning("a\0b");
+        let mut target_options = CompilerOptions::default();
+        let define = OptionName::new(CompilerOptionName::MacroDefine.0).expect("a stored option");
+        // SAFETY: Slang reads `MacroDefine` as two strings. The NUL byte stops
+        // `build` before the options reach Slang.
+        unsafe { target_options.set_string(define, "A", Some("1\0")) };
         let builders = [
             (
                 Session::builder(&global)
@@ -1403,13 +1435,159 @@ mod tests {
                 "compiler option 22",
             ),
             (
-                Session::builder(&global).target(spirv().options(options)),
-                "compiler option 22",
+                Session::builder(&global).target(spirv().options(target_options)),
+                "compiler option 0",
             ),
         ];
         for (builder, text) in builders {
             assert_invalid(builder, &log, text);
         }
+    }
+
+    /// Returns options with an optimization level and then `name`, set once
+    /// through `typed` and once through a raw setter with the value `raw`.
+    fn session_only_cases(
+        typed: impl Fn(&mut CompilerOptions),
+        name: CompilerOptionName,
+        raw: Result<i32, &str>,
+    ) -> [CompilerOptions; 2] {
+        let mut typed_options = CompilerOptions::default();
+        typed_options.optimization(OptimizationLevel::High);
+        typed(&mut typed_options);
+        let mut raw_options = CompilerOptions::default();
+        raw_options.optimization(OptimizationLevel::High);
+        let name = OptionName::new(name.0).expect("a stored option");
+        match raw {
+            // SAFETY: the options reach only the fake, which reads but never
+            // interprets them, and `build` rejects them on a target.
+            Ok(value) => unsafe {
+                raw_options.set_int(name, value, 0);
+            },
+            // SAFETY: as above.
+            Err(text) => unsafe {
+                raw_options.set_string(name, text, None);
+            },
+        }
+        [typed_options, raw_options]
+    }
+
+    /// Checks that `build` rejects each of `cases` in the options of the
+    /// second target with an error that names `name`, before it calls Slang,
+    /// and that a session accepts the same options.
+    fn assert_session_only(cases: [CompilerOptions; 2], name: &str) {
+        for options in cases {
+            let log = Log::new();
+            let global = adopt(&log);
+            let error = Session::builder(&global)
+                .target(Target::new(TargetFormat::Hlsl))
+                .target(spirv().profile(FAKE_PROFILE.0).options(options.clone()))
+                .build()
+                .expect_err("the target sets an option that Slang reads from the session");
+            assert_eq!(error.kind(), ErrorKind::InvalidArgument, "{error}");
+            assert_eq!(error.operation(), Operation::CreateSession);
+            assert_eq!(error.code(), None);
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "cannot create a session: the options of target 1 set `{name}`, which the \
+                     pinned Slang build reads only from the options of the session, so set it \
+                     on the session instead"
+                )
+            );
+            assert_eq!(calls(&log), []);
+            drop(global);
+
+            let log = Log::new();
+            let global = adopt(&log);
+            Session::builder(&global)
+                .target(spirv())
+                .options(options)
+                .build()
+                .expect("the session takes the option");
+            assert_eq!(created(&log).len(), 1);
+        }
+    }
+
+    #[test]
+    fn build_rejects_a_language_version_in_the_options_of_a_target() {
+        let cases = session_only_cases(
+            |options| {
+                options.language_version(LanguageVersion::V2026);
+            },
+            CompilerOptionName::LanguageVersion,
+            Ok(2026),
+        );
+        assert_session_only(cases, "LanguageVersion");
+    }
+
+    #[test]
+    fn build_rejects_warnings_as_errors_in_the_options_of_a_target() {
+        let cases = session_only_cases(
+            |options| {
+                options.warnings_as_errors("all");
+            },
+            CompilerOptionName::WarningsAsErrors,
+            Err("all"),
+        );
+        assert_session_only(cases, "WarningsAsErrors");
+    }
+
+    #[test]
+    fn build_rejects_an_enabled_warning_in_the_options_of_a_target() {
+        let cases = session_only_cases(
+            |options| {
+                options.enable_warning("30081");
+            },
+            CompilerOptionName::EnableWarning,
+            Err("30081"),
+        );
+        assert_session_only(cases, "EnableWarning");
+    }
+
+    #[test]
+    fn build_rejects_a_disabled_warning_in_the_options_of_a_target() {
+        let cases = session_only_cases(
+            |options| {
+                options.disable_warning("30081");
+            },
+            CompilerOptionName::DisableWarning,
+            Err("30081"),
+        );
+        assert_session_only(cases, "DisableWarning");
+    }
+
+    #[test]
+    fn the_session_takes_every_option_that_a_target_rejects() {
+        let log = Log::new();
+        let global = adopt(&log);
+        let mut options = CompilerOptions::default();
+        options
+            .language_version(LanguageVersion::V2026)
+            .warnings_as_errors("all")
+            .enable_warning("30081")
+            .disable_warning("30081");
+        Session::builder(&global)
+            .target(spirv())
+            .options(options)
+            .build()
+            .expect("the session takes every option");
+        let snapshots = created(&log);
+        let snapshot = snapshots.first().expect("one session was created");
+        assert_eq!(
+            snapshot
+                .options
+                .iter()
+                .map(|option| match option {
+                    OptionSnapshot::Int(name, ..) | OptionSnapshot::Text(name, ..) => *name,
+                })
+                .collect::<Vec<_>>(),
+            [
+                CompilerOptionName::LanguageVersion.0,
+                CompilerOptionName::WarningsAsErrors.0,
+                CompilerOptionName::EnableWarning.0,
+                CompilerOptionName::DisableWarning.0,
+            ]
+        );
     }
 
     #[cfg(unix)]

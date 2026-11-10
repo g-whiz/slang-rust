@@ -130,6 +130,18 @@ pub struct CompilerOptions {
     entries: Vec<Entry>,
 }
 
+/// The options that the pinned Slang build never reads from the options of a
+/// target, with Slang's name of each. It reads `LanguageVersion` only from
+/// the session when it parses and checks source, and the three warning
+/// options only when it applies the options of the session or of a linked
+/// program to its diagnostics.
+const SESSION_ONLY: [(CompilerOptionName, &str); 4] = [
+    (CompilerOptionName::LanguageVersion, "LanguageVersion"),
+    (CompilerOptionName::WarningsAsErrors, "WarningsAsErrors"),
+    (CompilerOptionName::EnableWarning, "EnableWarning"),
+    (CompilerOptionName::DisableWarning, "DisableWarning"),
+];
+
 #[derive(Clone, Debug)]
 struct Entry {
     name: CompilerOptionName,
@@ -145,6 +157,11 @@ enum Value {
 impl CompilerOptions {
     /// Sets the version of the Slang language whose rules apply to the
     /// source, as Slang's option `LanguageVersion`.
+    ///
+    /// The pinned Slang build never reads this option from the options of a
+    /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
+    /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
+    /// options of the session.
     ///
     /// # Examples
     ///
@@ -166,6 +183,11 @@ impl CompilerOptions {
     /// name that it does not know in the diagnostics of the call that applies
     /// the option, such as the load of a module.
     ///
+    /// The pinned Slang build never reads this option from the options of a
+    /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
+    /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
+    /// options of the session.
+    ///
     /// # Examples
     ///
     /// See the example of [`CompilerOptions`].
@@ -181,6 +203,11 @@ impl CompilerOptions {
     /// that it does not know in the diagnostics of the call that applies the
     /// option, such as the load of a module.
     ///
+    /// The pinned Slang build never reads this option from the options of a
+    /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
+    /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
+    /// options of the session.
+    ///
     /// # Examples
     ///
     /// See the example of [`CompilerOptions`].
@@ -195,6 +222,11 @@ impl CompilerOptions {
     /// passes the text on unchanged, and it reports a name that it does not
     /// know in the diagnostics of the call that applies the option, such as
     /// the load of a module.
+    ///
+    /// The pinned Slang build never reads this option from the options of a
+    /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
+    /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
+    /// options of the session.
     ///
     /// # Examples
     ///
@@ -328,7 +360,8 @@ impl CompilerOptions {
     /// which the session builder fills as it does for
     /// [`CompilerOptions::floating_point_mode`], so the setting applies in the
     /// options of the session and of a target, and the target's own value
-    /// wins.
+    /// wins. The pinned Slang build reads this option when it lays out types
+    /// and generates code for a target, from the options of that target.
     ///
     /// # Examples
     ///
@@ -340,6 +373,10 @@ impl CompilerOptions {
     /// Sets whether the fields of buffers follow the layout rules of
     /// DirectX, as Slang's option `ForceDXLayout`.
     ///
+    /// The pinned Slang build reads this option when it lays out types for a
+    /// target, from the options of that target, which start from the options
+    /// of the session.
+    ///
     /// # Examples
     ///
     /// See the example of [`CompilerOptions`].
@@ -349,6 +386,10 @@ impl CompilerOptions {
 
     /// Sets whether the fields of buffers follow the layout rules of C
     /// structures, as Slang's option `ForceCLayout`.
+    ///
+    /// The pinned Slang build reads this option when it lays out types for a
+    /// target, from the options of that target, which start from the options
+    /// of the session.
     ///
     /// # Examples
     ///
@@ -362,7 +403,10 @@ impl CompilerOptions {
     /// `PreserveParameters`.
     ///
     /// A resource is an object that a shader reads or writes through a
-    /// binding, such as a buffer or a texture.
+    /// binding, such as a buffer or a texture. The pinned Slang build reads
+    /// this option from the options of the session when it links the code of
+    /// a target, and from the options of the target when it generates the
+    /// code, so set it on the session for it to apply to both steps.
     ///
     /// # Examples
     ///
@@ -493,6 +537,18 @@ impl CompilerOptions {
             .iter()
             .find(|entry| entry.name == name)
             .map(Entry::int0)
+    }
+
+    /// Returns Slang's name of the first option in these options that the
+    /// pinned Slang build reads only from the options of a session, or `None`
+    /// when they set none.
+    pub(crate) fn first_session_only(&self) -> Option<&'static str> {
+        self.entries.iter().find_map(|entry| {
+            SESSION_ONLY
+                .iter()
+                .find(|(name, _)| *name == entry.name)
+                .map(|(_, text)| *text)
+        })
     }
 
     /// Returns the method of generating SPIR-V that Slang derives from these
