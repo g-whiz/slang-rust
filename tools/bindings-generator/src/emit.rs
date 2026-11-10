@@ -11,6 +11,10 @@ use crate::rules::{MacroAction, RuleSet};
 
 const HEADER: &str = "//! Raw bindings to the Slang API, generated from the Slang headers by the binding generator. Run `just generate-bindings` to regenerate them instead of editing this file.\n\n";
 
+const SYMBOLS_HEADER: &str = "//! The C functions of the raw Slang bindings, generated from the Slang headers by the binding generator. Run `just generate-bindings` to regenerate them instead of editing this file.\n\n";
+
+const SYMBOLS_CRATE: &str = "slang_compiler_sys";
+
 const POINTER_WIDTH_CHECK: &str = "#[cfg(not(target_pointer_width = \"64\"))]\ncompile_error!(\"the Slang bindings support only 64-bit targets: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS\");\n\n";
 
 const INTERFACE_TRAIT: &str = "Interface";
@@ -25,7 +29,12 @@ const RAW_KEYWORDS: &[&str] = &[
 
 const SUFFIXED_KEYWORDS: &[&str] = &["crate", "self", "Self", "super", "_"];
 
-pub(crate) fn emit(selection: &Selection, rules: &RuleSet) -> Result<String> {
+pub(crate) struct Emitted {
+    pub(crate) bindings: String,
+    pub(crate) symbols: String,
+}
+
+pub(crate) fn emit(selection: &Selection, rules: &RuleSet) -> Result<Emitted> {
     let mut emitter = Emitter {
         validator: Validator::new(selection, rules, "every target"),
         rules,
@@ -35,13 +44,33 @@ pub(crate) fn emit(selection: &Selection, rules: &RuleSet) -> Result<String> {
         opaque: BTreeMap::new(),
         out: String::new(),
         externs: String::new(),
+        functions: Vec::new(),
         trait_emitted: false,
     };
     emitter.run()?;
-    let mut text = String::from(HEADER);
-    text.push_str(POINTER_WIDTH_CHECK);
-    text.push_str(&emitter.out);
-    Ok(text)
+    let mut bindings = String::from(HEADER);
+    bindings.push_str(POINTER_WIDTH_CHECK);
+    bindings.push_str(&emitter.out);
+    Ok(Emitted {
+        bindings,
+        symbols: symbols(&emitter.functions),
+    })
+}
+
+fn symbols(functions: &[String]) -> String {
+    let mut text = String::from(SYMBOLS_HEADER);
+    text.push_str("pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[\n");
+    for name in functions {
+        put(
+            &mut text,
+            format_args!(
+                "    (\"{name}\", {SYMBOLS_CRATE}::{} as *const ()),\n",
+                ident(name)
+            ),
+        );
+    }
+    text.push_str("];\n");
+    text
 }
 
 pub(crate) fn rustfmt(text: &str) -> Result<String> {
@@ -103,6 +132,7 @@ struct Emitter<'a> {
     opaque: BTreeMap<String, (String, Location)>,
     out: String,
     externs: String,
+    functions: Vec<String>,
     trait_emitted: bool,
 }
 
@@ -192,6 +222,7 @@ impl<'a> Emitter<'a> {
                     &mut self.externs,
                     format_args!("    pub fn {}({params}){result};\n", ident(&name)),
                 );
+                self.functions.push(name);
                 Ok(())
             }
             ItemKind::Constant(constant) => {

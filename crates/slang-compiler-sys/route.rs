@@ -7,11 +7,20 @@ const DOCS_RS: &str = "DOCS_RS";
 const SLANG_SOURCE_DIR: &str = "SLANG_SOURCE_DIR";
 const VULKAN_SDK: &str = "VULKAN_SDK";
 const TAG_MACRO: &str = "SLANG_TAG_VERSION";
+const TARGET_OS: &str = "CARGO_CFG_TARGET_OS";
 
 trait Host {
     fn var(&self, name: &str) -> Option<OsString>;
     fn read(&self, path: &Path) -> io::Result<String>;
-    fn is_dir(&self, path: &Path) -> bool;
+    fn kind(&self, path: &Path) -> io::Result<EntryKind>;
+    fn host_os(&self) -> &str;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    Directory,
+    File,
+    Other,
 }
 
 struct BuildError(String);
@@ -50,14 +59,47 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
         return Err(mismatch_error(&sdk, &tag_header, tag));
     }
     let lib = sdk.join("lib");
-    if !host.is_dir(&lib) {
-        return Err(missing_lib_error(&sdk, &lib));
-    }
+    check_lib(host, &sdk, &lib)?;
     directives.push(format!("cargo::rustc-link-search=native={}", lib.display()));
     directives.push("cargo::rustc-link-lib=dylib=slang-compiler".to_owned());
     directives.push(format!("cargo::metadata=include={}", include.display()));
     directives.push(format!("cargo::metadata=lib={}", lib.display()));
     Ok(())
+}
+
+fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError> {
+    match host.kind(lib) {
+        Ok(EntryKind::Directory) => {}
+        Ok(_) => return Err(lib_error(sdk, lib, &format!("{} is not a directory", lib.display()))),
+        Err(error) => {
+            return Err(lib_error(sdk, lib, &format!("cannot access {}: {error}", lib.display())));
+        }
+    }
+    let target_os = host.var(TARGET_OS);
+    let Some(target_os) = target_os.as_ref().and_then(|os| os.to_str()) else {
+        return Ok(());
+    };
+    if target_os != host.host_os() {
+        return Ok(());
+    }
+    let Some(name) = library_file(target_os) else {
+        return Ok(());
+    };
+    let file = lib.join(name);
+    match host.kind(&file) {
+        Ok(EntryKind::File) => Ok(()),
+        Ok(_) => Err(lib_error(sdk, lib, &format!("{} is not a file", file.display()))),
+        Err(error) => Err(lib_error(sdk, lib, &format!("cannot access {}: {error}", file.display()))),
+    }
+}
+
+fn library_file(target_os: &str) -> Option<&'static str> {
+    match target_os {
+        "linux" => Some("libslang-compiler.so"),
+        "macos" => Some("libslang-compiler.dylib"),
+        "windows" => Some("slang-compiler.lib"),
+        _ => None,
+    }
 }
 
 fn sdk_dir(value: Option<OsString>) -> Result<PathBuf, BuildError> {
@@ -101,7 +143,7 @@ fn parse_tag(text: &str) -> Result<&str, TagError> {
 
 fn sdk_advice() -> String {
     format!(
-        "Install the Vulkan SDK {VULKAN_SDK_VERSION} from LunarG, at https://vulkan.lunarg.com, and set {VULKAN_SDK} to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows"
+        "Install the LunarG Vulkan SDK {VULKAN_SDK_VERSION} from https://vulkan.lunarg.com, and set {VULKAN_SDK} to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows"
     )
 }
 
@@ -148,9 +190,9 @@ fn mismatch_error(sdk: &Path, path: &Path, tag: &str) -> BuildError {
     ))
 }
 
-fn missing_lib_error(sdk: &Path, lib: &Path) -> BuildError {
+fn lib_error(sdk: &Path, lib: &Path, problem: &str) -> BuildError {
     BuildError(format!(
-        "the Vulkan SDK at {} has no directory {}, which holds the Slang library to link. {}.",
+        "{problem}, so the build cannot link the Slang library of the Vulkan SDK at {}, which it expects in {} as libslang-compiler.so on Linux, libslang-compiler.dylib on macOS, and the import library slang-compiler.lib on Windows. {}.",
         sdk.display(),
         lib.display(),
         sdk_advice()

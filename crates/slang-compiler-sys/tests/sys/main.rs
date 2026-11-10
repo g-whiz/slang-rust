@@ -8,3 +8,4 @@ mod build_script;
 )]
 mod ffi;
 mod pin;
+mod symbols;

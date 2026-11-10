@@ -118,8 +118,9 @@
 //! # Linking Slang
 //!
 //! The build script of this crate links the Slang shared library of an
-//! installed Vulkan SDK, which has to be the SDK that [`VULKAN_SDK_VERSION`]
-//! names. The SDK is available from <https://vulkan.lunarg.com>. When the
+//! installed LunarG Vulkan SDK, which has to be the SDK that
+//! [`VULKAN_SDK_VERSION`] names. The SDK is available from
+//! <https://vulkan.lunarg.com>. When the
 //! build script runs, it reads the environment variable `VULKAN_SDK`, which
 //! holds the absolute path of the directory of the SDK that contains
 //! `include/slang` and `lib`. That is the directory `x86_64` of the SDK on
@@ -139,7 +140,18 @@
 //! The build stops with an error that says what to set when `VULKAN_SDK` is
 //! unset, empty, or not an absolute path, when the header is missing or does
 //! not define the build tag, when the build tag is another one, and when
-//! `$VULKAN_SDK/lib` is missing.
+//! `$VULKAN_SDK/lib` is not a directory that the build can access. The error
+//! includes the reason that the operating system gives, such as a denied
+//! permission.
+//!
+//! When the target has the operating system of the host, the build also stops
+//! when `$VULKAN_SDK/lib` does not hold the Slang library of the target:
+//! `libslang-compiler.so` on Linux, `libslang-compiler.dylib` on macOS, and
+//! `slang-compiler.lib` on Windows. For a target with another operating
+//! system, such as a check of the Windows target on Linux, the build script
+//! does not look for the library, because the SDK of the host holds only the
+//! library of the host. Commands that do not link, such as `cargo check` and
+//! `cargo clippy`, then work, and a build that links fails in the linker.
 //!
 //! The environment variable `SLANG_SOURCE_DIR` is reserved for the other way
 //! to obtain Slang, which builds Slang from a source tree and links it

@@ -15,8 +15,19 @@ impl Host for System {
         std::fs::read_to_string(path)
     }
 
-    fn is_dir(&self, path: &Path) -> bool {
-        path.is_dir()
+    fn kind(&self, path: &Path) -> io::Result<EntryKind> {
+        let metadata = std::fs::metadata(path)?;
+        Ok(if metadata.is_dir() {
+            EntryKind::Directory
+        } else if metadata.is_file() {
+            EntryKind::File
+        } else {
+            EntryKind::Other
+        })
+    }
+
+    fn host_os(&self) -> &str {
+        std::env::consts::OS
     }
 }
 

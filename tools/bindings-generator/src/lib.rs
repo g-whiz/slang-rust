@@ -13,8 +13,11 @@
 //! The generator parses the headers once for each supported 64-bit target,
 //! decides which declarations to include through a checked-in rule set,
 //! compares the parses, and fails on any declaration, construct, or
-//! difference between targets that it has no rule for. The generated text is
-//! formatted with rustfmt and is the same for the same headers on every run.
+//! difference between targets that it has no rule for. Each run writes two
+//! files: the bindings, and the list of their C functions that a test of
+//! `slang-compiler-sys` uses to check that every function resolves to a
+//! symbol of the native library. The generated text is formatted with rustfmt
+//! and is the same for the same headers on every run.
 //!
 //! # Examples
 //!
@@ -23,8 +26,8 @@
 //! not run:
 //!
 //! ```no_run
-//! let text = bindings_generator::generate("/tmp/vulkan-sdk/include/slang")?;
-//! assert!(text.contains("pub unsafe trait Interface"));
+//! let generated = bindings_generator::generate("/tmp/vulkan-sdk/include/slang")?;
+//! assert!(generated.bindings.contains("pub unsafe trait Interface"));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -67,14 +70,71 @@ const TAG_HEADER: &str = "slang-tag-version.h";
 const TAG_MACRO: &str = "SLANG_TAG_VERSION";
 const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 
-/// Generates the text of the raw bindings from the Slang headers in
-/// `header_dir`.
+/// The files that one run of the generator writes, as text.
 ///
-/// Use this to write `crates/slang-compiler-sys/src/bindings.rs`, or to
-/// compare that file with a fresh generation. `header_dir` is the directory
-/// that holds `slang.h` and `slang-tag-version.h`, which is `include/slang` in
-/// a Vulkan SDK. The function loads libclang, parses the headers for every
-/// supported target, and returns the bindings formatted with rustfmt.
+/// Both texts come from the same parse of the headers, so the list of C
+/// functions always matches the bindings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Generated {
+    /// The raw bindings, which [`BINDINGS_PATH`] names.
+    pub bindings: String,
+    /// The list of the C functions of the bindings with their addresses,
+    /// which [`SYMBOLS_PATH`] names.
+    pub symbols: String,
+}
+
+/// The path of the generated bindings, relative to the root of the
+/// repository.
+pub const BINDINGS_PATH: &str = "crates/slang-compiler-sys/src/bindings.rs";
+
+/// The path of the generated list of C functions, relative to the root of the
+/// repository.
+pub const SYMBOLS_PATH: &str = "crates/slang-compiler-sys/tests/sys/symbols.rs";
+
+impl Generated {
+    /// Returns each generated text with the path of its file, relative to the
+    /// root of the repository.
+    ///
+    /// Use this to write the files, or to compare each with a fresh
+    /// generation, without naming the paths again.
+    ///
+    /// # Examples
+    ///
+    /// This example writes both files under a directory. It needs libclang,
+    /// rustfmt, and the Slang headers at run time, so it is compiled but not
+    /// run:
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    ///
+    /// let generated = bindings_generator::generate("/tmp/vulkan-sdk/include/slang")?;
+    /// for (path, text) in generated.files() {
+    ///     let file = Path::new("/tmp/slang-rust").join(path);
+    ///     if let Some(parent) = file.parent() {
+    ///         std::fs::create_dir_all(parent)?;
+    ///     }
+    ///     std::fs::write(file, text)?;
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn files(&self) -> [(&'static str, &str); 2] {
+        [
+            (BINDINGS_PATH, &self.bindings),
+            (SYMBOLS_PATH, &self.symbols),
+        ]
+    }
+}
+
+/// Generates the raw bindings and the list of their C functions from the
+/// Slang headers in `header_dir`.
+///
+/// Use this to write the files that [`Generated::files`] names, or to compare
+/// them with a fresh generation. `header_dir` is the directory that holds
+/// `slang.h` and `slang-tag-version.h`, which is `include/slang` in a Vulkan
+/// SDK. The function loads libclang, parses the headers for every supported
+/// target, and returns both texts formatted with rustfmt.
 ///
 /// # Examples
 ///
@@ -82,8 +142,8 @@ const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 /// and the Slang headers at run time, so it is compiled but not run:
 ///
 /// ```no_run
-/// let text = bindings_generator::generate("/tmp/vulkan-sdk/include/slang")?;
-/// std::fs::write("/tmp/bindings.rs", text)?;
+/// let generated = bindings_generator::generate("/tmp/vulkan-sdk/include/slang")?;
+/// std::fs::write("/tmp/bindings.rs", generated.bindings)?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
@@ -111,11 +171,15 @@ const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 /// - [`ErrorKind::NameCollision`] when two generated items would have the
 ///   same Rust name.
 /// - [`ErrorKind::Rustfmt`] when rustfmt cannot format the text.
-pub fn generate(header_dir: impl AsRef<Path>) -> Result<String> {
+pub fn generate(header_dir: impl AsRef<Path>) -> Result<Generated> {
     generate_with(&rules::SLANG, header_dir.as_ref(), pin::SLANG_BUILD_TAG)
 }
 
-fn generate_with(rules: &rules::RuleSet, header_dir: &Path, expected_tag: &str) -> Result<String> {
+fn generate_with(
+    rules: &rules::RuleSet,
+    header_dir: &Path,
+    expected_tag: &str,
+) -> Result<Generated> {
     let header_dir = std::fs::canonicalize(header_dir).map_err(|error| {
         Error::new(
             ErrorKind::Io,
@@ -141,7 +205,11 @@ fn generate_with(rules: &rules::RuleSet, header_dir: &Path, expected_tag: &str) 
         selections.push((target, selection));
     }
     let selection = check::compare(&selections)?;
-    emit::rustfmt(&emit::emit(&selection, rules)?)
+    let emitted = emit::emit(&selection, rules)?;
+    Ok(Generated {
+        bindings: emit::rustfmt(&emitted.bindings)?,
+        symbols: emit::rustfmt(&emitted.symbols)?,
+    })
 }
 
 fn libclang_error(reason: &str) -> Error {

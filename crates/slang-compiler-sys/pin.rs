@@ -1,8 +1,8 @@
 /// The version of the Vulkan SDK whose Slang these bindings match.
 ///
-/// The Vulkan SDK is the software development kit for the Vulkan graphics
-/// API, and it ships a build of Slang. The headers of that build do not
-/// record this version, so it identifies the SDK to install, while
+/// The LunarG Vulkan SDK is the software development kit for the Vulkan
+/// graphics API, and it ships a build of Slang. The headers of that build do
+/// not record this version, so it identifies the SDK to install, while
 /// [`SLANG_BUILD_TAG`] and [`SLANG_COMMIT`] identify the Slang build itself.
 pub const VULKAN_SDK_VERSION: &str = "1.4.363.1";
 
