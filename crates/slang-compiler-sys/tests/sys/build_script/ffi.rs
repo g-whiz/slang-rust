@@ -4,7 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use super::{EntryKind, Exit, Finished, Host, Invocation, invocation, sync_copy};
+use super::{EntryKind, Exit, Finished, Host, Invocation, LoggedRunError, invocation, sync_copy};
 
 include!("../../../system.rs");
 
@@ -167,12 +167,44 @@ fn system_appends_the_output_of_a_logged_program_to_its_log() -> io::Result<()> 
     let dir = scratch("log")?;
     let log = dir.join("build.log");
     fs::write(&log, "earlier\n")?;
-    let exit = System.run_to_log(&rustc(&["--version"]), &log)?;
-    assert_eq!(exit, Exit { code: Some(0) });
-    let failed = System.run_to_log(&rustc(&["--no-such-option"]), &log)?;
-    assert!(!failed.success());
+    let exit = System.run_to_log(&rustc(&["--version"]), &log);
+    assert_eq!(exit.map_err(logged_kind), Ok(Exit { code: Some(0) }));
+    let failed = System.run_to_log(&rustc(&["--no-such-option"]), &log);
+    assert!(failed.is_ok_and(|exit| !exit.success()));
     let text = fs::read_to_string(&log)?;
     assert!(text.starts_with("earlier\nrustc "), "{text:?}");
     assert!(text.contains("no-such-option"), "{text:?}");
+    fs::remove_dir_all(&dir)
+}
+
+fn logged_kind(error: LoggedRunError) -> (&'static str, io::ErrorKind) {
+    match error {
+        LoggedRunError::Log(error) => ("log", error.kind()),
+        LoggedRunError::Start(error) => ("start", error.kind()),
+    }
+}
+
+#[test]
+fn system_tells_a_log_that_cannot_be_opened_from_a_program_that_cannot_start() -> io::Result<()> {
+    let dir = scratch("log-errors")?;
+    let parent = dir.join("not-a-directory");
+    fs::write(&parent, "")?;
+    let unopenable = System.run_to_log(&rustc(&["--version"]), &parent.join("build.log"));
+    assert!(
+        matches!(unopenable, Err(LoggedRunError::Log(_))),
+        "{:?}",
+        unopenable.map_err(logged_kind)
+    );
+
+    let log = dir.join("build.log");
+    let missing = Invocation {
+        dir: Some(dir.join("missing")),
+        ..rustc(&["--version"])
+    };
+    let unstartable = System.run_to_log(&missing, &log);
+    assert_eq!(
+        unstartable.map_err(logged_kind),
+        Err(("start", io::ErrorKind::NotFound))
+    );
     fs::remove_dir_all(&dir)
 }

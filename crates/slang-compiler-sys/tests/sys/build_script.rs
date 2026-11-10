@@ -11,6 +11,7 @@ type Responder = Box<dyn Fn(&Invocation) -> io::Result<Finished>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileOp {
     List,
+    OpenLog,
     Sync,
     Remove,
     Write,
@@ -89,9 +90,13 @@ impl Host for FakeHost {
         (self.respond)(invocation)
     }
 
-    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> io::Result<Exit> {
+    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> Result<Exit, LoggedRunError> {
+        self.attempt(FileOp::OpenLog, log)
+            .map_err(LoggedRunError::Log)?;
         self.record_run(invocation, Some(log));
-        (self.respond)(invocation).map(|finished| finished.exit)
+        (self.respond)(invocation)
+            .map(|finished| finished.exit)
+            .map_err(LoggedRunError::Start)
     }
 
     fn files(&self, root: &Path) -> io::Result<Vec<PathBuf>> {
@@ -1155,6 +1160,47 @@ fn static_route_names_each_program_that_cannot_start() {
             ],
         );
     }
+}
+
+fn start_message(program: &str, args: &str) -> String {
+    format!(
+        "cannot start {program} for `{program} {args}`: {}. The build of Slang from source that SLANG_SOURCE_DIR selects needs git, CMake 3.22 or later, and Ninja on PATH to build Slang. Install the missing program, or unset SLANG_SOURCE_DIR to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that VULKAN_SDK names.",
+        io::Error::from(io::ErrorKind::NotFound)
+    )
+}
+
+fn logged_args(host: &FakeHost, first: &str) -> String {
+    host.runs
+        .borrow()
+        .iter()
+        .find(|(invocation, _)| subcommand(invocation) == ("cmake", first))
+        .map(|(invocation, _)| invocation.args.join(" "))
+        .unwrap_or_default()
+}
+
+#[test]
+fn static_route_reports_a_logged_step_whose_program_cannot_start() {
+    for first in ["-S", "--build"] {
+        let mut host = static_host();
+        respond_with(&mut host, "cmake", first, || {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        });
+        let (_, result) = run(&host);
+        let expected = start_message("cmake", &logged_args(&host, first));
+        assert_eq!(result, Err(expected.clone()));
+        static_failure(&host, &[&expected]);
+    }
+}
+
+#[test]
+fn static_route_reports_a_log_that_cannot_be_opened_without_blaming_the_program() {
+    let mut host = static_host();
+    host.failures
+        .push((FileOp::OpenLog, log_file(), io::ErrorKind::PermissionDenied));
+    let expected = file_message("open the log", &log_file());
+    assert_eq!(run(&host).1, Err(expected.clone()));
+    static_failure(&host, &[&expected]);
+    assert!(!ran(&host).contains(&"cmake -S".to_owned()));
 }
 
 #[test]

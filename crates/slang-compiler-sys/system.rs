@@ -38,12 +38,18 @@ impl Host for System {
         })
     }
 
-    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> io::Result<Exit> {
-        let file = fs::OpenOptions::new().create(true).append(true).open(log)?;
+    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> Result<Exit, LoggedRunError> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+            .map_err(LoggedRunError::Log)?;
+        let output = file.try_clone().map_err(LoggedRunError::Log)?;
         let status = system_command(invocation)
-            .stdout(file.try_clone()?)
+            .stdout(output)
             .stderr(file)
-            .status()?;
+            .status()
+            .map_err(LoggedRunError::Start)?;
         Ok(Exit {
             code: status.code(),
         })

@@ -269,7 +269,7 @@ test-static:
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -z "${SLANG_SOURCE_DIR:-}" ]]; then
-        printf '%s\n' "test-static: SLANG_SOURCE_DIR is not set. Set it to the absolute path of a git checkout of Slang at the commit SLANG_COMMIT that just pin prints, with its submodules." >&2
+        printf '%s\n' "test-static: SLANG_SOURCE_DIR is not set or empty. Set it to the absolute path of a git checkout of Slang at the commit SLANG_COMMIT that just pin prints, with its submodules." >&2
         exit 1
     fi
     env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/static CARGO_BUILD_WARNINGS=deny cargo nextest run -p slang-compiler-sys --all-features --profile default --no-tests=fail

@@ -93,7 +93,7 @@ trait Host {
     fn kind(&self, path: &Path) -> io::Result<EntryKind>;
     fn host_os(&self) -> &str;
     fn run(&self, invocation: &Invocation) -> io::Result<Finished>;
-    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> io::Result<Exit>;
+    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> Result<Exit, LoggedRunError>;
     fn files(&self, root: &Path) -> io::Result<Vec<PathBuf>>;
     fn sync_file(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn remove_file(&self, path: &Path) -> io::Result<()>;
@@ -149,6 +149,11 @@ struct Finished {
     exit: Exit,
     stdout: String,
     stderr: String,
+}
+
+enum LoggedRunError {
+    Log(io::Error),
+    Start(io::Error),
 }
 
 enum KindError {
@@ -724,7 +729,10 @@ fn run_logged(
 ) -> Result<(), BuildError> {
     let exit = host
         .run_to_log(invocation, log)
-        .map_err(|error| start_error(invocation, None, &error))?;
+        .map_err(|error| match error {
+            LoggedRunError::Log(error) => file_error("open the log", log, &error),
+            LoggedRunError::Start(error) => start_error(invocation, None, &error),
+        })?;
     if exit.success() {
         return Ok(());
     }
