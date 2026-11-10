@@ -24,13 +24,14 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-10, the repository is at a very early stage. Milestone M0 is under way: steps 1 to 4 of Section 13 of `docs/design/tooling.md` are done, and steps 5 and 6 remain. The agent updates this section, and its date, in the same change that alters what exists.
+As of 2026-11-10, the repository is at a very early stage. Milestone M0, tooling and skeleton, is complete, and milestone M1 is next. The agent updates this section, and its date, in the same change that alters what exists.
 
 What exists and works:
 
 - The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks.
-- The scripts under `scripts/`, which the recipes and hooks run.
+- The scripts under `scripts/`, which the recipes and hooks run, including the custom checkers of Section 7 of `docs/design/tooling.md`: `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, and `check-workflow-pins`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
 - The git hooks in `.pre-commit-config.yaml`.
+- The CI workflow `.github/workflows/ci.yml`, which runs on every pull request and every push to `main`, and whose jobs all passed on their first run on GitHub.
 - The editor settings in `.editorconfig`.
 - The Claude Code settings in `.claude/settings.json`, which run the prose checker after every edit of a Markdown file.
 - `CLAUDE.md`, which imports this file.
@@ -40,20 +41,19 @@ What exists and works:
 - `LICENSE` and `README.md`.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and pinned, and the roadmap of milestones M0 to M7.
-- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the CI workflow, and the requirements on the container image. Milestone M0 implements it, and its Section 1.6 says which parts exist.
+- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
 
-`just check` passes. The test recipes pass with a warning that no test ran, because no test exists yet.
+`just check` passes in the development container and in CI. The test recipes pass with a warning that no test ran, because no test exists yet.
 
 What does not exist yet:
 
-- Any crate of the design with an API, and the binding generator.
-- The custom checkers of Section 7 of `docs/design/tooling.md`, their recipes, and the extension of `check-prose` to API documentation.
-- A CI workflow, and the recipe `check-workflows`.
+- Any crate of the design with an API, and the binding generator. The only crate is the placeholder `crates/slang-compiler-sys`.
 - Tests and examples.
 - The recipes `check-bindings`, `generate-bindings`, and `check-doc-without-slang`, which arrive in M1, and `check-semver`, which arrives with the first release in M7.
+- The CI jobs `semver`, which arrives in M7, and `coverage`, which arrives with the first crate that contains a function.
 - The design document of each crate, which is written as the first task of the milestone that delivers the crate.
 
-The workspace lint tables, `clippy.toml`, and the tools that `just check` runs enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The rules that the custom checkers of Section 7 of `docs/design/tooling.md` will check stay judgement rules until those checkers exist, and so does every other rule that no configured tool checks. `check-features` and `check-msrv` run outside `just check`, so until a CI workflow runs them, the rules they check hold only when an agent runs them. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
+The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The custom checkers enforce the rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, on the `# Features` section, and on ASCII punctuation, semicolons, and listed spellings in API documentation, and the rules of Section 8.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions. Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule. `check-features` and `check-msrv` run outside `just check`, and CI runs them on every pull request and every push to `main`. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
 
 ## Repository Layout
 
@@ -73,9 +73,18 @@ The workspace lint tables, `clippy.toml`, and the tools that `just check` runs e
 - `docs/rust-coding-standards.md`: The normative Rust coding standard, with the specification of the lint and tool configuration.
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and pinned, the examples, the test tiers, platform support, publishing, and the roadmap.
-- `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the CI workflow, the dependency policy, and the requirements on the container image. Milestone M0 implements it, and its Section 1.6 says which parts exist.
+- `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image. Milestone M0 implemented it, and its Section 1.6 describes the current state.
 - `justfile`: The root `justfile`, with the groups `checks`, `git`, and `rust`.
-- `scripts/check-prose`, `scripts/prose-wordlist.txt`: The Markdown prose checker and its list of non-Canadian spellings.
+- `.github/workflows/ci.yml`: The CI workflow, which Section 8 of `docs/design/tooling.md` specifies.
+- `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
+- `scripts/check-rust-comments`: The checker that Rust source holds only API documentation and safety comments.
+- `scripts/check-doc-headings`: The checker of the headings in item documentation.
+- `scripts/check-doctest-attributes`: The checker that no documentation code block is marked `ignore`.
+- `scripts/check-feature-docs`: The checker that the crate-level documentation of each library names every Cargo feature.
+- `scripts/check-workflow-pins`: The checker that every action is pinned by a full commit SHA, and that no workflow uses `pull_request_target` or grants more than read access at its top level.
+- `scripts/rust_lexer.py`: The Python module that the custom checkers share, which reads Rust tokens and documentation comments.
+- `scripts/self-test-checker`: The runner of the self-test of each custom checker.
+- `scripts/fixtures/`: The cases of each self-test, one directory per checker and per case, with input files that end in `.fixture`.
 - `scripts/check-shell`, `scripts/justfile-recipes`: The `shellcheck` run over every shell script and every recipe.
 - `scripts/check-commit-message`: The commit message checker.
 - `scripts/claude-hook-prose`: The Claude Code hook that runs the prose checker after an edit to a Markdown file.
@@ -92,8 +101,6 @@ These locations are planned and do not exist yet:
 
 - `docs/design/<crate-name>.md`: One design document for each crate, written as the first task of the crate's milestone.
 - One directory for each planned crate other than `slang-compiler-sys`, for the binding generator, and for the examples, as Section 3.1 of `docs/design/architecture.md` lists.
-- The scripts of the custom checkers under `scripts/`, which Section 7 of `docs/design/tooling.md` names.
-- The GitHub Actions workflow `.github/workflows/ci.yml`.
 
 ## Technology Decisions
 
@@ -117,7 +124,7 @@ The Slang version is always the one that ships in the latest stable LunarG Vulka
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates. The crates use edition 2024 and Cargo resolver 3. The licence is GPL-3.0-or-later, and `LICENSE` holds its text.
 
-CI is planned on GitHub Actions for Linux with lavapipe on Vulkan, Windows with the Windows Advanced Rasterization Platform (WARP) on Direct3D 12, and macOS with hosted Metal. Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
+CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, and it runs the default test tier on all three. The GPU tier is planned there, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS, from the first test that needs an adapter. Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
 The published crates are planned for crates.io, including docs.rs builds that work without Slang installed and checks for breaking changes. Nothing is published without the owner's explicit go-ahead.
 
@@ -132,13 +139,15 @@ The development container provides this environment:
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, and shellcheck. Two planned recipes do not exist yet: `check-workflows`, which runs actionlint and arrives with the first workflow, and `check-semver`, which runs cargo-semver-checks and arrives with the first release. Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 11 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
+Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. One planned recipe does not exist yet: `check-semver`, which runs cargo-semver-checks and arrives with the first release. CI installs the latest version of each tool on its runners, so a tool version in CI can differ from the one in the container, as Section 8.1 of `docs/design/tooling.md` states. Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 11 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
 
 ## Development Workflow
 
 A change starts with the section of the design document that covers it: `docs/design/architecture.md` for the architecture and the roadmap, and the crate's own design document for the crate. Work on the code of a milestone starts only once the design document that Section 15 of the architecture design requires for it exists. When that document does not exist yet, writing it is the first task of the milestone. Before it writes Rust, the agent reads the sections of the coding standard that Section 1.2 of that standard names. The agent makes the change in a worktree, as Hard Rule 11 requires, runs the checks in Validating Changes, and fixes whatever they report. The agent updates the documentation as Hard Rule 1 requires before it considers the change done.
 
-`just hooks-install` installs the git hooks once per clone. At commit time, the hooks run the prose, shell, and commit message checks, the rustfmt check when a Rust file changes, typos on every commit, the TOML format check when a TOML file changes, and general checks for valid YAML and JSON, file endings, trailing whitespace, merge conflict markers, private keys, and large files. After a merge, they run `just worktree-prune`.
+`just hooks-install` installs the git hooks once per clone. At commit time, the hooks run the prose check on each changed Markdown file and each changed Rust file, the shell and commit message checks, the rustfmt check when a Rust file changes, typos on every commit, the TOML format check when a TOML file changes, `check-workflows` and `check-workflow-pins` when a file under `.github/` changes, and general checks for valid YAML and JSON, file endings, trailing whitespace, merge conflict markers, private keys, and large files. After a merge, they run `just worktree-prune`.
+
+CI runs the workflow `.github/workflows/ci.yml` on every pull request and every push to `main`, and a new push to a pull request cancels the earlier run of that pull request. It runs `just check` on Linux, `just check-clippy`, `just check-doctest`, and `just test-gpu` on Windows and macOS, and `just check-features` and `just check-msrv` on Linux. Every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container, as Section 8.1 of `docs/design/tooling.md` specifies.
 
 Commits are small, and each holds one group of logically related changes, because a later reader reads history one commit at a time. The subject line is in the imperative mood, such as `Add the safe compiler session`, and the body says why the change was made. `just merge BRANCH` squash-merges the branch onto `main` from the main checkout with the subject and body of every commit in the message, removes the worktree and the branch, and pushes `main`. `just worktree-prune` removes branches that were squash-merged some other way. The agent never force-pushes `main`.
 
@@ -154,9 +163,9 @@ To run every check:
 just check
 ```
 
-`just check` runs `check-prose`, `check-shell`, `check-commit-message-self-test`, `check-typos`, `check-toml`, and `check-rust`, in that order. It needs network access, because `check-deny` fetches the advisory database on every run, and it needs the nightly toolchain, because `check-miri` runs Miri on it. The development container provides the nightly toolchain.
+`just check` runs `check-prose`, `check-shell`, the self-test of each checker, `check-typos`, `check-toml`, `check-workflows`, `check-workflow-pins`, and `check-rust`, in that order, and Section 4.3 of `docs/design/tooling.md` lists every recipe in it. It needs network access, because `check-deny` fetches the advisory database on every run, and it needs the nightly toolchain, because `check-miri` runs Miri on it. The development container provides the nightly toolchain.
 
-To run only the Rust checks, which are `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order:
+To run only the Rust checks, which are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order:
 
 ```sh
 just check-rust
@@ -204,10 +213,37 @@ just check-typos
 just check-toml
 ```
 
-To check a Markdown file, run this command. The Claude Code hook also runs it after every edit:
+To check the prose of a Markdown file, or of the documentation comments of a Rust file, run this command. The Claude Code hook also runs it after every edit of a Markdown file:
 
 ```sh
 just check-prose docs/rust-coding-standards.md
+```
+
+To check the comments, the headings of item documentation, the doctest attributes, and the feature documentation after a change to Rust code or its API documentation, run these recipes. Each also takes the paths of files to check, and `check-feature-docs` takes the paths of Cargo manifests:
+
+```sh
+just check-rust-comments
+just check-doc-headings
+just check-doctest-attributes
+just check-feature-docs
+```
+
+To check a workflow after a change under `.github/`:
+
+```sh
+just check-workflows
+just check-workflow-pins
+```
+
+To run the self-test of a checker after a change to the checker, to `scripts/rust_lexer.py`, or to its cases under `scripts/fixtures/`:
+
+```sh
+just check-prose-self-test
+just check-rust-comments-self-test
+just check-doc-headings-self-test
+just check-doctest-attributes-self-test
+just check-feature-docs-self-test
+just check-workflow-pins-self-test
 ```
 
 To check a shell script, or a recipe in the `justfile`:
@@ -222,7 +258,7 @@ To check `scripts/check-commit-message`:
 just check-commit-message-self-test
 ```
 
-Three recipes are not part of `just check`, because the CI workflow is meant to run them, and that workflow does not exist yet. `check-features` compiles the workspace once for each combination of Cargo features. `check-msrv` checks the workspace with the toolchain that `rust-version` names, and its first run installs that toolchain with rustup, which needs network access. `coverage` writes a coverage report to `target/lcov.info`, and it fails with "no coverage data found" while no crate contains a function, which is the case today. An agent runs `check-features` after a change to the Cargo features and `check-msrv` after a change that may need a newer toolchain:
+Three recipes are not part of `just check`, because they are meant for CI. CI runs `check-features` and `check-msrv` on every pull request and every push to `main`, and a CI job will run `coverage` once a crate contains a function. `check-features` compiles the workspace once for each combination of Cargo features. `check-msrv` checks the workspace with the toolchain that `rust-version` names, and its first run installs that toolchain with rustup, which needs network access. `coverage` writes a coverage report to `target/lcov.info`, and it fails with "no coverage data found" while no crate contains a function, which is the case today. An agent runs `check-features` after a change to the Cargo features and `check-msrv` after a change that may need a newer toolchain:
 
 ```sh
 just check-features

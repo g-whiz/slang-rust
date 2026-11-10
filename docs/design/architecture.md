@@ -34,7 +34,7 @@ This document does not specify the public API of any crate. Each crate's design 
 
 ### 1.6. Current State
 
-The repository holds the standards documents and the repository tooling, but no crate of this design. Milestone M0 is under way (Section 15.3). It replaced the abandoned sketch in `crates/slang-compiler-sys` with a placeholder crate that has documentation and no API, and it added the workspace lint configuration, the configuration of the other tools, the recipes that run the Rust checks, the licence file, and `README.md`. The Project Status section of `AGENTS.md` describes the current state in full.
+The repository holds the standards documents and the repository tooling, but no crate of this design. Milestone M0 is complete (Section 15.3), and M1 is next. M0 replaced the abandoned sketch in `crates/slang-compiler-sys` with a placeholder crate that has documentation and no API, and it added the workspace lint configuration, the configuration of the other tools, the recipes that run the Rust checks, the custom checkers of `docs/design/tooling.md`, the CI workflow, the licence file, and `README.md`. The Project Status section of `AGENTS.md` describes the current state in full.
 
 The development container provides the LunarG Vulkan software development kit (SDK) 1.4.363.1, the Slang source tree at the same commit, and two Vulkan devices. The Technology Decisions section of `AGENTS.md` lists the container's contents in full.
 
@@ -320,8 +320,8 @@ Tests belong to one of three tiers, selected by the name of the module that hold
 
 | Tier | Module name | Needs | Runs in CI | Runs locally |
 | --- | --- | --- | --- | --- |
-| Default | Any name other than `gpu` and `hw_gpu` | No adapter. It may need the Slang shared library, which the build needs anyway | Planned, on Linux, Windows, and macOS | Yes |
-| GPU | `gpu` | Any adapter, including a software adapter such as lavapipe or WARP | Planned, on lavapipe, WARP, and hosted Metal. Whether each platform can run it while SPIR-V is the only shader target is open (Section 17, Q-21) | Yes |
+| Default | Any name other than `gpu` and `hw_gpu` | No adapter. It may need the Slang shared library, which the build needs anyway | Yes, on Linux, Windows, and macOS | Yes |
+| GPU | `gpu` | Any adapter, including a software adapter such as lavapipe or WARP | Planned, on lavapipe, WARP, and hosted Metal. CI already runs the recipe of this tier on all three platforms, but no test of this tier exists yet, so no adapter has been used on a runner (Section 16, A-17 and A-18). Whether each platform can run it while SPIR-V is the only shader target is open (Section 17, Q-21) | Yes |
 | Hardware GPU | `hw_gpu` | A hardware GPU | No | Yes |
 
 ARCH-22. An agent MUST put every test that needs an adapter in a module named `gpu`, or in a module named `hw_gpu` when the test needs a hardware GPU, because the default tier runs everywhere, and a test that needs an adapter fails there. This is the tagging mechanism that TEST-3 of the coding standard asks the design document to define.
@@ -344,9 +344,9 @@ This table states the support tier of each platform.
 
 | Platform | Graphics API in tests | Tier | Tested where |
 | --- | --- | --- | --- |
-| Linux x86_64 | Vulkan | Primary. Developed and fully tested | The development container, on an NVIDIA RTX 4070 and on lavapipe, and CI on lavapipe (planned) |
-| Windows x86_64 | D3D12 through WARP | Supported as far as CI proves | CI only (planned) |
-| macOS arm64 | Metal on the hosted runner | Supported as far as CI proves | CI only (planned) |
+| Linux x86_64 | Vulkan | Primary. Developed and fully tested | The development container, on an NVIDIA RTX 4070 and on lavapipe, and CI, which runs every check and the default test tier, with the GPU tier on lavapipe planned |
+| Windows x86_64 | D3D12 through WARP | Supported as far as CI proves | CI only, which runs Clippy, the doctests, and the default test tier, with the GPU tier on WARP planned |
+| macOS arm64 | Metal on the hosted runner | Supported as far as CI proves | CI only, which runs Clippy, the doctests, and the default test tier, with the GPU tier on hosted Metal planned |
 
 The two Vulkan devices in the development container were checked in the container. That hosted macOS runners expose a usable Metal device, and that lavapipe, WARP, and hosted Metal form the pattern that wgpu and slang-rhi use in their own CI, are reported (Section 16, A-17 and A-18). The Slang of the Vulkan SDK on Windows and macOS is also still to be confirmed (Section 16, A-8). The GPU tier is planned to run in CI on all three platforms. Whether each platform can run it while SPIR-V is the only shader target is open (Section 17, Q-21).
 
@@ -410,7 +410,7 @@ The exit criteria of every milestone include every check passing and every affec
 
 | Milestone | Delivers | Depends on | Design document before any code |
 | --- | --- | --- | --- |
-| M0 | Tooling and skeleton | The container image, which provides every tool | `docs/design/tooling.md` |
+| M0 | Tooling and skeleton, complete | The container image, which provides every tool | `docs/design/tooling.md` |
 | M1 | Binding generator and `slang-compiler-sys` | M0 | `docs/design/slang-compiler-sys.md` |
 | M2 | `slang-compiler` and example 1 | M1 | `docs/design/slang-compiler.md` |
 | M3 | `slango` compute kernels and example 2 | M2 | `docs/design/slango.md` |
@@ -421,11 +421,11 @@ The exit criteria of every milestone include every check passing and every affec
 
 ### 15.3. M0: Tooling and Skeleton
 
-- Deliverables: the contents of `docs/design/tooling.md`, which include deleting the abandoned sketch in `crates/slang-compiler-sys`, an empty and documented skeleton crate so that every tool has something to check (Section 3.2 of `docs/design/tooling.md`), the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflows, and the publication metadata, so that it is checked from the start. The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M7 (Section 15.10).
+- Deliverables: the contents of `docs/design/tooling.md`, which include deleting the abandoned sketch in `crates/slang-compiler-sys`, an empty and documented skeleton crate so that every tool has something to check (Section 3.2 of `docs/design/tooling.md`), the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflow, and the publication metadata, so that it is checked from the start. The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M7 (Section 15.10).
 - Depends on: the container image defined in the repository slang-rs-env, which provides every tool that M0 needs.
 - Design document, which exists before any code of the milestone: `docs/design/tooling.md`.
-- Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflows pass on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job arrives with the first crate that contains a function, because the coverage recipe fails while no crate has code. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
-- Progress: M0 is not complete. These deliverables exist: the deletion of the sketch, the skeleton crate with its publication metadata, the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the licence file, `README.md`, and the recipes for formatting, Clippy, the documentation, the doctests, the tests, cargo-deny, typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov. `just check` passes and runs every one of these recipes except those for cargo hack and cargo llvm-cov, which are meant for CI. The custom checkers of Section 7 of `docs/design/tooling.md`, the CI workflows, and the recipe that runs actionlint remain.
+- Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflow passes on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job arrives with the first crate that contains a function, because the coverage recipe fails while no crate has code. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
+- Progress: M0 is complete. Every deliverable exists, including the custom checkers of Section 7 of `docs/design/tooling.md`, the CI workflow, and the recipe that runs actionlint. Every exit criterion holds. `just check` passes with the Rust checks, Miri, typos, taplo, actionlint, cargo machete, and the custom checkers included. On its first run on GitHub, every job of the CI workflow passed: `just check` on Linux, Clippy, the doctests, and the tests on Windows and macOS, and the jobs for the feature combinations and the MSRV. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state. The parts of CI that need an adapter, which are lavapipe on Linux, WARP on Windows, and hosted Metal on macOS, arrive with the first `gpu` test in M3, so A-17 and A-18 of Section 16 remain unconfirmed.
 
 ### 15.4. M1: Binding Generator and `slang-compiler-sys`
 
@@ -506,8 +506,8 @@ Each row is a fact that comes from research that was not independently confirmed
 | A-14 | Slint has no public Vulkan hook, external GPU content enters through its rendering notifier and wgpu texture import, and that API is unstable and can change in minor releases | ARCH-20, Section 14.4 | `docs/design/slang-slint.md`, M5 |
 | A-15 | slang-rhi publishes no releases or prebuilt binaries and needs a C++20 build with CMake | Section 14.4 | The design document of a slang-rhi backend, when the owner schedules one |
 | A-16 | A slang-rhi backend would add CUDA, CPU, and OptiX targets | Section 14.4 | The design document of a slang-rhi backend, when the owner schedules one |
-| A-17 | Hosted macOS runners on GitHub Actions expose a usable Metal device, which slang-rhi's own CI relies on | Section 12 | `docs/design/tooling.md`, and the first CI run at M0 |
-| A-18 | lavapipe on Linux, WARP on Windows, and hosted Metal on macOS form the pattern that wgpu and slang-rhi use in their own CI | Section 12 | `docs/design/tooling.md`, and the first CI run at M0 |
+| A-17 | Hosted macOS runners on GitHub Actions expose a usable Metal device, which slang-rhi's own CI relies on | Section 12 | `docs/design/tooling.md`, and the first CI run of a `gpu` test at M3 |
+| A-18 | lavapipe on Linux, WARP on Windows, and hosted Metal on macOS form the pattern that wgpu and slang-rhi use in their own CI | Section 12 | `docs/design/tooling.md`, and the first CI run of a `gpu` test at M3 |
 
 ## 17. Open Questions
 
@@ -551,7 +551,7 @@ The design addresses each part, mostly through the rules that Section 20 of the 
 
 These attacks are out of scope. A malicious or compromised Slang library or Vulkan SDK runs with the full privileges of the application, so no crate here can constrain it. A source tree that the user names for the static route is code that the user chose to build, and CMake runs it with the user's permissions, so the crate cannot defend the user against it. Defects in GPU drivers are outside every crate here. Attacks on the repository itself are a matter of access control.
 
-The residual risk has three parts. First, Slang is a large C++ code base that parses shader source inside the application's process, so a memory-safety defect in Slang can be reached by an attacker's shader source, and shader source can make the compiler use unbounded time or memory unless the application limits it. Second, the soundness of the unsafe code rests on judgement rules and on contracts in the Slang documentation that no tool verifies, and Miri cannot run the native library. Third, until M0 adds the custom checkers of `docs/design/tooling.md` and the CI workflows, the rules that the checkers would enforce depend on review, and the check runs only when an agent runs it.
+The residual risk has three parts. First, Slang is a large C++ code base that parses shader source inside the application's process, so a memory-safety defect in Slang can be reached by an attacker's shader source, and shader source can make the compiler use unbounded time or memory unless the application limits it. Second, the soundness of the unsafe code rests on judgement rules and on contracts in the Slang documentation that no tool verifies, and Miri cannot run the native library. Third, the custom checkers of `docs/design/tooling.md` do not read every form of documentation or workflow, and the rules or parts of rules that no tool checks depend on review, as Section 16 of `docs/design/tooling.md` states.
 
 ## 19. Operational Considerations
 
@@ -640,6 +640,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded M0 as complete in Sections 1.6, 15.2, and 15.3, recorded in Sections 11 and 12 that CI runs the default test tier on Linux, Windows, and macOS while the GPU tier stays planned, corrected the confirmation point of A-17 and A-18 to the first `gpu` test in CI, and updated the residual risk of Section 18.
 - 2026-11-10: Recorded in Sections 1.6 and 15.3 which deliverables of M0 exist, with the placeholder crate in place of the deleted sketch, and narrowed the residual risk of Section 18 to the parts of M0 that remain.
 - 2026-11-10: Moved the recipes that waited for the container image into M0 and the check for breaking changes to M7, moved the coverage job to the first crate with code, stated the `LD_LIBRARY_PATH` state of the container, and noted the crate-level documentation of the integration-test root.
 - 2026-11-10: Initial version.
