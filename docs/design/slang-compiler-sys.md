@@ -945,7 +945,7 @@ Step 2 of Section 15 implemented SCS-35 in every job of the workflow, on Linux, 
 
 Step 4 of Section 15 needed no change to the workflow, because every job already installed the SDK and set the paths that the build script and the test binaries need. On 2026-11-10, all six jobs passed on a draft pull request with step 4. Every job compiled `slang-compiler-sys` with its build script against the installed SDK. The Windows and macOS jobs built and linked the test binary of `slang-compiler-sys` against the Slang of the SDK and ran the smoke test and the native-symbol test (Section 11), which confirms what were SA-2 and SA-3 (Sections 6 and 9.2). Section 8.1 of the tooling design records the durations of that run.
 
-SCS-36. The CI workflow MUST NOT build the static route on every pull request, because the route compiles several hundred C++ files, which would multiply the time of every run for a route that changes rarely.
+SCS-36. The CI workflow MUST NOT build the static route on every push or pull request that it runs on, because the route compiles several hundred C++ files, which would multiply the time of every run for a route that changes rarely.
 
 This answers Q-28 of the architecture design. The static route is verified locally through the recipe `test-static` (Section 9.3), which ran in the development container on 2026-11-10. Whether a scheduled CI job builds it is open (Section 17, SQ-4).
 
@@ -1166,7 +1166,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SCS-33 | 11 | Tests that call native code sit in `ffi` modules, which `default-miri` excludes with `gpu` and `hw_gpu`. |
 | SCS-34 | 11 | The smoke test asserts the pinned build tag at run time on both routes. |
 | SCS-35 | 12 | CI installs and verifies the pinned SDK on all three platforms and sets the paths. |
-| SCS-36 | 12 | CI does not build the static route on every pull request. |
+| SCS-36 | 12 | CI does not build the static route on every push or pull request. |
 | SCS-37 | 13 | The crate documentation has the content of the writing guide, the shared safety contract, and Slang's rules. |
 | SCS-38 | 14 | The published crate has no dependencies. |
 | SCS-39 | 4.1 | A rule that decides no declaration or macro fails the generator, with each stale rule and its reason. |
@@ -1183,6 +1183,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Amended SCS-36 in Section 12 and its summary in Appendix A to cover every push and pull request that the CI workflow runs on, now that pushes to feature branches also run it.
 - 2026-11-11: Stated in Sections 3.10, 13, and 16 that the pinned Slang validates SPIR-V only when `SLANG_RUN_SPIRV_VALIDATION` is `1`, on either route, so that the missing validation on the static route observed on 2026-11-10 is no difference from the dynamic route, and that the crate documentation names only the missing optimization as a loss of the static route. Corrected the record of 2026-11-10 that Slang gives no diagnostic about SPIR-V that is not optimized on a build without `slang-glslang`: recorded in Sections 3.10, 13, and 16 the run of 2026-11-11 that showed the message on the first generation of SPIR-V in each global session, its effect with `SLANG_RUN_SPIRV_VALIDATION` set to `1`, the sizes of the SPIR-V with and without the library, and what the run did not test, stated in Section 18 that the SPIR-V of a program on the static route depends on the `slang-glslang` library that the loader finds, and added a row for the missing library to Section 19.4.
 - 2026-11-11: Narrowed the statement of Section 7.5 on what passed on Windows and macOS on 2026-11-10 to the two tests of the module `ffi`, and recorded in Section 12 that CI on `main` then failed in the Windows job for three commits because of one test of the real host, and which commit and run followed the fix.
 - 2026-11-10: Cited Section 8 of `docs/design/slang-compiler.md` in Section 18 for the files that the safe crate lets Slang read, in place of the question Q-13 of the architecture design, which that document answered.
