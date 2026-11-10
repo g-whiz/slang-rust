@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates and the direction of the dependencies between them, how the native Slang library is obtained and which version is pinned, what each crate is responsible for and what it must not do, the examples that also serve as the integration testbed, the tiers of tests that need a graphics processing unit, the supported platforms, and the plan for publishing. It records each architectural decision with the alternatives considered and the reason. It sets out the roadmap as milestones M0 to M7, each with deliverables, dependencies, exit criteria, and the design document that must exist before work on its code starts. It lists the facts that are still to be confirmed and the open questions that each later design document must answer. Nothing in this design is implemented yet.
+This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates and the direction of the dependencies between them, how the native Slang library is obtained and which version is pinned, what each crate is responsible for and what it must not do, the examples that also serve as the integration testbed, the tiers of tests that need a graphics processing unit, the supported platforms, and the plan for publishing. It records each architectural decision with the alternatives considered and the reason. It sets out the roadmap as milestones M0 to M7, each with deliverables, dependencies, exit criteria, and the design document that must exist before work on its code starts. It lists the facts that are still to be confirmed and the open questions that each later design document must answer. No crate of this design is implemented yet.
 
 ## 1. Introduction
 
@@ -34,7 +34,7 @@ This document does not specify the public API of any crate. Each crate's design 
 
 ### 1.6. Current State
 
-The repository holds the standards documents and the repository tooling, but no crate of this design. The directory `crates/slang-compiler-sys` holds an abandoned sketch that does not compile and that contradicts this design. The Project Status section of `AGENTS.md` describes it, and milestone M0 deletes it (Section 15.3).
+The repository holds the standards documents and the repository tooling, but no crate of this design. Milestone M0 is under way (Section 15.3). It replaced the abandoned sketch in `crates/slang-compiler-sys` with a placeholder crate that has documentation and no API, and it added the workspace lint configuration, the configuration of the other tools, the recipes that run the Rust checks, the licence file, and `README.md`. The Project Status section of `AGENTS.md` describes the current state in full.
 
 The development container provides the LunarG Vulkan software development kit (SDK) 1.4.363.1, the Slang source tree at the same commit, and two Vulkan devices. The Technology Decisions section of `AGENTS.md` lists the container's contents in full.
 
@@ -198,7 +198,7 @@ SLANG_SOURCE_DIR=/tmp/slang cargo build --features slang-compiler-sys/static
 
 On the dynamic route, the operating system's dynamic loader has to find the Slang shared library when the program starts. That is the job of the user's environment: the SDK's setup script on Linux and macOS, and `PATH` on Windows. The build script of a dependency is understood to have no way to set the rpath of the final binary (Section 16, A-6). The crate-level documentation of `slang-compiler-sys` says how the library is found on each platform, as Section 7.4 of the writing guide requires.
 
-In the development container, `$VULKAN_SDK/lib` is not on `LD_LIBRARY_PATH` today, which was checked in the container. A planned change to the container image puts it there, and `docs/design/tooling.md` lists that change among the image requirements.
+In the development container, a login shell has `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH`, and a process that no login shell started does not. The next rebuild of the container image fixes this, and `docs/design/tooling.md` lists the fix among the image requirements.
 
 ### 4.5. Documentation Builds Without Slang
 
@@ -336,6 +336,8 @@ crates/slango/tests/<suite>/gpu.rs       tests that need any adapter
 crates/slango/tests/<suite>/hw_gpu.rs    tests that need a hardware GPU
 ```
 
+The root `main.rs` also starts with crate-level documentation, as the row of `missing_docs` in Section 4.5 of the coding standard requires.
+
 ## 12. Platform Support
 
 This table states the support tier of each platform.
@@ -352,7 +354,7 @@ The two Vulkan devices in the development container were checked in the containe
 
 The workspace plans for publication on crates.io from the start. The published crates are `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, and `slango-macros`. The binding generator and the examples set `publish = false`. On 2026-11-10, the crates.io API answered HTTP 404 for each of those five names and for `slang-rhi-sys` and `slang-rhi`, so all seven names were available on that date.
 
-Publishing readiness means complete publication metadata, documentation that builds on docs.rs without Slang installed (Section 4.5), and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these, and milestone M0 sets them up so that they are checked from the start. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
+Publishing readiness means complete publication metadata, documentation that builds on docs.rs without Slang installed (Section 4.5), and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these. Milestone M0 sets up the metadata and the documentation build so that they are checked from the start, and M7 adds the check for breaking changes with the first release, because cargo-semver-checks needs a published version to compare with. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
 
 ARCH-24. An agent MUST NOT publish a crate to crates.io without the owner's explicit go-ahead, because a published version cannot be deleted, only yanked, so a mistaken release stays visible to every user.
 
@@ -408,7 +410,7 @@ The exit criteria of every milestone include every check passing and every affec
 
 | Milestone | Delivers | Depends on | Design document before any code |
 | --- | --- | --- | --- |
-| M0 | Tooling and skeleton | The container image change, for some checks | `docs/design/tooling.md` |
+| M0 | Tooling and skeleton | The container image, which provides every tool | `docs/design/tooling.md` |
 | M1 | Binding generator and `slang-compiler-sys` | M0 | `docs/design/slang-compiler-sys.md` |
 | M2 | `slang-compiler` and example 1 | M1 | `docs/design/slang-compiler.md` |
 | M3 | `slango` compute kernels and example 2 | M2 | `docs/design/slango.md` |
@@ -419,10 +421,11 @@ The exit criteria of every milestone include every check passing and every affec
 
 ### 15.3. M0: Tooling and Skeleton
 
-- Deliverables: the contents of `docs/design/tooling.md`, which include deleting the abandoned sketch in `crates/slang-compiler-sys`, an empty and documented skeleton crate so that every tool has something to check (Section 3.2 of `docs/design/tooling.md`), the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflows, and the publication metadata and the check for breaking changes, so that both are checked from the start.
-- Depends on: the container image change in the repository slang-rs-env, for the tools that are not installed yet. Checks that need those tools are added in a follow-up change of M0 once the image is rebuilt, so the other changes of M0 do not wait for the image.
+- Deliverables: the contents of `docs/design/tooling.md`, which include deleting the abandoned sketch in `crates/slang-compiler-sys`, an empty and documented skeleton crate so that every tool has something to check (Section 3.2 of `docs/design/tooling.md`), the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflows, and the publication metadata, so that it is checked from the start. The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M7 (Section 15.10).
+- Depends on: the container image defined in the repository slang-rs-env, which provides every tool that M0 needs.
 - Design document, which exists before any code of the milestone: `docs/design/tooling.md`.
-- Exit criteria: `just check` passes with the Rust checks included, and the CI workflows pass on Linux, Windows, and macOS. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
+- Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflows pass on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job arrives with the first crate that contains a function, because the coverage recipe fails while no crate has code. No example exists yet. `AGENTS.md`, Section 4.1 of the coding standard, and `README.md` describe the new state.
+- Progress: M0 is not complete. These deliverables exist: the deletion of the sketch, the skeleton crate with its publication metadata, the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the licence file, `README.md`, and the recipes for formatting, Clippy, the documentation, the doctests, the tests, cargo-deny, typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov. `just check` passes and runs every one of these recipes except those for cargo hack and cargo llvm-cov, which are meant for CI. The custom checkers of Section 7 of `docs/design/tooling.md`, the CI workflows, and the recipe that runs actionlint remain.
 
 ### 15.4. M1: Binding Generator and `slang-compiler-sys`
 
@@ -468,7 +471,7 @@ The exit criteria of every milestone include every check passing and every affec
 
 ### 15.10. M7: Publishing
 
-- Deliverables: a verified documentation build of every published crate on docs.rs, a review of the public API of every published crate against the coding standard, and the first release of the published crates after the owner's go-ahead (ARCH-24). The publication metadata and the check for breaking changes are in place from M0 (Section 15.3).
+- Deliverables: a verified documentation build of every published crate on docs.rs, a review of the public API of every published crate against the coding standard, the first release of the published crates after the owner's go-ahead (ARCH-24), and the check for breaking changes with its CI job, which needs the first release as its baseline. The publication metadata is in place from M0 (Section 15.3).
 - Depends on: M0 to M6.
 - Design document, which exists before any code of the milestone: `docs/design/tooling.md`, whose publishing requirements apply.
 - Exit criteria: every check passes, the documentation of every published crate builds on docs.rs, and the owner has approved the release. `README.md` and this document are updated.
@@ -548,7 +551,7 @@ The design addresses each part, mostly through the rules that Section 20 of the 
 
 These attacks are out of scope. A malicious or compromised Slang library or Vulkan SDK runs with the full privileges of the application, so no crate here can constrain it. A source tree that the user names for the static route is code that the user chose to build, and CMake runs it with the user's permissions, so the crate cannot defend the user against it. Defects in GPU drivers are outside every crate here. Attacks on the repository itself are a matter of access control.
 
-The residual risk has three parts. First, Slang is a large C++ code base that parses shader source inside the application's process, so a memory-safety defect in Slang can be reached by an attacker's shader source, and shader source can make the compiler use unbounded time or memory unless the application limits it. Second, the soundness of the unsafe code rests on judgement rules and on contracts in the Slang documentation that no tool verifies, and Miri cannot run the native library. Third, until the planned tools are installed in the development container, the rules that they would enforce depend on review.
+The residual risk has three parts. First, Slang is a large C++ code base that parses shader source inside the application's process, so a memory-safety defect in Slang can be reached by an attacker's shader source, and shader source can make the compiler use unbounded time or memory unless the application limits it. Second, the soundness of the unsafe code rests on judgement rules and on contracts in the Slang documentation that no tool verifies, and Miri cannot run the native library. Third, until M0 adds the custom checkers of `docs/design/tooling.md` and the CI workflows, the rules that the checkers would enforce depend on review, and the check runs only when an agent runs it.
 
 ## 19. Operational Considerations
 
@@ -637,4 +640,6 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded in Sections 1.6 and 15.3 which deliverables of M0 exist, with the placeholder crate in place of the deleted sketch, and narrowed the residual risk of Section 18 to the parts of M0 that remain.
+- 2026-11-10: Moved the recipes that waited for the container image into M0 and the check for breaking changes to M7, moved the coverage job to the first crate with code, stated the `LD_LIBRARY_PATH` state of the container, and noted the crate-level documentation of the integration-test root.
 - 2026-11-10: Initial version.
