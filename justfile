@@ -145,10 +145,18 @@ merge BRANCH *ARGS:
 worktree-prune:
     @scripts/worktree-prune
 
-# Format the Rust code of the workspace and every TOML file
+# Format the Rust code of the workspace, every Rust file that git tracks or does not ignore, which includes the files that a crate pulls in with include!, and every TOML file
 [group('rust')]
 fmt:
-    cargo fmt --all
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        if [[ -f "${file}" ]]; then
+            files+=("${file}")
+        fi
+    done < <(git ls-files -z --cached --others --exclude-standard -- '*.rs')
+    cargo fmt --all -- "${files[@]}"
     taplo fmt
 
 # Print the pin of slang-compiler-sys as NAME=value lines: the Vulkan SDK version, the Slang build tag, and the Slang commit
@@ -187,10 +195,18 @@ check-bindings:
 [group('checks')]
 check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doc-without-slang check-doctest test-gpu check-miri
 
-# Check that the Rust code of the workspace is formatted
+# Check that the Rust code of the workspace and every Rust file that git tracks or does not ignore, which includes the files that a crate pulls in with include!, is formatted
 [group('checks')]
 check-fmt:
-    cargo fmt --all --check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=()
+    while IFS= read -r -d '' file; do
+        if [[ -f "${file}" ]]; then
+            files+=("${file}")
+        fi
+    done < <(git ls-files -z --cached --others --exclude-standard -- '*.rs')
+    cargo fmt --all --check -- "${files[@]}"
 
 # Run Clippy on every target and feature of the workspace, failing on any warning
 [group('checks')]
@@ -226,6 +242,17 @@ test-gpu:
 [group('rust')]
 test-hw-gpu:
     {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile hw-gpu --no-tests=warn
+
+# Run the tests of slang-compiler-sys on the static route, which builds Slang from the source tree that SLANG_SOURCE_DIR names and links it statically, in the target directory target/static, without VULKAN_SDK and without a library path, so the tests pass only when nothing loads the Slang of the Vulkan SDK
+[group('rust')]
+test-static:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -z "${SLANG_SOURCE_DIR:-}" ]]; then
+        printf '%s\n' "test-static: SLANG_SOURCE_DIR is not set. Set it to the absolute path of a git checkout of Slang at the commit SLANG_COMMIT that just pin prints, with its submodules." >&2
+        exit 1
+    fi
+    env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/static CARGO_BUILD_WARNINGS=deny cargo nextest run -p slang-compiler-sys --all-features --profile default --no-tests=fail
 
 # Check licences, security advisories, duplicate crates, and crate sources with cargo-deny, which needs network access
 [group('checks')]

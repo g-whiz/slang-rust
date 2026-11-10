@@ -1,16 +1,28 @@
-use slang_compiler_sys::{SLANG_BUILD_TAG, VULKAN_SDK_VERSION};
+use std::cell::RefCell;
+
+use slang_compiler_sys::{SLANG_BUILD_TAG, SLANG_COMMIT, VULKAN_SDK_VERSION};
 
 include!("../../route.rs");
+
+type Responder = Box<dyn Fn(&Invocation) -> io::Result<Finished>>;
 
 struct FakeHost {
     vars: Vec<(&'static str, OsString)>,
     files: Vec<(PathBuf, String)>,
     entries: Vec<(PathBuf, Result<EntryKind, io::ErrorKind>)>,
     host_os: &'static str,
+    respond: Responder,
+    copied: Option<Vec<PathBuf>>,
+    read_vars: RefCell<Vec<String>>,
+    runs: RefCell<Vec<Invocation>>,
+    synced: RefCell<Vec<(PathBuf, PathBuf)>>,
+    removed: RefCell<Vec<PathBuf>>,
+    written: RefCell<Vec<(PathBuf, String)>>,
 }
 
 impl Host for FakeHost {
     fn var(&self, name: &str) -> Option<OsString> {
+        self.read_vars.borrow_mut().push(name.to_owned());
         self.vars
             .iter()
             .find(|(key, _)| *key == name)
@@ -35,6 +47,37 @@ impl Host for FakeHost {
 
     fn host_os(&self) -> &str {
         self.host_os
+    }
+
+    fn run(&self, invocation: &Invocation) -> io::Result<Finished> {
+        self.runs.borrow_mut().push(invocation.clone());
+        (self.respond)(invocation)
+    }
+
+    fn files(&self, root: &Path) -> io::Result<Vec<PathBuf>> {
+        match &self.copied {
+            Some(files) if root == copy_dir() => Ok(files.clone()),
+            _ => Err(io::Error::from(io::ErrorKind::NotFound)),
+        }
+    }
+
+    fn sync_file(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.synced
+            .borrow_mut()
+            .push((from.to_path_buf(), to.to_path_buf()));
+        Ok(())
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        self.removed.borrow_mut().push(path.to_path_buf());
+        Ok(())
+    }
+
+    fn write(&self, path: &Path, text: &str) -> io::Result<()> {
+        self.written
+            .borrow_mut()
+            .push((path.to_path_buf(), text.to_owned()));
+        Ok(())
     }
 }
 
@@ -63,6 +106,13 @@ fn empty_host() -> FakeHost {
         files: Vec::new(),
         entries: Vec::new(),
         host_os: "linux",
+        respond: Box::new(|_| Err(io::Error::from(io::ErrorKind::Unsupported))),
+        copied: None,
+        read_vars: RefCell::default(),
+        runs: RefCell::default(),
+        synced: RefCell::default(),
+        removed: RefCell::default(),
+        written: RefCell::default(),
     }
 }
 
@@ -77,7 +127,7 @@ fn sdk_host(header: &str) -> FakeHost {
             (lib_dir(), Ok(EntryKind::Directory)),
             (lib_dir().join("libslang-compiler.so"), Ok(EntryKind::File)),
         ],
-        host_os: "linux",
+        ..empty_host()
     }
 }
 
@@ -170,27 +220,6 @@ fn configure_with_docs_rs_emits_only_its_rerun_directive() {
         let (directives, result) = run(&host);
         assert_eq!(result, Ok(()));
         assert_eq!(directives, ["cargo::rerun-if-env-changed=DOCS_RS"]);
-    }
-}
-
-#[test]
-fn configure_with_slang_source_dir_stops_without_the_dynamic_route() {
-    for value in ["/tmp/slang", ""] {
-        let mut host = pinned_sdk_host();
-        host.vars.push((SLANG_SOURCE_DIR, OsString::from(value)));
-        let (directives, result) = run(&host);
-        let message = result.expect_err("the static route must stop the build");
-        assert_contains_all(
-            &message,
-            &[SLANG_SOURCE_DIR, "not implement", VULKAN_SDK_VERSION],
-        );
-        assert_eq!(
-            directives,
-            [
-                "cargo::rerun-if-env-changed=DOCS_RS",
-                "cargo::rerun-if-env-changed=SLANG_SOURCE_DIR",
-            ]
-        );
     }
 }
 
@@ -427,4 +456,886 @@ fn configure_for_another_os_or_an_unknown_one_links_without_the_library_file() {
         assert_eq!(result, Ok(()), "{host_os} {target_os:?}");
         assert!(directives.ends_with(&link_directives()), "{directives:?}");
     }
+}
+
+const TRIPLE: &str = "x86_64-unknown-linux-gnu";
+
+fn source_root() -> PathBuf {
+    std::env::temp_dir().join("slang")
+}
+
+fn out_root() -> PathBuf {
+    std::env::temp_dir().join("out")
+}
+
+fn copy_dir() -> PathBuf {
+    out_root().join("slang").join("source")
+}
+
+fn build_dir() -> PathBuf {
+    out_root().join("slang").join("build")
+}
+
+fn archive_dir() -> PathBuf {
+    out_root().join("slang").join("lib")
+}
+
+fn log_file() -> PathBuf {
+    out_root().join("slang").join("build.log")
+}
+
+fn stamp_file() -> PathBuf {
+    out_root().join("slang").join("stamp")
+}
+
+fn built_include() -> PathBuf {
+    build_dir().join("Release").join("include")
+}
+
+fn finished(code: i32, stdout: &str, stderr: &str) -> Finished {
+    Finished {
+        code: Some(code),
+        stdout: stdout.to_owned(),
+        stderr: stderr.to_owned(),
+    }
+}
+
+fn superproject_listing() -> String {
+    let mut entries = vec![
+        "100644 1111111111111111111111111111111111111111 0\tCMakeLists.txt".to_owned(),
+        "100644 2222222222222222222222222222222222222222 0\tsource/slang/slang.cpp".to_owned(),
+        "160000 3333333333333333333333333333333333333333 0\texternal/glslang".to_owned(),
+    ];
+    entries.extend(REQUIRED_SUBMODULES.iter().map(|submodule| {
+        format!("160000 4444444444444444444444444444444444444444 0\t{submodule}")
+    }));
+    entries.join("\0") + "\0"
+}
+
+fn subcommand(invocation: &Invocation) -> (&str, &str) {
+    (
+        invocation.program,
+        invocation.args.first().map_or("", String::as_str),
+    )
+}
+
+fn happy(invocation: &Invocation) -> io::Result<Finished> {
+    match subcommand(invocation) {
+        ("git", "rev-parse") => Ok(finished(
+            0,
+            &format!("true\n\n.git/HEAD\n.git/index\n{SLANG_COMMIT}\n"),
+            "",
+        )),
+        ("git", "status") | ("cmake", _) => Ok(finished(0, "", "")),
+        ("git", "ls-files") if invocation.dir == Some(source_root()) => {
+            Ok(finished(0, &superproject_listing(), ""))
+        }
+        ("git", "ls-files") => Ok(finished(
+            0,
+            "100644 5555555555555555555555555555555555555555 0\tCMakeLists.txt\0",
+            "",
+        )),
+        ("ninja", "--version") => Ok(finished(0, "1.12.1\n", "")),
+        _ => Err(io::Error::from(io::ErrorKind::NotFound)),
+    }
+}
+
+fn static_host() -> FakeHost {
+    let mut entries = vec![(source_root(), Ok(EntryKind::Directory))];
+    for submodule in REQUIRED_SUBMODULES {
+        entries.push((
+            source_root().join(submodule).join(".git"),
+            Ok(EntryKind::File),
+        ));
+    }
+    for library in STATIC_LIBRARIES {
+        entries.push((
+            archive_dir().join(format!("lib{library}.a")),
+            Ok(EntryKind::File),
+        ));
+    }
+    FakeHost {
+        vars: vec![
+            (SLANG_SOURCE_DIR, source_root().into_os_string()),
+            (OUT_DIR, out_root().into_os_string()),
+            (TARGET, OsString::from(TRIPLE)),
+            (HOST, OsString::from(TRIPLE)),
+            (TARGET_OS, OsString::from("linux")),
+            (TARGET_ENV, OsString::from("gnu")),
+            (TARGET_FEATURE, OsString::from("fxsr,sse,sse2")),
+            (NUM_JOBS, OsString::from("8")),
+            (VULKAN_SDK, OsString::from("relative")),
+        ],
+        files: vec![(
+            built_include().join("slang-tag-version.h"),
+            header_text(SLANG_BUILD_TAG),
+        )],
+        entries,
+        respond: Box::new(happy),
+        ..empty_host()
+    }
+}
+
+fn respond_with(
+    host: &mut FakeHost,
+    program: &'static str,
+    first: &'static str,
+    result: fn() -> io::Result<Finished>,
+) {
+    host.respond = Box::new(move |invocation| {
+        if subcommand(invocation) == (program, first) {
+            result()
+        } else {
+            happy(invocation)
+        }
+    });
+}
+
+fn set_var(host: &mut FakeHost, name: &'static str, value: OsString) {
+    host.vars.retain(|(key, _)| *key != name);
+    host.vars.push((name, value));
+}
+
+fn ran(host: &FakeHost) -> Vec<String> {
+    host.runs
+        .borrow()
+        .iter()
+        .map(|invocation| {
+            let (program, first) = subcommand(invocation);
+            format!("{program} {first}")
+        })
+        .collect()
+}
+
+fn static_links() -> Vec<String> {
+    let mut directives = vec![format!(
+        "cargo::rustc-link-search=native={}",
+        archive_dir().display()
+    )];
+    for library in [
+        "slang-compiler",
+        "compiler-core",
+        "core",
+        "cmark-gfm",
+        "miniz",
+        "lz4",
+    ] {
+        directives.push(format!("cargo::rustc-link-lib=static={library}"));
+    }
+    directives
+}
+
+fn git_reruns() -> [String; 2] {
+    [
+        format!(
+            "cargo::rerun-if-changed={}",
+            source_root().join(".git/HEAD").display()
+        ),
+        format!(
+            "cargo::rerun-if-changed={}",
+            source_root().join(".git/index").display()
+        ),
+    ]
+}
+
+fn static_failure(host: &FakeHost, parts: &[&str]) -> Vec<String> {
+    let (directives, result) = run(host);
+    let message = result.err().unwrap_or_default();
+    assert_contains_all(&message, parts);
+    assert_no_link_directives(&directives);
+    assert!(
+        !host
+            .read_vars
+            .borrow()
+            .iter()
+            .any(|name| name == VULKAN_SDK),
+        "the static route read {VULKAN_SDK}"
+    );
+    assert!(
+        !host
+            .written
+            .borrow()
+            .iter()
+            .any(|(path, _)| *path == stamp_file()),
+        "a failed build wrote the stamp"
+    );
+    directives
+}
+
+#[test]
+fn static_route_links_the_static_libraries_without_reading_vulkan_sdk() {
+    let host = static_host();
+    let (directives, result) = run(&host);
+    assert_eq!(result, Ok(()));
+    let mut expected = vec![
+        "cargo::rerun-if-env-changed=DOCS_RS".to_owned(),
+        "cargo::rerun-if-env-changed=SLANG_SOURCE_DIR".to_owned(),
+    ];
+    expected.extend(git_reruns());
+    expected.extend(static_links());
+    expected.extend([
+        "cargo::rustc-link-lib=dylib=stdc++".to_owned(),
+        format!("cargo::metadata=include={}", built_include().display()),
+        format!("cargo::metadata=lib={}", archive_dir().display()),
+    ]);
+    assert_eq!(directives, expected);
+    assert!(
+        !host
+            .read_vars
+            .borrow()
+            .iter()
+            .any(|name| name == VULKAN_SDK),
+        "the static route read {VULKAN_SDK}"
+    );
+}
+
+#[test]
+fn static_route_runs_git_ninja_and_cmake_with_their_arguments_and_environment() {
+    let host = static_host();
+    assert_eq!(run(&host).1, Ok(()));
+    let mut expected_runs = vec![
+        "git rev-parse".to_owned(),
+        "git status".to_owned(),
+        "ninja --version".to_owned(),
+        "git ls-files".to_owned(),
+    ];
+    expected_runs.extend(
+        REQUIRED_SUBMODULES
+            .iter()
+            .map(|_| "git ls-files".to_owned()),
+    );
+    expected_runs.extend(["cmake -S".to_owned(), "cmake --build".to_owned()]);
+    assert_eq!(ran(&host), expected_runs);
+
+    let runs = host.runs.borrow();
+    for invocation in runs.iter().filter(|invocation| invocation.program == "git") {
+        assert_eq!(
+            invocation.env,
+            [("GIT_OPTIONAL_LOCKS", "0")],
+            "{invocation}"
+        );
+        assert!(invocation.env_remove.contains(&"GIT_DIR"), "{invocation}");
+        assert!(
+            invocation.env_remove.contains(&"GIT_INDEX_FILE"),
+            "{invocation}"
+        );
+        assert_eq!(invocation.log, None, "{invocation}");
+        let dir = invocation.dir.clone().unwrap_or_default();
+        assert!(dir.starts_with(source_root()), "{invocation}");
+    }
+    let configure = &runs[runs.len() - 2];
+    for arg in [
+        "-S".to_owned(),
+        copy_dir().display().to_string(),
+        "-B".to_owned(),
+        build_dir().display().to_string(),
+        "Ninja".to_owned(),
+        "-DCMAKE_BUILD_TYPE=Release".to_owned(),
+        "-DSLANG_LIB_TYPE=STATIC".to_owned(),
+        format!("-DSLANG_VERSION_FULL={SLANG_BUILD_TAG}"),
+        "-DSLANG_VERSION_NUMERIC=2026.17".to_owned(),
+        format!(
+            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={}",
+            archive_dir().display()
+        ),
+        "-DSLANG_SLANG_LLVM_FLAVOR=DISABLE".to_owned(),
+        "-DSLANG_ENABLE_DXIL=OFF".to_owned(),
+        "-DSLANG_ENABLE_SLANG_GLSLANG=OFF".to_owned(),
+        "-DFETCHCONTENT_FULLY_DISCONNECTED=ON".to_owned(),
+    ] {
+        assert!(configure.args.contains(&arg), "{configure} lacks {arg}");
+    }
+    assert!(
+        !configure
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("-DCMAKE_MSVC_RUNTIME_LIBRARY")),
+        "{configure}"
+    );
+    let build = &runs[runs.len() - 1];
+    assert_eq!(
+        build.to_string(),
+        format!(
+            "cmake --build {} --target slang --parallel 8",
+            build_dir().display()
+        )
+    );
+    for invocation in [configure, build] {
+        assert_eq!(invocation.log, Some(log_file()), "{invocation}");
+        assert_eq!(invocation.env_remove, ["SLANG_USE_SCCACHE"], "{invocation}");
+        assert_eq!(invocation.dir, None, "{invocation}");
+    }
+}
+
+#[test]
+fn static_route_copies_the_tracked_files_and_writes_the_stamp_after_the_build() {
+    let host = static_host();
+    assert_eq!(run(&host).1, Ok(()));
+    let mut files = vec![
+        PathBuf::from("CMakeLists.txt"),
+        PathBuf::from("source/slang/slang.cpp"),
+    ];
+    files.extend(
+        REQUIRED_SUBMODULES
+            .iter()
+            .map(|submodule| Path::new(submodule).join("CMakeLists.txt")),
+    );
+    let expected_sync: Vec<(PathBuf, PathBuf)> = files
+        .iter()
+        .map(|file| (source_root().join(file), copy_dir().join(file)))
+        .collect();
+    assert_eq!(*host.synced.borrow(), expected_sync);
+    assert_eq!(*host.removed.borrow(), [stamp_file()]);
+    let written = host.written.borrow();
+    assert_eq!(written.len(), 2, "{written:?}");
+    assert_eq!(written[0], (log_file(), String::new()));
+    assert_eq!(written[1].0, stamp_file());
+    for part in [
+        &format!("source {}", source_root().display()),
+        &format!("commit {SLANG_COMMIT}"),
+        &format!("-DSLANG_VERSION_FULL={SLANG_BUILD_TAG}"),
+        "external/vulkan",
+    ] {
+        assert!(
+            written[1].1.contains(part),
+            "{:?} lacks {part:?}",
+            written[1].1
+        );
+    }
+}
+
+#[test]
+fn static_route_with_a_matching_stamp_skips_the_copy_and_the_configure_step() {
+    let first = static_host();
+    assert_eq!(run(&first).1, Ok(()));
+    let stamp = first.written.borrow()[1].1.clone();
+
+    let mut host = static_host();
+    host.files.push((stamp_file(), stamp.clone()));
+    let (directives, result) = run(&host);
+    assert_eq!(result, Ok(()));
+    assert!(directives.ends_with(&[
+        "cargo::rustc-link-lib=dylib=stdc++".to_owned(),
+        format!("cargo::metadata=include={}", built_include().display()),
+        format!("cargo::metadata=lib={}", archive_dir().display()),
+    ]));
+    assert_eq!(
+        ran(&host),
+        [
+            "git rev-parse",
+            "git status",
+            "ninja --version",
+            "cmake --build"
+        ]
+    );
+    assert!(host.synced.borrow().is_empty());
+    assert!(host.removed.borrow().is_empty());
+    assert_eq!(*host.written.borrow(), [(log_file(), String::new())]);
+
+    let mut moved = static_host();
+    moved.files.push((stamp_file(), stamp));
+    let other = std::env::temp_dir().join("other-slang");
+    set_var(&mut moved, SLANG_SOURCE_DIR, other.clone().into_os_string());
+    moved
+        .entries
+        .push((other.clone(), Ok(EntryKind::Directory)));
+    for submodule in REQUIRED_SUBMODULES {
+        moved
+            .entries
+            .push((other.join(submodule).join(".git"), Ok(EntryKind::File)));
+    }
+    moved.respond = Box::new(move |invocation| {
+        if subcommand(invocation) == ("git", "ls-files") && invocation.dir == Some(other.clone()) {
+            Ok(finished(0, &superproject_listing(), ""))
+        } else {
+            happy(invocation)
+        }
+    });
+    assert_eq!(run(&moved).1, Ok(()));
+    assert!(ran(&moved).contains(&"cmake -S".to_owned()));
+    assert!(!moved.synced.borrow().is_empty());
+    assert_eq!(moved.written.borrow().len(), 2);
+}
+
+#[test]
+fn static_route_removes_files_of_the_copy_that_git_does_not_track() {
+    let mut host = static_host();
+    host.copied = Some(vec![
+        PathBuf::from("CMakeLists.txt"),
+        PathBuf::from("source/slang/core.meta.slang.temp.h"),
+    ]);
+    assert_eq!(run(&host).1, Ok(()));
+    assert_eq!(
+        *host.removed.borrow(),
+        [
+            stamp_file(),
+            copy_dir().join("source/slang/core.meta.slang.temp.h")
+        ]
+    );
+}
+
+#[test]
+fn static_route_links_the_cxx_library_and_archives_of_each_supported_target() {
+    for (os, env, feature, triple, cxx, archive, runtime) in [
+        (
+            "macos",
+            "",
+            "",
+            "aarch64-apple-darwin",
+            Some("c++"),
+            "libslang-compiler.a",
+            None,
+        ),
+        (
+            "windows",
+            "msvc",
+            "",
+            "x86_64-pc-windows-msvc",
+            None,
+            "slang-compiler.lib",
+            Some("MultiThreadedDLL"),
+        ),
+        (
+            "windows",
+            "msvc",
+            "crt-static",
+            "x86_64-pc-windows-msvc",
+            None,
+            "slang-compiler.lib",
+            Some("MultiThreaded"),
+        ),
+    ] {
+        let mut host = static_host();
+        set_var(&mut host, TARGET_OS, OsString::from(os));
+        set_var(&mut host, TARGET_ENV, OsString::from(env));
+        set_var(&mut host, TARGET_FEATURE, OsString::from(feature));
+        set_var(&mut host, TARGET, OsString::from(triple));
+        set_var(&mut host, HOST, OsString::from(triple));
+        for library in STATIC_LIBRARIES {
+            let name = if os == "windows" {
+                format!("{library}.lib")
+            } else {
+                format!("lib{library}.a")
+            };
+            set_entry(&mut host, archive_dir().join(name), Ok(EntryKind::File));
+        }
+        let (directives, result) = run(&host);
+        assert_eq!(result, Ok(()), "{triple}");
+        let cxx_directive = cxx.map(|library| format!("cargo::rustc-link-lib=dylib={library}"));
+        let links: Vec<&String> = directives
+            .iter()
+            .filter(|directive| directive.starts_with("cargo::rustc-link-lib=dylib="))
+            .collect();
+        assert_eq!(links, cxx_directive.iter().collect::<Vec<_>>(), "{triple}");
+        let configure = host
+            .runs
+            .borrow()
+            .iter()
+            .find(|invocation| subcommand(invocation) == ("cmake", "-S"))
+            .cloned()
+            .expect("the route configures");
+        let option = runtime.map(|runtime| format!("-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}"));
+        assert_eq!(
+            configure
+                .args
+                .iter()
+                .filter(|arg| arg.starts_with("-DCMAKE_MSVC_RUNTIME_LIBRARY"))
+                .collect::<Vec<_>>(),
+            option.iter().collect::<Vec<_>>(),
+            "{triple}"
+        );
+        assert!(archive.contains("slang-compiler"));
+    }
+}
+
+#[test]
+fn static_route_with_an_empty_or_invalid_source_dir_names_the_variable() {
+    let empty = OsString::new();
+    let relative = OsString::from("slang");
+    let line_break = source_root()
+        .join("x\ncargo::rustc-link-lib=other")
+        .into_os_string();
+    for (value, part) in [
+        (empty, "SLANG_SOURCE_DIR is set but empty"),
+        (
+            relative,
+            "is not an absolute path in UTF-8 without line breaks",
+        ),
+        (
+            line_break,
+            "is not an absolute path in UTF-8 without line breaks",
+        ),
+        (
+            non_utf8_path(),
+            "is not an absolute path in UTF-8 without line breaks",
+        ),
+    ] {
+        let mut host = static_host();
+        set_var(&mut host, SLANG_SOURCE_DIR, value);
+        let directives = static_failure(&host, &[part, SLANG_COMMIT, VULKAN_SDK_VERSION]);
+        assert_eq!(
+            directives,
+            [
+                "cargo::rerun-if-env-changed=DOCS_RS",
+                "cargo::rerun-if-env-changed=SLANG_SOURCE_DIR",
+            ]
+        );
+        assert!(host.runs.borrow().is_empty());
+    }
+}
+
+#[test]
+fn static_route_with_a_source_dir_that_is_not_a_directory_names_it() {
+    let path = source_root().display().to_string();
+    let missing = io::Error::from(io::ErrorKind::NotFound).to_string();
+    for (kind, part) in [
+        (Ok(EntryKind::File), "which is not a directory".to_owned()),
+        (
+            Err(io::ErrorKind::NotFound),
+            format!("which cannot be accessed: {missing}"),
+        ),
+    ] {
+        let mut host = static_host();
+        set_entry(&mut host, source_root(), kind);
+        static_failure(&host, &[SLANG_SOURCE_DIR, &path, &part, SLANG_COMMIT]);
+        assert!(host.runs.borrow().is_empty());
+    }
+}
+
+#[test]
+fn static_route_without_out_dir_says_that_cargo_sets_it() {
+    let mut host = static_host();
+    host.vars.retain(|(name, _)| *name != OUT_DIR);
+    static_failure(&host, &["OUT_DIR is not set", "Cargo sets OUT_DIR"]);
+    assert!(host.runs.borrow().is_empty());
+}
+
+#[test]
+fn static_route_refuses_cross_compilation_and_unsupported_targets() {
+    let mut cross = static_host();
+    set_var(
+        &mut cross,
+        TARGET,
+        OsString::from("aarch64-unknown-linux-gnu"),
+    );
+    static_failure(
+        &cross,
+        &[
+            "the target aarch64-unknown-linux-gnu differs from the host x86_64-unknown-linux-gnu",
+            "cannot cross-compile",
+            SLANG_SOURCE_DIR,
+        ],
+    );
+    assert!(cross.runs.borrow().is_empty());
+    for (os, env, triple) in [
+        ("linux", "musl", "x86_64-unknown-linux-musl"),
+        ("freebsd", "", "x86_64-unknown-freebsd"),
+        ("windows", "gnu", "x86_64-pc-windows-gnu"),
+    ] {
+        let mut host = static_host();
+        set_var(&mut host, TARGET_OS, OsString::from(os));
+        set_var(&mut host, TARGET_ENV, OsString::from(env));
+        set_var(&mut host, TARGET, OsString::from(triple));
+        set_var(&mut host, HOST, OsString::from(triple));
+        static_failure(
+            &host,
+            &[
+                &format!("the target {triple} is none of these"),
+                SLANG_SOURCE_DIR,
+            ],
+        );
+        assert!(host.runs.borrow().is_empty());
+    }
+}
+
+#[test]
+fn static_route_names_each_program_that_cannot_start() {
+    for (program, first) in [
+        ("git", "rev-parse"),
+        ("ninja", "--version"),
+        ("cmake", "-S"),
+        ("cmake", "--build"),
+    ] {
+        let mut host = static_host();
+        respond_with(&mut host, program, first, || {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        });
+        static_failure(
+            &host,
+            &[
+                &format!("cannot start {program} for `{program} {first}"),
+                &io::Error::from(io::ErrorKind::NotFound).to_string(),
+                "needs git, CMake 3.22 or later, and Ninja on PATH",
+            ],
+        );
+    }
+}
+
+#[test]
+fn static_route_without_git_metadata_says_that_the_commit_cannot_be_verified() {
+    let mut host = static_host();
+    respond_with(&mut host, "git", "rev-parse", || {
+        Ok(finished(
+            128,
+            "",
+            "fatal: not a git repository (or any of the parent directories): .git\n",
+        ))
+    });
+    let directives = static_failure(
+        &host,
+        &[
+            "git rev-parse",
+            "exit status 128",
+            "fatal: not a git repository",
+            "a source archive, cannot be verified",
+            "git clone --recursive",
+            SLANG_COMMIT,
+        ],
+    );
+    assert_eq!(
+        directives,
+        [
+            "cargo::rerun-if-env-changed=DOCS_RS",
+            "cargo::rerun-if-env-changed=SLANG_SOURCE_DIR",
+        ]
+    );
+}
+
+#[test]
+fn static_route_refuses_a_directory_that_is_not_the_top_of_a_work_tree() {
+    for (output, part) in [
+        (
+            "true\nsource/\n../.git/HEAD\n../.git/index\nc7954ebd1f1984ad2bfde15f76248db41dc34aa3\n",
+            "lies at source/ inside a git work tree whose top level is another directory",
+        ),
+        (
+            "false\n\nHEAD\nindex\nc7954ebd1f1984ad2bfde15f76248db41dc34aa3\n",
+            "is not inside a git work tree",
+        ),
+    ] {
+        let mut host = static_host();
+        host.respond = Box::new(move |invocation| {
+            if subcommand(invocation) == ("git", "rev-parse") {
+                Ok(finished(0, output, ""))
+            } else {
+                happy(invocation)
+            }
+        });
+        static_failure(
+            &host,
+            &[part, &source_root().display().to_string(), SLANG_COMMIT],
+        );
+        assert_eq!(ran(&host), ["git rev-parse"]);
+    }
+}
+
+#[test]
+fn static_route_with_unexpected_git_output_stops() {
+    let mut host = static_host();
+    respond_with(&mut host, "git", "rev-parse", || {
+        Ok(finished(0, "true\n", ""))
+    });
+    static_failure(&host, &["printed \"true\\n\"", "git rev-parse"]);
+}
+
+#[test]
+fn static_route_at_another_commit_names_both_commits_and_the_checkout_command() {
+    let mut host = static_host();
+    respond_with(&mut host, "git", "rev-parse", || {
+        Ok(finished(
+            0,
+            "true\n\n.git/HEAD\n.git/index\n0123456789012345678901234567890123456789\n",
+            "",
+        ))
+    });
+    let directives = static_failure(
+        &host,
+        &[
+            "0123456789012345678901234567890123456789",
+            SLANG_COMMIT,
+            SLANG_BUILD_TAG,
+            &format!("git -C {} checkout {SLANG_COMMIT}", source_root().display()),
+        ],
+    );
+    assert!(directives.ends_with(&git_reruns()), "{directives:?}");
+    assert_eq!(ran(&host), ["git rev-parse"]);
+}
+
+#[test]
+fn static_route_refuses_a_tree_with_changed_tracked_files() {
+    let mut host = static_host();
+    respond_with(&mut host, "git", "status", || {
+        Ok(finished(
+            0,
+            " M source/slang/slang.cpp\n M external/lz4\n",
+            "",
+        ))
+    });
+    let directives = static_failure(
+        &host,
+        &[
+            "\" M source/slang/slang.cpp\", \" M external/lz4\".",
+            "git status --porcelain=v1 --untracked-files=no --ignore-submodules=none",
+            "differ from the commit",
+            SLANG_COMMIT,
+        ],
+    );
+    assert!(directives.ends_with(&git_reruns()), "{directives:?}");
+    assert!(host.synced.borrow().is_empty());
+
+    let mut many = static_host();
+    respond_with(&mut many, "git", "status", || {
+        Ok(finished(0, &" M a\n".repeat(13), ""))
+    });
+    static_failure(&many, &["\" M a\", and 3 more."]);
+}
+
+#[test]
+fn static_route_names_a_missing_submodule_and_the_command_that_fetches_it() {
+    let command = format!(
+        "git -C {} submodule update --init external/lz4",
+        source_root().display()
+    );
+    let mut empty = static_host();
+    empty
+        .entries
+        .retain(|(path, _)| *path != source_root().join("external/lz4/.git"));
+    let mut unrecorded = static_host();
+    unrecorded.respond = Box::new(|invocation| {
+        if subcommand(invocation) == ("git", "ls-files") && invocation.dir == Some(source_root()) {
+            Ok(finished(
+                0,
+                &superproject_listing().replace("\texternal/lz4\0", "\texternal/other\0"),
+                "",
+            ))
+        } else {
+            happy(invocation)
+        }
+    });
+    for host in [empty, unrecorded] {
+        static_failure(
+            &host,
+            &[
+                "the submodule external/lz4",
+                "is missing or empty",
+                &command,
+            ],
+        );
+        assert!(host.synced.borrow().is_empty());
+        assert!(!ran(&host).contains(&"cmake -S".to_owned()));
+    }
+}
+
+#[test]
+fn static_route_refuses_a_tracked_path_that_leaves_the_tree() {
+    for path in ["../escape", "/tmp/escape"] {
+        let mut host = static_host();
+        host.respond = Box::new(move |invocation| {
+            if subcommand(invocation) == ("git", "ls-files") {
+                Ok(finished(
+                    0,
+                    &format!("100644 1111111111111111111111111111111111111111 0\t{path}\0"),
+                    "",
+                ))
+            } else {
+                happy(invocation)
+            }
+        });
+        static_failure(&host, &["git ls-files -z --stage", path]);
+        assert!(host.synced.borrow().is_empty());
+    }
+}
+
+#[test]
+fn static_route_reports_a_failed_step_with_the_tail_of_its_log() {
+    let log = (1..=50)
+        .map(|line| format!("log line {line}\n"))
+        .collect::<Vec<_>>()
+        .concat();
+    for first in ["-S", "--build"] {
+        let mut host = static_host();
+        host.files.push((log_file(), log.clone()));
+        host.respond = Box::new(move |invocation| {
+            if subcommand(invocation) == ("cmake", first) {
+                Ok(finished(1, "", ""))
+            } else {
+                happy(invocation)
+            }
+        });
+        let step = if first == "-S" { "configure" } else { "build" };
+        let directives = static_failure(
+            &host,
+            &[
+                &format!("`cmake {first}"),
+                "failed with exit status 1",
+                &format!("the {step} step of the build of Slang from source failed"),
+                &log_file().display().to_string(),
+                "\nlog line 11\n",
+                "log line 50",
+            ],
+        );
+        let (_, result) = run(&host);
+        assert!(
+            !result.unwrap_err().contains("log line 10\n"),
+            "the message holds more than the tail"
+        );
+        assert!(directives.ends_with(&git_reruns()), "{directives:?}");
+    }
+}
+
+#[test]
+fn static_route_reports_a_build_without_an_archive_or_with_another_tag() {
+    let mut missing = static_host();
+    missing
+        .entries
+        .retain(|(path, _)| *path != archive_dir().join("libcmark-gfm.a"));
+    static_failure(
+        &missing,
+        &[
+            &format!(
+                "cannot access {}",
+                archive_dir().join("libcmark-gfm.a").display()
+            ),
+            "another layout",
+        ],
+    );
+
+    let header = built_include().join("slang-tag-version.h");
+    let mut other = static_host();
+    other.files = vec![(header.clone(), header_text("0.0.0-unknown"))];
+    static_failure(
+        &other,
+        &[
+            "reports the build tag 0.0.0-unknown",
+            &header.display().to_string(),
+            SLANG_BUILD_TAG,
+        ],
+    );
+
+    let mut absent = static_host();
+    absent.files.clear();
+    static_failure(
+        &absent,
+        &[
+            &format!("cannot read {}", header.display()),
+            "another layout",
+        ],
+    );
+}
+
+#[test]
+fn static_route_omits_the_job_count_when_cargo_gives_none() {
+    let mut host = static_host();
+    host.vars.retain(|(name, _)| *name != NUM_JOBS);
+    assert_eq!(run(&host).1, Ok(()));
+    let build = host
+        .runs
+        .borrow()
+        .last()
+        .cloned()
+        .expect("the route builds");
+    assert_eq!(
+        build.to_string(),
+        format!("cmake --build {} --target slang", build_dir().display())
+    );
 }
