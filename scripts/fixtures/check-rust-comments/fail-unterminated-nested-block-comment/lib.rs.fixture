@@ -1,0 +1,2 @@
+/* Outer /* inner */ still open.
+pub fn f() {}

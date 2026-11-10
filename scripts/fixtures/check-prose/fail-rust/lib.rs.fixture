@@ -1,0 +1,18 @@
+//! Crate documentation; with a semicolon.
+
+/// The color of a thing.
+///
+/// A dash — not ASCII.
+pub fn f() {}
+
+    /// An indented comment; still documentation.
+    pub fn g() {}
+
+/// An unclosed fence:
+///
+/// ```
+/// let a = 1;
+pub fn h() {}
+
+/// After the unclosed fence, prose is checked again; here.
+pub fn i() {}

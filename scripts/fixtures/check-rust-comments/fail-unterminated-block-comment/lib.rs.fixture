@@ -1,0 +1,4 @@
+/// Documented.
+pub fn f() {}
+/* A block comment that never ends.
+// A comment it would hide.

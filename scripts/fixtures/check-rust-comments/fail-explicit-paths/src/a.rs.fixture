@@ -1,0 +1,2 @@
+/// Documented.
+pub fn a() {} // A trailing comment.

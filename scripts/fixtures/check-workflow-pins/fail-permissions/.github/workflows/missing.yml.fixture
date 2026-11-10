@@ -1,0 +1,7 @@
+on: push
+jobs:
+  check:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps: []

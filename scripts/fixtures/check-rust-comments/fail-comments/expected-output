@@ -1,0 +1,16 @@
+lib.rs:3: comment other than API documentation or a safety comment
+lib.rs:4: comment with four or more slashes, which is not API documentation
+lib.rs:5: block comment, which is neither API documentation nor a safety comment
+lib.rs:6: block documentation comment, write API documentation with ///
+lib.rs:8: block documentation comment, write API documentation with //!
+lib.rs:9: block comment, which is neither API documentation nor a safety comment
+lib.rs:11: comment contains TODO
+lib.rs:13: comment contains FIXME
+lib.rs:15: comment other than API documentation or a safety comment
+lib.rs:19: comment other than API documentation or a safety comment
+lib.rs:20: safety comment that does not start with '// SAFETY:'
+lib.rs:23: comment other than API documentation or a safety comment
+lib.rs:24: comment other than API documentation or a safety comment
+lib.rs:25: block comment, which is neither API documentation nor a safety comment
+lib.rs:26: comment with four or more slashes, which is not API documentation
+lib.rs:27: comment contains TODO

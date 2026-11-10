@@ -1,0 +1,28 @@
+//! Crate documentation.
+
+// An ordinary comment.
+//// A comment with four slashes.
+/* A block comment /* with a nested comment */ that is still open */
+/** A block documentation comment. */
+pub fn first() {}
+/*! An inner block documentation comment. */
+/*
+ * A block comment over several lines.
+ * <<TODO>> appears on this line.
+ */
+/// Documentation with a <<FIXME>> marker.
+pub fn second() {
+    let _s = "// fine"; // A trailing comment.
+    // SAFETY: the first line of a safety comment,
+    // and its continuation.
+
+    // A comment after a blank line.
+    //SAFETY: a safety comment in a loose form.
+    unsafe {}
+    // SAFETY: a safety comment followed by code.
+    let _x = 1; // A trailing comment after code.
+    // Not a continuation, because code came between.
+    /**/
+    //// SAFETY: four slashes are not a safety comment.
+    // SAFETY: <<TODO>> in a safety comment.
+}

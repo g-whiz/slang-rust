@@ -1,0 +1,15 @@
+on: push
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e
+      - uses: 'actions/checkout@main' # main branch
+      - uses: actions/checkout@3D3C42E5AAC5BA805825DA76410C181273BA90B1
+      - uses: docker://alpine:3
+      - uses: docker://alpine@sha256:abc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

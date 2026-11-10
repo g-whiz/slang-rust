@@ -1,0 +1,7 @@
+on: [push, pull_request] # not pull_request_target
+permissions: read-all
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "uses: actions/checkout@main"

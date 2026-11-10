@@ -1,0 +1,14 @@
+//! A crate whose features section is wrong.
+//!
+//! # Features
+//!
+//! - `named`: on by default.
+//! - `old-name`: removed.
+//!
+//! ```text
+//! `inside-a-fence` is code, not a code span.
+//! ```
+//!
+//! # Platform support
+//!
+//! Every platform.

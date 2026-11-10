@@ -27,15 +27,15 @@ This document applies to every Rust crate, build script, example, test, and tool
 
 Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are deferred and out of scope. Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`.
 
-This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate. This document does not name `just` recipes or define continuous integration (CI) workflows. `docs/design/tooling.md` specifies them.
+This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate. This document does not define `just` recipes or continuous integration (CI) workflows. `docs/design/tooling.md` specifies them.
 
-Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3, unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint. The commands of Section 4.8 for the other tools were run on a scratch workspace with cargo-semver-checks 0.51.0, cargo-hack 0.6.46, cargo-machete 0.9.2, cargo-llvm-cov 0.9.1, typos 1.52.1, taplo 0.10.0, actionlint 1.7.12, and the nightly toolchain 1.102.0 of 2026-11-09 with Miri. Statements in this document that describe what a lint or a tool reported come from those runs.
+Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3, unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint. The commands of Section 4.8 for the other tools were run on a scratch workspace with cargo-semver-checks 0.51.0, cargo-hack 0.6.46, cargo-machete 0.9.2, cargo-llvm-cov 0.9.1, typos 1.52.1, taplo 0.10.0, actionlint 1.7.12, and the nightly toolchain 1.102.0 of 2026-11-09 with Miri. Statements in this document that describe what a lint or a tool reported come from those runs. CI installs the latest version of each tool when it runs, so its versions can differ from these (Section 8.1 of `docs/design/tooling.md`).
 
 ### 1.2. How to Use This Document
 
 An agent that writes code reads Sections 3 and 4 once, and then the sections for the topics its change touches. An agent whose check fails reads the row for the failing lint in Section 4.5 and the procedure in Section 4.4. A reviewer loads Appendix A, which lists every judgement rule with its identifier and a one-line statement, and reads the full rule in Sections 4.4 to 16 when a finding needs it. Section 19 says what to do when a design question falls outside every rule.
 
-Code contains only the comments that Section 7.2 of the writing guide lists, and API documentation follows Section 7 of the writing guide. This document does not repeat those rules.
+Code contains only the comments that Section 7.2 of the writing guide lists, which `scripts/check-rust-comments` enforces, and API documentation follows Section 7 of the writing guide. This document does not repeat those rules.
 
 ### 1.3. Sources and Precedence
 
@@ -114,7 +114,7 @@ Each rule has an imperative statement, the reason, and the sources that support 
 
 The configuration in this section exists in the repository. The root `Cargo.toml` holds the workspace lint table of Section 4.2, and `clippy.toml` holds the configuration of Section 4.3. `deny.toml` and the recipes that run the tools of Section 4.8 exist as well, and Section 4.2 of `docs/design/tooling.md` lists those recipes and which of them the check runs. An agent that changes the workspace manifest or `clippy.toml` MUST keep the tables of Sections 4.2 and 4.3 identical to the files, or update this section in the same change, because an agent that reads a rule here assumes that a tool enforces it.
 
-As Section 7.12 of the writing guide states, a lint enforces a rule only when the configuration enables it and the check treats its warnings as errors. A rule that no configured lint or tool checks is a judgement rule, as Section 3.5 of the writing guide requires. Three parts of the tooling do not exist yet: the custom checkers that Section 7 of `docs/design/tooling.md` plans for rules of the writing guide, the CI workflow, and the recipe that checks for breaking changes, which arrives with the first release. The rules that the custom checkers will check stay judgement rules until those checkers exist.
+As Section 7.12 of the writing guide states, a lint enforces a rule only when the configuration enables it and the check treats its warnings as errors. A rule that no configured lint or tool checks is a judgement rule, as Section 3.5 of the writing guide requires. The custom checkers of Section 7 of `docs/design/tooling.md`, which enforce rules of the writing guide and the security rules of the CI workflow, exist, and the check runs them. The CI workflow `.github/workflows/ci.yml` exists and runs on every pull request and every push to `main`, as Section 8 of `docs/design/tooling.md` specifies. The recipes that arrive in M1 do not exist yet, and neither does the recipe that checks for breaking changes, which arrives with the first release.
 
 ### 4.2. Workspace Lint Table
 
@@ -456,7 +456,7 @@ Each entry that this section first recorded was run on the toolchain of Section 
 
 ### 4.8. Other Tools
 
-Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, and the Status column says whether the check runs it. A recipe runs each command of this section that the check runs, and Section 4.2 of `docs/design/tooling.md` lists those recipes. The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
+Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, except the custom checkers, which are scripts under `scripts/` that run on its Python 3. The Status column says whether the check runs the tool. A recipe runs each command of this section that the check runs, and Section 4.2 of `docs/design/tooling.md` lists those recipes. The CI workflow runs the check on Linux, Clippy, the doctests, and the tests on Windows and macOS, and the feature and MSRV checks of `cargo hack` on Linux, as Section 8.1 of `docs/design/tooling.md` specifies. The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
 
 | Tool | What it owns | Status |
 | --- | --- | --- |
@@ -468,13 +468,19 @@ Each deterministic check that is not a lint belongs to one tool. The development
 | `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
 | `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Installed, run by hand |
 | `cargo semver-checks` | Breaking changes to the public API against the last release | Installed, not run until the first release |
-| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Installed, run outside the check and planned for CI |
+| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Run outside the check, by CI on every pull request and every push to `main` |
 | `cargo machete` | Unused dependencies | Run by the check |
-| `cargo llvm-cov` | Test coverage | Installed, run outside the check and planned for CI |
+| `cargo llvm-cov` | Test coverage | Installed, run outside the check. Its CI job arrives with the first crate that contains a function |
 | `typos` | Spelling mistakes in identifiers and text | Run by the check |
 | `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Run by the check |
-| `actionlint` | GitHub Actions workflow files | Installed, not run until the first workflow exists |
+| `actionlint` | GitHub Actions workflow files | Run by the check |
 | Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain | Run by the check |
+| `scripts/check-rust-comments` | That Rust source holds no comment other than API documentation and safety comments (Section 7.2 of the writing guide) | Run by the check |
+| `scripts/check-doc-headings` | The names, levels, order, and uniqueness of the headings in item documentation (Section 7.3 of the writing guide) | Run by the check |
+| `scripts/check-doctest-attributes` | That no documentation code block is marked `ignore` (Section 7.5 of the writing guide) | Run by the check |
+| `scripts/check-feature-docs` | That the crate-level documentation of each library names every Cargo feature in its `# Features` section (Section 7.8 of the writing guide) | Run by the check |
+| `scripts/check-prose` | ASCII punctuation, semicolons, and the listed non-Canadian spellings in Markdown files and in API documentation (Sections 7.11 and 8 of the writing guide) | Run by the check |
+| `scripts/check-workflow-pins` | That every action is pinned by a full commit SHA, and that no workflow uses `pull_request_target` or grants more than read access at its top level (Section 8.2 of `docs/design/tooling.md`) | Run by the check |
 
 These commands run the checks of the tools from `cargo fmt` to `cargo deny`:
 
@@ -508,7 +514,7 @@ The doctest command runs on the whole workspace, which skips packages without a 
 
 An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence, and MUST give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
 
-This section names no `just` recipes other than `coverage`. Section 4.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 8 specifies the CI workflow.
+Each custom checker runs through the recipe of the same name, such as `just check-rust-comments`, and takes optional paths. With no paths, it checks every relevant file in the repository, as Section 7 of `docs/design/tooling.md` specifies. Apart from these, this section names no `just` recipes other than `coverage`. Section 4.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 8 specifies the CI workflow.
 
 ## 5. API Design
 
@@ -924,7 +930,7 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 **TEST-2.** Cover text and structured output, such as diagnostic messages and reflection data, with `insta` snapshot tests, review their changes with `cargo insta review`, commit the snapshot files, and make the output under test deterministic. Reason: a snapshot shows a reviewer the exact change in output, and output that depends on hash order or timing makes the test flaky. [IR-17] [IR-1]
 
-**TEST-3.** Tag every test that needs the native Slang library, a GPU adapter, or a hardware GPU, so that a run can exclude it with a filter, using the mechanism that the design document defines. Run the tests that need a hardware GPU locally only. Reason: CI does not exist yet. The planned CI targets are Linux with lavapipe, Windows with the Windows Advanced Rasterization Platform (WARP), and macOS with hosted Metal, and the design document for CI will define them. An untagged test that needs other hardware would fail there.
+**TEST-3.** Tag every test that needs the native Slang library, a GPU adapter, or a hardware GPU, so that a run can exclude it with a filter, using the mechanism that the design document defines. Run the tests that need a hardware GPU locally only. Reason: CI runs the tests on hosted runners for Linux, Windows, and macOS, which are not required to provide a hardware GPU, and the GPU tier is planned there on lavapipe, the Windows Advanced Rasterization Platform (WARP), and hosted Metal, as Section 8.1 of `docs/design/tooling.md` specifies. An untagged test that needs other hardware would fail there.
 
 **TEST-4.** Add a regression test to every bug fix that fails without the fix and passes with it. Reason: a fix without a test can return at the next refactor, and the failing run proves that the test covers the bug.
 
@@ -1038,7 +1044,7 @@ When an agent meets a design question that no rule covers, it follows these step
 
 1. Find the topic in the reference list, `docs/rust-references.md`, read the sources it lists, and weigh them by the precedence of Section 1.3.
 2. Write a proposed rule with the next unused identifier of its topic, or a new prefix if no topic fits, an imperative statement, the reason, and its sources.
-3. Decide how the rule is enforced. If a lint or a tool can check it, verify that the lint exists on the current toolchain with `cargo clippy --explain` or `rustc -W help`, and add the lint to Sections 4.2 and 4.5 instead of adding a judgement rule.
+3. Decide how the rule is enforced. If a lint or a tool can check it, verify that the lint exists on the current toolchain with `cargo clippy --explain` or `rustc -W help`, and add the lint to Sections 4.2 and 4.5 instead of adding a judgement rule. If no lint or installed tool can check it but a small script can, add a custom checker as Section 7 of `docs/design/tooling.md` specifies, and add it to the table of Section 4.8.
 4. Add a judgement rule to its section and to Appendix A, and add an entry to the change log.
 
 An agent MUST add the rule in the same change as the code that first relies on it, because a reviewer cannot check code against a rule that does not exist yet, and a rule deferred to a later change is forgotten.
@@ -1051,7 +1057,7 @@ The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep
 
 These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it. Defects in GPU drivers lie below every crate here. Attacks on the repository itself, such as a malicious change, are a matter of access control, not of coding rules.
 
-The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, the rules that the planned custom checkers of `docs/design/tooling.md` will check depend on review until those checkers exist, and until a CI workflow exists, the check runs only when an agent runs it before a merge. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
+The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, the custom checkers of `docs/design/tooling.md` read files line by line or token by token and state their limits in their usage text, such as documentation written as a `#[doc = ...]` attribute, which they do not read, so a violation outside what a checker reads depends on review. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
 
 ## 21. References
 
@@ -1178,6 +1184,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-10: Recorded in Sections 1.1, 1.2, 4.1, and 4.8 that the custom checkers and the CI workflow exist and what each checker owns, added custom checkers to the steps of Section 19, and updated the reason of TEST-3 and the residual risk of Section 20. No judgement rule is fully enforced by a checker, so no rule identifier is withdrawn.
 - 2026-11-10: Recorded that the lint configuration, `clippy.toml`, `deny.toml`, and the recipes that run the tools exist, replaced the abandoned sketch with the placeholder crate in Section 1.1, marked in Section 4.8 which tools the check runs, limited the feature check of Section 4.8 to the feature powerset, and updated TEST-7 and the residual risk of Section 20 to match.
 - 2026-11-10: Marked the tools of Section 4.8 as installed, added their verified commands with `--no-tests=warn` and the nextest form of Miri, corrected the `deny.toml` rule on path dependencies, and recorded the arguments of the `coverage` recipe.
 - 2026-11-10: Initial version.

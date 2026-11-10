@@ -1,0 +1,2 @@
+lib.rs:1: comment other than API documentation or a safety comment
+lib.rs:2: comment other than API documentation or a safety comment

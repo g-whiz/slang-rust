@@ -1,0 +1,32 @@
+//! Crate documentation.
+//!
+//! ```ignore
+//! let _ = 1;
+//! ```
+
+/// Every form of ignore.
+///
+/// ```rust,ignore
+/// ```
+///
+/// ```rust ignore
+/// ```
+///
+/// ```ignore-windows
+/// ```
+///
+/// ```should_panic,ignore,no_run
+/// ```
+///
+/// ```rust,"ignore"
+/// ```
+///
+/// ~~~ignore
+/// ~~~
+///
+/// ```	rust	ignore
+/// ```
+///
+/// ```text,ignore
+/// ```
+pub fn f() {}

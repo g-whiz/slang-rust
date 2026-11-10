@@ -1,0 +1,4 @@
+permissions:
+  contents: read
+on: [push, pull_request_target]
+jobs: {}

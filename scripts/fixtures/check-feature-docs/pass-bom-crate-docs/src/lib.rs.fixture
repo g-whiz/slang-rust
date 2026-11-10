@@ -1,0 +1,6 @@
+<<BOM>>//! A crate without features.
+//!
+//! # Features
+//!
+//! This crate has no Cargo features.
+pub fn f() {}

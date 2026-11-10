@@ -1,0 +1,12 @@
+lib.rs:5: comment other than API documentation or a safety comment
+lib.rs:6: comment other than API documentation or a safety comment
+lib.rs:7: comment other than API documentation or a safety comment
+lib.rs:8: comment other than API documentation or a safety comment
+lib.rs:9: comment other than API documentation or a safety comment
+lib.rs:10: comment other than API documentation or a safety comment
+lib.rs:11: comment other than API documentation or a safety comment
+lib.rs:12: comment other than API documentation or a safety comment
+lib.rs:13: comment other than API documentation or a safety comment
+lib.rs:14: comment other than API documentation or a safety comment
+lib.rs:16: comment other than API documentation or a safety comment
+lib.rs:18: block comment, which is neither API documentation nor a safety comment

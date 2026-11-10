@@ -2,13 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Draft |
+| Status | Living document |
 | Date | 2026-11-10 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
 
-This document specifies how the deterministic checks of the slang-rust repository are installed and run. It defines what milestone M0 changes in the repository: the removal of an abandoned sketch crate, the one skeleton crate that gives every tool something to check, and the configuration files that are added. It defines the `just` recipes and which of them make up the aggregate check that runs before every merge, the nextest configuration that implements the test tiers, the git hooks, the small custom checkers that move rules of the writing guide from review to a tool, the continuous integration workflow and its security rules, the dependency policy, the readiness for publishing, and the requirements on the development container image. It gives the order in which M0 makes these changes, so that every step leaves the aggregate check passing, and it lists the questions still open. The skeleton crate, the configuration files, the recipes, the nextest profiles, and the hooks are implemented, and the custom checkers and the continuous integration workflow are not yet.
+This document specifies how the deterministic checks of the slang-rust repository are installed and run. It defines what milestone M0 changes in the repository: the removal of an abandoned sketch crate, the one skeleton crate that gives every tool something to check, and the configuration files that are added. It defines the `just` recipes and which of them make up the aggregate check that runs before every merge, the nextest configuration that implements the test tiers, the git hooks, the small custom checkers that move rules of the writing guide from review to a tool, the continuous integration workflow and its security rules, the dependency policy, the readiness for publishing, and the requirements on the development container image. It gives the order in which M0 makes these changes, so that every step leaves the aggregate check passing, and it lists the questions still open. Milestone M0 is complete: the skeleton crate, the configuration files, the recipes, the nextest profiles, the hooks, the custom checkers, and the continuous integration workflow are implemented.
 
 ## 1. Introduction
 
@@ -40,15 +40,17 @@ This document does not design the binding generator, the build script of `slang-
 
 ### 1.6. Current State
 
-Steps 1 to 4 of Section 13 are done, and steps 5 and 6 remain. The repository holds:
+Every step of Section 13 is done, and M0 is complete. The repository holds:
 
 - The skeleton crate of Section 3.2, in place of the abandoned sketch, which is deleted.
 - The workspace manifest of Section 3.3, with the workspace lint table of the coding standard.
 - `clippy.toml`, `LICENSE`, `README.md`, `taplo.toml`, `typos.toml`, `.config/nextest.toml`, and `deny.toml`.
-- Every recipe of Section 4.2 that arrives in M0, except the custom checkers, their self-tests, and `check-workflows`.
-- The three hooks of Section 6, together with the hooks and settings that existed before M0.
+- Every recipe of Section 4.2 that arrives in M0.
+- The custom checkers of Sections 7.2 to 7.5 and 7.8, the extension of `check-prose` in Section 7.6, the shared lexer `scripts/rust_lexer.py`, the self-test runner `scripts/self-test-checker`, and the fixtures under `scripts/fixtures/` (Section 7.1).
+- The hooks of Section 6, together with the hooks and settings that existed before M0.
+- The CI workflow `.github/workflows/ci.yml` of Section 8.
 
-`just check` passes in the development container. The custom checkers of Section 7, the extension of `check-prose` in Section 7.6, the CI workflow of Section 8, and `check-workflows` do not exist yet. Neither do the recipes that arrive in M1 and M7.
+`just check` passes in the development container. The workflow passed on its first run on GitHub, on a draft pull request, as Section 8.1 records. The recipes that arrive in M1 and M7 do not exist yet.
 
 ## 2. Requirements Language
 
@@ -123,13 +125,16 @@ This table lists every file that M0 adds, rewrites, or removes, the section that
 | `LICENSE` | Added | The unmodified text of version 3 of the GNU General Public License (GPL) | 1 |
 | `README.md` | Added | Section 7.10 of the writing guide | 1 |
 | `justfile` | Extended | Section 4 | 2 to 6 |
-| `.pre-commit-config.yaml` | Extended | Section 6 | 2, 5 |
+| `.pre-commit-config.yaml` | Extended | Section 6 | 2, 5, 6 |
+| `.claude/settings.json` | Extended with the new recipes in the allowed commands | Section 6 | 5, 6 |
 | `typos.toml`, `taplo.toml` | Added | Section 3.4 | 2 |
 | `.config/nextest.toml` | Added | Section 5 | 3 |
 | `deny.toml` | Added | Section 9 | 4 |
-| The scripts of the custom checkers under `scripts/` | Added | Section 7 | 5 |
+| `scripts/check-rust-comments`, `scripts/check-doc-headings`, `scripts/check-doctest-attributes`, `scripts/check-feature-docs` | Added | Sections 7.2 to 7.5 | 5 |
+| `scripts/rust_lexer.py`, `scripts/self-test-checker`, `scripts/fixtures/` | Added | Section 7.1 | 5 |
 | `scripts/check-prose` | Extended | Section 7.6 | 5 |
 | `.github/workflows/ci.yml` | Added | Section 8 | 6 |
+| `scripts/check-workflow-pins` | Added | Section 7.8 | 6 |
 
 No `rustfmt.toml` is added, because Section 4.8 of the coding standard specifies the default rustfmt settings.
 
@@ -160,41 +165,44 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | Recipe | Group | Runs | In `check` | Arrives |
 | --- | --- | --- | --- | --- |
 | `default` | none | `just --list --unsorted` | No | Exists |
-| `check` | `checks` | The recipes that Section 4.3 lists | Not applicable | Exists, extended in M0 |
+| `check` | `checks` | The recipes that Section 4.3 lists | Not applicable | Exists |
 | `check-prose` | `checks` | `scripts/check-prose`, extended to API documentation by Section 7.6 | Yes | Exists |
+| `check-prose-self-test` | `checks` | The self-test of Section 7.1 for `scripts/check-prose` | Yes | Exists |
 | `check-shell` | `checks` | `scripts/check-shell` | Yes | Exists |
 | `check-commit-message` | `checks` | `scripts/check-commit-message` on one file, for the `commit-msg` hook | No | Exists |
 | `check-commit-message-self-test` | `checks` | The self-test of the commit message checker | Yes | Exists |
 | `hooks-install` | `checks` | `pre-commit install` | No | Exists |
 | `merge` | `git` | `scripts/merge-branch` | No | Exists |
 | `worktree-prune` | `git` | `scripts/worktree-prune` | No | Exists |
-| `fmt` | `rust` | `cargo fmt` on the whole workspace, which applies the formatting that the formatting command of Section 4.8 checks, and `taplo fmt`, which formats every Tom's Obvious Minimal Language (TOML) file that `taplo.toml` does not exclude | No | M0 |
-| `check-rust` | `checks` | The recipes that Section 4.3 lists | Yes | M0 |
-| `check-fmt` | `checks` | The formatting command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `check-clippy` | `checks` | The Clippy command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `check-doc` | `checks` | The documentation command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `check-doctest` | `checks` | The doctest command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `test` | `rust` | The nextest command of Section 4.8 with the `default` profile | No, because `test-gpu` runs the same tests | M0 |
-| `test-gpu` | `rust` | The nextest command of Section 4.8 with the `gpu` profile | Yes, through `check-rust` | M0 |
-| `test-hw-gpu` | `rust` | The nextest command of Section 4.8 with the `hw-gpu` profile | No, because it needs a hardware GPU | M0 |
-| `check-deny` | `checks` | The cargo-deny command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `check-rust-comments` | `checks` | The comment checker of Section 7.2 | Yes, through `check-rust` | M0 |
-| `check-doc-headings` | `checks` | The heading checker of Section 7.3 | Yes, through `check-rust` | M0 |
-| `check-doctest-attributes` | `checks` | The doctest attribute checker of Section 7.4 | Yes, through `check-rust` | M0 |
-| `check-feature-docs` | `checks` | The feature documentation checker of Section 7.5 | Yes, through `check-rust` | M0 |
-| `<checker>-self-test`, one for each custom checker | `checks` | The self-test of Section 7.1 | Yes | M0 |
+| `fmt` | `rust` | `cargo fmt` on the whole workspace, which applies the formatting that the formatting command of Section 4.8 checks, and `taplo fmt`, which formats every Tom's Obvious Minimal Language (TOML) file that `taplo.toml` does not exclude | No | Exists |
+| `check-rust` | `checks` | The recipes that Section 4.3 lists | Yes | Exists |
+| `check-fmt` | `checks` | The formatting command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `check-clippy` | `checks` | The Clippy command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `check-doc` | `checks` | The documentation command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `check-doctest` | `checks` | The doctest command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `test` | `rust` | The nextest command of Section 4.8 with the `default` profile | No, because `test-gpu` runs the same tests | Exists |
+| `test-gpu` | `rust` | The nextest command of Section 4.8 with the `gpu` profile | Yes, through `check-rust` | Exists |
+| `test-hw-gpu` | `rust` | The nextest command of Section 4.8 with the `hw-gpu` profile | No, because it needs a hardware GPU | Exists |
+| `check-deny` | `checks` | The cargo-deny command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `check-rust-comments` | `checks` | The comment checker of Section 7.2 | Yes, through `check-rust` | Exists |
+| `check-doc-headings` | `checks` | The heading checker of Section 7.3 | Yes, through `check-rust` | Exists |
+| `check-doctest-attributes` | `checks` | The doctest attribute checker of Section 7.4 | Yes, through `check-rust` | Exists |
+| `check-feature-docs` | `checks` | The feature documentation checker of Section 7.5 | Yes, through `check-rust` | Exists |
+| `check-rust-comments-self-test`, `check-doc-headings-self-test`, `check-doctest-attributes-self-test`, `check-feature-docs-self-test` | `checks` | The self-test of Section 7.1 for each checker of Sections 7.2 to 7.5 | Yes | Exists |
+| `check-workflow-pins` | `checks` | The workflow pin checker of Section 7.8 | Yes | Exists |
+| `check-workflow-pins-self-test` | `checks` | The self-test of Section 7.1 for the workflow pin checker | Yes | Exists |
 | `check-bindings` | `checks` | The regeneration test of TEST-8 of the coding standard, alone | No, because `test-gpu` runs the same test | M1 |
 | `generate-bindings` | `rust` | The binding generator | No | M1 |
 | `check-doc-without-slang` | `checks` | The documentation command of Section 4.8 with `DOCS_RS` set and `VULKAN_SDK` unset (Section 10) | Yes, through `check-rust` | M1 |
-| `check-typos` | `checks` | The typos command of Section 4.8 on the whole repository, with `typos.toml` (TOOL-30) | Yes | M0 |
-| `check-toml` | `checks` | The taplo command of Section 4.8, with `taplo.toml` (TOOL-30) | Yes | M0 |
-| `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes | M0, with the first workflow |
-| `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` | M0 |
-| `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` | M0 |
-| `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `features` runs it | M0 |
-| `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `msrv` runs it, and its first local run downloads that toolchain (Section 17.3) | M0 |
-| `check-semver` | `checks` | cargo semver-checks against the last published version of each published crate | No, the CI job `semver` runs it | M7, with the first release (Section 10) |
-| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate, and it fails while no crate contains a function | No, the CI job `coverage` runs it | M0 |
+| `check-typos` | `checks` | The typos command of Section 4.8 on the whole repository, with `typos.toml` (TOOL-30) | Yes | Exists |
+| `check-toml` | `checks` | The taplo command of Section 4.8, with `taplo.toml` (TOOL-30) | Yes | Exists |
+| `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes | Exists |
+| `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` | Exists |
+| `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` | Exists |
+| `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `ci-only` runs it | Exists |
+| `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 17.3) | Exists |
+| `check-semver` | `checks` | cargo semver-checks against the last published version of each published crate | No, the planned CI job `semver` runs it | M7, with the first release (Section 10) |
+| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate, and it fails while no crate contains a function | No, the planned CI job `coverage` runs it | Exists |
 
 `check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which inherits from `default` when `.config/nextest.toml` does not define it. M0 does not define it, because the skeleton crate has no tests. Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang, so `check-miri` covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation. A filter in a `[profile.default-miri]` table excludes the tests that call native code. Which tests it excludes is open (Section 15, TQ-5).
 
@@ -202,9 +210,26 @@ How the checks that pass `--all-features` and the feature matrix of `check-featu
 
 ### 4.3. Aggregate Recipes
 
-`check` runs `check-prose`, `check-shell`, `check-commit-message-self-test`, `check-typos`, `check-toml`, and `check-rust`, in that order. The self-test recipe of each custom checker joins `check` with its checker, in step 5 of Section 13. `check-workflows` joins `check` with the first workflow, in step 6 of Section 13, because actionlint exits with status 3 when the repository has no workflow. `check` needs network access (Section 17.6).
+`check` runs these recipes, in this order:
 
-`check-rust` runs `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order, so that the checks that do not compile the workspace report first. The custom checkers of Sections 7.2 to 7.5 join it before `check-fmt`, in step 5 of Section 13, and from M1 it also runs `check-doc-without-slang`.
+1. `check-prose`
+2. `check-shell`
+3. `check-commit-message-self-test`
+4. `check-prose-self-test`
+5. `check-rust-comments-self-test`
+6. `check-doc-headings-self-test`
+7. `check-doctest-attributes-self-test`
+8. `check-feature-docs-self-test`
+9. `check-workflow-pins-self-test`
+10. `check-typos`
+11. `check-toml`
+12. `check-workflows`
+13. `check-workflow-pins`
+14. `check-rust`
+
+`check-workflows` can run in `check` only while the repository has a workflow, because actionlint exits with status 3 when it finds none. `check` needs network access (Section 17.6).
+
+`check-rust` runs `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order, so that the checks that do not compile the workspace report first. From M1 it also runs `check-doc-without-slang`.
 
 `check-rust` runs `test-gpu` and not `test`, because the `gpu` profile selects every test that the `default` profile selects (Section 5). `test-gpu` runs in the development container on lavapipe, so `check` meets TOOL-8. A test in a `gpu` module that finds no adapter fails, as ARCH-23 of the architecture design requires, so `check` fails on a machine without any adapter.
 
@@ -261,25 +286,37 @@ TOOL-13. A hook of the `pre-commit` stage MUST run only checks that do not compi
 
 M0 adds these hooks of the `pre-commit` stage:
 
-- `check-fmt`, which runs when a staged Rust file changes.
-- `check-typos`, which runs on every commit.
-- `check-toml`, which runs when a staged TOML file changes.
+- `check-fmt`, which runs when a staged Rust file changes. Step 2 of Section 13 adds it.
+- `check-typos`, which runs on every commit. Step 2 adds it.
+- `check-toml`, which runs when a staged TOML file changes. Step 2 adds it.
+- `check-workflows`, which runs when a staged file under `.github/` changes. Step 6 adds it.
+- `check-workflow-pins`, which runs when a staged file under `.github/` changes. Step 6 adds it.
 
-Step 2 of Section 13 adds all three.
-
-When Section 7.6 extends `check-prose` to Rust files, the existing `check-prose` hook also runs when a staged Rust file changes. The `commit-msg` and `post-merge` hooks do not change.
+Each of these hooks runs its recipe on the whole repository, not on the staged files only. Since step 5, the existing `check-prose` hook runs on each staged Markdown file and each staged Rust file, and passes their paths to the recipe. The Claude Code hook in `.claude/settings.json` runs `scripts/claude-hook-prose` after every edit, and the script runs `check-prose` on the edited file when the file is inside the repository and its name ends in `.md` or `.rs`. It ignores every other file. When `check-prose` reports findings, the script prints them and exits with status 2, which Claude Code treats as a blocking error and reports with the findings. When `check-prose` fails for another reason, such as a Rust file that cannot be lexed because it is only partly edited (Section 7.1), the script prints the message and exits with status 1, which Claude Code treats as a non-blocking error. The `commit-msg` and `post-merge` hooks do not change.
 
 ## 7. Custom Checkers
 
-The writing guide marks several rules as judgement rules until a tool covers them, in the "Checked by" statements of its Section 7 and in its Section 7.12. Each of these rules can be checked deterministically, so this section plans a small custom checker for each.
+Before M0, the writing guide marked several rules as judgement rules until a tool covered them, and actionlint does not check the pinning rule of Section 8.2. Each of these rules can be checked deterministically, so this section specifies a small custom checker for each. The "Checked by" statements of Section 7 of the writing guide, its Section 7.12, and Section 8.2 of this document now name these checkers.
 
 ### 7.1. Conventions
 
 TOOL-14. Each custom checker MUST be a script under `scripts/` with a recipe of the same name in the `checks` group, and MUST follow the conventions that the usage text of `scripts/check-prose` states: one `path:line: message` line for each finding, exit status 0 without findings, 1 with findings, and 2 when a file cannot be read or the setup is broken, after checking every readable file, and usage text on `-h`. With no paths, the checker checks every relevant file in the git repository, tracked or not ignored. A checker that differs breaks the hooks and the recipes, which rely on these exit statuses to tell a finding from a broken setup.
 
-The checkers are written in Python 3 and run with `python3 -I`, as `scripts/check-prose` and `scripts/check-commit-message` are, because the container provides Python 3 and the existing checkers set the pattern.
+A file that is not valid UTF-8 is a file that cannot be read, so a checker reports it on standard error and exits with status 2. The exception is a Markdown file given to `check-prose`, in which an invalid byte is a finding.
 
-TOOL-15. Each custom checker MUST have a self-test recipe named after it with the suffix `-self-test`, which `check` runs, and which writes at least one passing input and one failing input for each rule of the checker into a temporary directory and fails unless the checker accepts the first and rejects the second, as `check-commit-message-self-test` does, because a checker that silently stops finding anything passes `check` while it enforces nothing. The inputs live only in the self-test, because a failing input stored in the repository would be reported by the checker itself.
+A Rust file that ends inside a string literal, a raw string literal, a block comment, or a character literal also cannot be read. For a checker that reads documentation comments, the same holds for a file that ends inside an attribute, because such a checker skips attributes to group the comments of one item. The checker prints `<checker>: cannot read <file>: unterminated <kind> at line N` on standard error, where N is the line of the opening delimiter, and exits with status 2. Unterminated input is a read error and not a silent end of the file, because a lexer that read the rest of the file as part of the literal would report nothing after it, and the check would pass while it checked nothing there. Other files given in the same run are still checked. While a file is only partly edited, unterminated input is normal, and Section 6 says how the Claude Code hook reports it.
+
+Each checker prints every finding and every error message through the helper `emit` of `scripts/rust_lexer.py`, which escapes every character outside printable ASCII, both in file paths and in file content that a message repeats. A newline, a carriage return, and a tab print as `\n`, `\r`, and `\t`, every other character up to U+00FF prints as `\xNN`, and every character above it prints as `\uNNNN`, or as `\UNNNNNNNN` above U+FFFF. A checked file or a file name therefore cannot send a terminal control sequence to the terminal that shows the output (Section 16). A backslash prints unchanged, so a character that the helper escapes and the same escape written literally in a file print alike.
+
+A checker reports a failed git call and a file that cannot be read in its own words, which do not depend on the version of git or on the operating system, because the self-tests pin the exact text of each error and would otherwise fail on another machine for an unrelated reason. A failed git call reads `not inside a git repository`, `git <subcommand> exited with status N`, or `cannot run git: <cause>`, and never repeats the message of git. A read error names its cause as `is a directory`, `no such file`, `not a directory`, or `permission denied`, and only a cause outside these four uses the description that the operating system gives. When `cargo metadata` fails, `check-feature-docs` still repeats the first error line of Cargo (Section 7.5).
+
+The checkers are written in Python 3 and run with `python3 -I`, as `scripts/check-prose` and `scripts/check-commit-message` are, because the container provides Python 3 and the existing checkers set the pattern. The checkers that read Rust share the lexer `scripts/rust_lexer.py`, which splits Rust source into comments, literals, and other tokens, groups `///` and `//!` comments into the Markdown text that rustdoc reads, and finds fenced code blocks in that text. The lexer skips a shebang line at the start of a file, also when a byte order mark precedes it, and never reads it as a comment. A first line that starts with `#![` is an inner attribute and not a shebang line. `check-workflow-pins` uses only its helpers for finding and reading files.
+
+TOOL-15. Each custom checker MUST have a self-test recipe named after it with the suffix `-self-test`, which `check` runs, and which runs the checker on at least one input that it accepts and one that it rejects for each rule of the checker and fails unless the checker gives exactly the expected result, because a checker that silently stops finding anything passes `check` while it enforces nothing. The inputs MUST be stored under a name that no checker or other tool reads as a real file, because a failing input stored under its real name would be reported by the checker itself.
+
+The self-test recipes of the custom checkers, including `check-prose-self-test`, run `scripts/self-test-checker` with the name of the checker. Each case is a directory `scripts/fixtures/<checker>/<case>/`. Its input files carry the suffix `.fixture`, which the runner removes when it copies them into a new git repository in a temporary directory, so that the checkers, which select files by name, never read a fixture as a real file. The runner replaces placeholders while it copies, so that no committed file holds an unfinished-work marker, a carriage return, an escape character, a bell character, a byte order mark, an invalid byte, or a missing final newline. It runs the checker in that repository with the arguments in the file `arguments` of the case, in which it replaces the same placeholders, or with none. A case that holds a file named `no-git-repository` gets no git repository, and the checker runs in a temporary directory outside any repository, which tests the error for a missing repository. The case passes when the standard output equals the file `expected-output`, the standard error equals the file `expected-errors`, or is empty without that file, and the exit status equals the number in the file `expected-status`, or, without that file, 1 when `expected-output` is not empty and 0 when it is. The usage text of `scripts/self-test-checker` lists the placeholders. `check-commit-message-self-test` keeps its own inline form.
+
+The checkers that read Rust were run over the source of the Rust standard library, 2,976 files, without a crash. On a scratch copy of the repository, each self-test failed when a rule of its checker was disabled.
 
 ### 7.2. Comment Checker
 
@@ -290,11 +327,13 @@ This table summarizes the comment checker.
 | Script and recipe | `scripts/check-rust-comments`, `check-rust-comments` |
 | Rule | Section 7.2 of the writing guide, and Hard Rule 5 of `AGENTS.md` |
 | Reads | Every `.rs` file |
-| Reports | Every comment other than a `///` comment, a `//!` comment, or a safety comment, and every comment that contains `TODO` or `FIXME` |
+| Reports | Every comment other than a `///` comment, a `//!` comment, or a safety comment, and every comment of any kind that contains the word `TODO` or `FIXME` |
 
-A safety comment is a run of consecutive `//` line comments whose first line starts with `// SAFETY:`, as the illustration in Section 7.6 of the writing guide shows. The checker reports every block comment, including `/** */` and `/*! */`, and every line comment that starts with four slashes. rustdoc and `missing_docs` treat `/** */` and `/*! */` as documentation, but the checker reports them because the writing guide defines API documentation as `///` and `//!` comments only (Section 2.2 of the writing guide). `////` and `/*** */` are not documentation comments, so they are other comments, which Section 7.2 of the writing guide forbids. Whether a safety comment sits directly above an `unsafe` block is checked by the safety comment lints of Section 4.5 of the coding standard, not by this checker.
+A safety comment is a run of `//` line comments on consecutive lines, with nothing else between them, whose first line starts with `// SAFETY:`, as the illustration in Section 7.6 of the writing guide shows. A line comment that starts with `SAFETY:` in another case or spacing is reported as a safety comment that does not start with `// SAFETY:`. The checker reports every block comment, including `/** */` and `/*! */`, and every line comment that starts with four slashes. rustdoc and `missing_docs` treat `/** */` and `/*! */` as documentation, but the checker reports them because the writing guide defines API documentation as `///` and `//!` comments only (Section 2.2 of the writing guide). `////` and `/*** */` are not documentation comments, so they are other comments, which Section 7.2 of the writing guide forbids. Whether a safety comment sits directly above an `unsafe` block is checked by the safety comment lints of Section 4.5 of the coding standard, not by this checker.
 
 TOOL-16. The comment checker MUST find comments by reading Rust tokens, so that the characters `//` and `/*` inside a string literal, a raw string literal, or a character literal are not reported, because a checker that reports text inside literals produces findings that no fix can remove.
+
+The lexer also treats byte string and C string literals as literals. Documentation written as a `#[doc = ...]` attribute is a literal, not a comment, so the checker does not read it.
 
 This illustration shows an input and the findings that the checker prints for it, assuming the file is `src/lib.rs`:
 
@@ -311,7 +350,7 @@ pub fn scale() -> f32 {
 src/lib.rs:3: comment other than API documentation or a safety comment
 ```
 
-The checker does not report line 4, because the slashes there are inside a string literal. If the binding generator of M1 has to emit other comments, the design document of `slang-compiler-sys` adds an exemption for the generated file to Section 7.2 of the writing guide and to this checker in the same change.
+The checker does not report line 4, because the slashes there are inside a string literal. Generated files are checked like any other file. If the binding generator of M1 has to emit other comments, the design document of `slang-compiler-sys` decides whether the generated file gets an exemption, and the change that adds one adds it to Section 7.2 of the writing guide and to this checker together.
 
 ### 7.3. Heading Checker
 
@@ -322,9 +361,9 @@ This table summarizes the heading checker.
 | Script and recipe | `scripts/check-doc-headings`, `check-doc-headings` |
 | Rule | Section 7.3 of the writing guide |
 | Reads | The `///` comments of every `.rs` file. Crate-level and module-level documentation, written with `//!`, is not read, because Section 7.4 of the writing guide gives it its own headings |
-| Reports | A heading that is not one of the standard headings of Section 7.3 of the writing guide, a standard heading out of the order that section gives, and a standard heading that appears twice in one item's documentation |
+| Reports | A heading of any level that is not one of the level-one standard headings of Section 7.3 of the writing guide, including a standard heading with the wrong case or level, a standard heading out of the order that section gives, and a standard heading that appears twice in one item's documentation |
 
-The checker ignores lines inside fenced code blocks, because a line that starts with `# ` in a Rust code block is a hidden line of a doctest, not a heading. Section 7.3 of the writing guide discourages other headings. The checker reports every other heading, so the change that lands the checker rewrites that sentence as a rule that the checker enforces.
+The checker reads both ATX headings, which start with `#`, and setext headings, which are underlined with `=` or `-`. The `///` comments that precede one item, with only attributes and other comments between them, are one item's documentation. The checker ignores lines inside fenced code blocks, because a line that starts with `# ` in a Rust code block is a hidden line of a doctest, not a heading. It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment, which the comment checker of Section 7.2 rejects. Section 7.3 of the writing guide forbids every other heading in the documentation of an item, which is the rule that the checker enforces.
 
 ### 7.4. Doctest Attribute Checker
 
@@ -334,10 +373,10 @@ This table summarizes the doctest attribute checker.
 | --- | --- |
 | Script and recipe | `scripts/check-doctest-attributes`, `check-doctest-attributes` |
 | Rule | Section 7.5 of the writing guide |
-| Reads | The code blocks in the `///` and `//!` comments of every `.rs` file, and in `README.md`, which a crate includes as doctests (Section 7.10 of the writing guide) |
-| Reports | A code block whose attributes include `ignore` or an attribute that starts with `ignore-` |
+| Reads | The fenced code blocks in the `///` and `//!` comments of every `.rs` file, and in every file named `README.md`, which a crate includes as doctests (Section 7.10 of the writing guide). A path given on the command line that is not named `README.md` is read as Rust |
+| Reports | A code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows` |
 
-The checker reports the attributes that start with `ignore-` as well, because Section 7.5 of the writing guide forbids `ignore` and the checker treats these as variants of it. The agent that writes the checker verifies against rustdoc how rustdoc reads the attributes of a code block from its info string, and which attributes are variants of `ignore`. Whether a `no_run` example states its reason stays a judgement rule.
+The checker reports the attributes that start with `ignore-` as well, because Section 7.5 of the writing guide forbids `ignore` and these are variants of it that ignore the example on some targets. The checker splits the info string of a code block into attributes the way rustdoc does: at commas, spaces, and tabs, with a double-quoted attribute read without its quotes, and with the text inside braces, such as `{.ignore}`, read as a class or a key and not as an attribute. Whether a `no_run` example states its reason stays a judgement rule.
 
 ### 7.5. Feature Documentation Checker
 
@@ -347,59 +386,95 @@ This table summarizes the feature documentation checker.
 | --- | --- |
 | Script and recipe | `scripts/check-feature-docs`, `check-feature-docs` |
 | Rule | Section 7.8 of the writing guide |
-| Reads | For each workspace member with a library target, its features as Cargo reports them in the package metadata, and the `# Features` section of its crate-level documentation. The agent that writes the checker verifies whether Cargo reports the features that it derives from optional dependencies |
-| Reports | A feature, other than `default`, that the `# Features` section does not name in a code span, a feature that the section names and the package does not have, and a missing `# Features` section in a crate that has a feature |
+| Reads | For each workspace member with a library target, its features as `cargo metadata --no-deps --offline` reports them, and the `# Features` section of the `//!` crate-level documentation at the top of its library root, before the first item. `cargo metadata` also reports the feature that an optional dependency defines when no feature refers to that dependency with `dep:` |
+| Reports | A missing `# Features` section in any library, including a library that has no features, a feature, other than `default`, that the section does not name in a code span, and a code span in the section that looks like a feature name, meaning lowercase letters, digits, `_`, `+`, and `-`, but names no feature of the package |
+
+The checker requires the section in a library that has no features, because item 4 of Section 7.4 of the writing guide requires it in every crate. It does not read crate-level documentation written as a `#![doc = ...]` attribute, including `#![doc = include_str!(...)]`. Unlike the other checkers, it takes the paths of Cargo manifests, and with no paths it checks the workspace of the git repository that contains the current directory. It prints paths relative to the current directory. When `cargo metadata` fails, it exits with status 2.
 
 Whether the section says that each feature is on or off by default, and what it enables, stays a judgement rule, because the wording is free.
 
 ### 7.6. Prose in API Documentation
 
-`scripts/check-prose` is extended to read the text of the `///` and `//!` comments of `.rs` files and to apply to it the rules that it applies to Markdown, which enforces Section 7.11 of the writing guide for the rules of its Section 8 that the script checks. Code spans and fenced code blocks inside the comments stay exempt, as they are in Markdown. With no paths, `check-prose` then checks every Markdown file and every Rust file. The recipe keeps its name and parameters.
+`scripts/check-prose` reads the text of the `///` and `//!` comments of `.rs` files and applies to it the rules that it applies to Markdown, which enforces Section 7.11 of the writing guide for the rules of its Section 8 that the script checks. It reads each run of comments that documents one item as one Markdown document, and it reports each finding at its line in the Rust file. Code spans and fenced code blocks inside the comments stay exempt, as they are in Markdown. It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment. A Rust file that is not valid UTF-8 cannot be read (Section 7.1). With no paths, `check-prose` checks every Markdown file and every Rust file. The recipe keeps its name and parameters, and its self-test is `check-prose-self-test`.
 
 ### 7.7. Moving a Rule to Enforced
 
 TOOL-17. The change that lands a custom checker MUST, in the same change, rewrite the "Checked by" statement of the section of the writing guide that the checker enforces and its row in Section 7.12 of the writing guide to name the checker, add the checker to the table of tools in Section 4.8 of the coding standard, and update the Validating Changes section of `AGENTS.md`, as Section 3.5 of the writing guide and Section 19 of the coding standard require for a rule that a tool can check, because a document that still calls an enforced rule a judgement rule sends a reviewer to check by hand what a tool checks, which Hard Rule 4 of `AGENTS.md` forbids. The change that extends `scripts/check-prose` also updates Section 8 of the writing guide, which describes the files that the script and its hook check.
 
+### 7.8. Workflow Pin Checker
+
+This table summarizes the workflow pin checker.
+
+| Property | Value |
+| --- | --- |
+| Script and recipe | `scripts/check-workflow-pins`, `check-workflow-pins` |
+| Rule | TOOL-20, the `pull_request_target` part of TOOL-22, and the top-level part of TOOL-19 (Section 8.2) |
+| Reads | Every `.yml` and `.yaml` file under `.github/workflows/`, and every `action.yml` and `action.yaml` file under `.github/actions/`. A file named `action.yml` or `action.yaml` is read as a composite action, and any other file as a workflow |
+| Reports | In every workflow and composite action, a `uses:` whose reference is not a full 40-character lowercase hexadecimal commit SHA. In every workflow, also the `pull_request_target` event under the top-level `on:` key, a workflow without a top-level `permissions:` key or with an empty one, and a top-level permission other than `read` or `none`, such as `write-all` or `contents: write` |
+
+A local action, whose reference starts with `./`, needs no commit SHA. A `docker://` reference passes only when it is pinned by an `@sha256:` digest. The checker does not check the permissions of a job, so whether a job that requests more than read access needs it stays a judgement rule, and so does the part of TOOL-22 about secrets and publishing.
+
+The checker reads each file line by line and does not use a YAML parser, and its usage text states the limits that follow from this. It reads keys only in block style, one per line, or as the value of `permissions:` in a one-line flow mapping such as `{ contents: read }`. It skips the text of a block scalar, such as the script of `run: |`. It does not read a `uses:` inside a flow mapping, or a scalar continued over several lines without a block indicator. It reads the text after a `#` that starts a line or follows a space as a comment, except inside quotes. A workflow written in a form that the checker does not read therefore depends on review.
+
+This illustration shows a workflow step and the finding that the checker prints for it, assuming the step is on line 12 of `.github/workflows/ci.yml`:
+
+```yaml
+      - uses: actions/checkout@v4
+```
+
+```text
+.github/workflows/ci.yml:12: uses: 'actions/checkout@v4' is not pinned to a full 40-character commit SHA
+```
+
 ## 8. Continuous Integration
 
 ### 8.1. Workflow and Jobs
 
-One workflow, `.github/workflows/ci.yml`, runs on every pull request and on every push to `main`.
+One workflow, `.github/workflows/ci.yml`, runs on every pull request and on every push to `main`. Its `concurrency` group is the workflow and the git reference of the pull request for a pull request, and the run itself for a push, with `cancel-in-progress: true`, so a new push to a pull request cancels the superseded run of that pull request, and no run for `main` is cancelled. Every job has a timeout of 60 minutes, and every `run` step uses Bash, also on Windows. The checkout step sets `persist-credentials: false`, so the token is not left in the git configuration of the runner for later steps.
 
 TOOL-18. A workflow MUST run every check through a `just` recipe and MUST NOT run a check command directly, because CI then runs the same commands as the development container, so a check that fails in one place has the same command to reproduce it in the other. Steps that only prepare a runner, such as installing a tool, are not checks.
 
-This table lists the jobs. The runner labels and the setup steps are chosen when the workflow is written, and `check-workflows` checks them.
+This table lists the jobs, with the name that GitHub shows for each and the hosted runner label. `check-workflows` and `check-workflow-pins` check the workflow.
 
-| Job | Runner | Runs | Arrives |
-| --- | --- | --- | --- |
-| `check` | Linux x86_64, with lavapipe as the software adapter from M3, when the first `gpu` test exists | `just check` | M0 |
-| `test` | A matrix of Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the software adapter, and macOS arm64, with the hosted Metal device | `just check-clippy`, `just check-doctest`, and `just test-gpu` | M0 |
-| `features` | Linux x86_64 | `just check-features` | M0 |
-| `msrv` | Linux x86_64 | `just check-msrv` | M0 |
-| `semver` | Linux x86_64 | `just check-semver` | M7, with the first release (Section 10) |
-| `coverage` | Linux x86_64 | `just coverage`, with the coverage summary in the log of the job | With the first crate that contains a function, because `just coverage` fails while no crate has code |
+| Job | Name | Runner | Runs | Arrives |
+| --- | --- | --- | --- | --- |
+| `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter from M3, when the first `gpu` test exists | `just check` | Exists |
+| `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the planned software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the planned adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` | Exists |
+| `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` | Exists |
+| `semver` | Not yet named | Linux x86_64 | `just check-semver` | M7, with the first release (Section 10) |
+| `coverage` | Not yet named | Linux x86_64 | `just coverage`, with the coverage summary in the log of the job | With the first crate that contains a function, because `just coverage` fails while no crate has code |
 
-The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. Whether every platform can run the GPU tier while SPIR-V is the only shader target is open (Section 17, Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. That lavapipe, WARP, and hosted Metal work as adapters on hosted runners is an assumption of the architecture design (Section 16, A-17 and A-18 of the architecture design).
+The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. Whether every platform can run the GPU tier while SPIR-V is the only shader target is open (Section 17, Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. That lavapipe, WARP, and hosted Metal work as adapters on hosted runners is an assumption of the architecture design (Section 16, A-17 and A-18 of the architecture design). No `gpu` test exists yet, so `just test-gpu` has not used an adapter on any runner, and the `check` job does not install lavapipe yet.
 
 No job runs the `hw_gpu` tests, which run only on a developer's hardware GPU through `just test-hw-gpu`. No job builds the static route until the design document of `slang-compiler-sys` decides whether CI builds it (Section 17, Q-28 of the architecture design).
 
-How CI obtains the same versions of the tools as the container image is open (Section 15, TQ-3).
+CI installs the tools on each runner, because no container image is published for CI to run in. Each job installs only the tools that its recipes need:
+
+- The Rust toolchains, through rustup, which the hosted runners provide. Each job installs the stable toolchain with the minimal profile and the components that it needs. The `check` job also installs the nightly toolchain with the components miri and rust-src, and lets rustup choose an older nightly when the latest one lacks a component.
+- `just` in every job, cargo-nextest in the `check` and `test` jobs, shellcheck, typos, taplo, cargo-machete, and cargo-deny in the `check` job, and cargo-hack in the `ci-only` job, through the action `taiki-e/install-action`, pinned by commit SHA. The action installs prebuilt binaries and verifies the SHA-256 checksum of each one against the manifest of versions and checksums that it carries. The workflow sets `fallback: none`, so the action fails instead of installing a tool by a route that its manifest does not cover.
+- actionlint, in the `check` job, through an inline step. It reads the latest release from GitHub, downloads the release archive for Linux x86_64 and the checksums file of the same release, verifies the archive with `sha256sum --check --strict`, and fails on a mismatch before it extracts the archive.
+
+Each route installs the latest version that it provides, which matches the policy of the container image, in which no tool version is pinned. A tool in CI can therefore have a different version from the same tool in the development container, and a check can pass in one and fail in the other until both have the same version. The workflow caches nothing, so no file is restored from a cache.
+
+On its first run on GitHub, on a draft pull request, every job passed: "Run every check on Linux" in 53 seconds, "Test on windows-latest" in 37 seconds, "Test on macos-latest" in 23 seconds, and "Run check-features on Linux" and "Run check-msrv on Linux". So `just check` passes on a Linux runner with the tools that the workflow installs, and Clippy, the doctests, and the nextest recipe pass on Windows and macOS.
 
 ### 8.2. Workflow Security
 
-TOOL-19. A workflow MUST grant its token read access to the repository contents only, at the level of the workflow, and a job that needs more MUST request the extra permission on that job alone, because a compromised step can use every permission that the token holds.
+TOOL-19. A workflow MUST grant its token read access to the repository contents only, at the level of the workflow, and a job that needs more MUST request the extra permission on that job alone, because a compromised step can use every permission that the token holds. `check-workflow-pins` reports a workflow without top-level permissions and a top-level permission other than `read` or `none` (Section 7.8). Whether a job that requests more needs it is a judgement rule.
 
-TOOL-20. A workflow MUST reference every action, including the actions that GitHub publishes, by a full commit SHA and never by a tag or a branch, because the owner of an action can move a tag or a branch to different code, which then runs in every later job without any change to this repository. actionlint does not check that an action is pinned by a commit SHA, so TOOL-20 is a judgement rule until a checker covers it (Section 15, TQ-7).
+TOOL-20. A workflow MUST reference every action, including the actions that GitHub publishes, by a full commit SHA and never by a tag or a branch, because the owner of an action can move a tag or a branch to different code, which then runs in every later job without any change to this repository. actionlint does not check this, and `check-workflow-pins` enforces it (Section 7.8).
 
-TOOL-21. A workflow step that downloads a file MUST record the expected SHA-256 checksum in the workflow and MUST stop the job before the file is used when the checksum differs, as Hard Rule 7 of `AGENTS.md` requires for every download whose upstream publishes a checksum, and a file restored from a cache MUST be verified in the same way as a fresh download, because a tampered file that is not verified runs with the permissions of the job, and a cache can hold a file that an earlier, compromised run stored. When the upstream publishes no checksum, the step SHOULD record the checksum of the file that the agent verified when it pinned the download, because a later change in the served file is then detected, even though the first file is trusted on first use.
+TOOL-21. A workflow step that downloads a file MUST verify it against a SHA-256 checksum that the upstream publishes and MUST stop the job before the file is used when the checksum differs, as Hard Rule 7 of `AGENTS.md` requires. A step that installs tools through an action MUST use an action that verifies each download in this way, pinned by commit SHA (TOOL-20), which also pins the manifest of versions and checksums that the action carries, and MUST configure it to fail instead of installing by a route that it does not verify. A file restored from a cache MUST be verified in the same way as a fresh download. These requirements hold because a tampered file that is not verified runs with the permissions of the job, and a cache can hold a file that an earlier, compromised run stored. When the upstream publishes no checksum, the step SHOULD record in the workflow the checksum of the file that the agent verified when it wrote the step, because a later change in the served file is then detected, even though the first file is trusted on first use.
 
-TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret, or publish a crate, because the workflows need no secret to check code, and a workflow that holds a secret while it runs the code of a pull request exposes that secret to the author of the pull request.
+A checksum that comes from the same host as the file, such as the checksums file of an actionlint release, proves that the download is intact but not that it comes from the publisher, because an attacker who controls the host can replace both. A checksum in the pinned manifest of the installer action comes from the commit of the action that TOOL-20 pins instead. Section 16 states the residual risk. Whether each step meets TOOL-21 is a judgement rule, because no tool can tell from a workflow which step downloads a file.
+
+TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret, or publish a crate, because the workflows need no secret to check code, and a workflow that holds a secret while it runs the code of a pull request exposes that secret to the author of the pull request. `check-workflow-pins` reports the `pull_request_target` event (Section 7.8). The rest of TOOL-22 is a judgement rule.
 
 ### 8.3. The Vulkan SDK on CI Runners
 
 Every job needs the pinned Vulkan software development kit (SDK) for Slang from M1, when `slang-compiler-sys` first links Slang. No job of M0 needs it, because the skeleton crate does not link Slang. How the SDK is installed on each platform, including the download address, checksum verification, and caching, is open (Section 15, TQ-1, which is Q-27 of the architecture design). It is settled when the step that installs the SDK is first written and run in CI.
 
-LunarG publishes a SHA-256 checksum of each SDK download, as 64 hexadecimal characters at a documented address of the form `https://sdk.lunarg.com/sdk/sha/<version>/<platform>/<file>.txt`, which is served from the same host as the download. A checksum fetched from that host at run time detects a corrupted download, but not a download that an attacker at the host replaced together with its checksum. The step therefore records the expected value in the workflow, as TOOL-21 requires, and does not fetch it at run time.
+LunarG publishes a SHA-256 checksum of each SDK download, as 64 hexadecimal characters at a documented address of the form `https://sdk.lunarg.com/sdk/sha/<version>/<platform>/<file>.txt`, which is served from the same host as the download. A checksum fetched from that host at run time detects a corrupted download, but not a download that an attacker at the host replaced together with its checksum. The step therefore records the expected value in the workflow and does not fetch it at run time, which the pinned version of the SDK allows, unlike the latest-version installs of Section 8.1.
 
 TOOL-23. The step that installs the Vulkan SDK on a runner MUST read the SDK version from the one place that records the pin (ARCH-9 of the architecture design) and MUST NOT restate the version, MUST verify the download as TOOL-21 requires, MUST set `VULKAN_SDK` for the later steps, and MUST make the Slang shared library findable at run time on the runner in the way that Section 4.4 of the architecture design describes for the platform, because a second copy of the pin diverges from the first, an unverified installer runs with the job's permissions, and a test binary that cannot find the shared library fails before any test runs.
 
@@ -489,7 +564,7 @@ Hard Rule 1 of `AGENTS.md` requires each of these updates in the change that alt
 - `README.md`, which M0 creates.
 - This document: Section 1.6, and the Status field, which changes to "Living document" when M0 is complete.
 
-The change that carried out steps 1 to 4 of Section 13 made the updates that those steps require, and it created `README.md`. The updates that remain belong to steps 5 and 6 and to the end of M0: the rows and "Checked by" statements of each custom checker (TOOL-17), Sections 7.11 and 8 of the writing guide, the shrinking of Technology Decisions in `AGENTS.md`, the rows of Sections 16 and 17 of the architecture design that the first CI run answers, and the Status field of this document.
+Every update of this list is made. The change that carried out steps 1 to 4 of Section 13 made the updates that those steps require, and it created `README.md`. The changes of steps 5 and 6 made the rest: the rows and "Checked by" statements of each custom checker (TOOL-17), Sections 7.11 and 8 of the writing guide, the summary in Technology Decisions of `AGENTS.md`, and the Status field of this document. The first CI run confirmed no row of Sections 16 and 17 of the architecture design, because A-17 and A-18 need a `gpu` test, which arrives in M3.
 
 ## 13. Implementation Order for M0
 
@@ -499,10 +574,10 @@ M0 is carried out as these changes, in this order. Each change updates the docum
 2. Add `taplo.toml` and `typos.toml` (TOOL-30), and the recipes `fmt`, `check-fmt`, `check-toml`, `check-typos`, `check-clippy`, `check-doc`, `check-doctest`, `check-unused-deps`, `check-features`, `check-msrv`, and `check-rust`. Add `check-toml`, `check-typos`, and `check-rust` to `check`, and add the three hooks of Section 6.
 3. Add `.config/nextest.toml` as Section 5 gives it, and add `test`, `test-gpu`, `test-hw-gpu`, `check-miri`, and `coverage`, with `test-gpu` and `check-miri` in `check-rust`.
 4. Add `deny.toml` (Section 9) and `check-deny`, with `check-deny` in `check-rust`.
-5. Add the custom checkers of Sections 7.2 to 7.5, and the extension of Section 7.6, one change for each, each with its self-test and the document changes of TOOL-17.
-6. Add the workflow of Section 8 with the jobs that arrive in M0, and add the recipe `check-workflows`, with `check-workflows` in `check`.
+5. Add the custom checkers of Sections 7.2 to 7.5, and the extension of Section 7.6, each with its self-test and the document changes of TOOL-17.
+6. Add the workflow of Section 8 with the jobs that arrive in M0, and add the recipe `check-workflows`, with `check-workflows` in `check`, and the workflow pin checker of Section 7.8 with its self-test.
 
-Steps 1 to 4 are done. They were carried out together in one change, which leaves `just check` passing. Steps 5 and 6 remain.
+Every step is done, and `just check` passes. Steps 1 to 4 were carried out together in one change. Steps 5 and 6 were carried out on one branch, which `just merge` squash-merges as one change together with their document changes.
 
 ## 14. Assumptions to Confirm
 
@@ -518,21 +593,21 @@ Each row is a question that this document leaves open. The design document in th
 | --- | --- | --- | --- |
 | TQ-1 | How is the pinned Vulkan SDK installed on each CI runner, including its download address, checksum verification, and caching? This is Q-27 of the architecture design, and any answer meets TOOL-21 and TOOL-23. Section 8.3 states where LunarG publishes the checksum of each download. | This document | M1, when the step is first written and run |
 | TQ-2 | How do the checks that pass `--all-features`, which are Clippy, the documentation build, the doctests, and the tests, and the feature matrix of `check-features`, treat a feature that selects the static build of Slang, which needs a Slang source tree and a long native build? This is part of Q-7 of the architecture design. | `docs/design/slang-compiler-sys.md` | M1 |
-| TQ-3 | How does CI use the same tool versions as the container image: by running the Linux jobs in the container image, or by installing pinned versions on each runner? Any answer meets TOOL-20 and TOOL-21. | This document | M0, when the workflow is first written |
 | TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M7 |
 | TQ-5 | Which tests does the filter of the nextest profile `default-miri` exclude from `check-miri`, because they call native code? The mechanism is that filter (Section 4.2). | The design document of the first crate whose tests call native code: `docs/design/slang-compiler-sys.md`, whose smoke test of M1 calls Slang, or `docs/design/slang-compiler.md` | M1 or M2 |
 | TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 10)? | This document | M7 |
-| TQ-7 | Does a small custom checker enforce TOOL-20, which actionlint does not check (Section 8.2)? | This document | M0, when the first workflow is written |
+
+Section 8.1 records the answer to the removed question TQ-3, which is that CI installs the tools on each runner, and Section 7.8 records the answer to TQ-7, which is the checker `check-workflow-pins`. An identifier is never reused, so the next question takes TQ-8.
 
 ## 16. Security Considerations
 
-The threat model has five parts. First, a dependency, a build script, or a procedural macro in the dependency graph is malicious or compromised, and it runs with the permissions of the developer or the job whenever a check compiles the workspace, including Clippy, the documentation build, and the tests. Second, an action that a workflow uses is compromised, or its owner moves a tag to different code. Third, an attacker on the network or at a download host tampers with a tool, the Vulkan SDK, or the advisory database that a check or a job downloads. Fourth, the author of a pull request tries to read a secret or to write to the repository through CI. Fifth, a pre-commit hook repository changes the code that its hooks run.
+The threat model has six parts. First, a dependency, a build script, or a procedural macro in the dependency graph is malicious or compromised, and it runs with the permissions of the developer or the job whenever a check compiles the workspace, including Clippy, the documentation build, and the tests. Second, an action that a workflow uses is compromised, or its owner moves a tag to different code. Third, an attacker on the network or at a download host tampers with a tool, the Vulkan SDK, or the advisory database that a check or a job downloads. Fourth, the author of a pull request tries to read a secret or to write to the repository through CI. Fifth, a pre-commit hook repository changes the code that its hooks run. Sixth, a file or a file name that a checker reads, such as one in a pull request, holds terminal control sequences, and a checker that printed them unchanged would send them to the terminal of the developer, which is terminal escape injection.
 
-The design addresses each part. For dependencies, cargo-deny rejects crates with known advisories and crates from sources other than crates.io (TOOL-26), the allow-list admits only reviewed licences (TOOL-24), and `Cargo.lock` fixes every version, while the checks run inside the development container and not on the developer's host. For actions, TOOL-20 pins each one to a commit SHA, and TOOL-19 limits what a compromised step can do. For downloads, TOOL-21 and TOOL-23 verify every file before use, including files restored from a cache, the expected checksum of the Vulkan SDK is recorded in the workflow and not fetched from the host that serves the SDK (Section 8.3), and a build script downloads nothing (SYS-5 of the coding standard). For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets. For hooks, `.pre-commit-config.yaml` already pins the repository `pre-commit-hooks` to a commit SHA, and the local hooks run only recipes of this repository.
+The design addresses each part. For dependencies, cargo-deny rejects crates with known advisories and crates from sources other than crates.io (TOOL-26), the allow-list admits only reviewed licences (TOOL-24), and `Cargo.lock` fixes every version, while the checks run inside the development container and not on the developer's host. For actions, TOOL-20 pins each one to a commit SHA, which `check-workflow-pins` enforces, TOOL-19 limits what a compromised step can do, and the checkout step does not leave the token in the git configuration of the runner (Section 8.1). For downloads, TOOL-21 and TOOL-23 verify every file before use, the workflow restores nothing from a cache, the installer action carries its checksums in a manifest that its commit SHA pins, the expected checksum of the Vulkan SDK is recorded in the workflow and not fetched from the host that serves the SDK (Section 8.3), and a build script downloads nothing (SYS-5 of the coding standard). For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets, and `check-workflow-pins` reports that event. For hooks, `.pre-commit-config.yaml` already pins the repository `pre-commit-hooks` to a commit SHA, and the local hooks run only recipes of this repository. For checker output, every custom checker escapes its output (Section 7.1), so a checked file cannot send a control sequence to the terminal.
 
 These attacks are out of scope. A compromise of GitHub, crates.io, or LunarG themselves defeats every check here, and no repository configuration can detect it. The build of the container image is defined and secured in the repository slang-rs-env. A compromise of the developer's machine outside the container is a matter of that machine's security, not of this repository. The topics of unsafe code, foreign function interface invariants, untrusted shader source, and file paths do not apply, because this document defines no code that calls Slang or compiles shader source.
 
-The residual risk has five parts. First, a new dependency's build script and procedural macros run on the first build that includes them, before any reviewer has read them, and cargo-deny finds only vulnerabilities that are already published. Second, a checksum shows only that a file matches what the upstream published, and the first download of a file whose upstream publishes no checksum is trusted on first use. Third, a pinned commit of an action is as trustworthy as the review it received when it was pinned. Fourth, `check-deny` fetches the advisory database on every run (Section 17.6), so a tampered database could hide an advisory. Fifth, TOOL-20 is a judgement rule until a checker covers it (Section 15, TQ-7), so an action pinned by a tag can pass review.
+The residual risk has six parts. First, a new dependency's build script and procedural macros run on the first build that includes them, before any reviewer has read them, and cargo-deny finds only vulnerabilities that are already published. Second, a checksum shows only that a file matches what the upstream published, and the first download of a file whose upstream publishes no checksum is trusted on first use. A checksum that comes from the same host as the file, as the checksum of actionlint does, proves integrity but not origin, so an attacker who controls that host can replace the file and its checksum together. Because CI installs the latest version of each tool, a new release of a tool runs in CI without any change to this repository and before anyone has reviewed it. Third, a pinned commit of an action is as trustworthy as the review it received when it was pinned, and the manifest of the installer action is as trustworthy as that commit. Fourth, `check-deny` fetches the advisory database on every run (Section 17.6), so a tampered database could hide an advisory. Fifth, `check-workflow-pins` reads workflows line by line, so a reference written in a form that it does not read (Section 7.8) can pass it, and the permissions of each job, the use of secrets, and whether each download step verifies its file depend on review. Sixth, the escaping covers only the custom checkers of Section 7. `scripts/check-commit-message` and the external tools that the recipes run, such as shellcheck, typos, actionlint, and Cargo, print their output without this escaping, and this document does not specify how they handle control characters. Because a backslash prints unchanged, escaped output can be ambiguous to a reader, which misleads but sends no control sequence.
 
 ## 17. Operational Considerations
 
@@ -542,8 +617,11 @@ Section 4.2 lists every recipe. This document defines no Cargo feature. This tab
 
 | Recipe | Parameter | Default |
 | --- | --- | --- |
-| `check-prose` | Paths of files to check | Every Markdown file in the repository, and after Section 7.6 every Rust file as well |
-| `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs` | Paths of files to check | Every relevant file in the repository (TOOL-14) |
+| `check-prose` | Paths of files to check | Every Markdown file and every Rust file in the repository |
+| `check-rust-comments`, `check-doc-headings` | Paths of files to check | Every Rust file in the repository (TOOL-14) |
+| `check-doctest-attributes` | Paths of files to check | Every Rust file and every `README.md` file in the repository (TOOL-14) |
+| `check-feature-docs` | Paths of Cargo manifests to check | The workspace of the repository (Section 7.5) |
+| `check-workflow-pins` | Paths of workflow and composite action files to check | Every workflow under `.github/workflows/` and every composite action under `.github/actions/` (Section 7.8) |
 | `check-commit-message` | The commit message file | None. The parameter is required. |
 | `merge` | The branch, and further arguments for `scripts/merge-branch` | None for the branch, which is required |
 
@@ -562,7 +640,7 @@ This table lists every environment variable that the recipes, the hooks, or the 
 
 ### 17.3. Platforms and Minimum Supported Rust Version
 
-The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 8.1. The workspace declares `rust-version = "1.99"` (TOOL-4), which only a change of TOOL-5 raises, and `check-msrv` verifies it in the CI job `msrv`. cargo hack always uses the rustup toolchain named exactly like `rust-version`, which is `1.99`, and installs it with rustup when it is missing, even though the installed stable toolchain is 1.99.1. The first run of `check-msrv` on a machine therefore downloads a toolchain and needs network access. On 2026-11-10, in the development container, that first run installed the toolchain `1.99` in about eleven seconds, and later runs use the installed toolchain.
+The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 8.1, with tool versions that can differ from those of the container (Section 8.1). The workspace declares `rust-version = "1.99"` (TOOL-4), which only a change of TOOL-5 raises, and `check-msrv` verifies it in the CI job `ci-only`. cargo hack always uses the rustup toolchain named exactly like `rust-version`, which is `1.99`, and installs it with rustup when it is missing, even though the installed stable toolchain is 1.99.1. The first run of `check-msrv` on a machine therefore downloads a toolchain and needs network access. On 2026-11-10, in the development container, that first run installed the toolchain `1.99` in about eleven seconds, and later runs use the installed toolchain.
 
 ### 17.4. Failing Checks
 
@@ -574,8 +652,9 @@ This table says what a failure of each check means and what the developer does.
 | `check-clippy`, `check-doc`, `check-doctest` | A lint fired | Follows Section 4.4 of the coding standard and the lint's row in Section 4.5 |
 | `test`, `test-gpu`, `test-hw-gpu` | A test failed, or a test in a GPU tier found no adapter (ARCH-23 of the architecture design) | Fixes the code or the test, or runs the tier on a machine with an adapter |
 | `check-deny` | A licence is not allowed, an advisory applies, a crate is duplicated, or a source is not crates.io. The exit status is the sum of 1 for advisories, 2 for bans, 4 for licences, and 8 for sources | Applies Section 9: replaces or upgrades the dependency, or records an exception that TOOL-24 or TOOL-26 permits |
-| `check-prose`, the custom checkers | A rule of the writing guide is broken at the reported line | Fixes the text as the rule that Section 7 names requires |
-| A self-test recipe | A checker accepts a violation or rejects a valid input | Fixes the checker |
+| `check-prose`, `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs` | Exit status 1: a rule of the writing guide is broken at each reported `path:line`, and the message names the problem, such as "comment other than API documentation or a safety comment" or "feature 'name' is not named in a code span in the '# Features' section". Exit status 2: a file cannot be read, including a file that ends inside an unterminated literal, comment, or attribute, `cargo metadata` failed, the checker ran with no paths outside a git repository, or the setup is broken, as the message on standard error says (Section 7.1) | For status 1, fixes the text as the rule that Section 7 names requires. For status 2, fixes the file or the setup that the message names, such as by closing the unterminated item at the reported line |
+| `check-workflow-pins` | Exit status 1: a rule of Section 8.2 is broken at each reported `path:line`, such as "uses: '...' is not pinned to a full 40-character commit SHA", "workflow uses the pull_request_target event", "workflow has no top-level permissions key", or "top-level permissions '...' grant more than read access". Exit status 2: as for the other custom checkers | Pins the action to the full commit SHA of the reviewed release, removes the event, or sets the top-level permissions to `contents: read` and moves any extra permission to the job that needs it (TOOL-19) |
+| A self-test recipe | A case under `scripts/fixtures/<checker>/` gave a different standard output, standard error, or exit status from the expected one, which the recipe prints after "FAIL" with the name of the case. Exit status 2 means that the checker or its cases cannot be read | Fixes the checker, or, when the change to its behaviour is intended, the expected files of the case |
 | `check-shell` | shellcheck reported a finding | Fixes the script or recipe |
 | `check-typos` | typos found a spelling mistake | Fixes the word, or accepts a correct word in `typos.toml` (TOOL-30) |
 | `check-toml` | A TOML file is not formatted | Runs `just fmt` |
@@ -587,11 +666,13 @@ This table says what a failure of each check means and what the developer does.
 
 Clippy can report a `clippy::cargo_common_metadata` warning again after the manifest has been fixed, because it replays its cached result until a source file of the crate changes. The developer then updates the modification time of a source file of the crate, or cleans the build output of the crate, and runs the check again.
 
-No agent weakens a configuration to make a check pass, as Hard Rule 6 of `AGENTS.md` states. Apart from the first run of `check-msrv` (Section 17.3), how long each check takes has not been measured, and this document states no expected duration.
+No agent weakens a configuration to make a check pass, as Hard Rule 6 of `AGENTS.md` states. Apart from the first run of `check-msrv` (Section 17.3) and the first CI run (Section 8.1), how long each check takes has not been measured, and this document states no expected duration.
+
+A check that passes in the development container and fails in CI, or the reverse, can come from a difference in tool versions (Section 8.1). The developer compares the version in the log of the job with the version in the container before changing the code.
 
 ### 17.5. Logs
 
-The recipes print the output of the tools they run and keep no log. GitHub Actions keeps the log of each job, and the log of the `coverage` job holds the coverage summary. The recipe `coverage` also writes the LCOV report `target/lcov.info`.
+The recipes print the output of the tools they run and keep no log. GitHub Actions keeps the log of each job, and from its arrival (Section 8.1), the log of the `coverage` job holds the coverage summary. The recipe `coverage` also writes the LCOV report `target/lcov.info`.
 
 ### 17.6. Network Access
 
@@ -626,13 +707,13 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-12 | 5 | The test recipes pass when their profile selects no test, through `--no-tests=warn`. |
 | TOOL-13 | 6 | Commit hooks run only checks that do not compile the workspace. |
 | TOOL-14 | 7.1 | Custom checkers follow the output and exit status conventions of `scripts/check-prose`. |
-| TOOL-15 | 7.1 | Each custom checker has a self-test recipe in `check`. |
+| TOOL-15 | 7.1 | Each custom checker has a self-test recipe in `check` that runs it on accepted and rejected inputs stored under a name that no tool reads. |
 | TOOL-16 | 7.2 | The comment checker reads Rust tokens and ignores literals. |
 | TOOL-17 | 7.7 | Landing a checker moves its rule to enforced in every document in the same change. |
 | TOOL-18 | 8.1 | Workflows run every check through a recipe. |
 | TOOL-19 | 8.2 | Workflow tokens are read-only by default, with extra permissions per job. |
 | TOOL-20 | 8.2 | Every action is pinned by a full commit SHA. |
-| TOOL-21 | 8.2 | Every download, and every file restored from a cache, is verified by SHA-256 before use. |
+| TOOL-21 | 8.2 | Every download, and every file restored from a cache, is verified against a published SHA-256 checksum before use, and installer actions verify each download and do not fall back. |
 | TOOL-22 | 8.2 | No workflow uses `pull_request_target`, reads a secret, or publishes. |
 | TOOL-23 | 8.3 | The SDK step reads the pin, verifies the download, sets `VULKAN_SDK`, and makes Slang findable. |
 | TOOL-24 | 9 | The licence allow-list starts with `GPL-3.0-or-later` and grows only with a dependency. |
@@ -646,6 +727,8 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded the fixes from a code review of the custom checkers: the escaping of their output and the terminal escape injection that it prevents in Sections 7.1 and 16, unterminated input as a read error, stable error wording, the handling of a shebang line, and the new placeholders and marker file of the self-test runner in Section 7.1, the Claude Code hook on Rust files in Section 6, and the new failures in Section 17.4.
+- 2026-11-10: Recorded M0 as complete and changed the Status to "Living document", described the custom checkers, their self-test runner, the CI workflow, and the new hooks as implemented, added Section 7.8 for the workflow pin checker, corrected TOOL-15, reworded TOOL-21 to the checksum verification that the workflow performs, and removed TQ-3 and TQ-7 as answered.
 - 2026-11-10: Recorded steps 1 to 4 of Section 13 as done in Sections 1.6, 12, and 13, corrected the order of `check-rust`, the commands of `check-features` and `check-msrv`, and the description of `typos.toml` to match the implementation, and recorded the first run of `check-msrv`.
 - 2026-11-10: Recorded the tool behaviour verified after the image rebuild, resolved the open assumptions, moved the image-dependent recipes into M0 and `check-semver` to M7, and added TOOL-30, TOOL-31, TQ-6, and TQ-7.
 - 2026-11-10: Initial version.

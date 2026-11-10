@@ -1,0 +1,19 @@
+//! A crate whose documentation is clean.
+//!
+//! The code span `a; b` and the fenced block below are code.
+//!
+//! ```
+//! let colour = "color; café";
+//! # let hidden = 1;
+//! ```
+
+// An ordinary comment with a semicolon; and color is not documentation.
+/// Returns the colour of a `Color`.
+///
+/// A code span can span two lines, like `a;
+/// b`, and stays code.
+#[doc = "An attribute with a semicolon; is not read."]
+pub fn colour() -> &'static str {
+    let _text = "a string; with color and café";
+    "red"
+}

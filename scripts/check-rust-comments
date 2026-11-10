@@ -1,0 +1,124 @@
+#!/usr/bin/env -S python3 -I
+import re
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-rust-comments: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-rust-comments [file.rs ...]
+
+Checks that Rust source contains only the comments that Section 7.2 of
+docs/writing-documentation.md allows: /// and //! documentation comments,
+and safety comments. A safety comment is a run of // line comments on
+consecutive lines, with nothing else between them, whose first line
+starts with // SAFETY:. Reports every other line comment, including a
+comment that starts with four slashes, every block comment, including the
+block documentation forms /** */ and /*! */, and every comment of any kind
+that contains the word TODO or FIXME. Comments are found by reading Rust
+tokens, so text inside string, raw string, byte string, C string, and
+character literals is never reported. Documentation written as a
+#[doc = ...] attribute is a literal, not a comment, so it is not read.
+Generated files are checked like any other file.
+With no files, checks every .rs file in the git repository that contains
+the current directory, tracked or not ignored, and prints paths relative
+to its root. Prints one path:line: message line per finding. Exits 1 if
+there are findings, and 2 if a file cannot be read, is not valid UTF-8,
+or the setup is broken, after checking every readable file."""
+
+MARKER = re.compile(r"\b(TODO|FIXME)\b")
+SAFETY = "// SAFETY:"
+
+
+def line_message(body):
+    if body.startswith("////"):
+        return "comment with four or more slashes, which is not API documentation"
+    if body[2:].lstrip().upper().startswith("SAFETY:"):
+        return f"safety comment that does not start with '{SAFETY}'"
+    return "comment other than API documentation or a safety comment"
+
+
+def block_message(token):
+    if token.doc == "outer":
+        return "block documentation comment, write API documentation with ///"
+    if token.doc == "inner":
+        return "block documentation comment, write API documentation with //!"
+    return "block comment, which is neither API documentation nor a safety comment"
+
+
+def check_source(shown, source):
+    findings = []
+    text = source.text
+    previous = None
+    in_safety = False
+    for token in source.tokens:
+        if token.kind != "comment":
+            previous = token
+            in_safety = False
+            continue
+        line = source.line(token.start)
+        body = text[token.start:token.end]
+        if token.style == "block":
+            findings.append((line, block_message(token)))
+            in_safety = False
+        elif token.doc is not None:
+            in_safety = False
+        elif body.startswith(SAFETY):
+            in_safety = True
+        elif (
+            in_safety
+            and not body.startswith("////")
+            and previous is not None
+            and source.line(previous.start) == line - 1
+        ):
+            pass
+        else:
+            in_safety = False
+            findings.append((line, line_message(body)))
+        for offset, part in enumerate(body.split("\n")):
+            for match in MARKER.finditer(part):
+                findings.append((line + offset, f"comment contains {match.group(1)}"))
+        previous = token
+    findings.sort(key=lambda finding: finding[0])
+    return [f"{shown}:{number}: {message}" for number, message in findings]
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        paths = argv or rust_lexer.repository_files("*.rs")
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-rust-comments: {error}", sys.stderr)
+        return 2
+    findings = []
+    unreadable = False
+    for path in paths:
+        shown = rust_lexer.display(path)
+        try:
+            found = check_source(shown, rust_lexer.Source(rust_lexer.read_source(path)))
+        except OSError as error:
+            rust_lexer.emit(f"check-rust-comments: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"check-rust-comments: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        findings.extend(found)
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

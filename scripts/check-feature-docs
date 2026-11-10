@@ -1,0 +1,176 @@
+#!/usr/bin/env -S python3 -I
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-feature-docs: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-feature-docs [Cargo.toml ...]
+
+Checks that the crate-level documentation of each library in a Cargo
+workspace documents its Cargo features, as Sections 7.4 and 7.8 of
+docs/writing-documentation.md require. Reads the packages, their features,
+and their library roots from cargo metadata --no-deps, which also reports
+the feature that an optional dependency defines when no feature refers to
+it with dep:. For each package with a library target, reports a library
+whose //! crate-level documentation has no # Features section, a feature
+other than default that the section does not name in a code span, and a
+code span in the section that looks like a feature name, meaning lowercase
+letters, digits, _, + and -, but names no feature of the package. Whether
+the section says what each feature enables and whether it is on by
+default is not checked. Crate-level documentation is the //! comments at
+the top of the library root, before the first item. Documentation written
+as a #![doc = ...] attribute, including #![doc = include_str!(...)], is
+not read.
+With no manifests, checks the workspace of the git repository that
+contains the current directory. Prints paths relative to the current
+directory. Prints one path:line: message line per finding. Exits 1 if
+there are findings, and 2 if cargo metadata fails, a file cannot be read,
+or the setup is broken, after checking every readable library."""
+
+CODE_SPAN = re.compile(r"(`+)(.+?)(?<!`)\1(?!`)")
+FEATURE_LIKE = re.compile(r"^[a-z0-9_][a-z0-9_+-]*$")
+LIBRARY_KINDS = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+ATX_ONE = re.compile(r"^ {0,3}#(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+
+
+def metadata(manifest):
+    command = ["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"]
+    if manifest is not None:
+        if not Path(manifest).is_file():
+            raise rust_lexer.SetupError(f"cannot read {rust_lexer.display(manifest)}: no such file")
+        command += ["--manifest-path", manifest]
+    try:
+        result = subprocess.run(command, capture_output=True, check=False)
+    except OSError as error:
+        raise rust_lexer.SetupError(f"cannot run cargo: {rust_lexer.os_error(error)}") from None
+    if result.returncode != 0:
+        lines = result.stderr.decode("utf-8", "replace").strip().splitlines()
+        reason = next((line for line in lines if line.startswith("error")), lines[0] if lines else "no output")
+        where = manifest if manifest is not None else "the current directory"
+        raise rust_lexer.SetupError(f"cargo metadata failed for {where}: {reason}")
+    try:
+        return json.loads(result.stdout)
+    except ValueError as error:
+        raise rust_lexer.SetupError(f"cargo metadata printed invalid JSON: {error}") from None
+
+
+def libraries(data):
+    found = []
+    for package in data.get("packages", []):
+        for target in package.get("targets", []):
+            if LIBRARY_KINDS.intersection(target.get("kind", [])):
+                features = sorted(name for name in package.get("features", {}) if name != "default")
+                found.append((package["name"], target["src_path"], features))
+                break
+    return found
+
+
+def features_section(lines):
+    heading = None
+    spans = []
+    for number, line, state, _ in rust_lexer.markdown_lines(lines):
+        if state != "text":
+            continue
+        atx = ATX_ONE.match(line)
+        if atx:
+            if heading is not None:
+                break
+            if (atx.group(1) or "").strip() == "Features":
+                heading = number
+            continue
+        if heading is None:
+            continue
+        for match in CODE_SPAN.finditer(line):
+            content = match.group(2)
+            if len(content) > 2 and content.startswith(" ") and content.endswith(" "):
+                content = content[1:-1]
+            spans.append((number, content))
+    return heading, spans
+
+
+def check_library(name, shown, source, features):
+    docs = rust_lexer.crate_docs(source)
+    heading, spans = features_section(docs)
+    if heading is None:
+        line = docs[0][0] if docs else 1
+        return [(line, "crate-level documentation has no '# Features' section")]
+    findings = []
+    named = {content for _, content in spans}
+    for feature in features:
+        if feature not in named:
+            findings.append((heading, f"feature '{feature}' is not named in a code span in the '# Features' section"))
+    for number, content in spans:
+        if content == "default" or content in features or not FEATURE_LIKE.match(content):
+            continue
+        findings.append(
+            (number, f"the '# Features' section names '{content}', which is not a feature of package '{name}'")
+        )
+    findings.sort(key=lambda finding: finding[0])
+    return findings
+
+
+def relative(path):
+    here = os.path.realpath(os.getcwd())
+    real = os.path.realpath(path)
+    if os.path.commonpath([here, real]) == here:
+        return os.path.relpath(real, here)
+    return real
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    libraries_found = {}
+    broken = False
+    manifests = argv or [None]
+    try:
+        if not argv:
+            os.chdir(rust_lexer.git("rev-parse", "--show-toplevel").rstrip("\n"))
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-feature-docs: {error}", sys.stderr)
+        return 2
+    for manifest in manifests:
+        try:
+            for name, src_path, features in libraries(metadata(manifest)):
+                libraries_found[src_path] = (name, features)
+        except rust_lexer.SetupError as error:
+            rust_lexer.emit(f"check-feature-docs: {error}", sys.stderr)
+            broken = True
+    findings = []
+    for src_path in sorted(libraries_found, key=relative):
+        name, features = libraries_found[src_path]
+        shown = rust_lexer.display(relative(src_path))
+        try:
+            source = rust_lexer.Source(rust_lexer.read_source(src_path))
+            found = check_library(name, shown, source, features)
+        except OSError as error:
+            rust_lexer.emit(f"check-feature-docs: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            broken = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"check-feature-docs: cannot read {shown}: {error}", sys.stderr)
+            broken = True
+            continue
+        for number, message in found:
+            findings.append(f"{shown}:{number}: {message}")
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if broken:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

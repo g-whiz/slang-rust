@@ -1,0 +1,4 @@
+/// Does something.
+///
+/// # Bad<<ESC>>[31mred<<BEL>>
+pub fn f() {}

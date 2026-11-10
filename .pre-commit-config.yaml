@@ -25,7 +25,7 @@ repos:
         name: check-prose
         entry: just check-prose
         language: system
-        files: \.md$
+        files: \.(md|rs)$
         stages: [pre-commit]
       - id: check-shell
         name: check-shell
@@ -53,6 +53,20 @@ repos:
         entry: just check-toml
         language: system
         files: \.toml$
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check-workflows
+        name: check-workflows
+        entry: just check-workflows
+        language: system
+        files: ^\.github/
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: check-workflow-pins
+        name: check-workflow-pins
+        entry: just check-workflow-pins
+        language: system
+        files: ^\.github/
         pass_filenames: false
         stages: [pre-commit]
       - id: check-commit-message

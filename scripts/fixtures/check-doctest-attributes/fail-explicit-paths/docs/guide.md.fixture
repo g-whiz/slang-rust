@@ -1,0 +1,3 @@
+```ignore
+Named on the command line, but not README.md, so it is read as Rust and has no documentation comments.
+```

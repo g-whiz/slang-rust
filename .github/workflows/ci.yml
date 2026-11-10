@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Run every check on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - &checkout
+        name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the stable and nightly Rust toolchains
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup toolchain install nightly --profile minimal --component miri,rust-src --allow-downgrade
+      - name: Install the check tools
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,shellcheck,typos,taplo,cargo-machete,cargo-deny,cargo-nextest
+          fallback: none
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          curl_https=(curl --fail --silent --show-error --proto '=https' --tlsv1.2)
+          latest="$("${curl_https[@]}" --output /dev/null --write-out '%{redirect_url}' https://github.com/rhysd/actionlint/releases/latest)"
+          version="${latest##*/v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf 'Cannot read the latest actionlint version from "%s"\n' "${latest}" >&2
+            exit 1
+          fi
+          base="https://github.com/rhysd/actionlint/releases/download/v${version}"
+          archive="actionlint_${version}_linux_amd64.tar.gz"
+          work="$(mktemp -d)"
+          "${curl_https[@]}" --location --output "${work}/${archive}" "${base}/${archive}"
+          "${curl_https[@]}" --location --output "${work}/checksums.txt" "${base}/actionlint_${version}_checksums.txt"
+          (cd "${work}" && awk -v name="${archive}" '$2 == name' checksums.txt | sha256sum --check --strict -)
+          tar -xzf "${work}/${archive}" -C "${work}" actionlint
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 "${work}/actionlint" "${HOME}/.local/bin/actionlint"
+          printf '%s\n' "${HOME}/.local/bin" >>"${GITHUB_PATH}"
+      - name: Run just check
+        run: just check
+
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - *checkout
+      - name: Install the stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: Install just and cargo-nextest
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-nextest
+          fallback: none
+      - name: Run Clippy
+        run: just check-clippy
+      - name: Run the doctests
+        run: just check-doctest
+      - name: Run the tests of the default and GPU tiers
+        run: just test-gpu
+
+  ci-only:
+    name: Run ${{ matrix.recipe }} on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: [check-features, check-msrv]
+    steps:
+      - *checkout
+      - name: Install the stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install just and cargo-hack
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-hack
+          fallback: none
+      - name: Run the recipe
+        env:
+          RECIPE: ${{ matrix.recipe }}
+        run: just "${RECIPE}"

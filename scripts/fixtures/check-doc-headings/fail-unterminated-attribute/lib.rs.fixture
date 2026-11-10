@@ -1,0 +1,6 @@
+/// Does something.
+#[derive(Debug)
+pub struct S;
+
+/// # Bogus
+pub fn f() {}

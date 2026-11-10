@@ -1,0 +1,19 @@
+//! Each line below ends in an ordinary comment after a literal that a weak lexer misreads.
+
+/// Returns its argument.
+pub fn literals<'a, 'b: 'a>(x: &'a str, _y: &'b str) -> &'a str {
+    let _a = '"'; // After a double quote character.
+    let _b = ['\'','"']; // After an escaped quote character.
+    let _c = b'"'; // After a double quote byte.
+    let _d = ['\\','"']; // After an escaped backslash character.
+    let _e = r##"a "# quote"##; // After a raw string with a quote and a hash.
+    let _f = b"\"//"; // After a byte string with an escaped quote.
+    let _g = c"/*"; // After a C string with a block opener.
+    let _h: &'static str = "'"; // After a lifetime and a string holding a quote.
+    let _i = '/'; // After a slash character.
+    let _j = "\\"; // After a string ending in an escaped backslash.
+    'outer: loop {
+        break 'outer; // After a label.
+    }
+    x /* After the tail expression. */
+}

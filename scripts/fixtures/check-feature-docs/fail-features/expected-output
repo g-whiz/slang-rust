@@ -1,0 +1,4 @@
+crates/bare/src/lib.rs:1: crate-level documentation has no '# Features' section
+crates/missing/src/lib.rs:2: crate-level documentation has no '# Features' section
+crates/wrong/src/lib.rs:3: feature 'unnamed' is not named in a code span in the '# Features' section
+crates/wrong/src/lib.rs:6: the '# Features' section names 'old-name', which is not a feature of package 'wrong'

@@ -1,0 +1,56 @@
+#![doc = "Crate docs in an attribute // with slashes /* and a block opener"]
+#![doc = include_str!("../README.md")]
+//! Crate documentation with a fenced block:
+//!
+//! ```
+//! // An ordinary comment inside a doctest is doctest code.
+//! # use std::fmt;
+//! let s = "/* not a comment */";
+//! ```
+
+/// Returns its argument, with `// a code span` and <https://example.org>.
+///
+/// ```
+/// // A comment inside a doctest.
+/// # let hidden = 1;
+/// /* A block comment inside a doctest. */
+/// ```
+#[doc = "More documentation // in an attribute"]
+#[must_use]
+pub fn literals<'a, 'b: 'a>(x: &'a str, _y: &'b str) -> &'a str {
+    let _a = "// not a comment";
+    let _b = "/* not a comment */";
+    let _c = r##"// not a comment "# still raw /*"##;
+    let _d = r##"a "# quote /* "##;
+    let _e = b"// bytes";
+    let _f = c"// a C string";
+    let _g = br#"/* raw bytes */"#;
+    let _h = cr"// a raw C string";
+    let _i = '"';
+    let _j = '\'';
+    let _k = b'"';
+    let _l = '/';
+    let _m = "https://example.org";
+    let _n = "escaped \" quote // still a string";
+    let _o = '\\';
+    let _p = "a string over
+two lines // still a string";
+    let _q = "<<TODO>> and <<FIXME>> inside a string";
+    let _r = '\u{2F}';
+    let _s: &'static str = "/*";
+    let r#type = 1;
+    let _t = r#type;
+    'outer: loop {
+        break 'outer;
+    }
+    x
+}
+
+/// Reads a byte.
+pub fn read() -> u8 {
+    let value = 0_u8;
+    // SAFETY: the pointer comes from a reference, so it is valid and
+    // aligned, and the continuation lines belong to the same safety
+    // comment.
+    unsafe { core::ptr::read(&value) }
+}

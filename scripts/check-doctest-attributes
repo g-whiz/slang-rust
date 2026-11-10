@@ -1,0 +1,109 @@
+#!/usr/bin/env -S python3 -I
+import re
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-doctest-attributes: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-doctest-attributes [file.rs | README.md ...]
+
+Checks that no code block in documentation is marked ignore, as Section
+7.5 of docs/writing-documentation.md requires: an example that cannot run
+is marked no_run instead. Reads the fenced code blocks in the /// and //!
+documentation comments of Rust files, and in Markdown files named
+README.md, which a crate includes as doctests. Any other file is read as
+Rust. Reports a code block whose info string holds the attribute ignore,
+or an attribute that starts with ignore-, such as ignore-windows. The
+info string is split into attributes the way rustdoc splits it: at
+commas, spaces, and tabs, with a double-quoted attribute read without its
+quotes, and with the text inside braces, such as {.ignore}, read as a
+class or a key, not as an attribute. Documentation written as a
+#[doc = ...] attribute or a /** */ block comment is not read.
+With no files, checks every .rs file and every README.md file in the git
+repository that contains the current directory, tracked or not ignored,
+and prints paths relative to its root. Prints one path:line: message line
+per finding. Exits 1 if there are findings, and 2 if a file cannot be
+read, is not valid UTF-8, or the setup is broken, after checking every
+readable file."""
+
+ATTRIBUTE = re.compile(r'\{[^}]*\}?|"([^"]*)"|[^\s,{"]+')
+
+
+def ignore_attributes(info):
+    found = []
+    for match in ATTRIBUTE.finditer(info):
+        text = match.group(0)
+        if text.startswith("{"):
+            continue
+        if match.group(1) is not None:
+            text = match.group(1)
+        if text == "ignore" or text.startswith("ignore-"):
+            found.append(text)
+    return found
+
+
+def check_lines(lines):
+    findings = []
+    for number, _, state, info in rust_lexer.markdown_lines(lines):
+        if state != "open":
+            continue
+        for attribute in ignore_attributes(info):
+            findings.append((number, f"code block marked '{attribute}', mark it 'no_run' instead"))
+    return findings
+
+
+def check_path(path):
+    text = rust_lexer.read_source(path)
+    if Path(path).name == "README.md":
+        if text.startswith(rust_lexer.BOM):
+            text = text[1:]
+        return check_lines(list(enumerate(text.splitlines(), start=1)))
+    source = rust_lexer.Source(text)
+    findings = []
+    for doc in ("outer", "inner"):
+        for group in rust_lexer.doc_groups(source, doc):
+            findings.extend(check_lines(group))
+    return findings
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        paths = argv or rust_lexer.repository_files("*.rs", "README.md", "*/README.md")
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-doctest-attributes: {error}", sys.stderr)
+        return 2
+    findings = []
+    unreadable = False
+    for path in paths:
+        shown = rust_lexer.display(path)
+        try:
+            found = check_path(path)
+        except OSError as error:
+            rust_lexer.emit(f"check-doctest-attributes: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"check-doctest-attributes: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        found.sort(key=lambda finding: finding[0])
+        findings.extend(f"{shown}:{number}: {message}" for number, message in found)
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

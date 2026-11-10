@@ -1,0 +1,144 @@
+#!/usr/bin/env -S python3 -I
+import difflib
+import re
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-doc-headings: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-doc-headings [file.rs ...]
+
+Checks the headings in the /// documentation of each Rust item against
+Section 7.3 of docs/writing-documentation.md. The only headings allowed
+are the level-one standard headings # Examples, # Errors, # Panics,
+# Safety, and # Platform support, each at most once and in that order.
+Reports every other heading of any level, including a standard heading
+with the wrong case or level, a standard heading out of order, and a
+standard heading that appears twice in one item's documentation. The
+/// comments that precede one item, with only attributes and other
+comments between them, are one item's documentation. Lines inside fenced
+code blocks are not headings, so a hidden doctest line that starts with
+# is never reported. Crate-level and module-level documentation, written
+with //!, is not read, because Section 7.4 of the writing guide gives it
+its own headings. Documentation written as a #[doc = ...] attribute or a
+/** */ block comment is not read.
+With no files, checks every .rs file in the git repository that contains
+the current directory, tracked or not ignored, and prints paths relative
+to its root. Prints one path:line: message line per finding. Exits 1 if
+there are findings, and 2 if a file cannot be read, is not valid UTF-8,
+or the setup is broken, after checking every readable file."""
+
+STANDARD = ["Examples", "Errors", "Panics", "Safety", "Platform support"]
+ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+NOT_PARAGRAPH = re.compile(r"^\s*(?:[-*+][ \t]|\d{1,9}[.)][ \t]|>|\|)")
+
+
+def headings(lines):
+    found = []
+    paragraph = []
+    for number, line, state, _ in rust_lexer.markdown_lines(lines):
+        if state != "text":
+            paragraph = []
+            continue
+        atx = ATX.match(line)
+        if atx:
+            found.append((number, len(atx.group(1)), (atx.group(2) or "").strip()))
+            paragraph = []
+            continue
+        setext = SETEXT.match(line)
+        if setext and paragraph:
+            level = 1 if setext.group(1)[0] == "=" else 2
+            text = " ".join(part.strip() for _, part in paragraph)
+            found.append((paragraph[0][0], level, text))
+            paragraph = []
+            continue
+        if not line.strip() or NOT_PARAGRAPH.match(line):
+            paragraph = []
+            continue
+        paragraph.append((number, line))
+    return found
+
+
+def shown_heading(level, text):
+    return "#" * level + (" " + text if text else "")
+
+
+def check_group(lines):
+    findings = []
+    seen = {}
+    for number, level, text in headings(lines):
+        written = shown_heading(level, text)
+        if level == 1 and text in STANDARD:
+            index = STANDARD.index(text)
+            if text in seen:
+                findings.append((number, f"heading '{written}' repeats the heading at line {seen[text]}"))
+                continue
+            later = [(seen[s], s) for s in STANDARD[index + 1:] if s in seen]
+            if later:
+                line, name = min(later)
+                findings.append(
+                    (number, f"heading '{written}' is out of order, it must come before '# {name}' at line {line}")
+                )
+            seen[text] = number
+            continue
+        same = [s for s in STANDARD if s.lower() == text.lower()]
+        if same:
+            findings.append((number, f"heading '{written}' must be written as the standard heading '# {same[0]}'"))
+            continue
+        message = f"heading '{written}' is not a standard heading"
+        close = difflib.get_close_matches(text, STANDARD, n=1, cutoff=0.75)
+        if close:
+            message += f", did you mean '# {close[0]}'"
+        findings.append((number, message))
+    return findings
+
+
+def check_source(shown, source):
+    findings = []
+    for group in rust_lexer.doc_groups(source, "outer"):
+        findings.extend(check_group(group))
+    findings.sort(key=lambda finding: finding[0])
+    return [f"{shown}:{number}: {message}" for number, message in findings]
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        paths = argv or rust_lexer.repository_files("*.rs")
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-doc-headings: {error}", sys.stderr)
+        return 2
+    findings = []
+    unreadable = False
+    for path in paths:
+        shown = rust_lexer.display(path)
+        try:
+            found = check_source(shown, rust_lexer.Source(rust_lexer.read_source(path)))
+        except OSError as error:
+            rust_lexer.emit(f"check-doc-headings: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"check-doc-headings: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        findings.extend(found)
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

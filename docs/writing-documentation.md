@@ -233,7 +233,7 @@ In other files, such as the `justfile`, scripts, and configuration files, the on
 
 An author MUST NOT write any other comment in Rust source, including a line comment that explains code, a `TODO`, or a `FIXME`, because the compiler does not check a comment, so a stale comment contradicts the code, and an agent that reads both tends to trust the comment.
 
-Checked by: rustc `missing_docs` for API documentation on public items. `clippy::undocumented_unsafe_blocks` for safety comments. The absence of other comments is a judgement rule until a tool covers it.
+Checked by: rustc `missing_docs` for API documentation on public items. `clippy::undocumented_unsafe_blocks` for safety comments. `check-rust-comments` for the absence of other comments in Rust source: it reports every line comment other than a `///` comment, a `//!` comment, or a safety comment, every block comment, including `/** */` and `/*! */`, and every comment that contains `TODO` or `FIXME`. It checks generated files like any other file. The comments in other files are a judgement rule.
 
 ### 7.3. Shape of an Item's Documentation
 
@@ -247,7 +247,7 @@ The body uses these standard sections, in this order, and omits a section that h
 4. `# Safety`: the contract that Section 7.6 defines.
 5. `# Platform support`: the platforms or backends on which the item is unavailable or behaves differently, as Section 7.8 defines.
 
-An author MUST use these headings exactly and MUST NOT give one of these topics another heading, such as `# Failures`, because readers look for the standard names, and the Clippy lints in Section 7.6 find the `# Errors`, `# Panics`, and `# Safety` sections by their headings. An author SHOULD NOT add other headings to the documentation of an item, because a reader who knows the standard sections then has to read every heading to find the contract. Crate-level documentation has its own headings, which Section 7.4 defines.
+An author MUST use these headings exactly, as level-one headings, each at most once and in this order, and MUST NOT give one of these topics another heading, such as `# Failures`, because readers look for the standard names, and the Clippy lints in Section 7.6 find the `# Errors`, `# Panics`, and `# Safety` sections by their headings. An author MUST NOT add any other heading, of any level, to the documentation of an item, because a reader who knows the standard sections then has to read every heading to find the contract. These heading rules do not apply to crate-level and module-level documentation, which is written with `//!`, and Section 7.4 defines the headings of crate-level documentation.
 
 This illustration shows the shape. The names in it are examples of the form and do not describe an existing API:
 
@@ -280,7 +280,7 @@ impl Session {
 }
 ````
 
-Checked by: the summary sentence and the first paragraph are judgement rules. `clippy::too_long_first_doc_paragraph` is in the Clippy `nursery` group, which this repository does not enable. `clippy::unnecessary_safety_doc` rejects a `# Safety` section on a safe item. Heading names and order are judgement rules until a tool covers them.
+Checked by: the summary sentence and the first paragraph are judgement rules. `clippy::too_long_first_doc_paragraph` is in the Clippy `nursery` group, which this repository does not enable. `clippy::unnecessary_safety_doc` rejects a `# Safety` section on a safe item. `check-doc-headings` checks the headings in the `///` documentation of every item: it reports a heading that is not a standard heading, including a standard heading with the wrong case or level, a standard heading out of order, and a standard heading that appears twice. It ignores lines inside fenced code blocks, so a hidden doctest line that starts with `#` is not a heading.
 
 ### 7.4. Crate-Level and Module-Level Documentation
 
@@ -297,7 +297,7 @@ Every public module has module-level documentation, written with `//!` at the to
 
 An author MUST write crate-level documentation with this content, because it is the first page a user sees on docs.rs, and a user who cannot tell from it which crate to use picks one by trial.
 
-Checked by: `rustdoc::missing_crate_level_docs` for the presence of crate-level documentation. Rustc `missing_docs` for the presence of documentation on public modules. The content is a judgement rule.
+Checked by: `rustdoc::missing_crate_level_docs` for the presence of crate-level documentation. Rustc `missing_docs` for the presence of documentation on public modules. `check-feature-docs` for the presence of the `# Features` section in the crate-level documentation of every library, as Section 7.8 describes. The rest of the content is a judgement rule.
 
 ### 7.5. Examples and Doctests
 
@@ -309,7 +309,7 @@ When an example needs something that exists only when the example runs, such as 
 
 A code block that is not Rust names its language, such as `toml`, `slang`, or `text`, because rustdoc compiles a code block with no language tag as Rust.
 
-Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately. `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`. Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules. The choice of `no_run` over `ignore`, and the stated reason, are judgement rules until a tool covers them.
+Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately. `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`. Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules. `check-doctest-attributes` reports a code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows`, in the `///` and `//!` comments of every Rust file and in every `README.md` file. It splits the info string of a code block into attributes the way rustdoc does, at commas, spaces, and tabs, so a variant such as `rust,ignore` is found. Whether the lead-in of a `no_run` example states the reason, and whether that reason is correct, are judgement rules.
 
 ### 7.6. Errors, Panics, and Safety
 
@@ -343,11 +343,11 @@ Checked by: `rustdoc::broken_intra_doc_links`, `rustdoc::private_intra_doc_links
 
 ### 7.8. Cargo Features and Platform Support
 
-The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `static` feature." An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
+The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. It names each feature in a code span. A crate that has no features still has the section, and the section says so. An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `static` feature." An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
 
 An item that is unavailable or behaves differently on a platform or a graphics backend has a `# Platform support` section that names each such platform or backend and the difference.
 
-Checked by: judgement until a tool covers it.
+Checked by: `check-feature-docs`, which reads the features of each library from `cargo metadata`, including the feature that an optional dependency defines. It reports a library whose crate-level documentation has no `# Features` section, a feature other than `default` that the section does not name in a code span, and a code span in the section that looks like a feature name but names no feature of the package. What the section says about each feature, including its default and what it enables, the sentence on an item that needs a feature, and the content of each `# Platform support` section are judgement rules.
 
 ### 7.9. Generated Raw Bindings
 
@@ -390,7 +390,7 @@ Checked by: `cargo test --doc` for Rust code in the README. `scripts/check-prose
 
 The rules of Section 8 apply to the prose of API documentation. Code spans and code examples are exempt. The section headings in Sections 7.3 and 7.4 keep their standard names and are exempt from the title-case rule in Section 8.
 
-Checked by: judgement until a tool covers it. `scripts/check-prose` reads Markdown files only and does not yet read documentation comments.
+Checked by: `check-prose`, which reads the `///` and `//!` comments of every Rust file, for the rules of Section 8 that it checks: ASCII punctuation, which excludes em dashes, en dashes, and smart quotes, the absence of semicolons, and the spellings in `scripts/prose-wordlist.txt`. It skips code spans and fenced code blocks. The other rules of Section 8, such as spelling outside the word list, the serial comma, and title case, are judgement rules in API documentation, as they are in Markdown.
 
 ### 7.12. Summary of Checks
 
@@ -400,19 +400,22 @@ This table summarizes how each rule in this section is checked.
 | --- | --- | --- |
 | Plain English, terms defined on first use | 7.1 | Judgement |
 | API documentation on every public item | 7.2 | rustc `missing_docs` |
-| No comments other than those listed | 7.2 | Judgement until a tool covers it |
+| No comments in Rust source other than those listed | 7.2 | `check-rust-comments` |
+| Only comments addressed to a human in other files | 7.2 | Judgement |
 | One-sentence summary, then when to use | 7.3 | Judgement |
-| Standard section headings and order | 7.3 | Judgement until a tool covers it |
+| Only the standard headings in item documentation, each once and in order | 7.3 | `check-doc-headings` |
 | No `# Safety` on a safe item | 7.3 | `clippy::unnecessary_safety_doc` |
 | Crate-level documentation exists | 7.4 | `rustdoc::missing_crate_level_docs` |
 | Module documentation exists | 7.4 | rustc `missing_docs` |
-| Content of crate and module documentation | 7.4 | Judgement |
+| A `# Features` section exists in crate-level documentation | 7.4 | `check-feature-docs` |
+| Other content of crate and module documentation | 7.4 | Judgement |
 | Every public item has an example | 7.5 | Judgement |
 | Examples compile and run | 7.5 | `cargo test --doc` |
 | Well-formed code blocks | 7.5 | `rustdoc::invalid_rust_codeblocks`, `rustdoc::invalid_codeblock_attributes` |
 | No visible `fn main` in examples | 7.5 | `clippy::needless_doctest_main` |
 | `?` instead of `unwrap`, and the style of example code | 7.5 | Judgement |
-| `no_run` instead of `ignore`, with a reason | 7.5 | Judgement until a tool covers it |
+| No code block marked `ignore` or `ignore-` | 7.5 | `check-doctest-attributes` |
+| The lead-in states why an example is `no_run` | 7.5 | Judgement |
 | `# Errors` exists | 7.6 | `clippy::missing_errors_doc` |
 | `# Panics` exists | 7.6 | `clippy::missing_panics_doc` |
 | `# Safety` exists on public unsafe functions | 7.6 | `clippy::missing_safety_doc` |
@@ -422,13 +425,17 @@ This table summarizes how each rule in this section is checked.
 | Links resolve and web addresses are links | 7.7 | `rustdoc::broken_intra_doc_links`, `rustdoc::private_intra_doc_links`, `rustdoc::bare_urls` |
 | Identifiers in code spans | 7.7 | `clippy::doc_markdown` |
 | Every mentioned item is linked | 7.7 | Judgement |
-| Features and platform support documented | 7.8 | Judgement until a tool covers it |
+| Every feature, and no other name, in a code span in the `# Features` section | 7.8 | `check-feature-docs` |
+| Default and effect of each feature, items that need a feature, and platform support | 7.8 | Judgement |
 | Exemption for generated bindings is an `#[expect]` with a reason | 7.9 | `clippy::allow_attributes`, `clippy::allow_attributes_without_reason` |
 | Exemption applies to generated items only | 7.9 | Judgement |
 | Rust code in the README compiles | 7.10 | `cargo test --doc` |
-| Language of the README | 7.10 | `scripts/check-prose` |
+| Language of the README | 7.10 | `check-prose` |
 | Division of content between README and crate documentation | 7.10 | Judgement |
-| Language rules in API documentation | 7.11 | Judgement until a tool covers it |
+| ASCII punctuation, no semicolons, and the listed spellings in API documentation | 7.11 | `check-prose` |
+| Other language rules in API documentation | 7.11 | Judgement |
+
+The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 7 of `docs/design/tooling.md` specifies. In a Rust file, the checkers that read documentation read only `///` and `//!` comments. They do not read documentation written as a `#[doc = ...]` attribute, so for such documentation the rules that they enforce are judgement rules.
 
 A lint enforces a rule only when the workspace lint configuration enables it and the checks treat its warnings as errors. Several of these lints are off by default, including rustc `missing_docs`, `rustdoc::missing_crate_level_docs`, and the lints in the Clippy `pedantic` and `restriction` groups. The standards document `docs/rust-coding-standards.md` defines the lint configuration. Until the configuration enables a lint, the rule it checks is a judgement rule, as Section 3.5 states.
 
@@ -442,6 +449,18 @@ CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
 
 `CARGO_BUILD_WARNINGS=deny` makes each command fail on a warning, including a rustdoc lint warning in `cargo doc`. It does not reach the code inside a doctest, which no tool lints (Section 7.5). Section 4.8 of the standards document gives the full set of checks and the limits of these commands.
 
+These recipes run the checkers of this section on every Rust file, and `check-doctest-attributes` also on every `README.md` file. Each also takes the paths of the files to check, and `check-feature-docs` takes the paths of Cargo manifests:
+
+```sh
+just check-rust-comments
+just check-doc-headings
+just check-doctest-attributes
+just check-feature-docs
+just check-prose
+```
+
+With no paths, `check-prose` also checks every Markdown file.
+
 ## 8. Language and Punctuation
 
 Prose uses Canadian English spelling, as in colour, behaviour, organize, and licence as a noun. Consistent spelling lets an agent find every occurrence of a word with a single search.
@@ -450,7 +469,7 @@ Punctuation is ASCII. Prose uses no em dashes or en dashes, and an author writes
 
 Headings are in title case. A citation tag has square brackets with no space, such as [RFC2119], and a matching entry in the References section. A document may instead resolve a whole family of tags through one pointer, stated in its References section, to the reference list. Section 21 of `docs/rust-coding-standards.md` does this for its `[IR-<n>]` and `[S-<n>]` tags. A citation of a section reads "Section 6 of [RFC2119]". A Uniform Resource Identifier (URI) in a reference entry is enclosed in angle brackets. Dates use the International Organization for Standardization (ISO) 8601 format, such as 2026-10-30.
 
-The script `scripts/check-prose` checks every Markdown file for non-ASCII characters, which include em dashes, en dashes, and smart quotes, for semicolons, and for the non-Canadian spellings listed in `scripts/prose-wordlist.txt`. It skips fenced code blocks and code spans. The pre-commit hook runs it on every changed Markdown file. Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
+The script `scripts/check-prose` checks every Markdown file, and the `///` and `//!` documentation comments of every Rust file, for non-ASCII characters, which include em dashes, en dashes, and smart quotes, for a UTF-8 byte order mark, for semicolons, and for the non-Canadian spellings listed in `scripts/prose-wordlist.txt`. It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file or a Rust file. Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
 
 This command checks one file:
 
@@ -565,4 +584,6 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.
+- 2026-11-10: Moved the rules that the new custom checkers and the extended prose checker enforce from judgement to enforced in Sections 7.2 to 7.5, 7.8, 7.11, 7.12, and 8, and made the heading rule of Section 7.3 a MUST NOT that matches the heading checker.
 - 2026-11-10: Initial version.
