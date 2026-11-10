@@ -12,10 +12,22 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// [`Error::operation`] says which operation failed, and [`Error::code`] gives
 /// the numeric result code that Slang returned, when it returned one.
 ///
-/// The text that [`Display`](fmt::Display) prints is a lowercase phrase that
-/// names the failed operation, followed by the diagnostics when there are any.
-/// It is meant for people and can change between versions, so code matches on
-/// the kind and not on the text.
+/// The text that [`Display`](fmt::Display) prints has these parts, in this
+/// order:
+///
+/// 1. A lowercase phrase that begins with `cannot` and names the failed
+///    operation.
+/// 2. The subject of the operation in backticks, when the operation has one.
+/// 3. The Slang result code in hexadecimal in parentheses, when Slang
+///    returned one.
+/// 4. A colon and a detail, when there is one.
+/// 5. A colon and the diagnostics on a new line, when there are any.
+///
+/// For example, an error from
+/// [`GlobalSession::check_target_support`](crate::GlobalSession::check_target_support)
+/// can print ``cannot produce code for target `Dxil` (Slang result code
+/// 0x82000005)``. The text is meant for people and can change between
+/// versions, so code matches on the kind and not on the text.
 ///
 /// # Examples
 ///
