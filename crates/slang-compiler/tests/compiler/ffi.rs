@@ -1,3 +1,4 @@
+mod session;
 mod two_global_sessions;
 
 use std::thread;

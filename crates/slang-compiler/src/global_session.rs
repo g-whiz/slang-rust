@@ -440,8 +440,10 @@ impl GlobalSessionBuilder {
     /// Language (GLSL), the shader language of OpenGL, which is off by
     /// default.
     ///
-    /// GLSL input also needs a compiler option of the session that a later
-    /// version of this crate offers.
+    /// GLSL input also needs Slang's compiler option `AllowGLSL` in the
+    /// options of the session, which Slang reads as an integer that is 0 or
+    /// 1, and which [`CompilerOptions::set_int`](crate::CompilerOptions::set_int)
+    /// sets.
     ///
     /// # Examples
     ///

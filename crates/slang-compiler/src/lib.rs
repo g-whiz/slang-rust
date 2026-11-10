@@ -12,12 +12,15 @@
 //! `slang-compiler-sys` only to reach a part of Slang that this crate does not
 //! wrap.
 //!
-//! This version is the first part of the crate. It offers the
+//! This version is the second part of the crate. It offers the
 //! [`GlobalSession`], the root object of Slang from which every compilation
-//! starts, with its builder, the check of which [`TargetFormat`] values Slang
-//! can produce, and the [`Error`] type of every fallible operation with the
-//! [`Diagnostics`] that Slang prints. Sessions, modules, linking, code
-//! generation, and reflection follow in later versions.
+//! starts, with its builder and the check of which [`TargetFormat`] values
+//! Slang can produce. It offers the [`Session`], the context of a compilation
+//! with its targets, search paths, macros, and [`CompilerOptions`], which
+//! [`SessionBuilder`] checks and creates. It also offers the [`Error`] type of
+//! every fallible operation with the [`Diagnostics`] that Slang prints.
+//! Modules, linking, code generation, and reflection follow in later
+//! versions.
 //!
 //! These rules hold for every object of the crate:
 //!
@@ -27,8 +30,11 @@
 //!   each.
 //! - No object that holds a Slang object is [`Send`] or [`Sync`], because
 //!   Slang documents its objects as not safe to use from several threads at
-//!   once. Errors, diagnostics, enumerations, and builders that hold only
-//!   settings are both.
+//!   once. Errors, diagnostics, enumerations, options, targets, and builders
+//!   that hold only settings are both.
+//! - Each object holds the object that Slang created it from, so a
+//!   [`Session`] keeps its [`GlobalSession`] alive, and dropping a handle in
+//!   any order is safe.
 //! - Slang is not reentrant. A method that would call Slang while another
 //!   call of this crate into Slang is in progress on the same thread panics
 //!   instead. Only code that Slang calls back during a call can do that.
@@ -39,16 +45,22 @@
 //!
 //! # Examples
 //!
-//! This example creates a global session and checks that Slang can produce
-//! SPIR-V on this installation. It needs the Slang shared library at run
-//! time, which the dynamic loader must find, so it is compiled but not run:
+//! This example creates a global session, checks that Slang can produce
+//! SPIR-V on this installation, and creates a session that generates SPIR-V
+//! for version 1.5 of SPIR-V. It needs the Slang shared library at run time,
+//! which the dynamic loader must find, so it is compiled but not run:
 //!
 //! ```no_run
-//! use slang_compiler::{GlobalSession, TargetFormat};
+//! use slang_compiler::{GlobalSession, Session, Target, TargetFormat};
 //!
 //! let global = GlobalSession::new()?;
 //! println!("Slang {}", global.build_tag());
 //! global.check_target_support(TargetFormat::Spirv)?;
+//! let session = Session::builder(&global)
+//!     .target(Target::new(TargetFormat::Spirv).profile("spirv_1_5"))
+//!     .build()?;
+//! let spirv = session.target_index(0)?;
+//! # let _ = spirv;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -91,8 +103,16 @@ mod fake;
 mod global_session;
 mod guard;
 mod mapping;
+mod options;
 mod owned;
+mod session;
+mod strings;
 
-pub use enums::{LanguageVersion, TargetFormat, Toggle};
+pub use enums::{
+    DebugInfoLevel, FloatingPointMode, LanguageVersion, LineDirectiveMode, MatrixLayout,
+    OptimizationLevel, Stage, TargetFormat, Toggle,
+};
 pub use error::{Compiled, Diagnostics, Error, ErrorKind, Operation, Result};
 pub use global_session::{GlobalSession, GlobalSessionBuilder};
+pub use options::{CompilerOptions, OptionName};
+pub use session::{Session, SessionBuilder, Target, TargetIndex};

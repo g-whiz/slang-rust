@@ -40,7 +40,10 @@ impl Operation {
     fn class(self) -> Class {
         match self {
             Self::CheckTargetSupport => Class::TargetSupportCheck,
-            Self::CreateGlobalSession => Class::Other,
+            Self::CreateGlobalSession
+            | Self::CreateSession
+            | Self::SelectTarget
+            | Self::CreateOptionName => Class::Other,
         }
     }
 }

@@ -254,6 +254,19 @@ pub enum Operation {
     ///
     /// [`GlobalSession::check_target_support`]: crate::GlobalSession::check_target_support
     CheckTargetSupport,
+    /// The creation of a session, by [`SessionBuilder::build`].
+    ///
+    /// [`SessionBuilder::build`]: crate::SessionBuilder::build
+    CreateSession,
+    /// The selection of a target by its position, by
+    /// [`Session::target_index`].
+    ///
+    /// [`Session::target_index`]: crate::Session::target_index
+    SelectTarget,
+    /// The check of a compiler option name, by [`OptionName::new`].
+    ///
+    /// [`OptionName::new`]: crate::OptionName::new
+    CreateOptionName,
 }
 
 impl Operation {
@@ -261,6 +274,9 @@ impl Operation {
         match self {
             Self::CreateGlobalSession => "create a global session",
             Self::CheckTargetSupport => "produce code for target",
+            Self::CreateSession => "create a session",
+            Self::SelectTarget => "select target",
+            Self::CreateOptionName => "name compiler option",
         }
     }
 }
@@ -396,7 +412,11 @@ impl<T> Compiled<T> {
 #[cfg(test)]
 mod tests {
     use super::{Compiled, Diagnostics, Error, ErrorKind, Operation};
-    use crate::{GlobalSessionBuilder, LanguageVersion, TargetFormat, Toggle};
+    use crate::{
+        CompilerOptions, DebugInfoLevel, FloatingPointMode, GlobalSessionBuilder, LanguageVersion,
+        LineDirectiveMode, MatrixLayout, OptimizationLevel, OptionName, Stage, Target,
+        TargetFormat, TargetIndex, Toggle,
+    };
 
     fn diagnostics(text: &str) -> Diagnostics {
         Diagnostics::from_text(text)
@@ -477,5 +497,30 @@ mod tests {
         assert_send_sync::<TargetFormat>();
         assert_send_sync::<Toggle>();
         assert_send_sync::<LanguageVersion>();
+        assert_send_sync::<MatrixLayout>();
+        assert_send_sync::<Stage>();
+        assert_send_sync::<OptimizationLevel>();
+        assert_send_sync::<DebugInfoLevel>();
+        assert_send_sync::<FloatingPointMode>();
+        assert_send_sync::<LineDirectiveMode>();
+        assert_send_sync::<CompilerOptions>();
+        assert_send_sync::<OptionName>();
+        assert_send_sync::<Target>();
+        assert_send_sync::<TargetIndex>();
+    }
+
+    #[test]
+    fn display_names_each_operation_of_sessions_and_options() {
+        let cases = [
+            (Operation::CreateSession, "cannot create a session"),
+            (Operation::SelectTarget, "cannot select target"),
+            (Operation::CreateOptionName, "cannot name compiler option"),
+        ];
+        for (operation, text) in cases {
+            assert_eq!(
+                Error::new(ErrorKind::InvalidArgument, operation).to_string(),
+                text
+            );
+        }
     }
 }
