@@ -3,7 +3,7 @@ use std::fmt;
 use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
-use slang_compiler_sys::{IGlobalSession, ISlangBlob, Interface};
+use slang_compiler_sys::{IGlobalSession, ISession, ISlangBlob, Interface};
 
 use crate::guard::{self, Release};
 
@@ -57,7 +57,7 @@ macro_rules! com_interfaces {
     )+};
 }
 
-com_interfaces!(ISlangBlob, IGlobalSession);
+com_interfaces!(ISlangBlob, IGlobalSession, ISession);
 
 /// An owning interface pointer, which holds exactly one reference to a Slang
 /// object (SLC-2).

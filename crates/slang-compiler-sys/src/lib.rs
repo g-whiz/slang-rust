@@ -232,14 +232,28 @@
 //! Slang library at run time.
 //!
 //! The static build leaves out `slang-glslang`, the shared module of Slang
-//! that holds glslang and SPIRV-Tools. Compiling to SPIR-V still works, but
-//! Slang neither optimizes nor validates the SPIR-V, and it says nothing about
-//! that. Output as SPIR-V assembly, the text form of SPIR-V, fails, as does
-//! every other feature that needs the module. The statically linked Slang
-//! still loads a `slang-glslang` shared library by name when the dynamic
-//! loader finds one, such as the one in `$VULKAN_SDK/lib` when that directory
-//! is on the library path, and those features then work with that library. The
-//! standard modules of Slang, such as `slang.neural`, are not built either.
+//! that holds glslang and SPIRV-Tools, the tools through which Slang optimizes
+//! and validates SPIR-V. When the dynamic loader finds no `slang-glslang`
+//! shared library at run time, generating SPIR-V still succeeds, but the
+//! SPIR-V is not optimized, and it is not validated even when the environment
+//! variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, the only setting under which
+//! the pinned Slang validates SPIR-V on either route. The first generation of
+//! SPIR-V in each global session returns diagnostics that begin
+//! `error[E00100]: failed to load downstream compiler 'spirv-opt'`, followed
+//! by notes that name the libraries that Slang could not load, among them
+//! `slang-glslang`. A downstream compiler is a separate tool that Slang loads
+//! to process its output, and `spirv-opt` is the SPIR-V optimizer. Despite the
+//! word error, the generation succeeds. Later generations in the same global
+//! session succeed with no diagnostics, and no message says that validation
+//! was skipped. Output as SPIR-V assembly, the text form of SPIR-V, fails, as
+//! does every other feature that needs the module. When the dynamic loader
+//! finds a `slang-glslang` shared library, such as the one in `$VULKAN_SDK/lib`
+//! when that directory is on the library path, the statically linked Slang
+//! loads it and behaves as on the dynamic route: it reports no such
+//! diagnostic, optimizes SPIR-V, and those features work. The output of a
+//! statically linked program therefore depends on the environment in which it
+//! runs. The standard modules of Slang, such as `slang.neural`, are not built
+//! either.
 //!
 //! When the environment variable `DOCS_RS` is present, whatever its value, as
 //! on docs.rs, the build script reads nothing else and links nothing, so the

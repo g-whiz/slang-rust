@@ -10,7 +10,7 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage. No crate is published. The workspace holds three crates. `slang-compiler` is the safe API, and only its first part exists: it creates a global session, the root object of every Slang compilation, checks that the loaded Slang library is the pinned version, and checks whether Slang reports that it can produce a given output format. It cannot compile a shader yet. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the third crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage. No crate is published. The workspace holds three crates. `slang-compiler` is the safe API, and only its first part exists. It creates a global session, the root object of every Slang compilation, checks that the loaded Slang library is the pinned version, and checks whether Slang reports that it can produce a given output format. It also creates a session, the context of a compilation, with its output formats, search paths, preprocessor macros, and compiler options, and it checks those settings before it passes them to Slang. It cannot compile a shader yet. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the third crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
@@ -19,7 +19,7 @@ No crate in this table is published. Each crate gets a link to its documentation
 | Crate | State | Purpose |
 | --- | --- | --- |
 | `slang-compiler-sys` | Built and not published, with the raw bindings, the pinned Slang version, the linking of the Slang of an installed Vulkan SDK, and the static build of Slang from source | Raw bindings to the native Slang library, generated from the Slang headers |
-| `slang-compiler` | First part built and not published, with the global session and the error type, and not usable for compiling shaders yet | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
+| `slang-compiler` | First part built and not published, with the global session, sessions with their targets and compiler options, and the error type, and not usable for compiling shaders yet | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
 | `slang-slint` | Planned | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
