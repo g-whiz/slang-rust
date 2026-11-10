@@ -114,6 +114,16 @@ check-workflow-pins *paths:
 check-workflow-pins-self-test:
     @python3 -I scripts/self-test-checker check-workflow-pins
 
+# Download the Vulkan SDK VERSION, verify it against SHA256, install it, and export it to later steps, run by CI only
+[group('ci')]
+install-vulkan-sdk VERSION SHA256:
+    @scripts/install-vulkan-sdk "$@"
+
+# Check that the Vulkan SDK at VULKAN_SDK provides the Slang headers, library, and slangc of the build tag of the pin
+[group('checks')]
+check-vulkan-sdk:
+    @scripts/check-vulkan-sdk
+
 # Install the pre-commit, commit-msg, and post-merge git hooks
 [group('checks')]
 hooks-install:
@@ -142,18 +152,19 @@ pin:
     set -euo pipefail
     pin_file=crates/slang-compiler-sys/pin.rs
     pattern='^pub const ([A-Z_]+): &str = "([^"]+)";$'
-    declare -A values=()
-    while IFS= read -r line; do
-        if [[ "${line}" =~ ${pattern} ]]; then
-            values["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
-        fi
-    done <"${pin_file}"
     for name in VULKAN_SDK_VERSION SLANG_BUILD_TAG SLANG_COMMIT; do
-        if [[ -z "${values[${name}]:-}" ]]; then
+        value=""
+        while IFS= read -r line; do
+            line="${line%$'\r'}"
+            if [[ "${line}" =~ ${pattern} && "${BASH_REMATCH[1]}" == "${name}" ]]; then
+                value="${BASH_REMATCH[2]}"
+            fi
+        done <"${pin_file}"
+        if [[ -z "${value}" ]]; then
             printf '%s does not define %s as a string constant\n' "${pin_file}" "${name}" >&2
             exit 1
         fi
-        printf '%s=%s\n' "${name}" "${values[${name}]}"
+        printf '%s=%s\n' "${name}" "${value}"
     done
 
 # Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation, doctests, tests, and Miri
