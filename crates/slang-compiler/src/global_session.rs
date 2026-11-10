@@ -182,7 +182,9 @@ impl GlobalSession {
             // this thread (Section 11.2), and the call runs with the Slang
             // call guard raised (SLC-28).
             let result = unsafe {
-                IGlobalSession::checkCompileTargetSupport(self.raw.as_ptr(), target.to_raw())
+                guard::abort_on_exception("IGlobalSession::checkCompileTargetSupport", || {
+                    IGlobalSession::checkCompileTargetSupport(self.raw.as_ptr(), target.to_raw())
+                })
             };
             mapping::check(
                 Operation::CheckTargetSupport,
@@ -305,7 +307,15 @@ impl GlobalSession {
         let build_tag = || {
             // SAFETY: `spGetBuildTagString` takes no argument and needs no
             // global session, which Slang documents.
-            let tag = unsafe { spGetBuildTagString() };
+            let tag = unsafe {
+                guard::abort_on_exception("spGetBuildTagString", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                    )]
+                    spGetBuildTagString()
+                })
+            };
             (!tag.is_null()).then(|| {
                 // SAFETY: `tag` is non-null and points to the null-terminated
                 // build tag, which the library keeps in static storage while
@@ -319,7 +329,15 @@ impl GlobalSession {
             // own size, which `Default` sets, and `out` is a live out-pointer,
             // which is all that `slang_createGlobalSession2` reads and writes.
             // The call runs with the Slang call guard raised (SLC-28).
-            unsafe { slang_createGlobalSession2(desc, out) }
+            unsafe {
+                guard::abort_on_exception("slang_createGlobalSession2", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                    )]
+                    slang_createGlobalSession2(desc, out)
+                })
+            }
         };
         // SAFETY: `create` calls the creation function of the linked Slang
         // library, whose build tag `build_tag` reports, and on success that

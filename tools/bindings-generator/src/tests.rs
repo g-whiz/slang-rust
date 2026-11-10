@@ -173,27 +173,27 @@ struct ILeaf : public IMiddle
         assert_contains(
             &text,
             "pub struct IRootVtbl {
-    pub queryInterface: unsafe extern \"system\" fn(
+    pub queryInterface: unsafe extern \"system-unwind\" fn(
         this: *mut IRoot,
         uuid: *const SlangUUID,
         outObject: *mut *mut ::core::ffi::c_void,
     ) -> SlangResult,
-    pub release: unsafe extern \"system\" fn(this: *mut IRoot) -> u32,
+    pub release: unsafe extern \"system-unwind\" fn(this: *mut IRoot) -> u32,
 }",
         );
         assert_contains(
             &text,
             "pub struct IMiddleVtbl {
     pub base: IRootVtbl,
-    pub first: unsafe extern \"system\" fn(this: *mut IMiddle) -> i32,
+    pub first: unsafe extern \"system-unwind\" fn(this: *mut IMiddle) -> i32,
 }",
         );
         assert_contains(
             &text,
             "pub struct ILeafVtbl {
     pub base: IMiddleVtbl,
-    pub second: unsafe extern \"system\" fn(this: *mut ILeaf) -> i32,
-    pub third: unsafe extern \"system\" fn(this: *mut ILeaf, value: i32),
+    pub second: unsafe extern \"system-unwind\" fn(this: *mut ILeaf) -> i32,
+    pub third: unsafe extern \"system-unwind\" fn(this: *mut ILeaf, value: i32),
 }",
         );
         assert_contains(
@@ -319,7 +319,7 @@ struct IRefs : public IRoot
         );
         assert_contains(
             &text,
-            "    pub read: unsafe extern \"system\" fn(
+            "    pub read: unsafe extern \"system-unwind\" fn(
         this: *mut IRefs,
         input: *const Pair,
         output: *mut i32,
@@ -353,7 +353,7 @@ extern "C" void setCallback(Callback callback, void* userData);
         );
         assert_contains(
             &text,
-            "unsafe extern \"C\" {\n    pub fn setCallback(callback: Callback, userData: *mut ::core::ffi::c_void);\n}",
+            "unsafe extern \"C-unwind\" {\n    pub fn setCallback(callback: Callback, userData: *mut ::core::ffi::c_void);\n}",
         );
     }
 
@@ -677,7 +677,7 @@ struct IVisible : public IRoot
         assert_contains(&text, "outHidden: *mut *mut IHidden)");
         assert_contains(
             &text,
-            "pub deprecated: unsafe extern \"system\" fn(this: *mut IVisible),",
+            "pub deprecated: unsafe extern \"system-unwind\" fn(this: *mut IVisible),",
         );
     }
 

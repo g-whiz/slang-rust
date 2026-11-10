@@ -176,7 +176,7 @@ impl<'a> Emitter<'a> {
             self.out.push_str(&opaque_struct(rust));
         }
         if !self.externs.is_empty() {
-            self.out.push_str("unsafe extern \"C\" {\n");
+            self.out.push_str("unsafe extern \"C-unwind\" {\n");
             self.out.push_str(&self.externs);
             self.out.push_str("}\n");
         }
@@ -513,7 +513,7 @@ impl<'a> Emitter<'a> {
             put(
                 &mut self.out,
                 format_args!(
-                    "    pub {}: unsafe extern \"system\" fn({params}){result},\n",
+                    "    pub {}: unsafe extern \"system-unwind\" fn({params}){result},\n",
                     ident(&method.name)
                 ),
             );

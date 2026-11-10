@@ -696,13 +696,13 @@ pub struct ISlangUnknown {
 #[repr(C)]
 #[derive(Debug)]
 pub struct ISlangUnknownVtbl {
-    pub queryInterface: unsafe extern "system" fn(
+    pub queryInterface: unsafe extern "system-unwind" fn(
         this: *mut ISlangUnknown,
         uuid: *const SlangUUID,
         outObject: *mut *mut ::core::ffi::c_void,
     ) -> SlangResult,
-    pub addRef: unsafe extern "system" fn(this: *mut ISlangUnknown) -> u32,
-    pub release: unsafe extern "system" fn(this: *mut ISlangUnknown) -> u32,
+    pub addRef: unsafe extern "system-unwind" fn(this: *mut ISlangUnknown) -> u32,
+    pub release: unsafe extern "system-unwind" fn(this: *mut ISlangUnknown) -> u32,
 }
 
 unsafe impl Interface for ISlangUnknown {
@@ -742,7 +742,7 @@ pub struct ISlangCastable {
 #[derive(Debug)]
 pub struct ISlangCastableVtbl {
     pub base: ISlangUnknownVtbl,
-    pub castAs: unsafe extern "system" fn(
+    pub castAs: unsafe extern "system-unwind" fn(
         this: *mut ISlangCastable,
         guid: *const SlangUUID,
     ) -> *mut ::core::ffi::c_void,
@@ -789,7 +789,7 @@ pub struct ISlangClonable {
 #[derive(Debug)]
 pub struct ISlangClonableVtbl {
     pub base: ISlangCastableVtbl,
-    pub clone: unsafe extern "system" fn(
+    pub clone: unsafe extern "system-unwind" fn(
         this: *mut ISlangClonable,
         guid: *const SlangUUID,
     ) -> *mut ::core::ffi::c_void,
@@ -841,8 +841,8 @@ pub struct ISlangBlob {
 pub struct ISlangBlobVtbl {
     pub base: ISlangUnknownVtbl,
     pub getBufferPointer:
-        unsafe extern "system" fn(this: *mut ISlangBlob) -> *const ::core::ffi::c_void,
-    pub getBufferSize: unsafe extern "system" fn(this: *mut ISlangBlob) -> usize,
+        unsafe extern "system-unwind" fn(this: *mut ISlangBlob) -> *const ::core::ffi::c_void,
+    pub getBufferSize: unsafe extern "system-unwind" fn(this: *mut ISlangBlob) -> usize,
 }
 
 unsafe impl Interface for ISlangBlob {
@@ -902,7 +902,7 @@ pub struct ISlangFileSystem {
 #[derive(Debug)]
 pub struct ISlangFileSystemVtbl {
     pub base: ISlangCastableVtbl,
-    pub loadFile: unsafe extern "system" fn(
+    pub loadFile: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystem,
         path: *const ::core::ffi::c_char,
         outBlob: *mut *mut ISlangBlob,
@@ -960,7 +960,7 @@ pub struct ISlangSharedLibrary_Dep1 {
 #[derive(Debug)]
 pub struct ISlangSharedLibrary_Dep1Vtbl {
     pub base: ISlangUnknownVtbl,
-    pub findSymbolAddressByName: unsafe extern "system" fn(
+    pub findSymbolAddressByName: unsafe extern "system-unwind" fn(
         this: *mut ISlangSharedLibrary_Dep1,
         name: *const ::core::ffi::c_char,
     ) -> *mut ::core::ffi::c_void,
@@ -1010,7 +1010,7 @@ pub struct ISlangSharedLibrary {
 #[derive(Debug)]
 pub struct ISlangSharedLibraryVtbl {
     pub base: ISlangCastableVtbl,
-    pub findSymbolAddressByName: unsafe extern "system" fn(
+    pub findSymbolAddressByName: unsafe extern "system-unwind" fn(
         this: *mut ISlangSharedLibrary,
         name: *const ::core::ffi::c_char,
     ) -> *mut ::core::ffi::c_void,
@@ -1064,7 +1064,7 @@ pub struct ISlangSharedLibraryLoader {
 #[derive(Debug)]
 pub struct ISlangSharedLibraryLoaderVtbl {
     pub base: ISlangUnknownVtbl,
-    pub loadSharedLibrary: unsafe extern "system" fn(
+    pub loadSharedLibrary: unsafe extern "system-unwind" fn(
         this: *mut ISlangSharedLibraryLoader,
         path: *const ::core::ffi::c_char,
         sharedLibraryOut: *mut *mut ISlangSharedLibrary,
@@ -1153,37 +1153,38 @@ pub struct ISlangFileSystemExt {
 #[derive(Debug)]
 pub struct ISlangFileSystemExtVtbl {
     pub base: ISlangFileSystemVtbl,
-    pub getFileUniqueIdentity: unsafe extern "system" fn(
+    pub getFileUniqueIdentity: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystemExt,
         path: *const ::core::ffi::c_char,
         outUniqueIdentity: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub calcCombinedPath: unsafe extern "system" fn(
+    pub calcCombinedPath: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystemExt,
         fromPathType: SlangPathType,
         fromPath: *const ::core::ffi::c_char,
         path: *const ::core::ffi::c_char,
         pathOut: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getPathType: unsafe extern "system" fn(
+    pub getPathType: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystemExt,
         path: *const ::core::ffi::c_char,
         pathTypeOut: *mut SlangPathType,
     ) -> SlangResult,
-    pub getPath: unsafe extern "system" fn(
+    pub getPath: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystemExt,
         kind: PathKind,
         path: *const ::core::ffi::c_char,
         outPath: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub clearCache: unsafe extern "system" fn(this: *mut ISlangFileSystemExt),
-    pub enumeratePathContents: unsafe extern "system" fn(
+    pub clearCache: unsafe extern "system-unwind" fn(this: *mut ISlangFileSystemExt),
+    pub enumeratePathContents: unsafe extern "system-unwind" fn(
         this: *mut ISlangFileSystemExt,
         path: *const ::core::ffi::c_char,
         callback: FileSystemContentsCallBack,
         userData: *mut ::core::ffi::c_void,
     ) -> SlangResult,
-    pub getOSPathKind: unsafe extern "system" fn(this: *mut ISlangFileSystemExt) -> OSPathKind,
+    pub getOSPathKind:
+        unsafe extern "system-unwind" fn(this: *mut ISlangFileSystemExt) -> OSPathKind,
 }
 
 unsafe impl Interface for ISlangFileSystemExt {
@@ -1289,22 +1290,22 @@ pub struct ISlangMutableFileSystem {
 #[derive(Debug)]
 pub struct ISlangMutableFileSystemVtbl {
     pub base: ISlangFileSystemExtVtbl,
-    pub saveFile: unsafe extern "system" fn(
+    pub saveFile: unsafe extern "system-unwind" fn(
         this: *mut ISlangMutableFileSystem,
         path: *const ::core::ffi::c_char,
         data: *const ::core::ffi::c_void,
         size: usize,
     ) -> SlangResult,
-    pub saveFileBlob: unsafe extern "system" fn(
+    pub saveFileBlob: unsafe extern "system-unwind" fn(
         this: *mut ISlangMutableFileSystem,
         path: *const ::core::ffi::c_char,
         dataBlob: *mut ISlangBlob,
     ) -> SlangResult,
-    pub remove: unsafe extern "system" fn(
+    pub remove: unsafe extern "system-unwind" fn(
         this: *mut ISlangMutableFileSystem,
         path: *const ::core::ffi::c_char,
     ) -> SlangResult,
-    pub createDirectory: unsafe extern "system" fn(
+    pub createDirectory: unsafe extern "system-unwind" fn(
         this: *mut ISlangMutableFileSystem,
         path: *const ::core::ffi::c_char,
     ) -> SlangResult,
@@ -1479,24 +1480,26 @@ pub struct ISlangWriter {
 #[derive(Debug)]
 pub struct ISlangWriterVtbl {
     pub base: ISlangUnknownVtbl,
-    pub beginAppendBuffer: unsafe extern "system" fn(
+    pub beginAppendBuffer: unsafe extern "system-unwind" fn(
         this: *mut ISlangWriter,
         maxNumChars: usize,
     ) -> *mut ::core::ffi::c_char,
-    pub endAppendBuffer: unsafe extern "system" fn(
+    pub endAppendBuffer: unsafe extern "system-unwind" fn(
         this: *mut ISlangWriter,
         buffer: *mut ::core::ffi::c_char,
         numChars: usize,
     ) -> SlangResult,
-    pub write: unsafe extern "system" fn(
+    pub write: unsafe extern "system-unwind" fn(
         this: *mut ISlangWriter,
         chars: *const ::core::ffi::c_char,
         numChars: usize,
     ) -> SlangResult,
-    pub flush: unsafe extern "system" fn(this: *mut ISlangWriter),
-    pub isConsole: unsafe extern "system" fn(this: *mut ISlangWriter) -> SlangBool,
-    pub setMode:
-        unsafe extern "system" fn(this: *mut ISlangWriter, mode: SlangWriterMode) -> SlangResult,
+    pub flush: unsafe extern "system-unwind" fn(this: *mut ISlangWriter),
+    pub isConsole: unsafe extern "system-unwind" fn(this: *mut ISlangWriter) -> SlangBool,
+    pub setMode: unsafe extern "system-unwind" fn(
+        this: *mut ISlangWriter,
+        mode: SlangWriterMode,
+    ) -> SlangResult,
 }
 
 unsafe impl Interface for ISlangWriter {
@@ -1573,15 +1576,17 @@ pub struct ISlangProfiler {
 #[derive(Debug)]
 pub struct ISlangProfilerVtbl {
     pub base: ISlangUnknownVtbl,
-    pub getEntryCount: unsafe extern "system" fn(this: *mut ISlangProfiler) -> usize,
-    pub getEntryName: unsafe extern "system" fn(
+    pub getEntryCount: unsafe extern "system-unwind" fn(this: *mut ISlangProfiler) -> usize,
+    pub getEntryName: unsafe extern "system-unwind" fn(
         this: *mut ISlangProfiler,
         index: u32,
     ) -> *const ::core::ffi::c_char,
-    pub getEntryTimeMS:
-        unsafe extern "system" fn(this: *mut ISlangProfiler, index: u32) -> ::core::ffi::c_long,
+    pub getEntryTimeMS: unsafe extern "system-unwind" fn(
+        this: *mut ISlangProfiler,
+        index: u32,
+    ) -> ::core::ffi::c_long,
     pub getEntryInvocationTimes:
-        unsafe extern "system" fn(this: *mut ISlangProfiler, index: u32) -> u32,
+        unsafe extern "system-unwind" fn(this: *mut ISlangProfiler, index: u32) -> u32,
 }
 
 unsafe impl Interface for ISlangProfiler {
@@ -2191,142 +2196,145 @@ pub struct IGlobalSession {
 #[derive(Debug)]
 pub struct IGlobalSessionVtbl {
     pub base: ISlangUnknownVtbl,
-    pub createSession: unsafe extern "system" fn(
+    pub createSession: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         desc: *const SessionDesc,
         outSession: *mut *mut ISession,
     ) -> SlangResult,
-    pub findProfile: unsafe extern "system" fn(
+    pub findProfile: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         name: *const ::core::ffi::c_char,
     ) -> SlangProfileID,
-    pub setDownstreamCompilerPath: unsafe extern "system" fn(
+    pub setDownstreamCompilerPath: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         passThrough: SlangPassThrough,
         path: *const ::core::ffi::c_char,
     ),
-    pub setDownstreamCompilerPrelude: unsafe extern "system" fn(
+    pub setDownstreamCompilerPrelude: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         passThrough: SlangPassThrough,
         preludeText: *const ::core::ffi::c_char,
     ),
-    pub getDownstreamCompilerPrelude: unsafe extern "system" fn(
+    pub getDownstreamCompilerPrelude: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         passThrough: SlangPassThrough,
         outPrelude: *mut *mut ISlangBlob,
     ),
     pub getBuildTagString:
-        unsafe extern "system" fn(this: *mut IGlobalSession) -> *const ::core::ffi::c_char,
-    pub setDefaultDownstreamCompiler: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut IGlobalSession) -> *const ::core::ffi::c_char,
+    pub setDefaultDownstreamCompiler: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sourceLanguage: SlangSourceLanguage,
         defaultCompiler: SlangPassThrough,
     ) -> SlangResult,
-    pub getDefaultDownstreamCompiler: unsafe extern "system" fn(
+    pub getDefaultDownstreamCompiler: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sourceLanguage: SlangSourceLanguage,
     ) -> SlangPassThrough,
-    pub setLanguagePrelude: unsafe extern "system" fn(
+    pub setLanguagePrelude: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sourceLanguage: SlangSourceLanguage,
         preludeText: *const ::core::ffi::c_char,
     ),
-    pub getLanguagePrelude: unsafe extern "system" fn(
+    pub getLanguagePrelude: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sourceLanguage: SlangSourceLanguage,
         outPrelude: *mut *mut ISlangBlob,
     ),
-    pub createCompileRequest: unsafe extern "system" fn(
+    pub createCompileRequest: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         outCompileRequest: *mut *mut ICompileRequest,
     ) -> SlangResult,
-    pub addBuiltins: unsafe extern "system" fn(
+    pub addBuiltins: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sourcePath: *const ::core::ffi::c_char,
         sourceString: *const ::core::ffi::c_char,
     ),
-    pub setSharedLibraryLoader: unsafe extern "system" fn(
+    pub setSharedLibraryLoader: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         loader: *mut ISlangSharedLibraryLoader,
     ),
-    pub getSharedLibraryLoader:
-        unsafe extern "system" fn(this: *mut IGlobalSession) -> *mut ISlangSharedLibraryLoader,
-    pub checkCompileTargetSupport: unsafe extern "system" fn(
+    pub getSharedLibraryLoader: unsafe extern "system-unwind" fn(
+        this: *mut IGlobalSession,
+    )
+        -> *mut ISlangSharedLibraryLoader,
+    pub checkCompileTargetSupport: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         target: SlangCompileTarget,
     ) -> SlangResult,
-    pub checkPassThroughSupport: unsafe extern "system" fn(
+    pub checkPassThroughSupport: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         passThrough: SlangPassThrough,
     ) -> SlangResult,
-    pub compileCoreModule: unsafe extern "system" fn(
+    pub compileCoreModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         flags: CompileCoreModuleFlags,
     ) -> SlangResult,
-    pub loadCoreModule: unsafe extern "system" fn(
+    pub loadCoreModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         coreModule: *const ::core::ffi::c_void,
         coreModuleSizeInBytes: usize,
     ) -> SlangResult,
-    pub saveCoreModule: unsafe extern "system" fn(
+    pub saveCoreModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         archiveType: SlangArchiveType,
         outBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub findCapability: unsafe extern "system" fn(
+    pub findCapability: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         name: *const ::core::ffi::c_char,
     ) -> SlangCapabilityID,
-    pub setDownstreamCompilerForTransition: unsafe extern "system" fn(
+    pub setDownstreamCompilerForTransition: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         source: SlangCompileTarget,
         target: SlangCompileTarget,
         compiler: SlangPassThrough,
     ),
-    pub getDownstreamCompilerForTransition: unsafe extern "system" fn(
+    pub getDownstreamCompilerForTransition: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         source: SlangCompileTarget,
         target: SlangCompileTarget,
-    ) -> SlangPassThrough,
-    pub getCompilerElapsedTime: unsafe extern "system" fn(
+    )
+        -> SlangPassThrough,
+    pub getCompilerElapsedTime: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         outTotalTime: *mut f64,
         outDownstreamTime: *mut f64,
     ),
-    pub setSPIRVCoreGrammar: unsafe extern "system" fn(
+    pub setSPIRVCoreGrammar: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         jsonPath: *const ::core::ffi::c_char,
     ) -> SlangResult,
-    pub parseCommandLineArguments: unsafe extern "system" fn(
+    pub parseCommandLineArguments: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         argc: ::core::ffi::c_int,
         argv: *const *const ::core::ffi::c_char,
         outSessionDesc: *mut SessionDesc,
         outAuxAllocation: *mut *mut ISlangUnknown,
     ) -> SlangResult,
-    pub getSessionDescDigest: unsafe extern "system" fn(
+    pub getSessionDescDigest: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         sessionDesc: *mut SessionDesc,
         outBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub compileBuiltinModule: unsafe extern "system" fn(
+    pub compileBuiltinModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         module: BuiltinModuleName,
         flags: CompileCoreModuleFlags,
     ) -> SlangResult,
-    pub loadBuiltinModule: unsafe extern "system" fn(
+    pub loadBuiltinModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         module: BuiltinModuleName,
         moduleData: *const ::core::ffi::c_void,
         sizeInBytes: usize,
     ) -> SlangResult,
-    pub saveBuiltinModule: unsafe extern "system" fn(
+    pub saveBuiltinModule: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         module: BuiltinModuleName,
         archiveType: SlangArchiveType,
         outBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getDownstreamCompilerPath: unsafe extern "system" fn(
+    pub getDownstreamCompilerPath: unsafe extern "system-unwind" fn(
         this: *mut IGlobalSession,
         passThrough: SlangPassThrough,
         outPath: *mut *mut ISlangBlob,
@@ -2779,69 +2787,71 @@ pub struct ISession {
 #[derive(Debug)]
 pub struct ISessionVtbl {
     pub base: ISlangUnknownVtbl,
-    pub getGlobalSession: unsafe extern "system" fn(this: *mut ISession) -> *mut IGlobalSession,
-    pub loadModule: unsafe extern "system" fn(
+    pub getGlobalSession:
+        unsafe extern "system-unwind" fn(this: *mut ISession) -> *mut IGlobalSession,
+    pub loadModule: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         moduleName: *const ::core::ffi::c_char,
         outDiagnostics: *mut *mut IBlob,
     ) -> *mut IModule,
-    pub loadModuleFromSource: unsafe extern "system" fn(
+    pub loadModuleFromSource: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         moduleName: *const ::core::ffi::c_char,
         path: *const ::core::ffi::c_char,
         source: *mut IBlob,
         outDiagnostics: *mut *mut IBlob,
     ) -> *mut IModule,
-    pub createCompositeComponentType: unsafe extern "system" fn(
+    pub createCompositeComponentType: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         componentTypes: *const *mut IComponentType,
         componentTypeCount: SlangInt,
         outCompositeComponentType: *mut *mut IComponentType,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub specializeType: unsafe extern "system" fn(
+    pub specializeType: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         specializationArgs: *const SpecializationArg,
         specializationArgCount: SlangInt,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> *mut TypeReflection,
-    pub getTypeLayout: unsafe extern "system" fn(
+    pub getTypeLayout: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         targetIndex: SlangInt,
         rules: LayoutRules,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> *mut TypeLayoutReflection,
-    pub getContainerType: unsafe extern "system" fn(
+    pub getContainerType: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         elementType: *mut TypeReflection,
         containerType: ContainerType,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> *mut TypeReflection,
-    pub getDynamicType: unsafe extern "system" fn(this: *mut ISession) -> *mut TypeReflection,
-    pub getTypeRTTIMangledName: unsafe extern "system" fn(
+    pub getDynamicType:
+        unsafe extern "system-unwind" fn(this: *mut ISession) -> *mut TypeReflection,
+    pub getTypeRTTIMangledName: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         outNameBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getTypeConformanceWitnessMangledName: unsafe extern "system" fn(
+    pub getTypeConformanceWitnessMangledName: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         interfaceType: *mut TypeReflection,
         outNameBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getTypeConformanceWitnessSequentialID: unsafe extern "system" fn(
+    pub getTypeConformanceWitnessSequentialID: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         interfaceType: *mut TypeReflection,
         outId: *mut u32,
     ) -> SlangResult,
-    pub createCompileRequest: unsafe extern "system" fn(
+    pub createCompileRequest: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         outCompileRequest: *mut *mut SlangCompileRequest,
     ) -> SlangResult,
-    pub createTypeConformanceComponentType: unsafe extern "system" fn(
+    pub createTypeConformanceComponentType: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         interfaceType: *mut TypeReflection,
@@ -2849,43 +2859,43 @@ pub struct ISessionVtbl {
         conformanceIdOverride: SlangInt,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub loadModuleFromIRBlob: unsafe extern "system" fn(
+    pub loadModuleFromIRBlob: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         moduleName: *const ::core::ffi::c_char,
         path: *const ::core::ffi::c_char,
         source: *mut IBlob,
         outDiagnostics: *mut *mut IBlob,
     ) -> *mut IModule,
-    pub getLoadedModuleCount: unsafe extern "system" fn(this: *mut ISession) -> SlangInt,
+    pub getLoadedModuleCount: unsafe extern "system-unwind" fn(this: *mut ISession) -> SlangInt,
     pub getLoadedModule:
-        unsafe extern "system" fn(this: *mut ISession, index: SlangInt) -> *mut IModule,
-    pub isBinaryModuleUpToDate: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut ISession, index: SlangInt) -> *mut IModule,
+    pub isBinaryModuleUpToDate: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         modulePath: *const ::core::ffi::c_char,
         binaryModuleBlob: *mut IBlob,
     ) -> bool,
-    pub loadModuleFromSourceString: unsafe extern "system" fn(
+    pub loadModuleFromSourceString: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         moduleName: *const ::core::ffi::c_char,
         path: *const ::core::ffi::c_char,
         string: *const ::core::ffi::c_char,
         outDiagnostics: *mut *mut IBlob,
     ) -> *mut IModule,
-    pub getDynamicObjectRTTIBytes: unsafe extern "system" fn(
+    pub getDynamicObjectRTTIBytes: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         r#type: *mut TypeReflection,
         interfaceType: *mut TypeReflection,
         outRTTIDataBuffer: *mut u32,
         bufferSizeInBytes: u32,
     ) -> SlangResult,
-    pub loadModuleInfoFromIRBlob: unsafe extern "system" fn(
+    pub loadModuleInfoFromIRBlob: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         source: *mut IBlob,
         outModuleVersion: *mut SlangInt,
         outModuleCompilerVersion: *mut *const ::core::ffi::c_char,
         outModuleName: *mut *const ::core::ffi::c_char,
     ) -> SlangResult,
-    pub getDeclSourceLocation: unsafe extern "system" fn(
+    pub getDeclSourceLocation: unsafe extern "system-unwind" fn(
         this: *mut ISession,
         decl: *mut DeclReflection,
         outLocation: *mut SourceLocation,
@@ -3173,7 +3183,7 @@ pub struct IMetadata {
 #[derive(Debug)]
 pub struct IMetadataVtbl {
     pub base: ISlangCastableVtbl,
-    pub isParameterLocationUsed: unsafe extern "system" fn(
+    pub isParameterLocationUsed: unsafe extern "system-unwind" fn(
         this: *mut IMetadata,
         category: SlangParameterCategory,
         spaceIndex: SlangUInt,
@@ -3181,7 +3191,7 @@ pub struct IMetadataVtbl {
         outUsed: *mut bool,
     ) -> SlangResult,
     pub getDebugBuildIdentifier:
-        unsafe extern "system" fn(this: *mut IMetadata) -> *const ::core::ffi::c_char,
+        unsafe extern "system-unwind" fn(this: *mut IMetadata) -> *const ::core::ffi::c_char,
 }
 
 unsafe impl Interface for IMetadata {
@@ -3248,7 +3258,7 @@ pub struct IBindlessResourceMetadata {
 pub struct IBindlessResourceMetadataVtbl {
     pub base: ISlangCastableVtbl,
     pub usesBindlessResourceHeap:
-        unsafe extern "system" fn(this: *mut IBindlessResourceMetadata) -> bool,
+        unsafe extern "system-unwind" fn(this: *mut IBindlessResourceMetadata) -> bool,
 }
 
 unsafe impl Interface for IBindlessResourceMetadata {
@@ -3421,17 +3431,18 @@ pub struct ICoverageTracingMetadata {
 #[derive(Debug)]
 pub struct ICoverageTracingMetadataVtbl {
     pub base: ISlangCastableVtbl,
-    pub getCounterCount: unsafe extern "system" fn(this: *mut ICoverageTracingMetadata) -> u32,
-    pub getEntryInfo: unsafe extern "system" fn(
+    pub getCounterCount:
+        unsafe extern "system-unwind" fn(this: *mut ICoverageTracingMetadata) -> u32,
+    pub getEntryInfo: unsafe extern "system-unwind" fn(
         this: *mut ICoverageTracingMetadata,
         index: u32,
         outInfo: *mut CoverageEntryInfo,
     ) -> SlangResult,
-    pub getBufferInfo: unsafe extern "system" fn(
+    pub getBufferInfo: unsafe extern "system-unwind" fn(
         this: *mut ICoverageTracingMetadata,
         outInfo: *mut CoverageBufferInfo,
     ) -> SlangResult,
-    pub getEntryCount: unsafe extern "system" fn(this: *mut ICoverageTracingMetadata) -> u32,
+    pub getEntryCount: unsafe extern "system-unwind" fn(this: *mut ICoverageTracingMetadata) -> u32,
 }
 
 unsafe impl Interface for ICoverageTracingMetadata {
@@ -3570,13 +3581,14 @@ pub struct ISyntheticResourceMetadata {
 #[derive(Debug)]
 pub struct ISyntheticResourceMetadataVtbl {
     pub base: ISlangCastableVtbl,
-    pub getResourceCount: unsafe extern "system" fn(this: *mut ISyntheticResourceMetadata) -> u32,
-    pub getResourceInfo: unsafe extern "system" fn(
+    pub getResourceCount:
+        unsafe extern "system-unwind" fn(this: *mut ISyntheticResourceMetadata) -> u32,
+    pub getResourceInfo: unsafe extern "system-unwind" fn(
         this: *mut ISyntheticResourceMetadata,
         index: u32,
         outInfo: *mut SyntheticResourceInfo,
     ) -> SlangResult,
-    pub findResourceIndexByID: unsafe extern "system" fn(
+    pub findResourceIndexByID: unsafe extern "system-unwind" fn(
         this: *mut ISyntheticResourceMetadata,
         id: u32,
         outIndex: *mut u32,
@@ -3785,33 +3797,35 @@ pub struct ICooperativeTypesMetadata {
 pub struct ICooperativeTypesMetadataVtbl {
     pub base: ISlangCastableVtbl,
     pub getCooperativeMatrixTypeCount:
-        unsafe extern "system" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
-    pub getCooperativeMatrixTypeByIndex: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
+    pub getCooperativeMatrixTypeByIndex: unsafe extern "system-unwind" fn(
         this: *mut ICooperativeTypesMetadata,
         index: SlangUInt,
         outType: *mut CooperativeMatrixType,
     ) -> SlangResult,
     pub getCooperativeMatrixCombinationCount:
-        unsafe extern "system" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
-    pub getCooperativeMatrixCombinationByIndex: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
+    pub getCooperativeMatrixCombinationByIndex: unsafe extern "system-unwind" fn(
         this: *mut ICooperativeTypesMetadata,
         index: SlangUInt,
         outCombination: *mut CooperativeMatrixCombination,
-    ) -> SlangResult,
+    )
+        -> SlangResult,
     pub getCooperativeVectorTypeCount:
-        unsafe extern "system" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
-    pub getCooperativeVectorTypeByIndex: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
+    pub getCooperativeVectorTypeByIndex: unsafe extern "system-unwind" fn(
         this: *mut ICooperativeTypesMetadata,
         index: SlangUInt,
         outType: *mut CooperativeVectorTypeUsageInfo,
     ) -> SlangResult,
     pub getCooperativeVectorCombinationCount:
-        unsafe extern "system" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
-    pub getCooperativeVectorCombinationByIndex: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut ICooperativeTypesMetadata) -> SlangUInt,
+    pub getCooperativeVectorCombinationByIndex: unsafe extern "system-unwind" fn(
         this: *mut ICooperativeTypesMetadata,
         index: SlangUInt,
         outCombination: *mut CooperativeVectorCombination,
-    ) -> SlangResult,
+    )
+        -> SlangResult,
 }
 
 unsafe impl Interface for ICooperativeTypesMetadata {
@@ -3907,13 +3921,13 @@ pub struct ICompileResult {
 #[derive(Debug)]
 pub struct ICompileResultVtbl {
     pub base: ISlangCastableVtbl,
-    pub getItemCount: unsafe extern "system" fn(this: *mut ICompileResult) -> u32,
-    pub getItemData: unsafe extern "system" fn(
+    pub getItemCount: unsafe extern "system-unwind" fn(this: *mut ICompileResult) -> u32,
+    pub getItemData: unsafe extern "system-unwind" fn(
         this: *mut ICompileResult,
         index: u32,
         outblob: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getMetadata: unsafe extern "system" fn(
+    pub getMetadata: unsafe extern "system-unwind" fn(
         this: *mut ICompileResult,
         outMetadata: *mut *mut IMetadata,
     ) -> SlangResult,
@@ -3976,77 +3990,77 @@ pub struct IComponentType {
 #[derive(Debug)]
 pub struct IComponentTypeVtbl {
     pub base: ISlangUnknownVtbl,
-    pub getSession: unsafe extern "system" fn(this: *mut IComponentType) -> *mut ISession,
-    pub getLayout: unsafe extern "system" fn(
+    pub getSession: unsafe extern "system-unwind" fn(this: *mut IComponentType) -> *mut ISession,
+    pub getLayout: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         targetIndex: SlangInt,
         outDiagnostics: *mut *mut IBlob,
     ) -> *mut ProgramLayout,
     pub getSpecializationParamCount:
-        unsafe extern "system" fn(this: *mut IComponentType) -> SlangInt,
-    pub getEntryPointCode: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut IComponentType) -> SlangInt,
+    pub getEntryPointCode: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         entryPointIndex: SlangInt,
         targetIndex: SlangInt,
         outCode: *mut *mut IBlob,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getResultAsFileSystem: unsafe extern "system" fn(
+    pub getResultAsFileSystem: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         entryPointIndex: SlangInt,
         targetIndex: SlangInt,
         outFileSystem: *mut *mut ISlangMutableFileSystem,
     ) -> SlangResult,
-    pub getEntryPointHash: unsafe extern "system" fn(
+    pub getEntryPointHash: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         entryPointIndex: SlangInt,
         targetIndex: SlangInt,
         outHash: *mut *mut IBlob,
     ),
-    pub specialize: unsafe extern "system" fn(
+    pub specialize: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         specializationArgs: *const SpecializationArg,
         specializationArgCount: SlangInt,
         outSpecializedComponentType: *mut *mut IComponentType,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub link: unsafe extern "system" fn(
+    pub link: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         outLinkedComponentType: *mut *mut IComponentType,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getEntryPointHostCallable: unsafe extern "system" fn(
+    pub getEntryPointHostCallable: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         entryPointIndex: ::core::ffi::c_int,
         targetIndex: ::core::ffi::c_int,
         outSharedLibrary: *mut *mut ISlangSharedLibrary,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub renameEntryPoint: unsafe extern "system" fn(
+    pub renameEntryPoint: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         newName: *const ::core::ffi::c_char,
         outEntryPoint: *mut *mut IComponentType,
     ) -> SlangResult,
-    pub linkWithOptions: unsafe extern "system" fn(
+    pub linkWithOptions: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         outLinkedComponentType: *mut *mut IComponentType,
         compilerOptionEntryCount: u32,
         compilerOptionEntries: *const CompilerOptionEntry,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getTargetCode: unsafe extern "system" fn(
+    pub getTargetCode: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         targetIndex: SlangInt,
         outCode: *mut *mut IBlob,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getTargetMetadata: unsafe extern "system" fn(
+    pub getTargetMetadata: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         targetIndex: SlangInt,
         outMetadata: *mut *mut IMetadata,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getEntryPointMetadata: unsafe extern "system" fn(
+    pub getEntryPointMetadata: unsafe extern "system-unwind" fn(
         this: *mut IComponentType,
         entryPointIndex: SlangInt,
         targetIndex: SlangInt,
@@ -4262,7 +4276,7 @@ pub struct IEntryPoint {
 pub struct IEntryPointVtbl {
     pub base: IComponentTypeVtbl,
     pub getFunctionReflection:
-        unsafe extern "system" fn(this: *mut IEntryPoint) -> *mut FunctionReflection,
+        unsafe extern "system-unwind" fn(this: *mut IEntryPoint) -> *mut FunctionReflection,
 }
 
 unsafe impl Interface for IEntryPoint {
@@ -4721,20 +4735,20 @@ pub struct IComponentType2 {
 #[derive(Debug)]
 pub struct IComponentType2Vtbl {
     pub base: ISlangUnknownVtbl,
-    pub getTargetCompileResult: unsafe extern "system" fn(
+    pub getTargetCompileResult: unsafe extern "system-unwind" fn(
         this: *mut IComponentType2,
         targetIndex: SlangInt,
         outCompileResult: *mut *mut ICompileResult,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getEntryPointCompileResult: unsafe extern "system" fn(
+    pub getEntryPointCompileResult: unsafe extern "system-unwind" fn(
         this: *mut IComponentType2,
         entryPointIndex: SlangInt,
         targetIndex: SlangInt,
         outCompileResult: *mut *mut ICompileResult,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getTargetHostCallable: unsafe extern "system" fn(
+    pub getTargetHostCallable: unsafe extern "system-unwind" fn(
         this: *mut IComponentType2,
         targetIndex: ::core::ffi::c_int,
         outSharedLibrary: *mut *mut ISlangSharedLibrary,
@@ -4829,43 +4843,46 @@ pub struct IModule {
 #[derive(Debug)]
 pub struct IModuleVtbl {
     pub base: IComponentTypeVtbl,
-    pub findEntryPointByName: unsafe extern "system" fn(
+    pub findEntryPointByName: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         name: *const ::core::ffi::c_char,
         outEntryPoint: *mut *mut IEntryPoint,
     ) -> SlangResult,
-    pub getDefinedEntryPointCount: unsafe extern "system" fn(this: *mut IModule) -> SlangInt32,
-    pub getDefinedEntryPoint: unsafe extern "system" fn(
+    pub getDefinedEntryPointCount:
+        unsafe extern "system-unwind" fn(this: *mut IModule) -> SlangInt32,
+    pub getDefinedEntryPoint: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         index: SlangInt32,
         outEntryPoint: *mut *mut IEntryPoint,
     ) -> SlangResult,
-    pub serialize: unsafe extern "system" fn(
+    pub serialize: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         outSerializedBlob: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub writeToFile: unsafe extern "system" fn(
+    pub writeToFile: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         fileName: *const ::core::ffi::c_char,
     ) -> SlangResult,
-    pub getName: unsafe extern "system" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
-    pub getFilePath: unsafe extern "system" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
+    pub getName: unsafe extern "system-unwind" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
+    pub getFilePath:
+        unsafe extern "system-unwind" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
     pub getUniqueIdentity:
-        unsafe extern "system" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
-    pub findAndCheckEntryPoint: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut IModule) -> *const ::core::ffi::c_char,
+    pub findAndCheckEntryPoint: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         name: *const ::core::ffi::c_char,
         stage: SlangStage,
         outEntryPoint: *mut *mut IEntryPoint,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getDependencyFileCount: unsafe extern "system" fn(this: *mut IModule) -> SlangInt32,
-    pub getDependencyFilePath: unsafe extern "system" fn(
+    pub getDependencyFileCount: unsafe extern "system-unwind" fn(this: *mut IModule) -> SlangInt32,
+    pub getDependencyFilePath: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         index: SlangInt32,
     ) -> *const ::core::ffi::c_char,
-    pub getModuleReflection: unsafe extern "system" fn(this: *mut IModule) -> *mut DeclReflection,
-    pub disassemble: unsafe extern "system" fn(
+    pub getModuleReflection:
+        unsafe extern "system-unwind" fn(this: *mut IModule) -> *mut DeclReflection,
+    pub disassemble: unsafe extern "system-unwind" fn(
         this: *mut IModule,
         outDisassembledBlob: *mut *mut IBlob,
     ) -> SlangResult,
@@ -5182,20 +5199,21 @@ pub struct IModulePrecompileService_Experimental {
 #[derive(Debug)]
 pub struct IModulePrecompileService_ExperimentalVtbl {
     pub base: ISlangUnknownVtbl,
-    pub precompileForTarget: unsafe extern "system" fn(
+    pub precompileForTarget: unsafe extern "system-unwind" fn(
         this: *mut IModulePrecompileService_Experimental,
         target: SlangCompileTarget,
         outDiagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult,
-    pub getPrecompiledTargetCode: unsafe extern "system" fn(
+    pub getPrecompiledTargetCode: unsafe extern "system-unwind" fn(
         this: *mut IModulePrecompileService_Experimental,
         target: SlangCompileTarget,
         outCode: *mut *mut IBlob,
         outDiagnostics: *mut *mut IBlob,
     ) -> SlangResult,
-    pub getModuleDependencyCount:
-        unsafe extern "system" fn(this: *mut IModulePrecompileService_Experimental) -> SlangInt,
-    pub getModuleDependency: unsafe extern "system" fn(
+    pub getModuleDependencyCount: unsafe extern "system-unwind" fn(
+        this: *mut IModulePrecompileService_Experimental,
+    ) -> SlangInt,
+    pub getModuleDependency: unsafe extern "system-unwind" fn(
         this: *mut IModulePrecompileService_Experimental,
         dependencyIndex: SlangInt,
         outModule: *mut *mut IModule,
@@ -5442,42 +5460,46 @@ pub struct IByteCodeRunner {
 #[derive(Debug)]
 pub struct IByteCodeRunnerVtbl {
     pub base: ISlangUnknownVtbl,
-    pub loadModule: unsafe extern "system" fn(
+    pub loadModule: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         moduleBlob: *mut IBlob,
     ) -> SlangResult,
-    pub selectFunctionByIndex:
-        unsafe extern "system" fn(this: *mut IByteCodeRunner, functionIndex: u32) -> SlangResult,
-    pub findFunctionByName: unsafe extern "system" fn(
+    pub selectFunctionByIndex: unsafe extern "system-unwind" fn(
+        this: *mut IByteCodeRunner,
+        functionIndex: u32,
+    ) -> SlangResult,
+    pub findFunctionByName: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         name: *const ::core::ffi::c_char,
     ) -> ::core::ffi::c_int,
-    pub getFunctionInfo: unsafe extern "system" fn(
+    pub getFunctionInfo: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         index: u32,
         outInfo: *mut ByteCodeFuncInfo,
     ) -> SlangResult,
     pub getCurrentWorkingSet:
-        unsafe extern "system" fn(this: *mut IByteCodeRunner) -> *mut ::core::ffi::c_void,
-    pub execute: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut IByteCodeRunner) -> *mut ::core::ffi::c_void,
+    pub execute: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         argumentData: *mut ::core::ffi::c_void,
         argumentSize: usize,
     ) -> SlangResult,
     pub getErrorString:
-        unsafe extern "system" fn(this: *mut IByteCodeRunner, outBlob: *mut *mut IBlob),
-    pub getReturnValue: unsafe extern "system" fn(
+        unsafe extern "system-unwind" fn(this: *mut IByteCodeRunner, outBlob: *mut *mut IBlob),
+    pub getReturnValue: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         outValueSize: *mut usize,
     ) -> *mut ::core::ffi::c_void,
-    pub setExtInstHandlerUserData:
-        unsafe extern "system" fn(this: *mut IByteCodeRunner, userData: *mut ::core::ffi::c_void),
-    pub registerExtCall: unsafe extern "system" fn(
+    pub setExtInstHandlerUserData: unsafe extern "system-unwind" fn(
+        this: *mut IByteCodeRunner,
+        userData: *mut ::core::ffi::c_void,
+    ),
+    pub registerExtCall: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         name: *const ::core::ffi::c_char,
         functionPtr: VMExtFunction,
     ) -> SlangResult,
-    pub setPrintCallback: unsafe extern "system" fn(
+    pub setPrintCallback: unsafe extern "system-unwind" fn(
         this: *mut IByteCodeRunner,
         callback: VMPrintFunc,
         userData: *mut ::core::ffi::c_void,
@@ -5650,7 +5672,7 @@ pub struct TypeReflection {
     _marker: ::core::marker::PhantomData<(*mut u8, ::core::marker::PhantomPinned)>,
 }
 
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     pub fn spGetBuildTagString() -> *const ::core::ffi::c_char;
     pub fn spReflectionUserAttribute_GetName(
         attrib: *mut SlangReflectionUserAttribute,

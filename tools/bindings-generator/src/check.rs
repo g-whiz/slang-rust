@@ -579,7 +579,7 @@ impl<'a> Validator<'a> {
                 return Err(Self::unsupported(
                     &method.location,
                     format!(
-                        "{what} uses the calling convention {} on target {}, which differs from the C calling convention that the other methods use and that extern \"system\" means on this target",
+                        "{what} uses the calling convention {} on target {}, which differs from the C calling convention that the other methods use and that extern \"system-unwind\" means on this target",
                         method.signature.convention, self.target
                     ),
                 ));
@@ -637,7 +637,7 @@ impl<'a> Validator<'a> {
             return Err(Self::unsupported(
                 location,
                 format!(
-                    "{what} uses the calling convention {} on target {}, but the bindings declare it as extern \"C\"",
+                    "{what} uses the calling convention {} on target {}, but the bindings declare it as extern \"C-unwind\"",
                     signature.convention, self.target
                 ),
             ));

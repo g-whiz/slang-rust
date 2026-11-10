@@ -267,6 +267,91 @@ pub enum Operation {
     ///
     /// [`OptionName::new`]: crate::OptionName::new
     CreateOptionName,
+    /// The load of a module, by [`Session::load_module`],
+    /// [`Session::load_module_from_source`], or [`Session::load_module_from_ir`].
+    ///
+    /// [`Session::load_module`]: crate::Session::load_module
+    /// [`Session::load_module_from_source`]: crate::Session::load_module_from_source
+    /// [`Session::load_module_from_ir`]: crate::Session::load_module_from_ir
+    LoadModule,
+    /// The listing of the modules of a session, by [`Session::loaded_modules`].
+    ///
+    /// [`Session::loaded_modules`]: crate::Session::loaded_modules
+    ListLoadedModules,
+    /// The reading of the name of a module, by [`Module::name`].
+    ///
+    /// [`Module::name`]: crate::Module::name
+    ReadModuleName,
+    /// The reading of the file path of a module, by [`Module::file_path`].
+    ///
+    /// [`Module::file_path`]: crate::Module::file_path
+    ReadModuleFilePath,
+    /// The listing of the files that a module depends on, by
+    /// [`Module::dependency_file_paths`].
+    ///
+    /// [`Module::dependency_file_paths`]: crate::Module::dependency_file_paths
+    ListDependencyFiles,
+    /// The serialization of a module, by [`Module::serialize`].
+    ///
+    /// [`Module::serialize`]: crate::Module::serialize
+    SerializeModule,
+    /// The lookup of an entry point by its name, by [`Module::entry_point`].
+    ///
+    /// [`Module::entry_point`]: crate::Module::entry_point
+    FindEntryPoint,
+    /// The listing of the entry points of a module, by [`Module::entry_points`].
+    ///
+    /// [`Module::entry_points`]: crate::Module::entry_points
+    ListEntryPoints,
+    /// The composition of component types, by [`Session::compose`].
+    ///
+    /// [`Session::compose`]: crate::Session::compose
+    Compose,
+    /// The creation of a type conformance, by [`Session::type_conformance`].
+    ///
+    /// [`Session::type_conformance`]: crate::Session::type_conformance
+    CreateTypeConformance,
+    /// The count of the specialization parameters of a component type, by
+    /// [`ComponentType::specialization_param_count`].
+    ///
+    /// [`ComponentType::specialization_param_count`]: crate::ComponentType::specialization_param_count
+    CountSpecializationParams,
+    /// The specialization of a component type, by [`ComponentType::specialize`].
+    ///
+    /// [`ComponentType::specialize`]: crate::ComponentType::specialize
+    Specialize,
+    /// The linking of a component type, by the methods `link` and
+    /// `link_with_options` of [`Module`], [`EntryPoint`], [`ComponentType`], and
+    /// [`TypeConformance`].
+    ///
+    /// [`Module`]: crate::Module
+    /// [`EntryPoint`]: crate::EntryPoint
+    /// [`ComponentType`]: crate::ComponentType
+    /// [`TypeConformance`]: crate::TypeConformance
+    Link,
+    /// The generation of target code, by [`LinkedProgram::entry_point_code`] or
+    /// [`LinkedProgram::target_code`].
+    ///
+    /// [`LinkedProgram::entry_point_code`]: crate::LinkedProgram::entry_point_code
+    /// [`LinkedProgram::target_code`]: crate::LinkedProgram::target_code
+    GenerateCode,
+    /// The reading of the metadata of generated code, by
+    /// [`LinkedProgram::entry_point_metadata`] or
+    /// [`LinkedProgram::target_metadata`].
+    ///
+    /// [`LinkedProgram::entry_point_metadata`]: crate::LinkedProgram::entry_point_metadata
+    /// [`LinkedProgram::target_metadata`]: crate::LinkedProgram::target_metadata
+    ReadMetadata,
+    /// A query of the metadata of generated code, by
+    /// [`Metadata::is_parameter_location_used`].
+    ///
+    /// [`Metadata::is_parameter_location_used`]: crate::Metadata::is_parameter_location_used
+    QueryMetadata,
+    /// The reading of a blob, by [`Blob::to_str`] or [`Blob::from_raw`].
+    ///
+    /// [`Blob::to_str`]: crate::Blob::to_str
+    /// [`Blob::from_raw`]: crate::Blob::from_raw
+    ReadBlob,
 }
 
 impl Operation {
@@ -277,6 +362,23 @@ impl Operation {
             Self::CreateSession => "create a session",
             Self::SelectTarget => "select target",
             Self::CreateOptionName => "name compiler option",
+            Self::LoadModule => "load module",
+            Self::ListLoadedModules => "list the loaded modules",
+            Self::ReadModuleName => "read the name of a module",
+            Self::ReadModuleFilePath => "read the file path of a module",
+            Self::ListDependencyFiles => "list the dependency files of a module",
+            Self::SerializeModule => "serialize module",
+            Self::FindEntryPoint => "find entry point",
+            Self::ListEntryPoints => "list the entry points of a module",
+            Self::Compose => "compose component types",
+            Self::CreateTypeConformance => "create a type conformance",
+            Self::CountSpecializationParams => "count the specialization parameters",
+            Self::Specialize => "specialize a component type",
+            Self::Link => "link a component type",
+            Self::GenerateCode => "generate code",
+            Self::ReadMetadata => "read metadata",
+            Self::QueryMetadata => "query metadata",
+            Self::ReadBlob => "read a blob",
         }
     }
 }
@@ -313,6 +415,16 @@ pub struct Diagnostics {
 }
 
 impl Diagnostics {
+    /// Converts the bytes of a diagnostics blob into text, replacing each
+    /// sequence that is not valid UTF-8 with U+FFFD and dropping the NUL byte
+    /// that ends the text when Slang counted it in the size.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
+        let bytes = bytes.strip_suffix(&[0]).unwrap_or(bytes);
+        Self {
+            text: String::from_utf8_lossy(bytes).into_owned(),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn from_text(text: &str) -> Self {
         Self {
@@ -413,9 +525,9 @@ impl<T> Compiled<T> {
 mod tests {
     use super::{Compiled, Diagnostics, Error, ErrorKind, Operation};
     use crate::{
-        CompilerOptions, DebugInfoLevel, FloatingPointMode, GlobalSessionBuilder, LanguageVersion,
-        LineDirectiveMode, MatrixLayout, OptimizationLevel, OptionName, Stage, Target,
-        TargetFormat, TargetIndex, Toggle,
+        BindingIndex, BindingSpace, CompilerOptions, DebugInfoLevel, FloatingPointMode,
+        GlobalSessionBuilder, LanguageVersion, LineDirectiveMode, MatrixLayout, OptimizationLevel,
+        OptionName, ParameterCategory, Stage, Target, TargetFormat, TargetIndex, Toggle,
     };
 
     fn diagnostics(text: &str) -> Diagnostics {
@@ -507,6 +619,9 @@ mod tests {
         assert_send_sync::<OptionName>();
         assert_send_sync::<Target>();
         assert_send_sync::<TargetIndex>();
+        assert_send_sync::<ParameterCategory>();
+        assert_send_sync::<BindingSpace>();
+        assert_send_sync::<BindingIndex>();
     }
 
     #[test]
@@ -515,6 +630,44 @@ mod tests {
             (Operation::CreateSession, "cannot create a session"),
             (Operation::SelectTarget, "cannot select target"),
             (Operation::CreateOptionName, "cannot name compiler option"),
+            (Operation::LoadModule, "cannot load module"),
+            (
+                Operation::ListLoadedModules,
+                "cannot list the loaded modules",
+            ),
+            (
+                Operation::ReadModuleName,
+                "cannot read the name of a module",
+            ),
+            (
+                Operation::ReadModuleFilePath,
+                "cannot read the file path of a module",
+            ),
+            (
+                Operation::ListDependencyFiles,
+                "cannot list the dependency files of a module",
+            ),
+            (Operation::SerializeModule, "cannot serialize module"),
+            (Operation::FindEntryPoint, "cannot find entry point"),
+            (
+                Operation::ListEntryPoints,
+                "cannot list the entry points of a module",
+            ),
+            (Operation::Compose, "cannot compose component types"),
+            (
+                Operation::CreateTypeConformance,
+                "cannot create a type conformance",
+            ),
+            (
+                Operation::CountSpecializationParams,
+                "cannot count the specialization parameters",
+            ),
+            (Operation::Specialize, "cannot specialize a component type"),
+            (Operation::Link, "cannot link a component type"),
+            (Operation::GenerateCode, "cannot generate code"),
+            (Operation::ReadMetadata, "cannot read metadata"),
+            (Operation::QueryMetadata, "cannot query metadata"),
+            (Operation::ReadBlob, "cannot read a blob"),
         ];
         for (operation, text) in cases {
             assert_eq!(

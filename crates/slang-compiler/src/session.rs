@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 use slang_compiler_sys::{
     CompilerOptionName, IGlobalSession, ISession, PreprocessorMacroDesc,
     SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY, SessionDesc, SlangEmitSpirvMethod,
-    SlangFloatingPointMode, SlangLineDirectiveMode, SlangProfileID, TargetDesc,
+    SlangFloatingPointMode, SlangInt, SlangLineDirectiveMode, SlangProfileID, TargetDesc,
 };
 
 use crate::enums::{MatrixLayout, TargetFormat, Toggle};
@@ -290,6 +290,43 @@ impl Session {
     #[must_use]
     pub fn as_raw(&self) -> NonNull<ISession> {
         self.raw.as_non_null()
+    }
+
+    /// Returns the owning pointer to the session.
+    pub(crate) fn raw(&self) -> &Owned<ISession> {
+        &self.raw
+    }
+
+    /// Returns whether `other` is a handle to the same Slang session, for the
+    /// check of SLC-7.
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
+        self.raw.as_non_null() == other.raw.as_non_null()
+    }
+
+    /// Checks `target` against the target count of this session again, for
+    /// a call that passes it to Slang, and returns it as Slang's index.
+    ///
+    /// A target index of another session can be past the end of this
+    /// session's targets, which is reported as an error of kind
+    /// `InvalidArgument` of `operation` (Section 6.4 of
+    /// `docs/design/slang-compiler.md`).
+    pub(crate) fn slang_target(
+        &self,
+        target: TargetIndex,
+        operation: Operation,
+    ) -> Result<SlangInt> {
+        let position = target.position;
+        if position >= self.target_count {
+            return Err(Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
+                "target {position} is past the end of the session's {} targets, so it belongs to another session",
+                self.target_count
+            )));
+        }
+        SlangInt::try_from(position).map_err(|error| {
+            Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
+                "target {position} does not fit Slang's index: {error}"
+            ))
+        })
     }
 }
 
@@ -792,7 +829,9 @@ impl SessionBuilder {
         // raw options keep alive. Each count is the length of its array, and
         // `raw` is a live out-pointer.
         let result = unsafe {
-            IGlobalSession::createSession(global.as_ptr(), &raw const desc, &raw mut raw)
+            guard::abort_on_exception("IGlobalSession::createSession", || {
+                IGlobalSession::createSession(global.as_ptr(), &raw const desc, &raw mut raw)
+            })
         };
         mapping::check(operation, result, Diagnostics::default())?;
         let raw =
@@ -896,7 +935,11 @@ impl PendingTarget {
                 // builder holds, used only on this thread, `name` is a C string
                 // that lives until the call returns, and the call runs with the
                 // Slang call guard raised (SLC-28).
-                let id = unsafe { IGlobalSession::findProfile(global.as_ptr(), name.as_ptr()) };
+                let id = unsafe {
+                    guard::abort_on_exception("IGlobalSession::findProfile", || {
+                        IGlobalSession::findProfile(global.as_ptr(), name.as_ptr())
+                    })
+                };
                 if id == SlangProfileID::SLANG_PROFILE_UNKNOWN {
                     return Err(unknown_name("profile", &name));
                 }
@@ -905,7 +948,11 @@ impl PendingTarget {
         };
         for name in capabilities {
             // SAFETY: as for `findProfile` above, with the C string `name`.
-            let id = unsafe { IGlobalSession::findCapability(global.as_ptr(), name.as_ptr()) };
+            let id = unsafe {
+                guard::abort_on_exception("IGlobalSession::findCapability", || {
+                    IGlobalSession::findCapability(global.as_ptr(), name.as_ptr())
+                })
+            };
             if id == slang_compiler_sys::SlangCapabilityID::SLANG_CAPABILITY_UNKNOWN {
                 return Err(unknown_name("capability", &name));
             }

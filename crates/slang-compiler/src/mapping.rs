@@ -25,13 +25,6 @@ pub(crate) enum Failure {
 enum Class {
     TargetSupportCheck,
     ModuleLoader,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the lookups by name arrive in a later step, and the unit tests of the mapping use this class"
-        )
-    )]
     LookupByName,
     Other,
 }
@@ -40,10 +33,27 @@ impl Operation {
     fn class(self) -> Class {
         match self {
             Self::CheckTargetSupport => Class::TargetSupportCheck,
+            Self::LoadModule => Class::ModuleLoader,
+            Self::FindEntryPoint => Class::LookupByName,
             Self::CreateGlobalSession
             | Self::CreateSession
             | Self::SelectTarget
-            | Self::CreateOptionName => Class::Other,
+            | Self::CreateOptionName
+            | Self::ListLoadedModules
+            | Self::ReadModuleName
+            | Self::ReadModuleFilePath
+            | Self::ListDependencyFiles
+            | Self::SerializeModule
+            | Self::ListEntryPoints
+            | Self::Compose
+            | Self::CreateTypeConformance
+            | Self::CountSpecializationParams
+            | Self::Specialize
+            | Self::Link
+            | Self::GenerateCode
+            | Self::ReadMetadata
+            | Self::QueryMetadata
+            | Self::ReadBlob => Class::Other,
         }
     }
 }
@@ -55,8 +65,19 @@ pub(crate) fn check(
     result: SlangResult,
     diagnostics: Diagnostics,
 ) -> Result<(), Error> {
+    finish(operation, result, diagnostics).map(drop)
+}
+
+/// Returns the diagnostics of a call for a result code that is not negative,
+/// for the value of a successful call (SLC-8), and the classified error, which
+/// holds them, for a negative one.
+pub(crate) fn finish(
+    operation: Operation,
+    result: SlangResult,
+    diagnostics: Diagnostics,
+) -> Result<Diagnostics, Error> {
     if result.0 >= 0 {
-        Ok(())
+        Ok(diagnostics)
     } else {
         Err(error(operation, Failure::Code(result), diagnostics))
     }
@@ -328,6 +349,32 @@ mod tests {
         )
         .expect_err("a negative code fails");
         assert_eq!(error.kind(), ErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn module_loaders_and_lookups_by_name_use_their_own_rows() {
+        let loader = null(Operation::LoadModule, none());
+        assert_eq!(loader.kind(), ErrorKind::NotFound);
+        let lookup = check(Operation::FindEntryPoint, SlangResult::SLANG_FAIL, none())
+            .expect_err("a negative code fails");
+        assert_eq!(lookup.kind(), ErrorKind::NotFound);
+        let other = check(Operation::Link, SlangResult::SLANG_FAIL, none())
+            .expect_err("a negative code fails");
+        assert_eq!(other.kind(), ErrorKind::Internal);
+        let metadata = check(
+            Operation::ReadMetadata,
+            SlangResult::SLANG_E_NOT_AVAILABLE,
+            some(),
+        )
+        .expect_err("a negative code fails");
+        assert_eq!(metadata.kind(), ErrorKind::Compile);
+    }
+
+    #[test]
+    fn finish_returns_the_diagnostics_of_a_success() {
+        let diagnostics = super::finish(Operation::Link, SlangResult::SLANG_OK, some())
+            .expect("a code that is not negative succeeds");
+        assert_eq!(diagnostics, some());
     }
 
     #[test]

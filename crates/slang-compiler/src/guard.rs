@@ -1,7 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
+use std::io::{self, Write as _};
 use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
+use std::process;
 use std::ptr::NonNull;
 
 thread_local! {
@@ -128,6 +131,52 @@ fn reentrant(method: &str) -> ! {
     );
 }
 
+/// Runs `call`, which makes exactly one call into Slang, the function
+/// `callee`, and aborts the process when a C++ exception escapes that call.
+///
+/// The bindings declare every function of Slang with an unwinding ABI, so an
+/// exception that escapes Slang unwinds into Rust instead of being undefined
+/// behaviour. The value that this function holds during the call is the first
+/// value with a destructor that the unwinding reaches, as long as `call`
+/// creates no value with a destructor of its own, so the process aborts before
+/// any other destructor of the crate or of its caller runs and before any
+/// release can enter Slang again. When the program is built with
+/// `panic = "abort"`, the process aborts at the call instead, and this
+/// function does not run. `call` captures its arguments by reference or by
+/// copy, so that it owns nothing that a destructor would drop.
+pub(crate) fn abort_on_exception<R>(callee: &'static str, call: impl FnOnce() -> R) -> R {
+    let armed = AbortOnUnwind { callee };
+    let value = call();
+    let _disarmed = ManuallyDrop::new(armed);
+    value
+}
+
+/// The value whose destructor runs only when an exception unwinds through
+/// [`abort_on_exception`].
+struct AbortOnUnwind {
+    callee: &'static str,
+}
+
+impl Drop for AbortOnUnwind {
+    fn drop(&mut self) {
+        exception_escaped(self.callee);
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn exception_escaped(callee: &str) -> ! {
+    #[expect(
+        clippy::let_underscore_must_use,
+        let_underscore_drop,
+        reason = "the process aborts next whether or not the message reaches standard error, and nothing can report a failure to write it"
+    )]
+    let _ = io::stderr().write_fmt(format_args!(
+        "slang-compiler: a C++ exception escaped from the Slang call {callee}, which Slang does not catch, so the process aborts\n"
+    ));
+    process::abort()
+}
+
 /// Releases a reference now, or after the guard falls back to zero when it is
 /// raised (rule 3 of SLC-28).
 pub(crate) fn release(release: Release) {
@@ -194,7 +243,7 @@ mod tests {
 
     use slang_compiler_sys::ISlangBlob;
 
-    use super::{GlobalSessionRecord, PENDING, call, raise};
+    use super::{GlobalSessionRecord, PENDING, abort_on_exception, call, raise};
     use crate::fake::{Event, FakeBlob, Log, panic_message};
     use crate::owned::Owned;
 
@@ -284,6 +333,17 @@ mod tests {
             log.events(),
             [Event::release("blob", 0), Event::freed("blob")]
         );
+    }
+
+    #[test]
+    fn abort_on_exception_returns_the_value_of_a_call_that_returns() {
+        let mut calls = 0;
+        let value = abort_on_exception("Test::call", || {
+            calls += 1;
+            calls * 10
+        });
+        assert_eq!((value, calls), (10, 1));
+        assert!(!super::is_raised());
     }
 
     #[test]
@@ -384,5 +444,255 @@ mod tests {
                 events_after_reclaim: vec![Event::release("blob", 0), Event::freed("blob")],
             }]
         );
+    }
+
+    /// The tests of the abort of [`abort_on_exception`], each of which runs
+    /// this test binary again as a child process that the abort ends, so they
+    /// sit in a module named `ffi`, which Miri skips.
+    mod ffi {
+        use std::env;
+        use std::ffi::CString;
+        use std::process::{Command, ExitStatus};
+        use std::ptr::{self, NonNull};
+
+        use slang_compiler_sys::{
+            IComponentType, IModule, ISlangBlob, SlangReflection, TypeReflection,
+            spReflection_FindTypeByName,
+        };
+
+        use super::super::abort_on_exception;
+        use crate::reflection::Type;
+        use crate::{Component, GlobalSession, Session, SpecializationArg, Target, TargetFormat};
+
+        /// The environment variable that selects the input of a child process.
+        const CHILD: &str = "SLANG_COMPILER_GUARD_CHILD";
+
+        /// The line that a child prints immediately before the call.
+        const ABOUT_TO_CALL: &str = "the child is about to make the call";
+
+        /// The line that a child prints when the call returned.
+        const RETURNED: &str = "the call returned";
+
+        /// The line that a child prints when a destructor outside the call
+        /// ran.
+        const OUTER_DROPPED: &str = "a destructor outside the call ran";
+
+        /// A module with a generic compute kernel and a generic structure that
+        /// a type name can nest to any depth.
+        const GENERIC: &str = r#"
+interface IValue { uint get(); }
+struct Leaf : IValue { uint get() { return 1; } }
+struct Box<T> : IValue { T inner; uint get() { return 2; } }
+RWStructuredBuffer<uint> output;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main<T : IValue>(uniform T value)
+{
+    output[0] = value.get();
+}
+"#;
+
+        struct PrintOnDrop;
+
+        impl Drop for PrintOnDrop {
+            fn drop(&mut self) {
+                println!("{OUTER_DROPPED}");
+            }
+        }
+
+        /// What a child process printed, and how it ended.
+        struct Child {
+            status: ExitStatus,
+            stdout: String,
+            stderr: String,
+        }
+
+        /// Runs this test binary again with only the test `child` and the
+        /// input `input`.
+        fn run_child(input: &str) -> Child {
+            let output = Command::new(env::current_exe().expect("the test binary has a path"))
+                .args([
+                    "--exact",
+                    "guard::tests::ffi::child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, input)
+                .output()
+                .expect("the child process starts");
+            Child {
+                status: output.status,
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            }
+        }
+
+        /// Returns whether `status` is the end of a process that
+        /// `std::process::abort` stopped: the signal `SIGABRT` on Unix, and
+        /// the status of `__fastfail` on Windows.
+        fn aborted(status: ExitStatus) -> bool {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt as _;
+                status.signal() == Some(6)
+            }
+            #[cfg(windows)]
+            {
+                status.code() == Some(0xC000_0409_u32.cast_signed())
+            }
+        }
+
+        /// Asserts that the child reached the call, that the guard of the call
+        /// `callee` aborted the process with its message, and that the call
+        /// did not return.
+        fn assert_aborted_by_the_guard(child: &Child, callee: &str) {
+            let all = format!("{}{}", child.stdout, child.stderr);
+            assert!(
+                child.stdout.contains(ABOUT_TO_CALL),
+                "the child did not reach the call: {all}"
+            );
+            assert!(
+                !child.stdout.contains(RETURNED),
+                "the call returned, so Slang no longer lets the exception escape: {all}"
+            );
+            assert!(
+                child.stderr.contains(&format!(
+                    "slang-compiler: a C++ exception escaped from the Slang call {callee}, which Slang does not catch, so the process aborts"
+                )),
+                "the guard did not report the call: {all}"
+            );
+            assert!(
+                aborted(child.status),
+                "the child did not end by an abort, but with {:?}: {all}",
+                child.status
+            );
+            assert!(
+                !child.stdout.contains(OUTER_DROPPED),
+                "a destructor outside the call ran before the abort: {all}"
+            );
+        }
+
+        /// Finds the type `name` in the layout of a module that has no
+        /// deeply nested parameter, which Slang lays out without an exception.
+        fn find_type<'session>(
+            session: &'session Session,
+            module: &crate::Module,
+            name: &str,
+        ) -> Option<Type<'session>> {
+            let name = CString::new(name).expect("no NUL byte");
+            let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
+            // SAFETY: `module` keeps the module and its session alive, the
+            // session has a target at index 0, and `diagnostics` is a live
+            // out-pointer.
+            let layout =
+                unsafe { IModule::getLayout(module.as_raw().as_ptr(), 0, &raw mut diagnostics) };
+            if !diagnostics.is_null() {
+                // SAFETY: the call returned a new reference, which the test
+                // owns.
+                unsafe { ISlangBlob::release(diagnostics) };
+            }
+            assert!(!layout.is_null(), "Slang lays out the module");
+            #[expect(
+                ffi_unwind_calls,
+                reason = "the test calls a C function of Slang directly, and an exception that escaped it would unwind into the test, which is defined and fails it"
+            )]
+            // SAFETY: `layout` is a live layout of `module`, `ShaderReflection`
+            // and `SlangReflection` name the same object, and `name` is a C
+            // string.
+            let raw = unsafe {
+                spReflection_FindTypeByName(layout.cast::<SlangReflection>(), name.as_ptr())
+            };
+            let raw = NonNull::new(raw.cast::<TypeReflection>())?;
+            // SAFETY: Slang returned a type of the session of `module`, which
+            // `session` is and keeps alive with the module, on this thread.
+            Some(unsafe { Type::from_raw(raw, session) })
+        }
+
+        /// The body of the child processes of the tests below, which does
+        /// nothing unless the variable `CHILD` names an input.
+        #[test]
+        fn child() {
+            let Ok(input) = env::var(CHILD) else {
+                return;
+            };
+            let _outer = PrintOnDrop;
+            match input.as_str() {
+                "panic" => {
+                    println!("{ABOUT_TO_CALL}");
+                    abort_on_exception("Test::panicking_call", || {
+                        panic!("a Rust panic that unwinds as a C++ exception would")
+                    });
+                    println!("{RETURNED}");
+                }
+                "get_layout" => {
+                    let global = GlobalSession::new().expect("Slang creates a global session");
+                    let session = Session::builder(&global)
+                        .target(Target::new(TargetFormat::Spirv))
+                        .build()
+                        .expect("Slang creates the session");
+                    let module = session
+                        .load_module_from_source("generic", "generic.slang", GENERIC)
+                        .expect("the source compiles")
+                        .into_value();
+                    let entry_point = module.entry_point("main").expect("the entry point exists");
+                    let composed = session
+                        .compose(&[
+                            Component::Module(&module),
+                            Component::EntryPoint(&entry_point),
+                        ])
+                        .expect("the parts compose")
+                        .into_value();
+                    let name = format!("{}Leaf{}", "Box<".repeat(300), ">".repeat(300));
+                    let deep =
+                        find_type(&session, &module, &name).expect("Slang finds the nested type");
+                    let program = composed
+                        .specialize(&[SpecializationArg::Type(deep)])
+                        .expect("Slang accepts the nested type")
+                        .into_value()
+                        .link()
+                        .expect("the specialization links")
+                        .into_value();
+                    let raw = program.as_raw().as_ptr();
+                    let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
+                    println!("{ABOUT_TO_CALL}");
+                    // SAFETY: `program` keeps the program and its session
+                    // alive, the target index 0 exists, and the out-pointer is
+                    // live.
+                    let layout = unsafe {
+                        abort_on_exception("IComponentType::getLayout", || {
+                            IComponentType::getLayout(raw, 0, &raw mut diagnostics)
+                        })
+                    };
+                    println!("{RETURNED} with {layout:?}");
+                }
+                other => panic!("unknown input {other}"),
+            }
+        }
+
+        #[test]
+        fn an_unwinding_call_aborts_the_process_before_an_outer_destructor_runs() {
+            let child = run_child("panic");
+            assert_aborted_by_the_guard(&child, "Test::panicking_call");
+            assert!(
+                child
+                    .stderr
+                    .contains("a Rust panic that unwinds as a C++ exception would"),
+                "{}",
+                child.stderr
+            );
+        }
+
+        #[test]
+        fn get_layout_past_the_nesting_limit_aborts_the_process_through_the_guard() {
+            let child = run_child("get_layout");
+            assert_aborted_by_the_guard(&child, "IComponentType::getLayout");
+            assert!(
+                !child.stderr.contains("panicked at"),
+                "{}{}",
+                child.stdout,
+                child.stderr
+            );
+        }
     }
 }

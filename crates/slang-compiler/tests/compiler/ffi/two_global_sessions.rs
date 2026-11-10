@@ -88,11 +88,11 @@ const M_PERTURB: std::ffi::c_int = -6;
 /// value, and restores glibc's default, which overwrites nothing, when it
 /// drops.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
-struct FreedBlocksPoisoned;
+pub(super) struct FreedBlocksPoisoned;
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 impl FreedBlocksPoisoned {
-    fn set() -> Self {
+    pub(super) fn set() -> Self {
         // SAFETY: `mallopt` with `M_PERTURB` only sets the byte that glibc
         // writes into freed blocks and returns whether it accepted the
         // setting.
@@ -113,7 +113,7 @@ impl Drop for FreedBlocksPoisoned {
 
 /// Allocates and frees many blocks of many sizes, filled with a pattern, and
 /// keeps every second one, so that freed memory is reused and overwritten.
-fn churn_the_heap() -> Vec<Vec<u8>> {
+pub(super) fn churn_the_heap() -> Vec<Vec<u8>> {
     let mut kept = Vec::new();
     for round in 0..4_u8 {
         for size in (16..=65_536).step_by(48) {
@@ -209,6 +209,10 @@ struct RawSession {
     _global: Ref<IGlobalSession>,
 }
 
+#[expect(
+    ffi_unwind_calls,
+    reason = "the test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
+)]
 impl RawSession {
     fn create() -> Self {
         let desc = SlangGlobalSessionDesc::default();
@@ -381,6 +385,10 @@ struct Reflected {
     types: Vec<usize>,
 }
 
+#[expect(
+    ffi_unwind_calls,
+    reason = "the test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
+)]
 impl Reflected {
     /// Describes every parameter of `layout` and every type that `TYPE_NAMES`
     /// names.

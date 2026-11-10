@@ -13,9 +13,10 @@
 //!
 //! Use this crate when you need the Slang API exactly as Slang declares it
 //! and accept writing unsafe code, such as to build a safe wrapper of your
-//! own. Most programs do not need it directly. The planned crate
-//! `slang-compiler` will wrap these bindings in a safe API, and the planned
-//! crate `slango` will build on that to run Slang code on a GPU.
+//! own. Most programs do not need it directly. The crate `slang-compiler`
+//! wraps these bindings in a safe API, which compiles shaders and does not
+//! reflect them yet, and the planned crate `slango` will build on that to run
+//! Slang code on a GPU.
 //!
 //! A binding generator in the repository of this crate writes every item
 //! except the pin from the headers of the pinned Slang build, and no item is
@@ -330,9 +331,27 @@
 //!   can be linked, such as a module or an entry point, which is the function
 //!   where a shader starts to run.
 //!
+//! Slang is written in C++ and raises its internal errors as C++ exceptions.
+//! Most calls catch them, but some calls of the pinned build let an exception
+//! escape for some inputs. Every foreign function of this crate is therefore
+//! declared with the ABI `"C-unwind"`, and every vtable entry with
+//! `"system-unwind"`, which name the same calling conventions as `"C"` and
+//! `"system"`. With these declarations, an exception that escapes a call is
+//! not undefined behaviour. When the program is built with `panic = "unwind"`,
+//! the exception unwinds through the caller's Rust frames and runs their
+//! destructors, and the process aborts when it reaches
+//! [`std::panic::catch_unwind`] or the root of the thread, or the exception is
+//! returned as an opaque error, which Rust leaves unspecified. When the
+//! program is built with `panic = "abort"`, the process aborts as soon as the
+//! exception reaches a Rust frame. A caller that must not run its destructors
+//! during such an exception stops the unwinding itself, for example with a
+//! value whose destructor aborts the process. The type of a callback that
+//! Slang calls keeps the ABI `"C"`, so a panic in a callback aborts the
+//! process instead of unwinding into Slang.
+//!
 //! This crate promises nothing about threads. No interface struct implements
-//! [`Send`] or [`Sync`], and the planned safe crate `slang-compiler` decides
-//! what can cross threads.
+//! [`Send`] or [`Sync`], and the safe crate `slang-compiler` decides what can
+//! cross threads.
 //!
 //! [`Interface`] is an unsafe trait. A type that implements it promises that
 //! it is an interface struct whose vtable has the layout of the Slang
@@ -356,6 +375,10 @@
     clippy::multiple_unsafe_ops_per_block,
     clippy::similar_names,
     reason = "the generated bindings keep the names of the Slang headers and leave each item's meaning to Slang's documentation, their structs mirror C++ structs that Slang fills in, and the crate documentation states the safety contract that every generated function shares"
+)]
+#[expect(
+    ffi_unwind_calls,
+    reason = "the thunks call vtable entries declared with the unwinding ABI, because Slang is C++ and some of its calls let an exception escape, which is undefined behaviour through a non-unwinding ABI"
 )]
 mod bindings;
 

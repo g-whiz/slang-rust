@@ -10,6 +10,10 @@ use slang_compiler_sys::{
 use crate::symbols::C_FUNCTIONS;
 
 #[test]
+#[expect(
+    ffi_unwind_calls,
+    reason = "the smoke test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
+)]
 fn global_session_reports_the_pinned_build_tag_and_releases_every_reference() {
     let desc = SlangGlobalSessionDesc::default();
     let mut session: *mut IGlobalSession = ptr::null_mut();

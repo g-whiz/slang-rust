@@ -1,4 +1,12 @@
+#[cfg(test)]
+mod compile;
+#[cfg(test)]
+mod exceptions;
 mod session;
+#[cfg(test)]
+mod settings;
+#[cfg(test)]
+mod support;
 mod two_global_sessions;
 
 use std::thread;

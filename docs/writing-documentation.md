@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-10 |
+| Date | 2026-11-11 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -319,6 +319,10 @@ These sections state the contract of an item:
 - `# Panics`: Every public function that can panic lists each condition that causes the panic.
 - `# Safety`: Every unsafe function and every unsafe trait, whatever its visibility, lists each condition that the caller, or the implementer of the trait, must uphold. The section says that breaking any of the conditions is undefined behaviour.
 
+A function that can stop the process on purpose, such as a function that aborts when a foreign exception reaches it, states this in a paragraph of the body of its documentation. The paragraph begins with the word "Aborts". It states each condition under which the process aborts, that the process aborts instead of returning an error, and what it writes before it aborts. Section 7.3 has no standard heading for an abort, and `check-doc-headings` rejects every other heading, so an author MUST NOT give the abort a heading of its own, or the check fails.
+
+When every call of a crate into a foreign library can abort for the same reason, the crate-level documentation states that general case once, in a paragraph that begins with "Aborts". A function then carries its own paragraph only when the abort has been observed for its call, because a reader who reaches that function from a search does not read the crate page and needs to know that this call aborts.
+
 A safety comment sits directly above every `unsafe` block and every `unsafe impl`. It names each condition that the unsafe operation requires, citing the `# Safety` section of the function it calls or the documented contract of the Slang API, and states why each condition holds at that point in the code. It does not restate what the code does.
 
 An author MUST write these sections and comments with this content, because a caller who does not know an error or panic condition cannot handle it, and a caller or maintainer who does not know a safety condition can cause undefined behaviour that no test detects. Generated raw bindings are the one exception to the `# Safety` sections and safety comments, under the conditions of Section 7.9.
@@ -333,7 +337,7 @@ This illustration shows a safety comment. The names in it are examples of the fo
 unsafe { release(self.raw) }
 ```
 
-Checked by: `clippy::missing_errors_doc` and `clippy::missing_panics_doc` for the presence of `# Errors` and `# Panics`. `clippy::missing_safety_doc` for the presence of `# Safety` on public unsafe functions. `clippy::undocumented_unsafe_blocks` for the presence of safety comments. The `# Safety` section on a private unsafe function and on an unsafe trait, and the content of every section and safety comment, are judgement rules, because the repository leaves the Clippy option `check-private-items` off (Section 4.3 of the standards document).
+Checked by: `clippy::missing_errors_doc` and `clippy::missing_panics_doc` for the presence of `# Errors` and `# Panics`. `clippy::missing_safety_doc` for the presence of `# Safety` on public unsafe functions. `clippy::undocumented_unsafe_blocks` for the presence of safety comments. `check-doc-headings` for the absence of a heading for an abort. The sentence that states an abort, the `# Safety` section on a private unsafe function and on an unsafe trait, and the content of every section and safety comment, are judgement rules, because the repository leaves the Clippy option `check-private-items` off (Section 4.3 of the standards document).
 
 ### 7.7. Intra-Doc Links
 
@@ -424,6 +428,7 @@ This table summarizes how each rule in this section is checked.
 | The lead-in states why an example is `no_run` | 7.5 | Judgement |
 | `# Errors` exists | 7.6 | `clippy::missing_errors_doc` |
 | `# Panics` exists | 7.6 | `clippy::missing_panics_doc` |
+| An abort is stated in a body paragraph that begins with "Aborts", in the crate documentation for the general case and on each function whose abort was observed | 7.6 | Judgement |
 | `# Safety` exists on public unsafe functions | 7.6 | `clippy::missing_safety_doc` |
 | `# Safety` exists on private unsafe functions and on unsafe traits | 7.6 | Judgement |
 | Safety comment exists | 7.6 | `clippy::undocumented_unsafe_blocks` |
@@ -591,6 +596,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-11: Added to Section 7.6 that a function that can abort the process states each condition of the abort in a paragraph of the body that begins with "Aborts", with no heading of its own, that the crate-level documentation states the general case once in such a paragraph, and that a function carries its own paragraph only when its abort was observed, and added its row to Section 7.12.
 - 2026-11-10: Widened the exemption of Section 7.9 for generated raw bindings to `# Safety` sections and safety comments, on the condition that the crate-level documentation states one shared safety contract, and added cross-references in Sections 7.2 and 7.6 and a row in Section 7.12, and replaced the feature name in the example sentence of Section 7.8 with an illustrative one.
 - 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.
 - 2026-11-10: Moved the rules that the new custom checkers and the extended prose checker enforce from judgement to enforced in Sections 7.2 to 7.5, 7.8, 7.11, 7.12, and 8, and made the heading rule of Section 7.3 a MUST NOT that matches the heading checker.

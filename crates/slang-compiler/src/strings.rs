@@ -5,11 +5,13 @@ use crate::error::{Error, ErrorKind, Operation, Result};
 /// Converts text that the crate passes to Slang into a C string, and reports
 /// an interior NUL byte as an error of kind `InvalidArgument` (SLC-15).
 ///
-/// `what` names the text in the error, such as `the profile`.
+/// `what` names the text in the error, such as `the profile`. The error
+/// gives the position of the NUL byte and not the text, which can be a whole
+/// shader source.
 pub(crate) fn c_string(text: &str, operation: Operation, what: &str) -> Result<CString> {
     CString::new(text).map_err(|error| {
         Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
-            "{what} {text:?} contains a NUL byte at byte {}, which Slang cannot take",
+            "{what} contains a NUL byte at byte {}, which Slang cannot take",
             error.nul_position()
         ))
     })
@@ -35,7 +37,18 @@ mod tests {
         assert_eq!(error.operation(), Operation::CreateSession);
         assert_eq!(
             error.to_string(),
-            "cannot create a session: the profile \"a\\0b\" contains a NUL byte at byte 1, which Slang cannot take"
+            "cannot create a session: the profile contains a NUL byte at byte 1, which Slang cannot take"
+        );
+    }
+
+    #[test]
+    fn c_string_leaves_a_long_text_out_of_the_error() {
+        let source = format!("{}\0{}", "x".repeat(10_000), "y".repeat(10_000));
+        let error =
+            c_string(&source, Operation::LoadModule, "the source").expect_err("a NUL byte fails");
+        assert_eq!(
+            error.to_string(),
+            "cannot load module: the source contains a NUL byte at byte 10000, which Slang cannot take"
         );
     }
 }

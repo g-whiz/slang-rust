@@ -3,12 +3,12 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-10 |
+| Date | 2026-11-11 |
 | Applies to | Agents that write, review, or extend Rust code in this repository, and the standards document `docs/rust-coding-standards.md` |
 
 ## Abstract
 
-This document lists the external sources behind the Rust coding standards of this repository and organizes them for lookup by topic. It holds a topic index, a catalogue of 105 sources with the tier, currency, and relevance of each and the rules derived from it, the topics that no source covers well, the sources that could not be fully read, and the procedure for maintaining the list. When a change introduces a design pattern or raises a design question, an agent uses it to find what the sources say and to check whether the standards already cover the case.
+This document lists the external sources behind the Rust coding standards of this repository and organizes them for lookup by topic. It holds a topic index, a catalogue of 106 sources with the tier, currency, and relevance of each and the rules derived from it, the topics that no source covers well, the sources that could not be fully read, and the procedure for maintaining the list. When a change introduces a design pattern or raises a design question, an agent uses it to find what the sources say and to check whether the standards already cover the case.
 
 ## 1. Introduction
 
@@ -30,7 +30,7 @@ An agent that is about to use a design pattern, or that faces a design question,
 Every source has one identifier, used in this document and in `docs/rust-coding-standards.md` alike:
 
 - `[IR-<n>]`: the entry at zero-based index n of the file `resources.json` in the curated list at <https://github.com/mre/idiomatic-rust>, as of the snapshot that Section 6.2 records.
-- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly. Some of them, such as `[S-10]`, also cover other topics.
+- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly. Some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary.
 
 An identifier is never reused or renumbered (Section 6). The catalogue in Section 3 holds the entry for every identifier that this document cites, so it takes the place of a References section. Section 21 of `docs/rust-coding-standards.md` points to the catalogue in the same way.
 
@@ -402,11 +402,19 @@ Rules: FFI-1 to FFI-11, API-14.
 
 Rules: SYS-1 to SYS-7, FFI-1, FFI-2, TEST-8, DEP-1. Section 17 of the standards document records the conflict over checked-in bindings.
 
-### 2.22. Panics at the FFI Boundary
+### 2.22. Panics, Foreign Exceptions, and Unwinding ABIs at the FFI Boundary
+
+This topic covers:
+
+- A Rust panic that reaches a foreign boundary.
+- A foreign exception, such as a C++ exception, that unwinds into Rust.
+- The `-unwind` ABI strings, such as `"C-unwind"` and `"system-unwind"`.
 
 | Source | Tier | What it contributes |
 | --- | --- | --- |
-| [S-5] | 1 | The unwinding table for each ABI. |
+| [S-5] | 1 | Unwinding across an FFI boundary (`panic.unwind.ffi.undefined`), the table of what happens when an unwind reaches the boundary of an `extern` function (`items.fn.extern.unwind.behavior`), and the `-unwind` ABI strings (`items.extern.abi.unwind`). |
+| [S-6] | 1 | `catch_unwind` and foreign exceptions, and the ABI compatibility of a function whose ABI string is `X` called through a pointer whose ABI string is `X-unwind`. |
+| [S-11] | 1 | The design of the `C-unwind` ABI and of the other `-unwind` ABIs. |
 | [S-1] | 1 | No panic across `extern "C"`, and `catch_unwind` only to translate. Its unwinding page is outdated. |
 | [S-10] | 2 | `catch_unwind` as a last resort. |
 | [IR-13] | 2 | `catch_unwind` at the boundary. Outdated on undefined behaviour. |
@@ -414,7 +422,7 @@ Rules: SYS-1 to SYS-7, FFI-1, FFI-2, TEST-8, DEP-1. Section 17 of the standards 
 | [IR-87] | 3 | Unwinding, the FFI ABI, and `panic=abort`. |
 | [S-9] | 3 | `panic=abort` makes `catch_unwind` inert. |
 
-Rules: FFI-7. Section 4.4 describes the gap in edition 2024 forms.
+Rules: FFI-7, together with the guard that ERR-5 and ERR-6 permit. Section 4.4 records how [S-5], [S-6], and [S-11] filled the former gap.
 
 ### 2.23. COM-Style and Reference-Counted Foreign Objects
 
@@ -696,7 +704,7 @@ These sources teach Rust and yield few rules. An agent consults them for backgro
 
 ## 3. Catalogue
 
-The catalogue holds 105 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-10]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
+The catalogue holds 106 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-11]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
 
 ### 3.1. Curated List Entries
 
@@ -2025,30 +2033,30 @@ The catalogue holds 105 entries: one for each of the 95 entries of the curated l
 **[S-5] The Rust Reference**
 
 - Author: not recorded.
-- Year: a living document, read in 2026.
+- Year: a living document, read in 2026. The pages on panics, functions, and external blocks were consulted again on 2026-11-10 and 2026-11-11.
 - URL: <https://doc.rust-lang.org/reference/>.
 - Kind: book.
 - Tier: 1, named in Section 1.3 of the standards document.
-- Read status: full for the four pages below.
+- Read status: partial. The four pages below other than `panic.html` were read in full, and the three rules named below were consulted again. Of `panic.html`, the rule `panic.unwind.ffi.undefined` was read.
 - Current: yes.
-- Relevance: high. It states exactly which invalid values, aliasing, and ABI mismatches are undefined behaviour, and the edition 2024 form of extern blocks.
-- Consult when: deciding whether a foreign pointer may become a reference, whether a result-code enum is valid, what `unsafe extern` and `safe fn` mean, or what happens when a panic or C++ exception crosses a boundary.
-- Chapters: `behavior-considered-undefined.html`, `unsafety.html`, `items/external-blocks.html`, and `items/functions.html`, which holds the unwinding table.
+- Relevance: high. It states exactly which invalid values, aliasing, and ABI mismatches are undefined behaviour, the edition 2024 form of extern blocks, and what happens when a panic or a foreign exception reaches the boundary of an `extern` function under each ABI.
+- Consult when: deciding whether a foreign pointer may become a reference, whether a result-code enum is valid, what `unsafe extern` and `safe fn` mean, what happens when a panic or C++ exception crosses a boundary, or which ABI string, with or without `-unwind`, a declaration needs.
+- Chapters: `behavior-considered-undefined.html`, `unsafety.html`, `panic.html` for the rule `panic.unwind.ffi.undefined` on unwinding across an FFI boundary, `items/external-blocks.html`, which holds the unwinding ABI strings under the rule `items.extern.abi.unwind`, and `items/functions.html`, which holds the unwinding table under the rule `items.fn.extern.unwind.behavior`.
 - Cited by: FFI-3, FFI-5, FFI-7, UNS-7. Sections 1.3, 17, and 18.
 
-**[S-6] Standard library documentation: keyword unsafe, and the Unsafe Code Guidelines glossary**
+**[S-6] Standard library documentation: keyword unsafe, `catch_unwind`, the primitive type `fn`, and the Unsafe Code Guidelines glossary**
 
 - Author: not recorded.
-- Year: the keyword documentation is from 2026, and the glossary from 2019 onward.
-- URL: <https://doc.rust-lang.org/std/keyword.unsafe.html> and <https://rust-lang.github.io/unsafe-code-guidelines/>.
+- Year: the keyword documentation is from 2026, and the glossary from 2019 onward. The documentation of `catch_unwind` and of the primitive type `fn` was consulted on 2026-11-10 and 2026-11-11.
+- URL: <https://doc.rust-lang.org/std/keyword.unsafe.html> and <https://rust-lang.github.io/unsafe-code-guidelines/>. The documentation of `catch_unwind` and of the primitive type `fn` is under <https://doc.rust-lang.org/std/>.
 - Kind: documentation.
 - Tier: 1, named in Section 1.3 of the standards document.
-- Read status: partial. The keyword page and the glossary were read in full, together with the documentation of `CStr` and `NonNull`. The data layout and validity chapters of the guidelines were not read.
+- Read status: partial. The keyword page and the glossary were read in full, together with the documentation of `CStr` and `NonNull`. Of `std::panic::catch_unwind`, its notes on foreign exceptions were read, and of the primitive type `fn`, its section on ABI compatibility. The data layout and validity chapters of the guidelines were not read.
 - Current: yes. The guidelines describe themselves as largely abandoned and non-normative, but the glossary is maintained, and the layout chapters may be stale.
-- Relevance: high. It defines how to document unsafe contracts and the vocabulary used in review: soundness, validity and safety invariants, and provenance.
-- Consult when: writing a `# Safety` section or a safety comment, or deciding whether an API is sound or merely valid.
-- Chapters: `glossary.html` of the guidelines.
-- Cited by: FFI-4, FFI-6, UNS-3, UNS-6, UNS-7. Section 1.3.
+- Relevance: high. It defines how to document unsafe contracts and the vocabulary used in review: soundness, validity and safety invariants, and provenance. It also states what `catch_unwind` does with a foreign exception, and that a function whose ABI string is `X` may be called through a function pointer whose ABI string is `X-unwind`.
+- Consult when: writing a `# Safety` section or a safety comment, deciding whether an API is sound or merely valid, deciding whether `catch_unwind` can handle an exception from foreign code, or storing a non-unwinding function in a field whose type has an `-unwind` ABI.
+- Chapters: `glossary.html` of the guidelines, the notes of `std::panic::catch_unwind` on foreign exceptions, and the section on ABI compatibility of the primitive type `fn`.
+- Cited by: FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7. Section 1.3.
 
 **[S-7] The Edition Guide: Rust 2024**
 
@@ -2106,6 +2114,19 @@ The catalogue holds 105 entries: one for each of the 95 entries of the curated l
 - Chapters: about, checklist, universal, `libs/interop`, `libs/ux`, `libs/resilience`, `libs/building`, macros, apps, ffi, correctness, performance, project, docs, ai, and agents.
 - Cited by: API-4, API-6, API-7, API-10, CONC-1, CONC-4, DEP-1, DEP-2, DEP-3, DEP-4, ERR-1, ERR-2, ERR-5, FFI-1, FFI-7, FFI-9, OWN-5, SYS-7, TEST-6, TEST-7, TEST-9, TYPE-1, UNS-1, UNS-3. Sections 1.3 and 17.
 
+**[S-11] RFC 2945: C-unwind ABI**
+
+- Author: the Rust project, through its RFC process. The individual authors are not recorded.
+- Year: not recorded. Consulted on 2026-11-10 and 2026-11-11.
+- URL: <https://rust-lang.github.io/rfcs/2945-c-unwind-abi.html>.
+- Kind: documentation.
+- Tier: 1, assigned here as the accepted design of a language feature that the Rust project publishes. An RFC records a design and is not updated after it is accepted, so where it and [S-5] disagree, [S-5] states the current behaviour.
+- Read status: partial. The RFC was consulted for the `C-unwind` ABI, the other `-unwind` ABIs, and the behaviour of a panic or a foreign exception at a boundary with and without `-unwind`. Which of its sections were read in full is not recorded.
+- Current: unknown. The text describes the design at acceptance, and later changes to the language are in [S-5].
+- Relevance: high. The binding generator declares every function of Slang with an unwinding ABI, and the safe crate relies on the defined behaviour of a foreign exception that crosses such a boundary.
+- Consult when: choosing between an ABI string and its `-unwind` form, or reasoning about why a foreign exception is undefined behaviour through a non-unwinding ABI and defined through an unwinding one.
+- Cited by: FFI-7.
+
 ## 4. Coverage Gaps
 
 This section lists topics that the project needs and that the sources in Section 3 do not cover, or cover weakly. For each gap it states what kind of source would fill it. Until such a source is added (Section 6.1), the rules for the topic in `docs/rust-coding-standards.md` rest on project decisions and on the neighbouring sources named here.
@@ -2124,7 +2145,7 @@ Only [IR-5] treats error codes at the FFI boundary, and its examples cover outbo
 
 ### 4.4. Panics Across FFI in Edition 2024 Forms
 
-[S-5], [S-1], and [S-7] together cover panics at the boundary, but weakly. The unwinding page of [S-1] is outdated, [IR-13] still calls unwinding across `extern "C"` undefined behaviour, and [S-7] does not cover `extern "C-unwind"`. The notes state that since Rust 1.81 a panic that escapes `extern "C"` aborts, but no single source read in full describes the current behaviour with edition 2024 syntax. A source that fills this gap is official Rust documentation of the `C-unwind` ABI and of the abort behaviour.
+This gap was filled on 2026-11-11. Before then, [S-5], [S-1], and [S-7] covered panics at the boundary only weakly. The unwinding page of [S-1] is outdated, [IR-13] still calls unwinding across `extern "C"` undefined behaviour, and [S-7] does not cover `extern "C-unwind"`. The rules of [S-5] on unwinding across an FFI boundary, on the unwinding table of `extern` functions, and on the `-unwind` ABI strings, the documentation of `catch_unwind` and of the primitive type `fn` in [S-6], and RFC 2945 [S-11] now describe the current behaviour, and FFI-7 cites them. The section keeps its number so that existing citations still resolve.
 
 ### 4.5. wgpu-Specific Patterns
 
@@ -2181,10 +2202,12 @@ This table lists every entry whose read status is partial or unreachable, with w
 | [IR-72] | Partial | Slide text as summarized. No video or transcript. | SIMP-1, SIMP-4 |
 | [S-1] | Partial | Nine pages, one of them a stub. Several chapters were not read. | 11 rules |
 | [S-2] | Partial | Thirteen pages and the `Builder` reference. Several pages were not read. | FFI-10 |
-| [S-6] | Partial | The keyword page and the glossary. The layout and validity chapters were not read. | FFI-4, FFI-6, UNS-3, UNS-6, UNS-7 |
+| [S-5] | Partial | Four pages in full, and one rule of the page on panics. | FFI-3, FFI-5, FFI-7, UNS-7 |
+| [S-6] | Partial | The keyword page, the glossary, and parts of the documentation of `catch_unwind` and of the primitive type `fn`. The layout and validity chapters were not read. | FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7 |
 | [S-7] | Partial | Thirteen chapters. One chapter returned 404. | CONC-2, CONC-4, FFI-3 |
 | [S-9] | Partial | The build configuration page only. | FFI-7 |
 | [S-10] | Partial | Every chapter. The FAQ, the change log, and the agent version were not read. | 24 rules |
+| [S-11] | Partial | Consulted for the `-unwind` ABIs. The sections read in full are not recorded. | FFI-7 |
 
 Section 3 gives the full list of rules that cite each source.
 
@@ -2223,4 +2246,5 @@ When an agent reads a source again, such as an entry in Section 5 that later bec
 
 ## Change Log
 
+- 2026-11-11: Added RFC 2945 as [S-11], extended [S-5] with the rules on unwinding across an FFI boundary and [S-6] with the documentation of `catch_unwind` and of the primitive type `fn`, widened topic 2.22 to foreign exceptions and the `-unwind` ABIs, marked the gap of Section 4.4 as filled, listed [S-5] and [S-11] in Section 5 as partially read, and recorded FFI-7 as citing [S-6] and [S-11].
 - 2026-11-10: Initial version.

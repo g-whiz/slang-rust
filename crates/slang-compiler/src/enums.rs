@@ -1,6 +1,7 @@
 use slang_compiler_sys::{
     SlangCompileTarget, SlangDebugInfoLevel, SlangFloatingPointMode, SlangLanguageVersion,
-    SlangLineDirectiveMode, SlangMatrixLayoutMode, SlangOptimizationLevel, SlangStage,
+    SlangLineDirectiveMode, SlangMatrixLayoutMode, SlangOptimizationLevel, SlangParameterCategory,
+    SlangStage,
 };
 
 /// A format of code that Slang can generate, which this crate calls a target
@@ -233,13 +234,6 @@ pub enum Stage {
 }
 
 impl Stage {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the lookup of an entry point with its stage arrives in step 3 of Section 15 of docs/design/slang-compiler.md, and the unit tests use this conversion"
-        )
-    )]
     pub(crate) fn to_raw(self) -> SlangStage {
         match self {
             Self::Vertex => SlangStage::SLANG_STAGE_VERTEX,
@@ -415,16 +409,167 @@ impl LineDirectiveMode {
     }
 }
 
+/// The kind of resource that a part of a shader's parameters uses, which
+/// Slang calls a parameter category.
+///
+/// A shader reaches its parameters through bindings, numbered slots of the
+/// graphics API, and each kind of binding is counted separately, such as the
+/// descriptor slots of Vulkan or the texture registers of Direct3D. A
+/// parameter category names one such kind, and a binding space and a binding
+/// number are counted within it. The enumeration has no variant for Slang's
+/// `SLANG_PARAMETER_CATEGORY_NONE`, which names no category. It is
+/// non-exhaustive, so a later version can add categories, and a `match` on
+/// it needs a wildcard arm.
+///
+/// # Examples
+///
+/// See the example of [`Metadata`](crate::Metadata).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ParameterCategory {
+    /// More than one category, for a type that uses several kinds of resource, as
+    /// Slang's `SLANG_PARAMETER_CATEGORY_MIXED`.
+    Mixed,
+    /// Constant buffer bindings, the bindings of buffers of uniform data, as
+    /// Slang's `SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER`, which Slang also calls
+    /// `SLANG_PARAMETER_CATEGORY_METAL_BUFFER`.
+    ConstantBuffer,
+    /// Shader resource bindings, the read-only resources of Direct3D such as
+    /// textures, as Slang's `SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE`, which
+    /// Slang also calls `SLANG_PARAMETER_CATEGORY_METAL_TEXTURE`.
+    ShaderResource,
+    /// Unordered access bindings, the resources that a shader writes in Direct3D,
+    /// as Slang's `SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS`.
+    UnorderedAccess,
+    /// Varying inputs, the per-vertex or per-pixel inputs of a stage, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_VARYING_INPUT`, which Slang also calls
+    /// `SLANG_PARAMETER_CATEGORY_VERTEX_INPUT`.
+    VaryingInput,
+    /// Varying outputs, the per-vertex or per-pixel outputs of a stage, as
+    /// Slang's `SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT`, which Slang also calls
+    /// `SLANG_PARAMETER_CATEGORY_FRAGMENT_OUTPUT`.
+    VaryingOutput,
+    /// Sampler bindings, as Slang's `SLANG_PARAMETER_CATEGORY_SAMPLER_STATE`,
+    /// which Slang also calls `SLANG_PARAMETER_CATEGORY_METAL_SAMPLER`.
+    SamplerState,
+    /// Uniform data, counted in bytes, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_UNIFORM`.
+    Uniform,
+    /// Descriptor slots, the bindings of Vulkan, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT`.
+    DescriptorTableSlot,
+    /// Specialization constants of Vulkan, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT`.
+    SpecializationConstant,
+    /// Push constant buffers of Vulkan, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER`.
+    PushConstantBuffer,
+    /// Binding spaces, which Vulkan calls descriptor sets and Direct3D calls
+    /// register spaces, as Slang's `SLANG_PARAMETER_CATEGORY_REGISTER_SPACE`.
+    RegisterSpace,
+    /// Generic parameters that a component type has not yet specialized, as
+    /// Slang's `SLANG_PARAMETER_CATEGORY_GENERIC`.
+    Generic,
+    /// Ray payloads of ray tracing, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD`.
+    RayPayload,
+    /// Hit attributes of ray tracing, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES`.
+    HitAttributes,
+    /// Callable payloads of ray tracing, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD`.
+    CallablePayload,
+    /// Shader records of ray tracing, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_SHADER_RECORD`.
+    ShaderRecord,
+    /// Type parameters of Slang interface types that a component type has not yet
+    /// specialized, as Slang's `SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM`.
+    ExistentialTypeParam,
+    /// Object parameters of Slang interface types that a component type has not
+    /// yet specialized, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM`.
+    ExistentialObjectParam,
+    /// Binding spaces that a parameter block holds within another, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE`.
+    SubElementRegisterSpace,
+    /// Subpass inputs of Vulkan, as Slang's `SLANG_PARAMETER_CATEGORY_SUBPASS`.
+    Subpass,
+    /// Elements of an argument buffer of Metal, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT`.
+    MetalArgumentBufferElement,
+    /// Attributes of Metal, as Slang's
+    /// `SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE`.
+    MetalAttribute,
+    /// Payloads of Metal, as Slang's `SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD`.
+    MetalPayload,
+}
+
+impl ParameterCategory {
+    pub(crate) fn to_raw(self) -> SlangParameterCategory {
+        match self {
+            Self::Mixed => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_MIXED,
+            Self::ConstantBuffer => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+            }
+            Self::ShaderResource => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+            }
+            Self::UnorderedAccess => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS
+            }
+            Self::VaryingInput => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_VARYING_INPUT,
+            Self::VaryingOutput => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT,
+            Self::SamplerState => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SAMPLER_STATE,
+            Self::Uniform => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_UNIFORM,
+            Self::DescriptorTableSlot => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
+            }
+            Self::SpecializationConstant => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT
+            }
+            Self::PushConstantBuffer => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER
+            }
+            Self::RegisterSpace => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_REGISTER_SPACE,
+            Self::Generic => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_GENERIC,
+            Self::RayPayload => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD,
+            Self::HitAttributes => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES,
+            Self::CallablePayload => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD
+            }
+            Self::ShaderRecord => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SHADER_RECORD,
+            Self::ExistentialTypeParam => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM
+            }
+            Self::ExistentialObjectParam => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM
+            }
+            Self::SubElementRegisterSpace => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE
+            }
+            Self::Subpass => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_SUBPASS,
+            Self::MetalArgumentBufferElement => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT
+            }
+            Self::MetalAttribute => {
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE
+            }
+            Self::MetalPayload => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use slang_compiler_sys::{
         SlangCompileTarget, SlangDebugInfoLevel, SlangFloatingPointMode, SlangLanguageVersion,
-        SlangLineDirectiveMode, SlangMatrixLayoutMode, SlangOptimizationLevel, SlangStage,
+        SlangLineDirectiveMode, SlangMatrixLayoutMode, SlangOptimizationLevel,
+        SlangParameterCategory, SlangStage,
     };
 
     use super::{
         DebugInfoLevel, FloatingPointMode, LanguageVersion, LineDirectiveMode, MatrixLayout,
-        OptimizationLevel, Stage, TargetFormat, Toggle,
+        OptimizationLevel, ParameterCategory, Stage, TargetFormat, Toggle,
     };
 
     #[test]
@@ -613,5 +758,96 @@ mod tests {
         for (mode, raw) in pairs {
             assert_eq!(mode.to_raw(), raw, "{mode:?}");
         }
+    }
+
+    #[test]
+    fn every_parameter_category_converts_to_a_distinct_slang_value() {
+        use ParameterCategory as P;
+        use SlangParameterCategory as C;
+        let pairs = [
+            (P::Mixed, C::SLANG_PARAMETER_CATEGORY_MIXED),
+            (
+                P::ConstantBuffer,
+                C::SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER,
+            ),
+            (
+                P::ShaderResource,
+                C::SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE,
+            ),
+            (
+                P::UnorderedAccess,
+                C::SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS,
+            ),
+            (P::VaryingInput, C::SLANG_PARAMETER_CATEGORY_VARYING_INPUT),
+            (P::VaryingOutput, C::SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT),
+            (P::SamplerState, C::SLANG_PARAMETER_CATEGORY_SAMPLER_STATE),
+            (P::Uniform, C::SLANG_PARAMETER_CATEGORY_UNIFORM),
+            (
+                P::DescriptorTableSlot,
+                C::SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT,
+            ),
+            (
+                P::SpecializationConstant,
+                C::SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT,
+            ),
+            (
+                P::PushConstantBuffer,
+                C::SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER,
+            ),
+            (P::RegisterSpace, C::SLANG_PARAMETER_CATEGORY_REGISTER_SPACE),
+            (P::Generic, C::SLANG_PARAMETER_CATEGORY_GENERIC),
+            (P::RayPayload, C::SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD),
+            (P::HitAttributes, C::SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES),
+            (
+                P::CallablePayload,
+                C::SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD,
+            ),
+            (P::ShaderRecord, C::SLANG_PARAMETER_CATEGORY_SHADER_RECORD),
+            (
+                P::ExistentialTypeParam,
+                C::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM,
+            ),
+            (
+                P::ExistentialObjectParam,
+                C::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM,
+            ),
+            (
+                P::SubElementRegisterSpace,
+                C::SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE,
+            ),
+            (P::Subpass, C::SLANG_PARAMETER_CATEGORY_SUBPASS),
+            (
+                P::MetalArgumentBufferElement,
+                C::SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT,
+            ),
+            (
+                P::MetalAttribute,
+                C::SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE,
+            ),
+            (P::MetalPayload, C::SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD),
+        ];
+        for (category, raw) in pairs {
+            assert_eq!(category.to_raw(), raw, "{category:?}");
+        }
+        let distinct: std::collections::HashSet<u32> = pairs.iter().map(|(_, raw)| raw.0).collect();
+        assert_eq!(distinct.len(), pairs.len());
+        assert!(!distinct.contains(&SlangParameterCategory::SLANG_PARAMETER_CATEGORY_NONE.0));
+        assert!(!distinct.contains(&SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT.0));
+    }
+
+    #[test]
+    fn the_aliases_of_parameter_categories_share_the_value_of_their_variant() {
+        assert_eq!(
+            ParameterCategory::ConstantBuffer.to_raw(),
+            SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_BUFFER
+        );
+        assert_eq!(
+            ParameterCategory::VaryingInput.to_raw(),
+            SlangParameterCategory::SLANG_PARAMETER_CATEGORY_VERTEX_INPUT
+        );
+        assert_eq!(
+            ParameterCategory::Subpass.to_raw(),
+            SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT_V1
+        );
     }
 }

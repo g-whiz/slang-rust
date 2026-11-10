@@ -362,6 +362,10 @@ impl CompilerOptions {
     /// options of the session and of a target, and the target's own value
     /// wins. The pinned Slang build reads this option when it lays out types
     /// and generates code for a target, from the options of that target.
+    /// In the options of
+    /// [`ComponentType::link_with_options`](crate::ComponentType::link_with_options),
+    /// it changes the generated code but not the layout that reflection
+    /// reports, as that method describes.
     ///
     /// # Examples
     ///
@@ -376,6 +380,10 @@ impl CompilerOptions {
     /// The pinned Slang build reads this option when it lays out types for a
     /// target, from the options of that target, which start from the options
     /// of the session.
+    /// In the options of
+    /// [`ComponentType::link_with_options`](crate::ComponentType::link_with_options),
+    /// it changes the generated code but not the layout that reflection
+    /// reports, as that method describes.
     ///
     /// # Examples
     ///
@@ -390,6 +398,10 @@ impl CompilerOptions {
     /// The pinned Slang build reads this option when it lays out types for a
     /// target, from the options of that target, which start from the options
     /// of the session.
+    /// In the options of
+    /// [`ComponentType::link_with_options`](crate::ComponentType::link_with_options),
+    /// it changes the generated code but not the layout that reflection
+    /// reports, as that method describes.
     ///
     /// # Examples
     ///
@@ -406,7 +418,10 @@ impl CompilerOptions {
     /// binding, such as a buffer or a texture. The pinned Slang build reads
     /// this option from the options of the session when it links the code of
     /// a target, and from the options of the target when it generates the
-    /// code, so set it on the session for it to apply to both steps.
+    /// code, so set it on the session for it to apply to both steps. In the
+    /// options of
+    /// [`ComponentType::link_with_options`](crate::ComponentType::link_with_options),
+    /// it changes the generated code as it does on the session.
     ///
     /// # Examples
     ///
