@@ -85,8 +85,11 @@
 //! checks that the loaded library is the build that this crate was built for,
 //! and fails with [`ErrorKind::VersionMismatch`] when it is not.
 //!
-//! When Slang is linked statically, from a build of Slang's source, Slang has
-//! no glslang, the library that validates and optimizes SPIR-V. This crate
+//! When Slang is linked statically, from a build of Slang's source, it does
+//! not include `slang-glslang`, the library through which Slang optimizes
+//! SPIR-V and validates it when the environment variable
+//! `SLANG_RUN_SPIRV_VALIDATION` is `1`. Without that library, Slang returns
+//! SPIR-V that is neither optimized nor validated. This crate
 //! does not detect which way Slang was linked, and it returns what Slang
 //! reports. What [`GlobalSession::check_target_support`] reports for SPIR-V
 //! on that build has not been established.

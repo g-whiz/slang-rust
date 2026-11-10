@@ -232,9 +232,14 @@
 //! Slang library at run time.
 //!
 //! The static build leaves out `slang-glslang`, the shared module of Slang
-//! that holds glslang and SPIRV-Tools. Compiling to SPIR-V still works, but
-//! Slang neither optimizes nor validates the SPIR-V, and it says nothing about
-//! that. Output as SPIR-V assembly, the text form of SPIR-V, fails, as does
+//! that holds glslang and SPIRV-Tools, the tools through which Slang optimizes
+//! and validates SPIR-V. Compiling to SPIR-V still succeeds without it, but
+//! Slang returns the SPIR-V unoptimized, and it skips validation even when the
+//! environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, the only setting
+//! under which the pinned Slang validates SPIR-V on either route. No
+//! diagnostic says that either step was skipped. At most, the first such
+//! compile in a global session reports that Slang failed to load `spirv-opt`,
+//! the name under which it loads the optimizer. Output as SPIR-V assembly, the text form of SPIR-V, fails, as does
 //! every other feature that needs the module. The statically linked Slang
 //! still loads a `slang-glslang` shared library by name when the dynamic
 //! loader finds one, such as the one in `$VULKAN_SDK/lib` when that directory

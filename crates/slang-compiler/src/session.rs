@@ -302,14 +302,13 @@ impl fmt::Debug for Session {
     }
 }
 
-/// The position of a target in the list of targets of a session, which
-/// selects that target in the calls that generate code or a layout.
+/// The position of a target in the list of targets of a session.
 ///
 /// A target is a format of code that a session generates, such as SPIR-V,
 /// together with its profile and options. Get a target index from
-/// [`Session::target_index`], which checks the position. Each call that takes
-/// a target index checks it again against the targets of the session that it
-/// is used with.
+/// [`Session::target_index`], which returns one only for a position below
+/// [`Session::target_count`]. A target index belongs to the session that
+/// returned it, and it holds only the position, not the session.
 ///
 /// # Examples
 ///
