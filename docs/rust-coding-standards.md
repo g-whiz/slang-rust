@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document sets the rules that all Rust code in this repository follows. It separates enforced rules, which a lint or tool checks on every change, from judgement rules, which a reviewer checks because no tool can. For the enforced rules, it specifies the intended workspace lint configuration and the other tools, and it explains what a failing check means and how to fix it or record an exception. For the judgement rules, it gives each rule a stable identifier, an imperative statement, and the reason, grouped by topic: API design, type-driven design, errors and panics, ownership, unsafe code, the foreign function interface, build scripts, COM-style interfaces, concurrency and async, testing, dependencies, and simplicity. It also records how conflicts between sources were resolved, lists outdated advice to avoid, and says how to extend the standard. The primary readers are the coding agents that write Rust here and the review agents that check their work.
+This document sets the rules that all Rust code in this repository follows. It separates enforced rules, which a lint or tool checks on every change, from judgement rules, which a reviewer checks because no tool can. For the enforced rules, it specifies the workspace lint configuration and the other tools, and it explains what a failing check means and how to fix it or record an exception. For the judgement rules, it gives each rule a stable identifier, an imperative statement, and the reason, grouped by topic: API design, type-driven design, errors and panics, ownership, unsafe code, the foreign function interface, build scripts, COM-style interfaces, concurrency and async, testing, dependencies, and simplicity. It also records how conflicts between sources were resolved, lists outdated advice to avoid, and says how to extend the standard. The primary readers are the coding agents that write Rust here and the review agents that check their work.
 
 ## 1. Introduction
 
@@ -16,7 +16,7 @@ The crates in this repository wrap the Slang shader compiler, a C++ library with
 
 ### 1.1. Scope
 
-This document applies to every Rust crate, build script, example, test, and tool in the repository. No crate has been written yet. The one crate directory present, `crates/slang-compiler-sys`, is an abandoned sketch that this standard does not describe and that will be rewritten. The Project Status section of `AGENTS.md` gives the details. The planned crates are:
+This document applies to every Rust crate, build script, example, test, and tool in the repository. No crate with an API has been written yet. The one crate present, `crates/slang-compiler-sys`, is a placeholder with crate-level documentation and no API, which exists so that the tools of Section 4.8 have a package to check. Milestone M1 replaces its contents with the raw bindings. The Project Status section of `AGENTS.md` gives the details. The planned crates are:
 
 - `slang-compiler-sys`: the raw bindings to the native Slang compiler library. The binding generator produces them, and they are checked in. Its build script links the native library, and its manifest declares `links = "slang-compiler"`.
 - `slang-compiler`: the safe crate that wraps `slang-compiler-sys` in idiomatic Rust.
@@ -112,7 +112,9 @@ Each rule has an imperative statement, the reason, and the sources that support 
 
 ### 4.1. Status of the Configuration
 
-None of the configuration in this section exists in the repository yet. This section is its specification. An agent that creates the workspace manifest MUST add the tables of Sections 4.2 and 4.3 as written here, or update this section in the same change, because an agent that reads a rule here assumes that a tool enforces it. As Section 7.12 of the writing guide states, a lint enforces a rule only once the configuration enables it and the check treats its warnings as errors. Until then, each rule in this section is a judgement rule, as Section 3.5 of the writing guide requires.
+The configuration in this section exists in the repository. The root `Cargo.toml` holds the workspace lint table of Section 4.2, and `clippy.toml` holds the configuration of Section 4.3. `deny.toml` and the recipes that run the tools of Section 4.8 exist as well, and Section 4.2 of `docs/design/tooling.md` lists those recipes and which of them the check runs. An agent that changes the workspace manifest or `clippy.toml` MUST keep the tables of Sections 4.2 and 4.3 identical to the files, or update this section in the same change, because an agent that reads a rule here assumes that a tool enforces it.
+
+As Section 7.12 of the writing guide states, a lint enforces a rule only when the configuration enables it and the check treats its warnings as errors. A rule that no configured lint or tool checks is a judgement rule, as Section 3.5 of the writing guide requires. Three parts of the tooling do not exist yet: the custom checkers that Section 7 of `docs/design/tooling.md` plans for rules of the writing guide, the CI workflow, and the recipe that checks for breaking changes, which arrives with the first release. The rules that the custom checkers will check stay judgement rules until those checkers exist.
 
 ### 4.2. Workspace Lint Table
 
@@ -454,25 +456,25 @@ Each entry that this section first recorded was run on the toolchain of Section 
 
 ### 4.8. Other Tools
 
-Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, and the table marks each one as available. No recipe runs any of them yet, and none of their configuration exists in the repository (Section 4.1). Milestone M0 adds the recipes and the configuration. Until the check runs a tool, each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
+Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, and the Status column says whether the check runs it. A recipe runs each command of this section that the check runs, and Section 4.2 of `docs/design/tooling.md` lists those recipes. The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
 
 | Tool | What it owns | Status |
 | --- | --- | --- |
-| `cargo fmt` | Formatting, with the default rustfmt settings | Available |
-| `cargo clippy` | Every lint of Section 4.2 | Available |
-| `cargo nextest run` | Unit and integration tests, including the binding tests of TEST-8. It does not run doctests. | Available |
-| `cargo test --doc` | Doctests (Section 7.5 of the writing guide) | Available |
-| `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Available |
-| `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Available |
-| `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Available |
-| `cargo semver-checks` | Breaking changes to the public API against the last release | Available |
-| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Available |
-| `cargo machete` | Unused dependencies | Available |
-| `cargo llvm-cov` | Test coverage | Available |
-| `typos` | Spelling mistakes in identifiers and text | Available |
-| `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Available |
-| `actionlint` | GitHub Actions workflow files | Available |
-| Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain | Available |
+| `cargo fmt` | Formatting, with the default rustfmt settings | Run by the check |
+| `cargo clippy` | Every lint of Section 4.2 | Run by the check |
+| `cargo nextest run` | Unit and integration tests, including the binding tests of TEST-8. It does not run doctests. | Run by the check |
+| `cargo test --doc` | Doctests (Section 7.5 of the writing guide) | Run by the check |
+| `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Run by the check |
+| `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
+| `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Installed, run by hand |
+| `cargo semver-checks` | Breaking changes to the public API against the last release | Installed, not run until the first release |
+| `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Installed, run outside the check and planned for CI |
+| `cargo machete` | Unused dependencies | Run by the check |
+| `cargo llvm-cov` | Test coverage | Installed, run outside the check and planned for CI |
+| `typos` | Spelling mistakes in identifiers and text | Run by the check |
+| `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Run by the check |
+| `actionlint` | GitHub Actions workflow files | Installed, not run until the first workflow exists |
+| Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain | Run by the check |
 
 These commands run the checks of the tools from `cargo fmt` to `cargo deny`:
 
@@ -485,10 +487,9 @@ CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
 cargo deny check
 ```
 
-These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV:
+These commands run the checks of the tools from `cargo hack` to Miri. The first checks the features, and the second checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed.
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --each-feature
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --feature-powerset
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --rust-version
 cargo machete
@@ -507,7 +508,7 @@ The doctest command runs on the whole workspace, which skips packages without a 
 
 An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence, and MUST give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
 
-This section names no `just` recipes. `docs/design/tooling.md` specifies the recipes and the CI workflows, and decides how these commands are grouped.
+This section names no `just` recipes other than `coverage`. Section 4.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 8 specifies the CI workflow.
 
 ## 5. API Design
 
@@ -931,7 +932,7 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 **TEST-6.** Test the failure paths, not only success: malformed shader source, invalid UTF-8, interior NUL bytes, missing files, and each branch of code that takes a lock. Assert that each returns the documented error kind, and inject Slang failures through the fake implementation of TEST-7. Reason: failure paths rarely run in normal use, so users find their bugs, and a panic on malformed input violates ERR-5. [IR-36] [IR-84] [S-10]
 
-**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness. Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. Miri is installed, and no recipe runs it yet (Section 4.8). [S-8] [S-10] [IR-27]
+**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness. Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. The check runs Miri through nextest (Section 4.8). [S-8] [S-10] [IR-27]
 
 **TEST-8.** Keep two tests for the bindings: one that runs the binding generator into a temporary location and fails if the result differs from the checked-in bindings, and one that references the native symbols, so that a broken link fails a test instead of a user's build. Reason: checked-in bindings diverge silently from the generator and the headers, and the linker resolves a symbol only when code uses it. [S-3] [S-4]
 
@@ -1050,7 +1051,7 @@ The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep
 
 These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it. Defects in GPU drivers lie below every crate here. Attacks on the repository itself, such as a malicious change, are a matter of access control, not of coding rules.
 
-The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, until the configuration of Section 4 exists and the check runs the tools of Section 4.8, the rules they would enforce depend on review. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
+The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, the rules that the planned custom checkers of `docs/design/tooling.md` will check depend on review until those checkers exist, and until a CI workflow exists, the check runs only when an agent runs it before a merge. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
 
 ## 21. References
 
@@ -1177,5 +1178,6 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-10: Recorded that the lint configuration, `clippy.toml`, `deny.toml`, and the recipes that run the tools exist, replaced the abandoned sketch with the placeholder crate in Section 1.1, marked in Section 4.8 which tools the check runs, limited the feature check of Section 4.8 to the feature powerset, and updated TEST-7 and the residual risk of Section 20 to match.
 - 2026-11-10: Marked the tools of Section 4.8 as installed, added their verified commands with `--no-tests=warn` and the nextest form of Miri, corrected the `deny.toml` rule on path dependencies, and recorded the arguments of the `coverage` recipe.
 - 2026-11-10: Initial version.

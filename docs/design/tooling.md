@@ -8,13 +8,13 @@
 
 ## Abstract
 
-This document specifies how the deterministic checks of the slang-rust repository are installed and run. It defines what milestone M0 changes in the repository: the removal of an abandoned sketch crate, the one skeleton crate that gives every tool something to check, and the configuration files that are added. It defines the `just` recipes and which of them make up the aggregate check that runs before every merge, the nextest configuration that implements the test tiers, the git hooks, the small custom checkers that move rules of the writing guide from review to a tool, the continuous integration workflow and its security rules, the dependency policy, the readiness for publishing, and the requirements on the development container image. It gives the order in which M0 makes these changes, so that every step leaves the aggregate check passing, and it lists the questions still open. None of this is implemented yet.
+This document specifies how the deterministic checks of the slang-rust repository are installed and run. It defines what milestone M0 changes in the repository: the removal of an abandoned sketch crate, the one skeleton crate that gives every tool something to check, and the configuration files that are added. It defines the `just` recipes and which of them make up the aggregate check that runs before every merge, the nextest configuration that implements the test tiers, the git hooks, the small custom checkers that move rules of the writing guide from review to a tool, the continuous integration workflow and its security rules, the dependency policy, the readiness for publishing, and the requirements on the development container image. It gives the order in which M0 makes these changes, so that every step leaves the aggregate check passing, and it lists the questions still open. The skeleton crate, the configuration files, the recipes, the nextest profiles, and the hooks are implemented, and the custom checkers and the continuous integration workflow are not yet.
 
 ## 1. Introduction
 
 ### 1.1. Problem
 
-The coding standard specifies a strict lint configuration and a set of tools, and the writing guide specifies rules for documentation, but the repository runs almost none of them. Only the prose, shell, and commit message checks have recipes. Until the rest are installed, every rule they would enforce is a judgement rule that a reviewer checks by hand, which the repository's central principle forbids wherever a tool can do the work.
+The coding standard specifies a strict lint configuration and a set of tools, and the writing guide specifies rules for documentation, but before M0 the repository ran almost none of them, and only the prose, shell, and commit message checks had recipes. Until a tool is installed and run, every rule it would enforce is a judgement rule that a reviewer checks by hand, which the repository's central principle forbids wherever a tool can do the work.
 
 ### 1.2. Purpose
 
@@ -40,7 +40,15 @@ This document does not design the binding generator, the build script of `slang-
 
 ### 1.6. Current State
 
-The repository holds the `justfile` with the recipes that the Validating Changes section of `AGENTS.md` lists, the scripts under `scripts/`, the hooks in `.pre-commit-config.yaml`, `.editorconfig`, and `.claude/settings.json`. The workspace has one member, the abandoned sketch `crates/slang-compiler-sys`, which the Project Status section of `AGENTS.md` describes. No lint configuration, `clippy.toml`, `deny.toml`, nextest configuration, Rust check recipe, licence file, `README.md`, or CI workflow exists.
+Steps 1 to 4 of Section 13 are done, and steps 5 and 6 remain. The repository holds:
+
+- The skeleton crate of Section 3.2, in place of the abandoned sketch, which is deleted.
+- The workspace manifest of Section 3.3, with the workspace lint table of the coding standard.
+- `clippy.toml`, `LICENSE`, `README.md`, `taplo.toml`, `typos.toml`, `.config/nextest.toml`, and `deny.toml`.
+- Every recipe of Section 4.2 that arrives in M0, except the custom checkers, their self-tests, and `check-workflows`.
+- The three hooks of Section 6, together with the hooks and settings that existed before M0.
+
+`just check` passes in the development container. The custom checkers of Section 7, the extension of `check-prose` in Section 7.6, the CI workflow of Section 8, and `check-workflows` do not exist yet. Neither do the recipes that arrive in M1 and M7.
 
 ## 2. Requirements Language
 
@@ -127,7 +135,7 @@ No `rustfmt.toml` is added, because Section 4.8 of the coding standard specifies
 
 TOOL-30. `taplo.toml` MUST set `indent_string = "    "` in its `[formatting]` table and `exclude = ["target/**", ".worktrees/**"]`, and `typos.toml` MUST accept each correct word that typos reports in the repository, because `check-toml` and `check-typos` otherwise fail on files that are correct. taplo indents with two spaces by default, which disagrees with the four spaces that `.editorconfig` sets for `*.toml`, and it does not read `.gitignore`, so without the exclusions it also checks the build directory and every worktree.
 
-On 2026-11-10, typos reports four findings in the repository, and each is correct text: the string `ba` in the regular expression `(ba)?sh`, twice in `scripts/justfile-recipes` and once in `scripts/check-shell`, and `Ede`, the surname of an author, in `docs/rust-references.md`. `typos.toml` accepts them, for example with entries in its `[default.extend-words]` table. typos reads its configuration from `typos.toml`, `_typos.toml`, or `.typos.toml`, and M0 uses the first name.
+On 2026-11-10, typos reports four findings in the repository, and each is correct text: a two-letter fragment of the regular expression that matches the shell names in the shebang checks, twice in `scripts/justfile-recipes` and once in `scripts/check-shell`, and the surname of a cited author in `docs/rust-references.md`. `typos.toml` accepts them with two entries in the `extend-ignore-re` list of its `[default]` table: one matches the whole regular expression, and the other matches the author's full name. typos skips only the text that an entry matches, so it still checks the same letters anywhere else, which accepting the words in `[default.extend-words]` would not do. A document that names this configuration describes the two findings instead of spelling them out, because typos reports such a document too. typos reads its configuration from `typos.toml`, `_typos.toml`, or `.typos.toml`, and M0 uses the first name.
 
 `typos.toml` sets no locale. typos cannot enforce Canadian spelling, because with its default settings it accepts both `colour` and `color`, so `scripts/check-prose` and its word list keep that job (Section 8 of the writing guide).
 
@@ -135,7 +143,7 @@ On 2026-11-10, typos reports four findings in the repository, and each is correc
 
 ### 4.1. Rules
 
-The `justfile` stays one flat file with `[group]` attributes, a help comment on every recipe, and shell that is `shellcheck`-clean, as Hard Rule 8 of `AGENTS.md` requires. The `checks` and `git` groups exist today. This document adds the group `rust` for the recipes that change files or run tests and are not checks. Every recipe that this document adds takes no parameters, except the custom checkers of Section 7, which take optional paths.
+The `justfile` stays one flat file with `[group]` attributes, a help comment on every recipe, and shell that is `shellcheck`-clean, as Hard Rule 8 of `AGENTS.md` requires. The `justfile` has the groups `checks`, `git`, and `rust`. M0 added the group `rust` for the recipes that change files or run tests and are not checks. Every recipe that this document adds takes no parameters, except the custom checkers of Section 7, which take optional paths.
 
 TOOL-6. An agent MUST add each recipe of Section 4.2 with the name, the group, and the membership of `check` that the table gives, and MUST update the table in the same change when one of them has to differ, because agents, hooks, and CI call recipes by name, and a recipe that differs from this table breaks every caller that follows it.
 
@@ -183,8 +191,8 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes | M0, with the first workflow |
 | `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` | M0 |
 | `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` | M0 |
-| `check-features` | `checks` | The cargo hack commands of Section 4.8 for each feature and for the feature powerset | No, the CI job `features` runs it | M0 |
-| `check-msrv` | `checks` | The MSRV command of Section 4.8, which builds the workspace with the toolchain that `rust-version` names | No, the CI job `msrv` runs it, and its first local run downloads that toolchain (Section 17.3) | M0 |
+| `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `features` runs it | M0 |
+| `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `msrv` runs it, and its first local run downloads that toolchain (Section 17.3) | M0 |
 | `check-semver` | `checks` | cargo semver-checks against the last published version of each published crate | No, the CI job `semver` runs it | M7, with the first release (Section 10) |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate, and it fails while no crate contains a function | No, the CI job `coverage` runs it | M0 |
 
@@ -194,9 +202,9 @@ How the checks that pass `--all-features` and the feature matrix of `check-featu
 
 ### 4.3. Aggregate Recipes
 
-`check` runs `check-prose`, `check-shell`, `check-commit-message-self-test`, the self-test recipe of each custom checker, `check-typos`, `check-toml`, `check-workflows`, and `check-rust`. `check-workflows` joins `check` with the first workflow, in step 6 of Section 13, because actionlint exits with status 3 when the repository has no workflow. `check` needs network access (Section 17.6).
+`check` runs `check-prose`, `check-shell`, `check-commit-message-self-test`, `check-typos`, `check-toml`, and `check-rust`, in that order. The self-test recipe of each custom checker joins `check` with its checker, in step 5 of Section 13. `check-workflows` joins `check` with the first workflow, in step 6 of Section 13, because actionlint exits with status 3 when the repository has no workflow. `check` needs network access (Section 17.6).
 
-`check-rust` runs the custom checkers of Sections 7.2 to 7.5, `check-fmt`, `check-deny`, `check-unused-deps`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order, so that the checks that do not compile the workspace report first. From M1 it also runs `check-doc-without-slang`.
+`check-rust` runs `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order, so that the checks that do not compile the workspace report first. The custom checkers of Sections 7.2 to 7.5 join it before `check-fmt`, in step 5 of Section 13, and from M1 it also runs `check-doc-without-slang`.
 
 `check-rust` runs `test-gpu` and not `test`, because the `gpu` profile selects every test that the `default` profile selects (Section 5). `test-gpu` runs in the development container on lavapipe, so `check` meets TOOL-8. A test in a `gpu` module that finds no adapter fails, as ARCH-23 of the architecture design requires, so `check` fails on a machine without any adapter.
 
@@ -481,6 +489,8 @@ Hard Rule 1 of `AGENTS.md` requires each of these updates in the change that alt
 - `README.md`, which M0 creates.
 - This document: Section 1.6, and the Status field, which changes to "Living document" when M0 is complete.
 
+The change that carried out steps 1 to 4 of Section 13 made the updates that those steps require, and it created `README.md`. The updates that remain belong to steps 5 and 6 and to the end of M0: the rows and "Checked by" statements of each custom checker (TOOL-17), Sections 7.11 and 8 of the writing guide, the shrinking of Technology Decisions in `AGENTS.md`, the rows of Sections 16 and 17 of the architecture design that the first CI run answers, and the Status field of this document.
+
 ## 13. Implementation Order for M0
 
 M0 is carried out as these changes, in this order. Each change updates the documents that Section 12 assigns to it, and leaves `just check` passing.
@@ -491,6 +501,8 @@ M0 is carried out as these changes, in this order. Each change updates the docum
 4. Add `deny.toml` (Section 9) and `check-deny`, with `check-deny` in `check-rust`.
 5. Add the custom checkers of Sections 7.2 to 7.5, and the extension of Section 7.6, one change for each, each with its self-test and the document changes of TOOL-17.
 6. Add the workflow of Section 8 with the jobs that arrive in M0, and add the recipe `check-workflows`, with `check-workflows` in `check`.
+
+Steps 1 to 4 are done. They were carried out together in one change, which leaves `just check` passing. Steps 5 and 6 remain.
 
 ## 14. Assumptions to Confirm
 
@@ -550,7 +562,7 @@ This table lists every environment variable that the recipes, the hooks, or the 
 
 ### 17.3. Platforms and Minimum Supported Rust Version
 
-The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 8.1. The workspace declares `rust-version = "1.99"` (TOOL-4), which only a change of TOOL-5 raises, and `check-msrv` verifies it in the CI job `msrv`. cargo hack always uses the rustup toolchain named exactly like `rust-version`, which is `1.99`, and installs it with rustup when it is missing, even though the installed stable toolchain is 1.99.1. The first run of `check-msrv` on a machine therefore downloads a toolchain and needs network access.
+The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 8.1. The workspace declares `rust-version = "1.99"` (TOOL-4), which only a change of TOOL-5 raises, and `check-msrv` verifies it in the CI job `msrv`. cargo hack always uses the rustup toolchain named exactly like `rust-version`, which is `1.99`, and installs it with rustup when it is missing, even though the installed stable toolchain is 1.99.1. The first run of `check-msrv` on a machine therefore downloads a toolchain and needs network access. On 2026-11-10, in the development container, that first run installed the toolchain `1.99` in about eleven seconds, and later runs use the installed toolchain.
 
 ### 17.4. Failing Checks
 
@@ -575,7 +587,7 @@ This table says what a failure of each check means and what the developer does.
 
 Clippy can report a `clippy::cargo_common_metadata` warning again after the manifest has been fixed, because it replays its cached result until a source file of the crate changes. The developer then updates the modification time of a source file of the crate, or cleans the build output of the crate, and runs the check again.
 
-No agent weakens a configuration to make a check pass, as Hard Rule 6 of `AGENTS.md` states. How long each check takes has not been measured, and this document states no expected duration.
+No agent weakens a configuration to make a check pass, as Hard Rule 6 of `AGENTS.md` states. Apart from the first run of `check-msrv` (Section 17.3), how long each check takes has not been measured, and this document states no expected duration.
 
 ### 17.5. Logs
 
@@ -634,5 +646,6 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded steps 1 to 4 of Section 13 as done in Sections 1.6, 12, and 13, corrected the order of `check-rust`, the commands of `check-features` and `check-msrv`, and the description of `typos.toml` to match the implementation, and recorded the first run of `check-msrv`.
 - 2026-11-10: Recorded the tool behaviour verified after the image rebuild, resolved the open assumptions, moved the image-dependent recipes into M0 and `check-semver` to M7, and added TOOL-30, TOOL-31, TQ-6, and TQ-7.
 - 2026-11-10: Initial version.

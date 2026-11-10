@@ -1,0 +1,4 @@
+[default]
+# The shell name pattern `(ba)?sh` in the shebang checks, and the surname of a
+# cited author.
+extend-ignore-re = ["\\(ba\\)\\?sh", "Rob Ede"]

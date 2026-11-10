@@ -1,0 +1,4 @@
+exclude = ["target/**", ".worktrees/**"]
+
+[formatting]
+indent_string = "    "

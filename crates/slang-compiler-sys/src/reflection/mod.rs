@@ -1,2 +1,0 @@
-mod ty;
-mod variable;

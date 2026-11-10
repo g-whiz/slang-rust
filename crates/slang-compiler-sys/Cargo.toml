@@ -1,17 +1,15 @@
 [package]
 name = "slang-compiler-sys"
-build = "build.rs"
-links = "slang-compiler"
-authors.workspace = true
+description = "Raw bindings to the Slang shader compiler. A placeholder with no bindings yet."
+keywords = ["slang", "shader", "ffi", "bindings", "gpu"]
+categories = ["external-ffi-bindings", "graphics"]
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
 
-[dependencies]
-
-[build-dependencies]
-bindgen = { workspace = true }
-cmake = { workspace = true }
-
-[features]
-# when enabled: builds and statically links slang
-dynamic = []
+[lints]
+workspace = true
