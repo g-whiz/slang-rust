@@ -10,15 +10,15 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage, and no crate is usable yet. The workspace holds two crates. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the other crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage. No crate is published, and no crate with a safe API exists yet. The workspace holds two crates. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the other crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
-No crate in this table is complete. Each crate gets a link to its documentation when it has an API.
+No crate in this table is published. Each crate gets a link to its documentation when it is published.
 
 | Crate | State | Purpose |
 | --- | --- | --- |
-| `slang-compiler-sys` | In progress, with the raw bindings, the pinned Slang version, the linking of the Slang of an installed Vulkan SDK, and the static build of Slang from source present | Raw bindings to the native Slang library, generated from the Slang headers |
+| `slang-compiler-sys` | Built and not published, with the raw bindings, the pinned Slang version, the linking of the Slang of an installed Vulkan SDK, and the static build of Slang from source | Raw bindings to the native Slang library, generated from the Slang headers |
 | `slang-compiler` | Planned | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |

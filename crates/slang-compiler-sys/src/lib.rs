@@ -3,16 +3,19 @@
 //!
 //! [Slang](https://shader-slang.org) is a shader compiler: it compiles
 //! shaders, the programs that run on a graphics processing unit (GPU), from
-//! the Slang language to targets such as SPIR-V for Vulkan. Its native library
-//! exposes its API through the C++ header `slang.h`. This crate declares that
-//! API in Rust exactly as the header defines it, and adds nothing: the C
-//! functions, the COM-style interfaces with their vtables and UUIDs, the
+//! the Slang language to targets such as SPIR-V, the binary shader format of
+//! the Vulkan graphics API. Its native library exposes its API through the C++
+//! header `slang.h`. This crate declares that API in Rust exactly as the
+//! header defines it, and adds nothing: the C functions, the interfaces, the
 //! enumerations, the structs, and the constants. It has no safe API. Every
 //! function that calls into Slang is `unsafe`, and the caller manages
-//! pointers, reference counts, lifetimes, and threads by hand. Most programs
-//! do not use this crate directly. The planned crate `slang-compiler` will
-//! wrap these bindings in a safe API, and the planned crate `slango` will
-//! build on it to run Slang code on a GPU.
+//! pointers, reference counts, lifetimes, and threads by hand.
+//!
+//! Use this crate when you need the Slang API exactly as Slang declares it
+//! and accept writing unsafe code, such as to build a safe wrapper of your
+//! own. Most programs do not need it directly. The planned crate
+//! `slang-compiler` will wrap these bindings in a safe API, and the planned
+//! crate `slango` will build on that to run Slang code on a GPU.
 //!
 //! A binding generator in the repository of this crate writes every item
 //! except the pin from the headers of the pinned Slang build, and no item is
@@ -28,12 +31,14 @@
 //!   every compilation starts from.
 //! - A COM-style interface, which is a C++ class of virtual methods that
 //!   Slang implements, is a struct that holds only the pointer to its vtable,
-//!   such as [`IGlobalSession`], with a vtable struct, such as
-//!   [`IGlobalSessionVtbl`]. Each method, including each method of a base
+//!   such as [`IGlobalSession`]. The vtable is the table of function pointers
+//!   through which C++ calls a virtual method, and it is a vtable struct, such
+//!   as [`IGlobalSessionVtbl`]. Each method, including each method of a base
 //!   interface, is an associated function that takes the interface pointer
 //!   as its first argument and calls through the vtable, such as
-//!   [`IGlobalSession::getBuildTagString`]. The UUID of each interface is
-//!   the constant `UUID` of the trait [`Interface`].
+//!   [`IGlobalSession::getBuildTagString`]. The UUID of each interface, which
+//!   is its 128-bit identifier, is the constant `UUID` of the trait
+//!   [`Interface`].
 //! - A C++ enumeration is a struct that wraps its integer type, with one
 //!   associated constant for each enumerator, such as
 //!   [`SlangCompileTarget::SLANG_SPIRV`], because Slang can return a value
@@ -48,12 +53,35 @@
 //!   reaches through pointers.
 //!
 //! The pin is the version of Slang that the bindings match:
-//! [`VULKAN_SDK_VERSION`] names the Vulkan SDK that ships that Slang, and
-//! [`SLANG_BUILD_TAG`] and [`SLANG_COMMIT`] name the Slang build. These
-//! constants are the only record of the pin in the repository, and every tool
-//! that needs the pin reads them.
+//! [`VULKAN_SDK_VERSION`] names the Vulkan software development kit (SDK)
+//! that ships that Slang, [`SLANG_BUILD_TAG`] is the version string of that
+//! Slang build, and [`SLANG_COMMIT`] is its commit. These constants are the
+//! only record of the pin in the repository, and every tool that needs the pin
+//! reads them. For a user, the pin means that one version of this crate works
+//! with exactly one Slang build. The build script refuses any other, on both
+//! ways of obtaining Slang that [Linking Slang](#linking-slang) describes. To
+//! use another Slang build, a program needs a version of this crate whose pin
+//! names that build.
 //!
 //! # Examples
+//!
+//! This example calls no Slang function. It shows that a struct takes the
+//! default values of its C++ declaration, that an enumeration accepts a value
+//! that the header does not list, and that a failed result code is negative:
+//!
+//! ```
+//! use slang_compiler_sys::{SlangCompileTarget, SlangGlobalSessionDesc, SlangResult};
+//!
+//! let desc = SlangGlobalSessionDesc::default();
+//! assert_eq!(usize::try_from(desc.structureSize)?, size_of::<SlangGlobalSessionDesc>());
+//!
+//! let unlisted = SlangCompileTarget(1000);
+//! assert_ne!(unlisted, SlangCompileTarget::SLANG_SPIRV);
+//!
+//! assert!(SlangResult::SLANG_FAIL.0 < 0);
+//! assert!(SlangResult::SLANG_OK.0 >= 0);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 //!
 //! This example creates the global session that every compilation starts
 //! from, checks that the Slang library that the program loaded is the build
@@ -115,6 +143,13 @@
 //! 64 bits wide, because Slang uses another calling convention and other
 //! struct layouts there.
 //!
+//! Not every supported target has run every part of this crate. The Slang of
+//! the pinned Vulkan SDK has been linked, and the tests that call it have
+//! passed, on `x86_64` Linux, `x86_64` Windows, and aarch64 macOS. On `x86_64`
+//! macOS, the bindings have only been type-checked, and they have never been
+//! linked or run. The build of Slang from source has run only on `x86_64`
+//! Linux, and its code for macOS and Windows has never run.
+//!
 //! # Linking Slang
 //!
 //! The build script of this crate obtains Slang in one of two ways. By
@@ -125,7 +160,7 @@
 //! to the other.
 //!
 //! On the default way, the SDK has to be the one that [`VULKAN_SDK_VERSION`]
-//! names, which is available from <https://vulkan.lunarg.com>. When the
+//! names. You can download it from <https://vulkan.lunarg.com>. When the
 //! build script runs, it reads the environment variable `VULKAN_SDK`, which
 //! holds the absolute path of the directory of the SDK that contains
 //! `include/slang` and `lib`. That is the directory `x86_64` of the SDK on
@@ -138,16 +173,17 @@
 //! and it stops the build when that tag differs from [`SLANG_BUILD_TAG`],
 //! because the bindings match only that Slang build. No setting skips this
 //! check. It then tells Cargo to link the library `slang-compiler`
-//! dynamically from `$VULKAN_SDK/lib`, which holds the import library
-//! `slang-compiler.lib` on Windows. It uses no pkg-config, sets no run-time
-//! search path (rpath), and searches no other location.
+//! dynamically from `$VULKAN_SDK/lib`. On Windows, that directory holds the
+//! import library `slang-compiler.lib`, the file that tells the linker which
+//! functions the library exports. The build script uses no pkg-config, sets
+//! no run-time search path (rpath), and searches no other location.
 //!
 //! The build stops with an error that says what to set when `VULKAN_SDK` is
 //! unset, empty, or not an absolute path, when the header is missing or does
 //! not define the build tag, when the build tag is another one, and when
-//! `$VULKAN_SDK/lib` is not a directory that the build can access. The error
-//! includes the reason that the operating system gives, such as a denied
-//! permission.
+//! `$VULKAN_SDK/lib` is not a directory or cannot be accessed. When the
+//! operating system cannot report on that directory, the error includes the
+//! reason that it gives, such as a denied permission.
 //!
 //! When the target has the operating system of the host, the build also stops
 //! when `$VULKAN_SDK/lib` does not hold the Slang library of the target:
@@ -173,18 +209,18 @@
 //! The static build needs the programs `git`, `cmake` 3.22 or later, and
 //! `ninja`, and a C++ compiler that `cmake` finds on the build machine, and it
 //! downloads nothing. Slang's build writes into its source tree, so the build
-//! script copies the files that git tracks in the clone and in the submodules
-//! that the build uses into `slang/source` in the output directory of the
-//! build script. It then configures and builds that copy with `cmake` and
+//! script copies the files that git tracks into `slang/source` in its output
+//! directory. It copies them from the clone and from the submodules that the
+//! build uses. It then configures and builds that copy with `cmake` and
 //! `ninja`, keeps the build tree in `slang/build`, and puts the static
-//! libraries in `slang/lib`. The first build takes several minutes. A later run of the
-//! build script copies and configures again only when `SLANG_SOURCE_DIR`, the
-//! commit, or the configuration has changed, and `ninja` rebuilds only what
-//! changed. The output of `cmake` and `ninja` goes to the file `slang/build.log`
-//! in the output directory, and a step that fails stops the build with an
-//! error that names the log and shows its last lines. After the build, the
-//! build script checks that the built Slang reports the build tag
-//! [`SLANG_BUILD_TAG`].
+//! libraries in `slang/lib`. The first build takes several minutes. A later
+//! run of the build script copies and configures again only when
+//! `SLANG_SOURCE_DIR`, the commit, or the configuration has changed, and
+//! `ninja` rebuilds only what changed. The output of `cmake` and `ninja` goes
+//! to the file `slang/build.log` in the output directory, and a step that
+//! fails stops the build with an error that names the log and shows its last
+//! lines. After the build, the build script checks that the built Slang
+//! reports the build tag [`SLANG_BUILD_TAG`].
 //!
 //! The static build then links the static libraries `slang-compiler`,
 //! `compiler-core`, `core`, `cmark-gfm`, `miniz`, and `lz4`, followed by the
@@ -198,12 +234,12 @@
 //! The static build leaves out `slang-glslang`, the shared module of Slang
 //! that holds glslang and SPIRV-Tools. Compiling to SPIR-V still works, but
 //! Slang neither optimizes nor validates the SPIR-V, and it says nothing about
-//! that, while output as SPIR-V assembly fails, as does every other feature
-//! that needs the module. The statically linked Slang still loads a
-//! `slang-glslang` shared library by name when the dynamic loader finds one,
-//! such as the one in `$VULKAN_SDK/lib` when that directory is on the library
-//! path, and those features then work with that library. The standard
-//! modules of Slang, such as `slang.neural`, are not built either.
+//! that. Output as SPIR-V assembly, the text form of SPIR-V, fails, as does
+//! every other feature that needs the module. The statically linked Slang
+//! still loads a `slang-glslang` shared library by name when the dynamic
+//! loader finds one, such as the one in `$VULKAN_SDK/lib` when that directory
+//! is on the library path, and those features then work with that library. The
+//! standard modules of Slang, such as `slang.neural`, are not built either.
 //!
 //! When the environment variable `DOCS_RS` is present, whatever its value, as
 //! on docs.rs, the build script reads nothing else and links nothing, so the
@@ -230,7 +266,9 @@
 //!   `DYLD_` when it starts a protected program, such as `/bin/bash`, so a
 //!   variable that a script exports may not reach the program. Setting it on
 //!   the command line of Cargo itself, as in
-//!   `DYLD_LIBRARY_PATH="$VULKAN_SDK/lib" cargo test`, avoids that.
+//!   `DYLD_LIBRARY_PATH="$VULKAN_SDK/lib" cargo test`, is expected to avoid
+//!   that, but this has not been verified on a Mac with that protection
+//!   enabled.
 //! - Windows: `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, is on
 //!   `PATH`. The installer of the SDK puts it there.
 //!
@@ -268,10 +306,15 @@
 //!   global session and calling [`spGetBuildTagString`] are thread-safe.
 //! - A global session is released after every object that was created from
 //!   it.
-//! - Reference counting is not atomic on every interface, so code does not
-//!   add or release references to one object from unrelated threads.
+//! - Reference counting is not guaranteed to be atomic on every interface, so
+//!   code does not add or release references to one object from unrelated
+//!   threads.
 //! - A program layout, which reflection returns, is not reference counted and
-//!   lives only as long as the component type that it came from.
+//!   lives only as long as the component type that it came from. Reflection
+//!   is the part of the API that describes the parameters and types of
+//!   compiled shader code, and a component type is a unit of Slang code that
+//!   can be linked, such as a module or an entry point, which is the function
+//!   where a shader starts to run.
 //!
 //! This crate promises nothing about threads. No interface struct implements
 //! [`Send`] or [`Sync`], and the planned safe crate `slang-compiler` decides
