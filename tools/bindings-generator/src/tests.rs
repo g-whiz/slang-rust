@@ -5,7 +5,7 @@ mod ffi {
 
     use crate::error::{Error, ErrorKind};
     use crate::model::Prim;
-    use crate::rules::{Action, DeclRule, MacroAction, MacroRule, RuleSet};
+    use crate::rules::{Action, DeclRule, MacroAction, MacroRule, RuleSet, UnnamedEnumRule};
     use crate::{generate_with, pin};
 
     static LIBCLANG: Mutex<()> = Mutex::new(());
@@ -51,6 +51,7 @@ struct IRoot
             main_header: "slang.h",
             declarations,
             macros,
+            unnamed_enums: &[],
             result_type: "SlangResult",
             uuid_type: "SlangUUID",
             pointer_sized: &[("SlangInt", Prim::Isize)],
@@ -92,9 +93,19 @@ struct IRoot
     }
 
     fn run(test: &str, header: &str, rules: &RuleSet, tag: &str) -> crate::Result<String> {
+        run_in(test, header, rules, tag).0
+    }
+
+    fn run_in(
+        test: &str,
+        header: &str,
+        rules: &RuleSet,
+        tag: &str,
+    ) -> (crate::Result<String>, PathBuf) {
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new(test, header, tag);
-        generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG)
+        let result = generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG);
+        (result, headers.dir.clone())
     }
 
     fn generate(test: &str, header: &str) -> String {
@@ -346,7 +357,16 @@ extern "C" void setCallback(Callback callback, void* userData);
 
     #[test]
     fn generate_emits_enumerations_as_integer_newtypes() {
-        let text = generate(
+        const RULES: RuleSet = RuleSet {
+            unnamed_enums: &[UnnamedEnumRule {
+                header: "slang.h",
+                enumerator: "LOOSE_B",
+                typedef: "LooseFlags",
+                reason: "the test flags",
+            }],
+            ..DEFAULT_RULES
+        };
+        let text = generate_rules(
             "enumerations",
             r"
 enum Fixed : uint8_t
@@ -368,11 +388,14 @@ enum Negative
 {
     NEGATIVE_A = -5,
 };
+typedef uint16_t LooseFlags;
 enum
 {
     LOOSE_A = 4,
+    LOOSE_B = 0x8000,
 };
 ",
+            &RULES,
         );
         assert_contains(
             &text,
@@ -393,7 +416,9 @@ impl Fixed {
             "    pub const UNFIXED_B: Self = Self(2_147_483_647);",
         );
         assert_contains(&text, "pub struct Negative(pub i32);");
-        assert_contains(&text, "pub const LOOSE_A: u32 = 4;");
+        assert_contains(&text, "pub type LooseFlags = u16;");
+        assert_contains(&text, "pub const LOOSE_A: LooseFlags = 4;");
+        assert_contains(&text, "pub const LOOSE_B: LooseFlags = 32_768;");
         assert!(!text.contains("pub enum"), "a Rust enum was generated");
     }
 
@@ -676,10 +701,33 @@ struct IOther : public IRoot
     virtual void act(int32_t value) = 0;
 };
 ";
-        let first = generate("deterministic_first", header);
-        let second = generate("deterministic_second", header);
+        let (first, first_dir) = run_in(
+            "deterministic_first",
+            header,
+            &DEFAULT_RULES,
+            pin::SLANG_BUILD_TAG,
+        );
+        let (second, _) = run_in(
+            "deterministic_second",
+            header,
+            &DEFAULT_RULES,
+            pin::SLANG_BUILD_TAG,
+        );
+        let first = first.unwrap_or_else(|error| panic!("generation failed: {error}"));
+        let second = second.unwrap_or_else(|error| panic!("generation failed: {error}"));
         assert_eq!(first, second);
-        assert!(!first.contains("/tmp"), "the output contains a path");
+        let temp_dir = std::env::temp_dir();
+        for path in [
+            first_dir.to_string_lossy(),
+            temp_dir.to_string_lossy(),
+            env!("CARGO_MANIFEST_DIR").into(),
+            "bindings-generator-test".into(),
+        ] {
+            assert!(
+                !first.contains(path.as_ref()),
+                "the output contains the path {path}"
+            );
+        }
     }
 
     #[test]
@@ -1087,5 +1135,392 @@ struct IConvention : public IRoot
             .expect_err("a missing directory is refused");
         assert_eq!(error.kind(), ErrorKind::Io);
         assert!(error.message().contains("no-such-directory"), "{error}");
+    }
+
+    #[test]
+    fn generate_fails_on_an_enumerator_outside_the_underlying_type() {
+        let header = "\nenum Letter : char\n{\n    LETTER_NEGATIVE = -1,\n};\n";
+        let error = fail("enumerator_range", header);
+        assert_error(
+            &error,
+            ErrorKind::Evaluation,
+            line_of(header, "enum Letter"),
+            &[
+                "enumerator Letter::LETTER_NEGATIVE has the value -1",
+                "does not fit the underlying type of the enumeration",
+            ],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_nullptr_on_a_field_that_is_not_a_pointer() {
+        let header = r"
+struct FromNull
+{
+    FromNull(decltype(nullptr)) {}
+    int32_t value;
+};
+struct Holder
+{
+    FromNull wrapped = nullptr;
+};
+";
+        let error = fail("nullptr_not_pointer", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "FromNull wrapped"),
+            &["field Holder::wrapped is initialized with nullptr but is not a pointer"],
+        );
+    }
+
+    #[test]
+    fn generate_fails_on_a_constant_without_a_value() {
+        let header = "\nextern const int32_t kExternal;\n";
+        let error = fail("constant_without_value", header);
+        assert_error(
+            &error,
+            ErrorKind::Evaluation,
+            line_of(header, "kExternal"),
+            &["cannot evaluate the constant kExternal"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_pointer_sized_typedef_of_a_type_that_is_not_an_integer() {
+        const RULES: RuleSet = RuleSet {
+            pointer_sized: &[("SlangInt", Prim::Isize), ("Ratio", Prim::Isize)],
+            ..DEFAULT_RULES
+        };
+        let header = "\ntypedef double Ratio;\n";
+        let error = fail_rules("pointer_sized_float", header, &RULES);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "Ratio"),
+            &["typedef Ratio is mapped to isize but is not an integer type"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_non_finite_floating_point_initializer() {
+        for (test, value) in [
+            ("infinite_initializer", "__builtin_inf()"),
+            ("nan_initializer", "__builtin_nan(\"\")"),
+        ] {
+            let header = format!("\nstruct Limits\n{{\n    double bound = {value};\n}};\n");
+            let error = fail(test, &header);
+            assert_error(
+                &error,
+                ErrorKind::Evaluation,
+                line_of(&header, "double bound"),
+                &[
+                    "field Limits::bound has the value",
+                    "which is not a finite number and has no Rust literal",
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn generate_writes_finite_floating_point_initializers_as_literals() {
+        let text = generate(
+            "float_initializers",
+            "\nstruct Scales\n{\n    double tiny = 1e-300;\n    float half = 0.5f;\n    double whole = 3;\n};\n",
+        );
+        assert_contains(&text, "tiny: 1e-300,");
+        assert_contains(&text, "half: 0.5,");
+        assert_contains(&text, "whole: 3.0,");
+    }
+
+    #[test]
+    fn generate_emits_an_anonymous_record_nested_in_another_anonymous_record() {
+        let header = r"
+struct Vec2
+{
+    union
+    {
+        struct
+        {
+            float x;
+            float y;
+        };
+        float v[2];
+    };
+};
+";
+        let text = generate("nested_anonymous", header);
+        assert_contains(
+            &text,
+            "pub struct Vec2_anon0_anon0 {
+    pub x: f32,
+    pub y: f32,
+}",
+        );
+        assert_contains(
+            &text,
+            "pub union Vec2_anon0 {
+    pub anon0: Vec2_anon0_anon0,
+    pub v: [f32; 2],
+}",
+        );
+        assert_contains(&text, "pub struct Vec2 {\n    pub anon0: Vec2_anon0,\n}");
+        assert_contains(&text, "assert!(size_of::<Vec2>() == 8);");
+        assert_contains(
+            &text,
+            "assert!(::core::mem::offset_of!(Vec2_anon0_anon0, y) == 4);",
+        );
+    }
+
+    #[test]
+    fn generate_refuses_interfaces_when_a_rule_excludes_the_uuid_type() {
+        const DECLARATIONS: &[DeclRule] = &[
+            DeclRule {
+                header: Some("slang.h"),
+                pattern: "SlangUUID",
+                action: Action::Exclude,
+                reason: "a hidden UUID type",
+            },
+            DeclRule {
+                header: None,
+                pattern: "*",
+                action: Action::Include,
+                reason: "a test declaration",
+            },
+        ];
+        const RULES: RuleSet = rules(DECLARATIONS, NO_MACROS);
+        let error = fail_rules("uuid_excluded", "", &RULES);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of("", "struct IRoot"),
+            &["interface IRoot needs the struct SlangUUID with four fields for its UUID"],
+        );
+    }
+
+    const SESSION_FLAGS: &str = r"
+namespace scope
+{
+typedef uint32_t SessionFlags;
+enum
+{
+    kSessionFlags_None = 0,
+    kSessionFlags_Last = 0x40000000,
+};
+struct SessionDesc
+{
+    SessionFlags flags = kSessionFlags_None;
+};
+}
+";
+
+    const SESSION_RULES: RuleSet = RuleSet {
+        unnamed_enums: &[UnnamedEnumRule {
+            header: "slang.h",
+            enumerator: "kSessionFlags_None",
+            typedef: "scope::SessionFlags",
+            reason: "the session flags",
+        }],
+        ..DEFAULT_RULES
+    };
+
+    #[test]
+    fn generate_types_the_constants_of_an_unnamed_enumeration_by_its_typedef() {
+        let text = generate_rules("unnamed_assigned", SESSION_FLAGS, &SESSION_RULES);
+        assert_contains(&text, "pub type SessionFlags = u32;");
+        assert_contains(&text, "pub const kSessionFlags_None: SessionFlags = 0;");
+        assert_contains(
+            &text,
+            "pub const kSessionFlags_Last: SessionFlags = 1_073_741_824;",
+        );
+        assert_contains(&text, "Self { flags: 0 }");
+    }
+
+    #[test]
+    fn generate_fails_on_an_unnamed_enumeration_that_no_rule_assigns() {
+        let error = fail("unnamed_unassigned", SESSION_FLAGS);
+        assert_error(
+            &error,
+            ErrorKind::UnmatchedDeclaration,
+            line_of(SESSION_FLAGS, "enum"),
+            &["the unnamed enumeration that starts with kSessionFlags_None (slang.h:"],
+        );
+    }
+
+    #[test]
+    fn generate_fails_on_a_value_outside_the_typedef_of_an_unnamed_enumeration() {
+        const RULES: RuleSet = RuleSet {
+            unnamed_enums: &[UnnamedEnumRule {
+                header: "slang.h",
+                enumerator: "kNarrow_Big",
+                typedef: "NarrowFlags",
+                reason: "the narrow flags",
+            }],
+            ..DEFAULT_RULES
+        };
+        let header = "\ntypedef uint8_t NarrowFlags;\nenum\n{\n    kNarrow_Big = 256,\n};\n";
+        let error = fail_rules("unnamed_too_large", header, &RULES);
+        assert_error(
+            &error,
+            ErrorKind::Evaluation,
+            line_of(header, "enum"),
+            &["enumerator kNarrow_Big has the value 256, which does not fit the type NarrowFlags"],
+        );
+    }
+
+    #[test]
+    fn generate_fails_on_rules_that_decide_nothing() {
+        const DECLARATIONS: &[DeclRule] = &[
+            DeclRule {
+                header: Some("slang.h"),
+                pattern: "Gone*",
+                action: Action::Exclude,
+                reason: "a removed declaration",
+            },
+            DeclRule {
+                header: None,
+                pattern: "*",
+                action: Action::Include,
+                reason: "a test declaration",
+            },
+            DeclRule {
+                header: None,
+                pattern: "IRoot",
+                action: Action::Exclude,
+                reason: "a shadowed rule",
+            },
+        ];
+        const MACROS: &[MacroRule] = &[
+            MacroRule {
+                pattern: "OLD_MACRO",
+                action: MacroAction::Exclude,
+                reason: "a removed macro",
+            },
+            MacroRule {
+                pattern: "*",
+                action: MacroAction::Exclude,
+                reason: "a test macro",
+            },
+        ];
+        const RULES: RuleSet = RuleSet {
+            unnamed_enums: &[UnnamedEnumRule {
+                header: "slang.h",
+                enumerator: "kGone_None",
+                typedef: "GoneFlags",
+                reason: "removed flags",
+            }],
+            ..rules(DECLARATIONS, MACROS)
+        };
+        let error = fail_rules("stale_rules", "", &RULES);
+        assert_eq!(error.kind(), ErrorKind::StaleRule, "{error}");
+        assert_eq!(error.location(), None, "{error}");
+        for needle in [
+            "4 rules of the rule set decide no declaration or macro",
+            "the declaration rule Gone* in slang.h (a removed declaration)",
+            "the declaration rule IRoot (a shadowed rule)",
+            "the macro rule OLD_MACRO (a removed macro)",
+            "the unnamed enumeration with the enumerator kGone_None in slang.h to GoneFlags (removed flags)",
+        ] {
+            assert!(
+                error.message().contains(needle),
+                "{needle:?} not in: {error}"
+            );
+        }
+        assert!(
+            !error.message().contains("a test declaration"),
+            "a used rule is reported: {error}"
+        );
+    }
+
+    #[test]
+    fn generate_says_when_this_process_already_holds_libclang() {
+        let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
+        let headers = Headers::new("libclang_twice", "", pin::SLANG_BUILD_TAG);
+        let clang = clang::Clang::new().expect("load libclang");
+        let error = generate_with(&DEFAULT_RULES, &headers.dir, pin::SLANG_BUILD_TAG)
+            .expect_err("a second instance is refused");
+        drop(clang);
+        assert_eq!(error.kind(), ErrorKind::Libclang);
+        assert!(
+            error
+                .message()
+                .contains("this process already holds a libclang instance"),
+            "{error}"
+        );
+        assert!(!error.message().contains("LIBCLANG_PATH"), "{error}");
+    }
+}
+
+mod tag {
+    use crate::check_tag_text;
+    use crate::error::{Error, ErrorKind};
+
+    const PATH: &str = "/tmp/headers/slang-tag-version.h";
+    const EXPECTED: &str = "2026.17-25-gc7954ebd1";
+
+    fn refuse(text: &str) -> Error {
+        check_tag_text(text, PATH, EXPECTED).expect_err("the tag is refused")
+    }
+
+    fn assert_malformed(text: &str, line: u32) {
+        let error = refuse(text);
+        assert_eq!(error.kind(), ErrorKind::Version, "{error}");
+        let location = error.location().expect("the error has a location");
+        assert_eq!(
+            (location.file(), location.line()),
+            ("slang-tag-version.h", line),
+            "{error}"
+        );
+        assert_eq!(
+            error.message(),
+            "SLANG_TAG_VERSION is not defined as a single string literal"
+        );
+    }
+
+    #[test]
+    fn check_tag_text_accepts_the_expected_tag() {
+        let text = "#pragma once\n#define SLANG_TAG_VERSION \"2026.17-25-gc7954ebd1\"\n";
+        check_tag_text(text, PATH, EXPECTED).expect("the tag is accepted");
+    }
+
+    #[test]
+    fn check_tag_text_refuses_a_file_without_the_define() {
+        let error = refuse("#define SLANG_VERSION_NUMERIC \"2026.17\"\n");
+        assert_eq!(error.kind(), ErrorKind::Version, "{error}");
+        assert_eq!(error.location(), None, "{error}");
+        assert_eq!(
+            error.message(),
+            "/tmp/headers/slang-tag-version.h does not define SLANG_TAG_VERSION"
+        );
+    }
+
+    #[test]
+    fn check_tag_text_refuses_a_value_that_is_not_a_string_literal() {
+        assert_malformed("#define SLANG_TAG_VERSION 2026\n", 1);
+    }
+
+    #[test]
+    fn check_tag_text_refuses_two_string_literals() {
+        assert_malformed("\n#define SLANG_TAG_VERSION \"a\" \"b\"\n", 2);
+    }
+
+    #[test]
+    fn check_tag_text_refuses_an_unterminated_string_literal() {
+        assert_malformed("#define SLANG_TAG_VERSION \"2026.17-25-gc7954ebd1\n", 1);
+    }
+
+    #[test]
+    fn check_tag_text_refuses_a_define_without_a_value() {
+        assert_malformed("#define SLANG_TAG_VERSION\n", 1);
+    }
+
+    #[test]
+    fn check_tag_text_uses_the_last_define() {
+        let error = refuse(
+            "#define SLANG_TAG_VERSION \"2026.17-25-gc7954ebd1\"\n#undef SLANG_TAG_VERSION\n#define SLANG_TAG_VERSION \"2000.1-1-gdeadbeef\"\n",
+        );
+        assert_eq!(error.kind(), ErrorKind::Version, "{error}");
+        assert_eq!(error.location().map(crate::Location::line), Some(3));
+        assert!(error.message().contains("2000.1-1-gdeadbeef"), "{error}");
     }
 }

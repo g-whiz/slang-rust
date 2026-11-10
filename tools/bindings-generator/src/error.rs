@@ -20,6 +20,9 @@ pub enum ErrorKind {
     Version,
     /// A declaration or a macro matches no rule of the rule set.
     UnmatchedDeclaration,
+    /// A rule of the rule set decides no declaration or macro of the headers,
+    /// because none matches it or an earlier rule decides every match.
+    StaleRule,
     /// An included declaration uses a construct that the generated Rust
     /// cannot express, such as an aggregate passed by value.
     Unsupported,

@@ -50,7 +50,9 @@ Every step of Section 13 is done, and M0 is complete. The repository holds:
 - The hooks of Section 6, together with the hooks and settings that existed before M0.
 - The CI workflow `.github/workflows/ci.yml` of Section 8.
 
-`just check` passes in the development container. The workflow passed on its first run on GitHub, on a draft pull request, as Section 8.1 records. The recipes that arrive in M1 and M7 do not exist yet.
+`just check` passes in the development container. The workflow passed on its first run on GitHub, on a draft pull request, as Section 8.1 records.
+
+Step 1 of Section 15 of `docs/design/slang-compiler-sys.md`, the first change of M1, added the recipe `pin` (Section 4.2), the binding generator `tools/bindings-generator` as a second workspace member, the nextest profile `default-miri` (Section 5), the licences Apache-2.0 and ISC in `deny.toml` (Section 9), and the installation of libclang in the `check` job (Section 8.1). The other recipes that arrive in M1, and those that arrive in M7, do not exist yet.
 
 ## 2. Requirements Language
 
@@ -191,6 +193,7 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | `check-rust-comments-self-test`, `check-doc-headings-self-test`, `check-doctest-attributes-self-test`, `check-feature-docs-self-test` | `checks` | The self-test of Section 7.1 for each checker of Sections 7.2 to 7.5 | Yes | Exists |
 | `check-workflow-pins` | `checks` | The workflow pin checker of Section 7.8 | Yes | Exists |
 | `check-workflow-pins-self-test` | `checks` | The self-test of Section 7.1 for the workflow pin checker | Yes | Exists |
+| `pin` | `rust` | Prints the pin of `crates/slang-compiler-sys/pin.rs` as `NAME=value` lines, and fails when a constant is missing (Section 8.1 of `docs/design/slang-compiler-sys.md`) | No | Exists |
 | `check-bindings` | `checks` | The regeneration test of TEST-8 of the coding standard, alone | No, because `test-gpu` runs the same test | M1 |
 | `generate-bindings` | `rust` | The binding generator | No | M1 |
 | `check-doc-without-slang` | `checks` | The documentation command of Section 4.8 with `DOCS_RS` set and `VULKAN_SDK` unset (Section 10) | Yes, through `check-rust` | M1 |
@@ -203,9 +206,9 @@ This table lists every recipe, what it runs, whether `check` runs it, and when i
 | `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `ci-only` runs it | Exists |
 | `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 17.3) | Exists |
 | `check-semver` | `checks` | cargo semver-checks against the last published version of each published crate | No, the planned CI job `semver` runs it | M7, with the first release (Section 10) |
-| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate, and it fails while no crate contains a function | No, the planned CI job `coverage` runs it | Exists |
+| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, which write an LCOV report and print a coverage summary. It is not a gate | No, the CI job `coverage` runs it, and a later change of M1 adds that job | Exists |
 
-`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which inherits from `default` when `.config/nextest.toml` does not define it. M0 does not define it, because the skeleton crate has no tests. Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang, so `check-miri` covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation. A filter in a `[profile.default-miri]` table excludes the tests that call native code: every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 5. Tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`). The first change of M1 that adds such a test adds the table.
+`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines since the first change of M1 (Section 5). Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang, so `check-miri` covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation. A filter in a `[profile.default-miri]` table excludes the tests that call native code: every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 5. Tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), and so do the tests that start a process, which Miri cannot do.
 
 No Cargo feature selects the static build of Slang, which the environment variable `SLANG_SOURCE_DIR` selects (Section 9.1 of `docs/design/slang-compiler-sys.md`), so the checks that pass `--all-features` and the feature matrix of `check-features` never build Slang from source.
 
@@ -271,7 +274,14 @@ default-filter = "not test(/(^|::)hw_gpu::/)"
 default-filter = "all()"
 ```
 
-The regular expression matches `gpu` or `hw_gpu` only at the start of the test path or after `::`, and only when `::` follows it. The trailing `::` makes the match a whole module segment. A test function named `gpu` is the last segment of its path and has no `::` after it, and a module named `gpu_buffers` has `_buffers` after `gpu`, so neither matches. This configuration was verified with nextest 0.9.151, which Section 1.1 of the coding standard records, on a scratch workspace that contains every path of the table in this section, in unit-test modules and in an integration-test binary. A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it.
+The first change of M1 adds the profile `default-miri`, which nextest uses under Miri (Section 4.2), with the filter that SCS-33 of `docs/design/slang-compiler-sys.md` requires. It selects every test that `default` selects, except those whose path contains a module named `ffi`:
+
+```toml
+[profile.default-miri]
+default-filter = "not test(/(^|::)(ffi|gpu|hw_gpu)::/)"
+```
+
+The regular expression matches `gpu` or `hw_gpu` only at the start of the test path or after `::`, and only when `::` follows it. The trailing `::` makes the match a whole module segment. A test function named `gpu` is the last segment of its path and has no `::` after it, and a module named `gpu_buffers` has `_buffers` after `gpu`, so neither matches. The filter of `default-miri` matches `ffi` in the same way. Section 7.5 of `docs/design/slang-compiler-sys.md` records how many tests `check-miri` runs and how many the profile skips. This configuration was verified with nextest 0.9.151, which Section 1.1 of the coding standard records, on a scratch workspace that contains every path of the table in this section, in unit-test modules and in an integration-test binary. A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it.
 
 TOOL-11. A profile MUST NOT retry a failed test, because a retry turns an intermittent failure on an adapter into a pass, which hides the failure in the same way that ARCH-23 of the architecture design forbids a test to hide a missing adapter. Zero retries is the default of nextest, and the `default` profile sets `retries = 0` explicitly so that the configuration states this rule instead of relying on the default. The other profiles inherit the value.
 
@@ -443,7 +453,7 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 | `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the planned software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the planned adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` | Exists |
 | `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` | Exists |
 | `semver` | Not yet named | Linux x86_64 | `just check-semver` | M7, with the first release (Section 10) |
-| `coverage` | Not yet named | Linux x86_64 | `just coverage`, with the coverage summary in the log of the job | With the first crate that contains a function, because `just coverage` fails while no crate has code |
+| `coverage` | Not yet named | Linux x86_64 | `just coverage`, with the coverage summary in the log of the job | A later change of M1 |
 
 The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. Whether every platform can run the GPU tier while SPIR-V is the only shader target is open (Section 17, Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. That lavapipe, WARP, and hosted Metal work as adapters on hosted runners is an assumption of the architecture design (Section 16, A-17 and A-18 of the architecture design). No `gpu` test exists yet, so `just test-gpu` has not used an adapter on any runner, and the `check` job does not install lavapipe yet.
 
@@ -454,10 +464,11 @@ CI installs the tools on each runner, because no container image is published fo
 - The Rust toolchains, through rustup, which the hosted runners provide. Each job installs the stable toolchain with the minimal profile and the components that it needs. The `check` job also installs the nightly toolchain with the components miri and rust-src, and lets rustup choose an older nightly when the latest one lacks a component.
 - `just` in every job, cargo-nextest in the `check` and `test` jobs, shellcheck, typos, taplo, cargo-machete, and cargo-deny in the `check` job, and cargo-hack in the `ci-only` job, through the action `taiki-e/install-action`, pinned by commit SHA. The action installs prebuilt binaries and verifies the SHA-256 checksum of each one against the manifest of versions and checksums that it carries. The workflow sets `fallback: none`, so the action fails instead of installing a tool by a route that its manifest does not cover.
 - actionlint, in the `check` job, through an inline step. It reads the latest release from GitHub, downloads the release archive for Linux x86_64 and the checksums file of the same release, verifies the archive with `sha256sum --check --strict`, and fails on a mismatch before it extracts the archive.
+- libclang, in the `check` job, which the tests of the binding generator load (Section 7.5 of `docs/design/slang-compiler-sys.md`). The step runs `sudo apt-get update` and `sudo apt-get install --yes --no-install-recommends libclang-dev` before `just check`. It meets TOOL-21 because apt verifies the signature of the distribution's package index and the SHA-256 checksum of each package against that index, and refuses a package that fails either check. The `test` jobs do not install libclang, because the tests that load it compile only for Linux.
 
 Each route installs the latest version that it provides, which matches the policy of the container image, in which no tool version is pinned. A tool in CI can therefore have a different version from the same tool in the development container, and a check can pass in one and fail in the other until both have the same version. The workflow caches nothing, so no file is restored from a cache.
 
-On its first run on GitHub, on a draft pull request, every job passed: "Run every check on Linux" in 53 seconds, "Test on windows-latest" in 37 seconds, "Test on macos-latest" in 23 seconds, and "Run check-features on Linux" and "Run check-msrv on Linux". So `just check` passes on a Linux runner with the tools that the workflow installs, and Clippy, the doctests, and the nextest recipe pass on Windows and macOS.
+On its first run on GitHub, on a draft pull request, every job passed: "Run every check on Linux" in 53 seconds, "Test on windows-latest" in 37 seconds, "Test on macos-latest" in 23 seconds, and "Run check-features on Linux" and "Run check-msrv on Linux". So `just check` passes on a Linux runner with the tools that the workflow installs, and Clippy, the doctests, and the nextest recipe pass on Windows and macOS. The first run with the binding generator also passed on all five jobs, and the `check` job ran the tests of the generator with the libclang that it installs.
 
 ### 8.2. Workflow Security
 
@@ -519,6 +530,14 @@ allow-git = []
 ```
 
 With cargo-deny 0.20.2 on a scratch workspace, this file passes, and it fails as required on a duplicate version, a git source, a path dependency without a version, an advisory, and a licence that is not in the allow-list.
+
+The first change of M1 added the first dependency, the crate `clang` of the binding generator, and with it the two licences that its dependency graph needs, so the allow-list is now:
+
+```toml
+allow = ["GPL-3.0-or-later", "Apache-2.0", "ISC"]
+```
+
+`Apache-2.0` is there for `clang` and `clang-sys`, and for `glob`, `libc`, `cfg-if`, and `windows-link`, whose licence `MIT OR Apache-2.0` it satisfies, so MIT is not needed. `ISC` is there for `libloading`. Both are compatible with GPL-3.0-or-later, as TOOL-24 requires, and Section 14 of `docs/design/slang-compiler-sys.md` records the licence of each crate.
 
 `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
 
@@ -661,7 +680,7 @@ This table says what a failure of each check means and what the developer does.
 | `check-workflows` | actionlint reported a finding in a workflow | Fixes the workflow |
 | `check-unused-deps` | A dependency is declared and not used | Removes it |
 | `check-miri` | Miri found undefined behaviour | Fixes the unsafe code, following Section 9 of the coding standard |
-| `coverage` | No coverage data was found, because no crate contains a function yet | Waits for the first crate that contains a function |
+| `coverage` | cargo llvm-cov did not write the report | Reads the message of cargo llvm-cov. A later change of M1 adds the CI job that runs this recipe |
 | `check-features`, `check-msrv`, `check-semver` | A feature combination does not compile, the code needs a newer toolchain than `rust-version`, or the API has a breaking change | Fixes the code, raises `rust-version` under TOOL-5, or releases the change as breaking |
 
 Clippy can report a `clippy::cargo_common_metadata` warning again after the manifest has been fixed, because it replays its cached result until a source file of the crate changes. The developer then updates the modification time of a source file of the crate, or cleans the build output of the crate, and runs the check again.
@@ -727,6 +746,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-10: Recorded the first change of M1 in Sections 1.6, 4.2, 5, 8.1, and 9: the recipe `pin`, the nextest profile `default-miri`, the installation of libclang in the `check` job and how it meets TOOL-21, the first CI run with the binding generator, and the licences Apache-2.0 and ISC in the allow-list, and moved the arrival of the `coverage` job to a later change of M1.
 - 2026-11-10: Recorded the answers of `docs/design/slang-compiler-sys.md` to TQ-2 and TQ-5 in Section 4.2 and removed both questions, pointed TQ-1 and Section 8.3 to the requirements of that document, recorded in Section 8.1 that no job builds the static route, updated the environment variables of Section 17.2, added the recipe `test-static` to Section 4.2, and recorded in Section 7.2 that the generated bindings get no exemption from the comment checker.
 - 2026-11-10: Recorded the fixes from a code review of the custom checkers: the escaping of their output and the terminal escape injection that it prevents in Sections 7.1 and 16, unterminated input as a read error, stable error wording, the handling of a shebang line, and the new placeholders and marker file of the self-test runner in Section 7.1, the Claude Code hook on Rust files in Section 6, and the new failures in Section 17.4.
 - 2026-11-10: Recorded M0 as complete and changed the Status to "Living document", described the custom checkers, their self-test runner, the CI workflow, and the new hooks as implemented, added Section 7.8 for the workflow pin checker, corrected TOOL-15, reworded TOOL-21 to the checksum verification that the workflow performs, and removed TQ-3 and TQ-7 as answered.

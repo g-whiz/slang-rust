@@ -35,10 +35,39 @@ pub(crate) enum ItemKind {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Interface {
     pub(crate) bases: Vec<String>,
-    pub(crate) uuid: Vec<u64>,
+    pub(crate) uuid: Option<Guid>,
     pub(crate) methods: Vec<Method>,
     pub(crate) has_fields: bool,
     pub(crate) has_virtual_destructor: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Guid {
+    pub(crate) data1: u32,
+    pub(crate) data2: u16,
+    pub(crate) data3: u16,
+    pub(crate) data4: [u8; 8],
+}
+
+impl Guid {
+    pub(crate) fn from_values(values: &[u64]) -> Option<Self> {
+        let [data1, data2, data3, rest @ ..] = values else {
+            return None;
+        };
+        if rest.len() != 8 {
+            return None;
+        }
+        let mut data4 = [0_u8; 8];
+        for (byte, value) in data4.iter_mut().zip(rest) {
+            *byte = u8::try_from(*value).ok()?;
+        }
+        Some(Self {
+            data1: u32::try_from(*data1).ok()?,
+            data2: u16::try_from(*data2).ok()?,
+            data3: u16::try_from(*data3).ok()?,
+            data4,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +122,8 @@ pub(crate) enum Init {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Enum {
+    pub(crate) unnamed: bool,
+    pub(crate) constants_of: Option<String>,
     pub(crate) underlying: Underlying,
     pub(crate) size: usize,
     pub(crate) enumerators: Vec<Enumerator>,
@@ -257,5 +288,50 @@ impl Prim {
             "uintptr_t" | "size_t" => Some(Self::Usize),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guid_from_values_reads_eleven_values_that_fit_their_fields() {
+        let guid = Guid::from_values(&[0x1122_3344, 0x5566, 0x7788, 1, 2, 3, 4, 5, 6, 7, 0xFF]);
+        assert_eq!(
+            guid,
+            Some(Guid {
+                data1: 0x1122_3344,
+                data2: 0x5566,
+                data3: 0x7788,
+                data4: [1, 2, 3, 4, 5, 6, 7, 0xFF],
+            })
+        );
+    }
+
+    #[test]
+    fn guid_from_values_rejects_a_wrong_count_or_a_value_out_of_range() {
+        assert_eq!(Guid::from_values(&[]), None);
+        assert_eq!(Guid::from_values(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), None);
+        assert_eq!(
+            Guid::from_values(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+            None
+        );
+        assert_eq!(
+            Guid::from_values(&[1 << 32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+            None
+        );
+        assert_eq!(
+            Guid::from_values(&[1, 1 << 16, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+            None
+        );
+        assert_eq!(
+            Guid::from_values(&[1, 2, 1 << 16, 4, 5, 6, 7, 8, 9, 10, 11]),
+            None
+        );
+        assert_eq!(
+            Guid::from_values(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 256]),
+            None
+        );
     }
 }

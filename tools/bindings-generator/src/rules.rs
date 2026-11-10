@@ -1,10 +1,11 @@
-use crate::model::Prim;
+use crate::model::{Enumerator, Prim};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RuleSet {
     pub(crate) main_header: &'static str,
     pub(crate) declarations: &'static [DeclRule],
     pub(crate) macros: &'static [MacroRule],
+    pub(crate) unnamed_enums: &'static [UnnamedEnumRule],
     pub(crate) result_type: &'static str,
     pub(crate) uuid_type: &'static str,
     pub(crate) pointer_sized: &'static [(&'static str, Prim)],
@@ -31,6 +32,14 @@ pub(crate) struct MacroRule {
     pub(crate) reason: &'static str,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct UnnamedEnumRule {
+    pub(crate) header: &'static str,
+    pub(crate) enumerator: &'static str,
+    pub(crate) typedef: &'static str,
+    pub(crate) reason: &'static str,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MacroAction {
     ResultCode,
@@ -39,14 +48,34 @@ pub(crate) enum MacroAction {
 }
 
 impl RuleSet {
-    pub(crate) fn declaration_rule(&self, header: &str, name: &str) -> Option<&DeclRule> {
-        self.declarations.iter().find(|rule| {
+    pub(crate) fn declaration_position(&self, header: &str, name: &str) -> Option<usize> {
+        self.declarations.iter().position(|rule| {
             rule.header.is_none_or(|wanted| wanted == header) && matches(rule.pattern, name)
         })
     }
 
-    pub(crate) fn macro_rule(&self, name: &str) -> Option<&MacroRule> {
-        self.macros.iter().find(|rule| matches(rule.pattern, name))
+    pub(crate) fn declaration_rule(&self, header: &str, name: &str) -> Option<&DeclRule> {
+        self.declarations
+            .get(self.declaration_position(header, name)?)
+    }
+
+    pub(crate) fn macro_position(&self, name: &str) -> Option<usize> {
+        self.macros
+            .iter()
+            .position(|rule| matches(rule.pattern, name))
+    }
+
+    pub(crate) fn unnamed_enum_position(
+        &self,
+        header: &str,
+        enumerators: &[Enumerator],
+    ) -> Option<usize> {
+        self.unnamed_enums.iter().position(|rule| {
+            rule.header == header
+                && enumerators
+                    .iter()
+                    .any(|enumerator| enumerator.name == rule.enumerator)
+        })
     }
 
     pub(crate) fn pointer_sized(&self, name: &str) -> Option<Prim> {
@@ -93,6 +122,19 @@ const fn exclude(header: &'static str, pattern: &'static str, reason: &'static s
     }
 }
 
+const fn unnamed_enum(
+    enumerator: &'static str,
+    typedef: &'static str,
+    reason: &'static str,
+) -> UnnamedEnumRule {
+    UnnamedEnumRule {
+        header: "slang.h",
+        enumerator,
+        typedef,
+        reason,
+    }
+}
+
 const fn macro_rule(pattern: &'static str, action: MacroAction, reason: &'static str) -> MacroRule {
     MacroRule {
         pattern,
@@ -108,6 +150,8 @@ const PLATFORM_MACRO: &str =
 const ATTRIBUTE_MACRO: &str =
     "a macro that expands to an attribute, a keyword, or nothing, and has no value";
 const UUID_MACRO: &str = "a UUID, which the generated Interface trait carries (COM-4)";
+const FLAG_VALUES: &str =
+    "the flag values of the typedef that the header declares directly before the enumeration";
 
 pub(crate) const SLANG: RuleSet = RuleSet {
     main_header: "slang.h",
@@ -292,6 +336,24 @@ pub(crate) const SLANG: RuleSet = RuleSet {
             "a helper that expands to nothing inside the declaration of SlangResourceShape",
         ),
     ],
+    unnamed_enums: &[
+        unnamed_enum(
+            "SLANG_DIAGNOSTIC_FLAG_VERBOSE_PATHS",
+            "SlangDiagnosticFlags",
+            FLAG_VALUES,
+        ),
+        unnamed_enum(
+            "SLANG_COMPILE_FLAG_NO_MANGLING",
+            "SlangCompileFlags",
+            FLAG_VALUES,
+        ),
+        unnamed_enum(
+            "SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY",
+            "SlangTargetFlags",
+            FLAG_VALUES,
+        ),
+        unnamed_enum("kSessionFlags_None", "slang::SessionFlags", FLAG_VALUES),
+    ],
     result_type: "SlangResult",
     uuid_type: "SlangUUID",
     pointer_sized: &[
@@ -336,7 +398,9 @@ mod tests {
     }
 
     fn macro_action(name: &str) -> Option<MacroAction> {
-        SLANG.macro_rule(name).map(|rule| rule.action)
+        SLANG
+            .macro_position(name)
+            .map(|position| SLANG.macros[position].action)
     }
 
     #[test]
@@ -372,5 +436,29 @@ mod tests {
         );
         assert_eq!(macro_action("SLANG_LINUX"), Some(MacroAction::Exclude));
         assert_eq!(macro_action("SLANG_SOMETHING_NEW"), None);
+    }
+
+    fn enumerators(names: &[&str]) -> Vec<Enumerator> {
+        names
+            .iter()
+            .map(|name| Enumerator {
+                name: (*name).to_owned(),
+                value: 0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unnamed_enum_position_matches_any_enumerator_in_the_header() {
+        let session = enumerators(&["kSessionFlags_Other", "kSessionFlags_None"]);
+        let position = SLANG
+            .unnamed_enum_position("slang.h", &session)
+            .expect("a rule assigns the session flags");
+        assert_eq!(SLANG.unnamed_enums[position].typedef, "slang::SessionFlags");
+        assert_eq!(SLANG.unnamed_enum_position("slang-gfx.h", &session), None);
+        assert_eq!(
+            SLANG.unnamed_enum_position("slang.h", &enumerators(&["kUnknown"])),
+            None
+        );
     }
 }

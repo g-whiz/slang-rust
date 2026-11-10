@@ -45,33 +45,53 @@ pub(crate) fn emit(selection: &Selection, rules: &RuleSet) -> Result<String> {
 }
 
 pub(crate) fn rustfmt(text: &str) -> Result<String> {
-    let failure = |message: &str| Error::new(ErrorKind::Rustfmt, message.to_owned());
-    let mut child = Command::new("rustfmt")
-        .args(["--edition", "2024"])
+    format_with("rustfmt", &["--edition", "2024"], text)
+}
+
+fn format_with(program: &str, args: &[&str], text: &str) -> Result<String> {
+    let failure = |message: String| Error::new(ErrorKind::Rustfmt, message);
+    let mut child = Command::new(program)
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| failure("cannot start rustfmt").with_source(error))?;
+        .map_err(|error| failure(format!("cannot start {program}")).with_source(error))?;
     let mut stdin = child
         .stdin
         .take()
-        .ok_or_else(|| failure("cannot write to the standard input of rustfmt"))?;
-    std::io::Write::write_all(&mut stdin, text.as_bytes())
-        .map_err(|error| failure("cannot write the bindings to rustfmt").with_source(error))?;
-    drop(stdin);
-    let output = child
-        .wait_with_output()
-        .map_err(|error| failure("cannot read the output of rustfmt").with_source(error))?;
+        .ok_or_else(|| failure(format!("cannot write to the standard input of {program}")))?;
+    let (written, output) = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || std::io::Write::write_all(&mut stdin, text.as_bytes()));
+        let output = child.wait_with_output();
+        (writer.join(), output)
+    });
+    let output = output.map_err(|error| {
+        failure(format!("cannot read the output of {program}")).with_source(error)
+    })?;
     if !output.status.success() {
-        return Err(failure(&format!(
-            "rustfmt failed with {}: {}",
+        return Err(failure(format!(
+            "{program} failed with {}: {}",
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    String::from_utf8(output.stdout)
-        .map_err(|error| failure("rustfmt wrote text that is not UTF-8").with_source(error))
+    match written {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            return Err(
+                failure(format!("cannot write the bindings to {program}")).with_source(error)
+            );
+        }
+        Err(_) => {
+            return Err(failure(format!(
+                "the thread that writes the bindings to {program} panicked"
+            )));
+        }
+    }
+    String::from_utf8(output.stdout).map_err(|error| {
+        failure(format!("{program} wrote text that is not UTF-8")).with_source(error)
+    })
 }
 
 struct Emitter<'a> {
@@ -270,26 +290,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn enumeration(&mut self, item: &'a Item, enumeration: &'a Enum) -> Result<()> {
+        if let Some(typedef) = &enumeration.constants_of {
+            return self.flag_constants(item, enumeration, typedef);
+        }
         let underlying = self.underlying(enumeration)?;
-        let Some(name) = item.name.rust.clone() else {
-            for enumerator in &enumeration.enumerators {
-                self.register(
-                    Namespace::Value,
-                    &enumerator.name,
-                    &format!("{}::{}", item.name.cxx, enumerator.name),
-                    &item.location,
-                )?;
-                put(
-                    &mut self.out,
-                    format_args!(
-                        "pub const {}: {underlying} = {};\n\n",
-                        ident(&enumerator.name),
-                        int_literal(enumerator.value)
-                    ),
-                );
-            }
-            return Ok(());
-        };
+        let name = rust_name_of(item)?;
         self.register(Namespace::Type, &name, &item.name.cxx, &item.location)?;
         self.register(Namespace::Value, &name, &item.name.cxx, &item.location)?;
         put(
@@ -311,6 +316,41 @@ impl<'a> Emitter<'a> {
                 );
             }
             self.out.push_str("}\n\n");
+        }
+        Ok(())
+    }
+
+    fn flag_constants(
+        &mut self,
+        item: &'a Item,
+        enumeration: &'a Enum,
+        typedef: &str,
+    ) -> Result<()> {
+        let Some(typedef_item) = self.validator.included(typedef) else {
+            return Err(internal(
+                &item.location,
+                "the typedef of an unnamed enumeration is not included",
+            ));
+        };
+        let ItemKind::Typedef(inner) = &typedef_item.kind else {
+            return Err(internal(
+                &item.location,
+                "the type of an unnamed enumeration is not a typedef",
+            ));
+        };
+        let ty = rust_name_of(typedef_item)?;
+        for enumerator in &enumeration.enumerators {
+            self.register(
+                Namespace::Value,
+                &enumerator.name,
+                &format!("{}::{}", item.name.cxx, enumerator.name),
+                &item.location,
+            )?;
+            let value = self.value_expr(inner, Value::Integer(enumerator.value), &item.location)?;
+            put(
+                &mut self.out,
+                format_args!("pub const {}: {ty} = {value};\n\n", ident(&enumerator.name)),
+            );
         }
         Ok(())
     }
@@ -396,10 +436,7 @@ impl<'a> Emitter<'a> {
             Some((item, _)) => Err(internal(&item.location, "the UUID type is not a struct")),
             None => Err(Error::new(
                 ErrorKind::Unsupported,
-                format!(
-                    "the bindings do not include the UUID type {}",
-                    self.rules.uuid_type
-                ),
+                "internal error in the binding generator: the bindings do not include the UUID type",
             )),
         }
     }
@@ -452,25 +489,26 @@ impl<'a> Emitter<'a> {
         }
         self.out.push_str("}\n\n");
         let uuid_fields = self.uuid_fields()?;
-        let values = &interface.uuid;
-        if uuid_fields.len() != 4 || values.len() != 11 {
+        let (Some(guid), [data1, data2, data3, data4]) = (interface.uuid, uuid_fields.as_slice())
+        else {
             return Err(internal(&item.location, "the UUID has the wrong shape"));
-        }
-        let bytes: Vec<String> = values[3..]
+        };
+        let bytes: Vec<String> = guid
+            .data4
             .iter()
-            .map(|value| hex_literal(*value, 2))
+            .map(|byte| hex_literal(u64::from(*byte), 2))
             .collect();
         put(
             &mut self.out,
             format_args!(
                 "unsafe impl {INTERFACE_TRAIT} for {name} {{\n    const UUID: {uuid} = {uuid} {{\n        {}: {},\n        {}: {},\n        {}: {},\n        {}: [{}],\n    }};\n}}\n\n",
-                uuid_fields[0],
-                hex_literal(values[0], 8),
-                uuid_fields[1],
-                hex_literal(values[1], 4),
-                uuid_fields[2],
-                hex_literal(values[2], 4),
-                uuid_fields[3],
+                data1,
+                hex_literal(u64::from(guid.data1), 8),
+                data2,
+                hex_literal(u64::from(guid.data2), 4),
+                data3,
+                hex_literal(u64::from(guid.data3), 4),
+                data4,
                 bytes.join(", "),
                 uuid = self.rules.uuid_type,
             ),
@@ -829,5 +867,51 @@ mod tests {
         };
         let names = param_names(&[param(None), param(Some("arg0")), param(Some("this"))]);
         assert_eq!(names, ["arg0", "arg0_", "this_"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    mod ffi {
+        use super::super::{format_with, rustfmt};
+        use crate::error::ErrorKind;
+
+        #[test]
+        fn rustfmt_formats_valid_rust() {
+            let text = rustfmt("pub   const A : u8=1;").expect("rustfmt formats the text");
+            assert_eq!(text, "pub const A: u8 = 1;\n");
+        }
+
+        #[test]
+        fn rustfmt_reports_its_exit_status_and_standard_error_on_invalid_rust() {
+            let error = rustfmt("fn (").expect_err("rustfmt rejects the text");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert!(
+                error
+                    .message()
+                    .starts_with("rustfmt failed with exit status: 1: "),
+                "{error}"
+            );
+            assert!(error.message().contains("error"), "{error}");
+        }
+
+        #[test]
+        fn format_with_reports_a_program_that_cannot_start() {
+            let error = format_with("bindings-generator-test-no-such-rustfmt", &[], "")
+                .expect_err("the program is missing");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(
+                error.message(),
+                "cannot start bindings-generator-test-no-such-rustfmt"
+            );
+            assert!(std::error::Error::source(&error).is_some(), "{error}");
+        }
+
+        #[test]
+        fn format_with_reports_the_status_of_a_program_that_exits_before_reading_its_input() {
+            let text = "x".repeat(16 << 20);
+            let error = format_with("sh", &["-c", "echo refused >&2; exit 3"], &text)
+                .expect_err("the program fails");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(error.message(), "sh failed with exit status: 3: refused");
+        }
     }
 }

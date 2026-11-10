@@ -65,6 +65,7 @@ pub mod pin {
 
 const TAG_HEADER: &str = "slang-tag-version.h";
 const TAG_MACRO: &str = "SLANG_TAG_VERSION";
+const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 
 /// Generates the text of the raw bindings from the Slang headers in
 /// `header_dir`.
@@ -97,6 +98,8 @@ const TAG_MACRO: &str = "SLANG_TAG_VERSION";
 /// - [`ErrorKind::Diagnostic`] when a parse reports an error.
 /// - [`ErrorKind::UnmatchedDeclaration`] when a declaration or a macro of the
 ///   headers matches no rule of the rule set.
+/// - [`ErrorKind::StaleRule`] when a rule of the rule set decides no
+///   declaration or macro of the headers.
 /// - [`ErrorKind::Unsupported`] when an included declaration uses a construct
 ///   that the bindings cannot express, such as an aggregate passed by value,
 ///   a variadic function, an interface with several bases, or a method that
@@ -121,13 +124,7 @@ fn generate_with(rules: &rules::RuleSet, header_dir: &Path, expected_tag: &str) 
         .with_source(error)
     })?;
     check_tag(&header_dir, expected_tag)?;
-    let clang = Clang::new().map_err(|reason| {
-        Error::new(
-            ErrorKind::Libclang,
-            "cannot load libclang, install it or set LIBCLANG_PATH to the directory that holds it",
-        )
-        .with_source(reason)
-    })?;
+    let clang = Clang::new().map_err(|reason| libclang_error(&reason))?;
     let index = Index::new(&clang, false, false);
     let mut selections = Vec::new();
     for target in parse::TARGETS {
@@ -147,6 +144,21 @@ fn generate_with(rules: &rules::RuleSet, header_dir: &Path, expected_tag: &str) 
     emit::rustfmt(&emit::emit(&selection, rules)?)
 }
 
+fn libclang_error(reason: &str) -> Error {
+    if reason == CLANG_EXISTS {
+        return Error::new(
+            ErrorKind::Libclang,
+            "cannot use libclang, because this process already holds a libclang instance or failed to load libclang before, and only one instance may exist at a time, so generate the bindings once per process and from one thread",
+        );
+    }
+    Error::new(
+        ErrorKind::Libclang,
+        format!(
+            "cannot load libclang: {reason}. Install libclang or set LIBCLANG_PATH to the directory that holds it"
+        ),
+    )
+}
+
 fn check_tag(header_dir: &Path, expected_tag: &str) -> Result<()> {
     let path = header_dir.join(TAG_HEADER);
     let text = std::fs::read_to_string(&path).map_err(|error| {
@@ -159,6 +171,10 @@ fn check_tag(header_dir: &Path, expected_tag: &str) -> Result<()> {
         )
         .with_source(error)
     })?;
+    check_tag_text(&text, &path.display().to_string(), expected_tag)
+}
+
+fn check_tag_text(text: &str, path: &str, expected_tag: &str) -> Result<()> {
     let mut found = None;
     for (position, line) in text.lines().enumerate() {
         let mut words = line.split_whitespace();
@@ -183,7 +199,7 @@ fn check_tag(header_dir: &Path, expected_tag: &str) -> Result<()> {
     let Some((tag, location)) = found else {
         return Err(Error::new(
             ErrorKind::Version,
-            format!("{} does not define {TAG_MACRO}", path.display()),
+            format!("{path} does not define {TAG_MACRO}"),
         ));
     };
     if tag != expected_tag {

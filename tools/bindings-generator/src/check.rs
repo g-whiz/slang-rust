@@ -26,12 +26,38 @@ pub(crate) struct SelectedMacro {
 }
 
 pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
+    let mut used = Used {
+        declarations: vec![false; rules.declarations.len()],
+        macros: vec![false; rules.macros.len()],
+        unnamed_enums: vec![false; rules.unnamed_enums.len()],
+    };
     let mut actions: HashMap<String, Action> = HashMap::new();
+    let mut constants_of: HashMap<String, &'static str> = HashMap::new();
     let mut unmatched = Vec::new();
     let mut first_unmatched = None;
     for item in model.items.iter().filter(|item| item.owner.is_none()) {
-        if let Some(rule) = rules.declaration_rule(item.location.file(), &item.name.cxx) {
-            actions.insert(item.name.cxx.clone(), rule.action);
+        let file = item.location.file();
+        if let ItemKind::Enum(enumeration) = &item.kind
+            && enumeration.unnamed
+        {
+            if let Some(position) = rules.unnamed_enum_position(file, &enumeration.enumerators) {
+                used.unnamed_enums[position] = true;
+                actions.insert(item.name.cxx.clone(), Action::Include);
+                constants_of.insert(item.name.cxx.clone(), rules.unnamed_enums[position].typedef);
+            } else {
+                first_unmatched.get_or_insert_with(|| item.location.clone());
+                let first = enumeration
+                    .enumerators
+                    .first()
+                    .map_or("no enumerator", |enumerator| enumerator.name.as_str());
+                unmatched.push(format!(
+                    "the unnamed enumeration that starts with {first} ({})",
+                    item.location
+                ));
+            }
+        } else if let Some(position) = rules.declaration_position(file, &item.name.cxx) {
+            used.declarations[position] = true;
+            actions.insert(item.name.cxx.clone(), rules.declarations[position].action);
         } else {
             first_unmatched.get_or_insert_with(|| item.location.clone());
             unmatched.push(format!("{} ({})", item.name.cxx, item.location));
@@ -39,19 +65,21 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
     }
     let mut macros = Vec::new();
     for Macro { name, location } in model.macros {
-        match rules.macro_rule(&name) {
-            Some(rule) if rule.action == MacroAction::Exclude => {}
-            Some(rule) => macros.push(SelectedMacro {
+        let Some(position) = rules.macro_position(&name) else {
+            unmatched.push(format!("macro {name} ({location})"));
+            first_unmatched.get_or_insert(location);
+            continue;
+        };
+        used.macros[position] = true;
+        let rule = &rules.macros[position];
+        if rule.action != MacroAction::Exclude {
+            macros.push(SelectedMacro {
                 name,
                 location,
                 action: rule.action,
                 reason: rule.reason,
                 value: None,
-            }),
-            None => {
-                unmatched.push(format!("macro {name} ({location})"));
-                first_unmatched.get_or_insert(location);
-            }
+            });
         }
     }
     if let Some(first) = first_unmatched {
@@ -65,11 +93,22 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
             ),
         ));
     }
+    used.check(rules)?;
+    let owners: HashMap<String, String> = model
+        .items
+        .iter()
+        .filter_map(|item| Some((item.name.cxx.clone(), item.owner.clone()?)))
+        .collect();
     let mut items = Vec::new();
     let mut excluded = Vec::new();
-    for item in model.items {
-        let key = item.owner.as_ref().unwrap_or(&item.name.cxx);
-        if actions.get(key) == Some(&Action::Include) {
+    for mut item in model.items {
+        let root = root_owner(&owners, &item.name.cxx);
+        if let ItemKind::Enum(enumeration) = &mut item.kind
+            && let Some(typedef) = constants_of.get(&item.name.cxx)
+        {
+            enumeration.constants_of = Some((*typedef).to_owned());
+        }
+        if actions.get(root) == Some(&Action::Include) {
             items.push(item);
         } else {
             excluded.push(item);
@@ -80,6 +119,64 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
         excluded,
         macros,
     })
+}
+
+fn root_owner<'a>(owners: &'a HashMap<String, String>, name: &'a str) -> &'a str {
+    let mut current = name;
+    for _ in 0..=owners.len() {
+        match owners.get(current) {
+            Some(owner) => current = owner,
+            None => break,
+        }
+    }
+    current
+}
+
+struct Used {
+    declarations: Vec<bool>,
+    macros: Vec<bool>,
+    unnamed_enums: Vec<bool>,
+}
+
+impl Used {
+    fn check(&self, rules: &RuleSet) -> Result<()> {
+        let mut stale = Vec::new();
+        for (rule, used) in rules.declarations.iter().zip(&self.declarations) {
+            if !used {
+                stale.push(format!(
+                    "the declaration rule {}{} ({})",
+                    rule.pattern,
+                    rule.header
+                        .map_or_else(String::new, |header| format!(" in {header}")),
+                    rule.reason
+                ));
+            }
+        }
+        for (rule, used) in rules.macros.iter().zip(&self.macros) {
+            if !used {
+                stale.push(format!("the macro rule {} ({})", rule.pattern, rule.reason));
+            }
+        }
+        for (rule, used) in rules.unnamed_enums.iter().zip(&self.unnamed_enums) {
+            if !used {
+                stale.push(format!(
+                    "the rule that assigns the unnamed enumeration with the enumerator {} in {} to {} ({})",
+                    rule.enumerator, rule.header, rule.typedef, rule.reason
+                ));
+            }
+        }
+        if stale.is_empty() {
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::StaleRule,
+            format!(
+                "{} rules of the rule set decide no declaration or macro of the headers, so remove or correct them: {}",
+                stale.len(),
+                stale.join(", ")
+            ),
+        ))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -295,6 +392,49 @@ impl<'a> Validator<'a> {
                 ));
             }
         }
+        if let Some(typedef) = &enumeration.constants_of {
+            self.flags_typedef(item, enumeration, typedef)?;
+        }
+        Ok(())
+    }
+
+    fn flags_typedef(
+        &self,
+        item: &'a Item,
+        enumeration: &'a crate::model::Enum,
+        typedef: &str,
+    ) -> Result<()> {
+        let location = &item.location;
+        let range = match self.included(typedef).map(|typedef| &typedef.kind) {
+            Some(ItemKind::Typedef(inner)) if !self.is_result_type(typedef) => {
+                self.integer_range(inner)
+            }
+            _ => None,
+        };
+        let Some((min, max)) = range else {
+            return Err(Self::unsupported(
+                location,
+                format!(
+                    "a rule assigns the unnamed enumeration that starts with {} to {typedef}, which is not an included typedef of an integer type",
+                    enumeration
+                        .enumerators
+                        .first()
+                        .map_or("no enumerator", |enumerator| enumerator.name.as_str())
+                ),
+            ));
+        };
+        for enumerator in &enumeration.enumerators {
+            if enumerator.value < min || enumerator.value > max {
+                return Err(Error::at(
+                    ErrorKind::Evaluation,
+                    location,
+                    format!(
+                        "enumerator {} has the value {}, which does not fit the type {typedef} that a rule assigns it to",
+                        enumerator.name, enumerator.value
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -387,15 +527,7 @@ impl<'a> Validator<'a> {
                 ),
             ));
         }
-        if interface.uuid.len() != 11
-            || interface.uuid[0] > u64::from(u32::MAX)
-            || interface.uuid[1..3]
-                .iter()
-                .any(|value| *value > u64::from(u16::MAX))
-            || interface.uuid[3..]
-                .iter()
-                .any(|value| *value > u64::from(u8::MAX))
-        {
+        if interface.uuid.is_none() {
             return Err(Self::unsupported(
                 location,
                 format!(
@@ -627,7 +759,26 @@ impl<'a> Validator<'a> {
     fn check_value(&self, ty: &'a Ty, value: Value, location: &Location, what: &str) -> Result<()> {
         let resolved = self.resolve(ty);
         match (resolved, value) {
-            (Ty::C(CType::Float | CType::Double), _) => Ok(()),
+            (Ty::C(CType::Float | CType::Double), Value::Integer(_)) => Ok(()),
+            (Ty::C(ty @ (CType::Float | CType::Double)), Value::Float(float)) => {
+                if !float.is_finite() {
+                    return Err(Error::at(
+                        ErrorKind::Evaluation,
+                        location,
+                        format!(
+                            "{what} has the value {float:?}, which is not a finite number and has no Rust literal"
+                        ),
+                    ));
+                }
+                if *ty == CType::Float && float.abs() > f64::from(f32::MAX) {
+                    return Err(Error::at(
+                        ErrorKind::Evaluation,
+                        location,
+                        format!("{what} has the value {float:?}, which does not fit its type f32"),
+                    ));
+                }
+                Ok(())
+            }
             (Ty::Pointer { .. } | Ty::Callback(_), _) => Err(Self::unsupported(
                 location,
                 format!("{what} is a pointer initialized with a value other than nullptr"),
@@ -825,7 +976,8 @@ fn first_difference(first: &str, other: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Enumerator, Name};
+    use crate::model::{Constant, Enumerator, Field, Name};
+    use crate::rules::SLANG;
 
     fn item(cxx: &str, kind: ItemKind) -> Item {
         Item {
@@ -845,6 +997,8 @@ mod tests {
 
     fn unfixed_enum(canonical_signed: bool, values: &[i128]) -> crate::model::Enum {
         crate::model::Enum {
+            unnamed: false,
+            constants_of: None,
             underlying: Underlying::Unfixed { canonical_signed },
             size: 4,
             enumerators: values
@@ -864,6 +1018,141 @@ mod tests {
             excluded: Vec::new(),
             macros: Vec::new(),
         }
+    }
+
+    fn constant(ty: Ty, value: Value) -> Item {
+        item(
+            "C",
+            ItemKind::Constant(Constant {
+                ty,
+                value: Some(value),
+            }),
+        )
+    }
+
+    fn refusal(items: Vec<Item>) -> Error {
+        validate(&selection(items), &SLANG, "test-target").expect_err("validation fails")
+    }
+
+    fn assert_refusal(error: &Error, kind: ErrorKind, message: &str) {
+        assert_eq!(error.kind(), kind, "{error}");
+        assert_eq!(
+            error.location(),
+            Some(&Location::new("slang.h", 1)),
+            "{error}"
+        );
+        assert_eq!(error.message(), message);
+    }
+
+    #[test]
+    fn validate_refuses_a_floating_point_value_on_an_integer_type() {
+        let error = refusal(vec![constant(Ty::Prim(Prim::I32), Value::Float(1.5))]);
+        assert_refusal(
+            &error,
+            ErrorKind::Unsupported,
+            "constant C has a floating-point value but an integer type",
+        );
+    }
+
+    #[test]
+    fn validate_refuses_a_pointer_with_a_value_other_than_nullptr() {
+        let pointer = Ty::Pointer {
+            pointee: Box::new(Ty::Void),
+            is_const: true,
+        };
+        let error = refusal(vec![constant(pointer, Value::Integer(8))]);
+        assert_refusal(
+            &error,
+            ErrorKind::Unsupported,
+            "constant C is a pointer initialized with a value other than nullptr",
+        );
+    }
+
+    #[test]
+    fn validate_refuses_an_integer_value_on_a_type_that_is_not_an_integer() {
+        let record = item(
+            "R",
+            ItemKind::Record(Record {
+                union: false,
+                size: 4,
+                align: 4,
+                fields: vec![Field {
+                    name: Some("value".to_owned()),
+                    location: Location::new("slang.h", 1),
+                    ty: Ty::Prim(Prim::I32),
+                    offset_bits: 0,
+                    bit_width: None,
+                    init: Init::None,
+                }],
+                has_bases: false,
+            }),
+        );
+        let holder = item(
+            "H",
+            ItemKind::Record(Record {
+                union: false,
+                size: 4,
+                align: 4,
+                fields: vec![Field {
+                    name: Some("inner".to_owned()),
+                    location: Location::new("slang.h", 1),
+                    ty: Ty::Named("R".to_owned()),
+                    offset_bits: 0,
+                    bit_width: None,
+                    init: Init::Value(Value::Integer(1)),
+                }],
+                has_bases: false,
+            }),
+        );
+        let error = refusal(vec![record, holder]);
+        assert_refusal(
+            &error,
+            ErrorKind::Unsupported,
+            "field H::inner has a value but its type is not an integer type",
+        );
+    }
+
+    #[test]
+    fn validate_refuses_an_enumeration_whose_underlying_type_is_not_an_integer() {
+        let enumeration = item(
+            "E",
+            ItemKind::Enum(crate::model::Enum {
+                unnamed: false,
+                constants_of: None,
+                underlying: Underlying::Fixed(Ty::C(CType::Float)),
+                size: 4,
+                enumerators: Vec::new(),
+            }),
+        );
+        let error = refusal(vec![enumeration]);
+        assert_refusal(
+            &error,
+            ErrorKind::Unsupported,
+            "enumeration E has an underlying type that is not an integer type",
+        );
+    }
+
+    #[test]
+    fn validate_refuses_a_value_that_does_not_fit_f32() {
+        let error = refusal(vec![constant(Ty::C(CType::Float), Value::Float(1e300))]);
+        assert_refusal(
+            &error,
+            ErrorKind::Evaluation,
+            "constant C has the value 1e300, which does not fit its type f32",
+        );
+    }
+
+    #[test]
+    fn validate_accepts_a_finite_value_that_fits_f32_or_f64() {
+        validate(
+            &selection(vec![
+                constant(Ty::C(CType::Float), Value::Float(f64::from(f32::MAX))),
+                constant(Ty::C(CType::Double), Value::Float(1e300)),
+            ]),
+            &SLANG,
+            "test-target",
+        )
+        .expect("the values fit");
     }
 
     #[test]

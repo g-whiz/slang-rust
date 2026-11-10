@@ -10,8 +10,8 @@ use crate::check::Selection;
 use crate::emit::put;
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Constant, Enum, Enumerator, Field, Function, Init, Interface, Item, ItemKind, Macro,
-    Method, Model, Name, Param, Prim, Record, Signature, Ty, Underlying, Value,
+    CType, Constant, Enum, Enumerator, Field, Function, Guid, Init, Interface, Item, ItemKind,
+    Macro, Method, Model, Name, Param, Prim, Record, Signature, Ty, Underlying, Value,
 };
 
 pub(crate) const TARGETS: [&str; 3] = [
@@ -321,7 +321,7 @@ impl Extractor<'_> {
     fn interface(&mut self, children: &[Entity<'_>]) -> Interface {
         let mut interface = Interface {
             bases: Vec::new(),
-            uuid: Vec::new(),
+            uuid: None,
             methods: Vec::new(),
             has_fields: false,
             has_virtual_destructor: false,
@@ -496,6 +496,8 @@ impl Extractor<'_> {
             location: location.clone(),
             owner: None,
             kind: ItemKind::Enum(Enum {
+                unnamed: is_anonymous(entity),
+                constants_of: None,
                 underlying,
                 size,
                 enumerators,
@@ -807,7 +809,7 @@ fn initializer(field: Entity<'_>) -> Init {
     }
 }
 
-fn uuid(method: Entity<'_>) -> Vec<u64> {
+fn uuid(method: Entity<'_>) -> Option<Guid> {
     fn find_init_list(entity: Entity<'_>) -> Option<Entity<'_>> {
         if entity.get_kind() == EntityKind::InitListExpr {
             return Some(entity);
@@ -827,15 +829,9 @@ fn uuid(method: Entity<'_>) -> Vec<u64> {
             }
         }
     }
-    let Some(list) = find_init_list(method) else {
-        return Vec::new();
-    };
     let mut values = Vec::new();
-    flatten(list, &mut values);
-    values
-        .into_iter()
-        .collect::<Option<Vec<_>>>()
-        .unwrap_or_default()
+    flatten(find_init_list(method)?, &mut values);
+    Guid::from_values(&values.into_iter().collect::<Option<Vec<_>>>()?)
 }
 
 fn value(result: &EvaluationResult) -> Option<Value> {
