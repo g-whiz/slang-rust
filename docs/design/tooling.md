@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-10 |
+| Date | 2026-11-11 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
@@ -64,7 +64,9 @@ Step 5 of Section 15 of `docs/design/slang-compiler-sys.md` added the static rou
 
 Step 6 of Section 15 of `docs/design/slang-compiler-sys.md`, the last change of M1, changed no recipe, hook, checker, or workflow, and M1 is complete. The recipes that arrive in M7 do not exist yet.
 
-The design of M2, `docs/design/slang-compiler.md`, needs no new recipe, hook, custom checker, or CI job. The changes that implement it add two workspace members (Section 3.2) and the development dependency `insta` (Section 9). These are planned, and none of them exists yet.
+The design of M2, `docs/design/slang-compiler.md`, needs no new recipe, hook, custom checker, or CI job. The changes that implement it add two workspace members (Section 3.2) and the development dependency `insta` (Section 9). Step 1 of Section 15 of that document added the member `crates/slang-compiler` and the entry of `slang-compiler-sys` in `[workspace.dependencies]` (Section 3.3), with no change to any recipe, hook, checker, or workflow. The existing test recipes cover the new member, and on 2026-11-11 all six jobs of the workflow passed with it, in run 42836813797. The examples package and `insta` are still planned.
+
+On `main`, CI failed in the Windows job on 2026-11-10 and 2026-11-11 for three commits, from the commit that added the static route of `slang-compiler-sys` to the commit that added the design of M2, because one test of the real host of the build script asserted an error kind that Windows reports differently. The commit "Assert only the variant of a start failure of the real host" fixed the test, and run 42833561065 on `main` passed all six jobs.
 
 ## 2. Requirements Language
 
@@ -115,11 +117,11 @@ The skeleton contains a manifest and `src/lib.rs`. The manifest has the publicat
 
 TOOL-3. An agent MUST create the examples as one workspace member, the package `slang-rust-examples` at `examples/`, with `publish = false`, in which each example is a binary target, because one package needs one manifest with one `publish = false`, one integration-test binary under TEST-10 of the coding standard, and one place for shared helpers. M2 creates this member together with example 1. Building one example builds the dependencies of every example, which the examples accept, because ARCH-14 of the architecture design limits the dependencies of `slang-compiler` and no rule limits those of the examples.
 
-M2 adds two members, which are planned and do not exist yet. Step 1 of Section 15 of `docs/design/slang-compiler.md` adds the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document), with the publication metadata that TOOL-27 requires of a published crate. Step 5 adds the package `slang-rust-examples` at `examples/`, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document). Each change adds its member to the `members` list of the root `Cargo.toml`.
+M2 adds two members. Step 1 of Section 15 of `docs/design/slang-compiler.md` added the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document) on 2026-11-11, with the publication metadata that TOOL-27 requires of a published crate. Step 5 adds the package `slang-rust-examples` at `examples/`, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document), and it is planned and does not exist yet. Each change adds its member to the `members` list of the root `Cargo.toml`.
 
 ### 3.3. Workspace Manifest
 
-The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires.
+The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires. Its `[workspace.dependencies]` table declares each dependency once (DEP-2): `clang` for the binding generator and, since step 1 of Section 15 of `docs/design/slang-compiler.md`, `slang-compiler-sys` by path and version, which `slang-compiler` inherits.
 
 TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence identifier `GPL-3.0-or-later`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`, and every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that cargo-deny checks and with the minimum supported Rust version (MSRV) that Clippy reads.
 
@@ -304,7 +306,7 @@ The first change of M1 adds the profile `default-miri`, which nextest uses under
 default-filter = "not test(/(^|::)(ffi|gpu|hw_gpu)::/)"
 ```
 
-The regular expression matches `gpu` or `hw_gpu` only at the start of the test path or after `::`, and only when `::` follows it. The trailing `::` makes the match a whole module segment. A test function named `gpu` is the last segment of its path and has no `::` after it, and a module named `gpu_buffers` has `_buffers` after `gpu`, so neither matches. The filter of `default-miri` matches `ffi` in the same way. Section 7.5 of `docs/design/slang-compiler-sys.md` records how many tests `check-miri` runs and how many the profile skips. This configuration was verified with nextest 0.9.151, which Section 1.1 of the coding standard records, on a scratch workspace that contains every path of the table in this section, in unit-test modules and in an integration-test binary. A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it. `check-bindings` adds such a filter to the `default` profile to select the regeneration test alone (Section 4.2).
+The regular expression matches `gpu` or `hw_gpu` only at the start of the test path or after `::`, and only when `::` follows it. The trailing `::` makes the match a whole module segment. A test function named `gpu` is the last segment of its path and has no `::` after it, and a module named `gpu_buffers` has `_buffers` after `gpu`, so neither matches. The filter of `default-miri` matches `ffi` in the same way. Section 7.5 of `docs/design/slang-compiler-sys.md` records how many tests `check-miri` runs and how many the profile skips, and Section 13.1 of `docs/design/slang-compiler.md` records the same for `slang-compiler`, whose `ffi` tests call Slang and whose unit tests run under Miri against a fake of the Slang interfaces. This configuration was verified with nextest 0.9.151, which Section 1.1 of the coding standard records, on a scratch workspace that contains every path of the table in this section, in unit-test modules and in an integration-test binary. A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it. `check-bindings` adds such a filter to the `default` profile to select the regeneration test alone (Section 4.2).
 
 TOOL-11. A profile MUST NOT retry a failed test, because a retry turns an intermittent failure on an adapter into a pass, which hides the failure in the same way that ARCH-23 of the architecture design forbids a test to hide a missing adapter. Zero retries is the default of nextest, and the `default` profile sets `retries = 0` explicitly so that the configuration states this rule instead of relying on the default. The other profiles inherit the value.
 
@@ -851,6 +853,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded in Sections 1.6, 3.2, and 3.3 that step 1 of M2 added the member `crates/slang-compiler` and `slang-compiler-sys` in `[workspace.dependencies]` with no change to the tooling, while the examples package stays planned, cited in Section 5 the Miri counts of `slang-compiler`, and recorded in Section 1.6 the failure of the Windows job on `main` for three commits and the run that passed after the fix.
 - 2026-11-10: Recorded, as planned, what the design of M2, `docs/design/slang-compiler.md`, needs from tooling: the members `slang-compiler` and `slang-rust-examples` with the binary target `compile-and-reflect` in Section 3.2, the development dependency `insta` with its licences under TOOL-24 and assumption CA-12 in Section 9, and the coverage of the new members by `check-doc-without-slang` in Section 10, and stated in Section 1.6 that it needs no new recipe, hook, checker, or CI job.
 - 2026-11-10: Recorded in Section 1.6 that step 6 of M1 changed no tooling and that M1 is complete.
 - 2026-11-10: Recorded step 5 of M1: the state in Section 1.6, the amendment of TOOL-7 and its summary in Appendix A that permit the form of `test-static` and state that the file list of the formatting command is part of it, with TOOL-12 to match, the recipe `test-static` as existing and the file list and failure messages of `fmt` and `check-fmt` in Section 4.2, the absence of `test-static` from the allow list of `.claude/settings.json` in Section 6, the local verification of the static route in Section 8.1, git, CMake, Ninja, and a C++17 compiler in TOOL-29 and its summary in Section 11, and the variables, failures, durations, logs, and network access of the new recipe in Section 17.

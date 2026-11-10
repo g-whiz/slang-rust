@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-10 |
+| Date | 2026-11-11 |
 | Applies to | `crates/slang-compiler-sys` and `tools/bindings-generator` |
 
 ## Abstract
@@ -543,7 +543,7 @@ The `ffi` modules are compiled under `#[cfg(target_os = "linux")]`, so they do n
 
 Step 4 of Section 15 added two tests of the generator in its `ffi` modules, which check the generated list of C functions of Section 5.1.
 
-On 2026-11-10, counting the tests of the generator, the regeneration test of Section 7.6, and the tests of `slang-compiler-sys` in Sections 9.7 and 11, the workspace has 153 tests on Linux. The generator has 94 of them, and `slang-compiler-sys` has 59: 12 for the dynamic route, 33 for the static route, 1 for the numeric version, 8 for the real host in `build_script::ffi`, 2 in `ffi`, and 3 in `pin`. `check-miri` runs 80 of them, and the profile `default-miri` skips the 73 in `ffi` modules. On Windows and macOS, the generator's `ffi` modules are not compiled, and the tests of the crate, including the two tests in the `ffi` module of `slang-compiler-sys` (Section 11), passed there in CI on 2026-11-10. The earlier CI run 42818251079 (Section 12) ran 7 of the 8 tests of the real host, because it predates the eighth. Sections 7.6, 9.7, and 11 cite these counts and do not restate them.
+On 2026-11-10, counting the tests of the generator, the regeneration test of Section 7.6, and the tests of `slang-compiler-sys` in Sections 9.7 and 11, the workspace has 153 tests on Linux. The generator has 94 of them, and `slang-compiler-sys` has 59: 12 for the dynamic route, 33 for the static route, 1 for the numeric version, 8 for the real host in `build_script::ffi`, 2 in `ffi`, and 3 in `pin`. `check-miri` runs 80 of them, and the profile `default-miri` skips the 73 in `ffi` modules. On Windows and macOS, the generator's `ffi` modules are not compiled, and the two tests in the `ffi` module of `slang-compiler-sys` (Section 11) passed there in CI on 2026-11-10. The earlier CI run 42818251079 (Section 12) ran 7 of the 8 tests of the real host, because it predates the eighth. Section 12 records the failure of one test of the real host on Windows that followed. Sections 7.6, 9.7, and 11 cite these counts and do not restate them.
 
 Reversing the order of the thunks in the generator makes a test fail, which shows that the tests of the slot order can fail.
 
@@ -949,7 +949,7 @@ SCS-36. The CI workflow MUST NOT build the static route on every pull request, b
 
 This answers Q-28 of the architecture design. The static route is verified locally through the recipe `test-static` (Section 9.3), which ran in the development container on 2026-11-10. Whether a scheduled CI job builds it is open (Section 17, SQ-4).
 
-Step 5 of Section 15 needed no change to the workflow. On 2026-11-10, all six jobs passed on draft pull request 6, in run 42818251079. The jobs build the dynamic route only, and the tests of the real host of Section 9.7 ran in the Linux, Windows, and macOS jobs. That run predates the eighth of those tests, so it ran 7.
+Step 5 of Section 15 needed no change to the workflow. On 2026-11-10, all six jobs passed on draft pull request 6, in run 42818251079. The jobs build the dynamic route only, and the tests of the real host of Section 9.7 ran in the Linux, Windows, and macOS jobs. That run predates the eighth of those tests, so it ran 7. On `main`, CI then failed in the Windows job on 2026-11-10 and 2026-11-11 for three commits, from the commit that added the static route to the commit that added `docs/design/slang-compiler.md`, because one test of the real host asserted an error kind that Windows reports differently. The commit "Assert only the variant of a start failure of the real host" fixed the test, and run 42833561065 on `main` passed all six jobs.
 
 ## 13. Crate Documentation
 
@@ -1182,6 +1182,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Narrowed the statement of Section 7.5 on what passed on Windows and macOS on 2026-11-10 to the two tests of the module `ffi`, and recorded in Section 12 that CI on `main` then failed in the Windows job for three commits because of one test of the real host, and which commit and run followed the fix.
 - 2026-11-10: Cited Section 8 of `docs/design/slang-compiler.md` in Section 18 for the files that the safe crate lets Slang read, in place of the question Q-13 of the architecture design, which that document answered.
 - 2026-11-10: Recorded step 6 of Section 15 as done and M1 as complete in Sections 1.6 and 15, with what stays open in the rows of Sections 16 and 17, described the completed crate documentation in Section 13, and cited the amended SYS-1 in Section 9.5 for the watched git files of the static route.
 - 2026-11-10: Recorded step 5 of Section 15 as done and made the design agree with the implementation: the current state and new terms in Sections 1.6 and 2.1, the facts of the source build in Section 3.10, the end of the stop on `SLANG_SOURCE_DIR` in Section 9.1, the static route step by step in Section 9.3 with SCS-27 amended to require a clean checkout and refuse a source archive, SCS-28 amended for Ninja and the numeric version, and SCS-42 to SCS-49 added for the validated variables, the supported targets, the git environment, the copy, the stamp, the verification, the log, and `test-static`, the watched git files and the include directory of the build tree in Section 9.5 with SCS-30 amended, one row for each failure of the static route and the new message for an absent `VULKAN_SDK` in Section 9.6, the ten methods of `Host`, `system.rs`, and the tests of the real host in Section 9.7, the test counts in Section 7.5, the static route in Sections 10 to 14, step 5 in Section 15, the confirmation of SA-4 and SA-5 and the correction of SA-6 with the removal of their rows in Section 16, the answers to SQ-1 and SQ-2 with the removal of their rows and the new questions SQ-3 to SQ-5 in Section 17, the static route in Section 18, the variables, failure modes, and log in Section 19, and Appendix A.
