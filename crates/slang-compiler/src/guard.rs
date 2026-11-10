@@ -187,11 +187,14 @@ fn end_global_session() {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::mpsc::{self, Sender};
+    use std::thread;
 
     use slang_compiler_sys::ISlangBlob;
 
-    use super::{GlobalSessionRecord, call, raise};
+    use super::{GlobalSessionRecord, PENDING, call, raise};
     use crate::fake::{Event, FakeBlob, Log, panic_message};
     use crate::owned::Owned;
 
@@ -299,5 +302,87 @@ mod tests {
             assert!(GlobalSessionRecord::begin().is_none());
         });
         assert!(GlobalSessionRecord::begin().is_some());
+    }
+    /// What happened to a release and to the record of a global session that
+    /// were dropped with the guard raised after the queue of the thread was
+    /// destroyed.
+    #[derive(Debug, PartialEq, Eq)]
+    struct AtThreadExit {
+        record_began: bool,
+        events_while_raised: Vec<Event>,
+        record_ended_while_raised: bool,
+        events_after_lowering: Vec<Event>,
+        events_after_reclaim: Vec<Event>,
+    }
+
+    fn drop_with_the_guard_raised_after_the_queue_is_destroyed() -> AtThreadExit {
+        let log = Log::new();
+        let blob = adopt_blob(&log, "blob");
+        let raw = blob.as_non_null();
+        let record = GlobalSessionRecord::begin();
+        let record_began = record.is_some();
+        let raised = raise();
+        drop(blob);
+        drop(record);
+        let events_while_raised = log.events();
+        let record_ended_while_raised = GlobalSessionRecord::begin().is_some();
+        drop(raised);
+        let events_after_lowering = log.events();
+        // SAFETY: the release of `blob` was dropped without running, so the
+        // reference of `create` is still owned and nothing else releases it.
+        unsafe { FakeBlob::release_raw(raw) };
+        AtThreadExit {
+            record_began,
+            events_while_raised,
+            record_ended_while_raised,
+            events_after_lowering,
+            events_after_reclaim: log.events(),
+        }
+    }
+
+    /// A thread-local value whose destructor runs the drops of
+    /// `drop_with_the_guard_raised_after_the_queue_is_destroyed` when it finds
+    /// the queue already destroyed.
+    struct ExitProbe {
+        report: RefCell<Option<Sender<AtThreadExit>>>,
+    }
+
+    impl Drop for ExitProbe {
+        fn drop(&mut self) {
+            let Some(report) = self.report.borrow_mut().take() else {
+                return;
+            };
+            if PENDING.try_with(|_| ()).is_err() {
+                drop(report.send(drop_with_the_guard_raised_after_the_queue_is_destroyed()));
+            }
+        }
+    }
+
+    thread_local! {
+        static BEFORE_QUEUE: ExitProbe = const { ExitProbe { report: RefCell::new(None) } };
+        static AFTER_QUEUE: ExitProbe = const { ExitProbe { report: RefCell::new(None) } };
+    }
+
+    #[test]
+    fn drops_with_the_guard_raised_at_thread_exit_leak_the_release_and_end_the_record() {
+        let (report, outcomes) = mpsc::channel();
+        thread::spawn(move || {
+            BEFORE_QUEUE.with(|probe| *probe.report.borrow_mut() = Some(report.clone()));
+            PENDING.with(|queue| queue.borrow().len());
+            AFTER_QUEUE.with(|probe| *probe.report.borrow_mut() = Some(report));
+        })
+        .join()
+        .expect("the thread exits without a panic");
+        let outcomes: Vec<AtThreadExit> = outcomes.iter().collect();
+        assert_eq!(
+            outcomes,
+            [AtThreadExit {
+                record_began: true,
+                events_while_raised: Vec::new(),
+                record_ended_while_raised: true,
+                events_after_lowering: Vec::new(),
+                events_after_reclaim: vec![Event::release("blob", 0), Event::freed("blob")],
+            }]
+        );
     }
 }
