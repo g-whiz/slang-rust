@@ -16,6 +16,13 @@ defaults:
   run:
     shell: bash
 
+# The SHA-256 checksums of the Vulkan SDK downloads of the version that crates/slang-compiler-sys/pin.rs
+# pins. They change in the same change as the pin.
+env:
+  VULKAN_SDK_SHA256_LINUX: b7867d8ca658563813af666f34b93db87f1b1c7d9d69d97e924c210c7ba33eb8
+  VULKAN_SDK_SHA256_MACOS: a65c707cf0a32bf8c2ca6b9af1985b7af61dbadfc19b352dae51a323f3a547a6
+  VULKAN_SDK_SHA256_WINDOWS: c02932bd9a968b22d404536108adaacac908c081cd6b0113f5bfefc523dd0a6a
+
 jobs:
   check:
     name: Run every check on Linux
@@ -36,6 +43,19 @@ jobs:
         with:
           tool: just,shellcheck,typos,taplo,cargo-machete,cargo-deny,cargo-nextest
           fallback: none
+      - &read-pin
+        name: Read the pin of slang-compiler-sys
+        run: |
+          pin="$(just pin)"
+          printf '%s\n' "${pin}" | tee -a "${GITHUB_ENV}"
+      - &install-vulkan-sdk
+        name: Install the Vulkan SDK
+        env:
+          SDK_SHA256: ${{ runner.os == 'Linux' && env.VULKAN_SDK_SHA256_LINUX || runner.os == 'macOS' && env.VULKAN_SDK_SHA256_MACOS || runner.os == 'Windows' && env.VULKAN_SDK_SHA256_WINDOWS || '' }}
+        run: just install-vulkan-sdk "${VULKAN_SDK_VERSION}" "${SDK_SHA256}"
+      - &check-vulkan-sdk
+        name: Check the Slang of the Vulkan SDK
+        run: just check-vulkan-sdk
       - name: Install actionlint
         run: |
           set -euo pipefail
@@ -56,7 +76,8 @@ jobs:
           mkdir -p "${HOME}/.local/bin"
           install -m 0755 "${work}/actionlint" "${HOME}/.local/bin/actionlint"
           printf '%s\n' "${HOME}/.local/bin" >>"${GITHUB_PATH}"
-      - name: Install libclang for the tests of the binding generator
+      - &install-libclang
+        name: Install libclang for the tests of the binding generator
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libclang-dev
@@ -80,6 +101,9 @@ jobs:
         with:
           tool: just,cargo-nextest
           fallback: none
+      - *read-pin
+      - *install-vulkan-sdk
+      - *check-vulkan-sdk
       - name: Run Clippy
         run: just check-clippy
       - name: Run the doctests
@@ -104,7 +128,37 @@ jobs:
         with:
           tool: just,cargo-hack
           fallback: none
+      - *read-pin
+      - *install-vulkan-sdk
+      - *check-vulkan-sdk
       - name: Run the recipe
         env:
           RECIPE: ${{ matrix.recipe }}
         run: just "${RECIPE}"
+
+  coverage:
+    name: Measure test coverage on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - *checkout
+      - name: Install the stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,llvm-tools
+      - name: Install just, cargo-nextest, and cargo-llvm-cov
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-nextest,cargo-llvm-cov
+          fallback: none
+      - *read-pin
+      - *install-vulkan-sdk
+      - *check-vulkan-sdk
+      - *install-libclang
+      - name: Write the coverage report
+        run: just coverage
+      - name: Keep the coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: target/lcov.info
+          if-no-files-found: error
+          retention-days: 14
