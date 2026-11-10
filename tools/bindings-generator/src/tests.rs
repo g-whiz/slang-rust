@@ -6,7 +6,7 @@ mod ffi {
     use crate::error::{Error, ErrorKind};
     use crate::model::Prim;
     use crate::rules::{Action, DeclRule, MacroAction, MacroRule, RuleSet, UnnamedEnumRule};
-    use crate::{generate_with, pin};
+    use crate::{Generated, generate_with, pin};
 
     static LIBCLANG: Mutex<()> = Mutex::new(());
 
@@ -93,7 +93,9 @@ struct IRoot
     }
 
     fn run(test: &str, header: &str, rules: &RuleSet, tag: &str) -> crate::Result<String> {
-        run_in(test, header, rules, tag).0
+        run_in(test, header, rules, tag)
+            .0
+            .map(|generated| generated.bindings)
     }
 
     fn run_in(
@@ -101,7 +103,7 @@ struct IRoot
         header: &str,
         rules: &RuleSet,
         tag: &str,
-    ) -> (crate::Result<String>, PathBuf) {
+    ) -> (crate::Result<Generated>, PathBuf) {
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new(test, header, tag);
         let result = generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG);
@@ -723,11 +725,37 @@ struct IOther : public IRoot
             env!("CARGO_MANIFEST_DIR").into(),
             "bindings-generator-test".into(),
         ] {
-            assert!(
-                !first.contains(path.as_ref()),
-                "the output contains the path {path}"
-            );
+            for (file, text) in first.files() {
+                assert!(
+                    !text.contains(path.as_ref()),
+                    "{file} contains the path {path}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn generate_lists_every_c_function_with_its_address_in_declaration_order() {
+        let header = "\nextern \"C\" int32_t second(int32_t value);\nextern \"C\" void type();\nextern \"C\" void first();\n";
+        let generated = run_in("symbols", header, &DEFAULT_RULES, pin::SLANG_BUILD_TAG)
+            .0
+            .unwrap_or_else(|error| panic!("generation failed: {error}"));
+        assert_eq!(
+            generated.symbols,
+            "//! The C functions of the raw Slang bindings, generated from the Slang headers by the binding generator. Run `just generate-bindings` to regenerate them instead of editing this file.\n\npub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[\n    (\"second\", slang_compiler_sys::second as *const ()),\n    (\"type\", slang_compiler_sys::r#type as *const ()),\n    (\"first\", slang_compiler_sys::first as *const ()),\n];\n"
+        );
+        assert_contains(&generated.bindings, "pub fn r#type();");
+    }
+
+    #[test]
+    fn generate_without_c_functions_writes_an_empty_list() {
+        let generated = run_in("no_symbols", "", &DEFAULT_RULES, pin::SLANG_BUILD_TAG)
+            .0
+            .unwrap_or_else(|error| panic!("generation failed: {error}"));
+        assert_contains(
+            &generated.symbols,
+            "pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[];\n",
+        );
     }
 
     #[test]

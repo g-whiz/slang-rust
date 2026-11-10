@@ -1,6 +1,12 @@
 set positional-arguments
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# The assignment that puts the library directory of the Vulkan SDK that VULKAN_SDK names ahead of the library path of the dynamic loader, on Linux and macOS, so that the programs that a recipe runs find the Slang shared library. It is empty on Windows, where PATH finds the DLL, and when VULKAN_SDK is unset or empty. A recipe puts it on the command line of the program it runs, because macOS removes the DYLD_ variables when it starts a protected program such as /bin/bash.
+library_path_variable := if os() == "linux" { "LD_LIBRARY_PATH" } else if os() == "macos" { "DYLD_LIBRARY_PATH" } else { "" }
+vulkan_sdk := env("VULKAN_SDK", "")
+existing_library_path := if library_path_variable == "" { "" } else { env(library_path_variable, "") }
+slang_library_path := if library_path_variable == "" { "" } else if vulkan_sdk == "" { "" } else { library_path_variable + "=" + quote(vulkan_sdk / "lib" + if existing_library_path == "" { "" } else { ":" + existing_library_path }) }
+
 # List the available recipes
 default:
     @just --list --unsorted
@@ -167,7 +173,7 @@ pin:
         printf '%s=%s\n' "${name}" "${value}"
     done
 
-# Regenerate crates/slang-compiler-sys/src/bindings.rs from the Slang headers of the Vulkan SDK that VULKAN_SDK names, which needs libclang and rustfmt
+# Regenerate crates/slang-compiler-sys/src/bindings.rs and the list of its C functions, crates/slang-compiler-sys/tests/sys/symbols.rs, from the Slang headers of the Vulkan SDK that VULKAN_SDK names, which needs libclang and rustfmt
 [group('rust')]
 generate-bindings:
     cargo run --quiet -p bindings-generator
@@ -175,11 +181,11 @@ generate-bindings:
 # Check that the checked-in bindings equal a regeneration from the Slang headers of the Vulkan SDK that VULKAN_SDK names, failing when the test cannot run
 [group('checks')]
 check-bindings:
-    CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=fail -E 'package(bindings-generator) & binary(generator) & test(=ffi::checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk)'
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=fail -E 'package(bindings-generator) & binary(generator) & test(=ffi::checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk)'
 
-# Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation, doctests, tests, and Miri
+# Run the Rust checks: comments, headings, doctest attributes, feature documentation, formatting, unused and denied dependencies, Clippy, documentation with and without Slang, doctests, tests, and Miri
 [group('checks')]
-check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doctest test-gpu check-miri
+check-rust: check-rust-comments check-doc-headings check-doctest-attributes check-feature-docs check-fmt check-unused-deps check-deny check-clippy check-doc check-doc-without-slang check-doctest test-gpu check-miri
 
 # Check that the Rust code of the workspace is formatted
 [group('checks')]
@@ -196,25 +202,30 @@ check-clippy:
 check-doc:
     CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
 
+# Build the API documentation of the workspace as docs.rs does, with DOCS_RS set and VULKAN_SDK unset, failing on any rustdoc warning
+[group('checks')]
+check-doc-without-slang:
+    env -u VULKAN_SDK DOCS_RS=1 CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
+
 # Run the doctests of the workspace
 [group('checks')]
 check-doctest:
-    CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
 
 # Run the tests of the default tier, which need no GPU adapter
 [group('rust')]
 test:
-    CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile default --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile default --no-tests=warn
 
 # Run the tests of the default and GPU tiers, which need any GPU adapter, including lavapipe
 [group('rust')]
 test-gpu:
-    CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile gpu --no-tests=warn
 
 # Run every test, including the hardware GPU tier, which needs a hardware GPU
 [group('rust')]
 test-hw-gpu:
-    CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile hw-gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile hw-gpu --no-tests=warn
 
 # Check licences, security advisories, duplicate crates, and crate sources with cargo-deny, which needs network access
 [group('checks')]
@@ -254,4 +265,4 @@ check-msrv:
 # Write a test coverage report to target/lcov.info, run by CI only
 [group('rust')]
 coverage:
-    cargo llvm-cov nextest --workspace --all-features --profile gpu --no-tests=warn --lcov --output-path target/lcov.info
+    {{ slang_library_path }} cargo llvm-cov nextest --workspace --all-features --profile gpu --no-tests=warn --lcov --output-path target/lcov.info

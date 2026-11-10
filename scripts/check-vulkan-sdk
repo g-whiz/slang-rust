@@ -9,8 +9,8 @@ usage() {
         "of the platform, and a slangc whose -version prints the tag. Lists the files" \
         "that it finds." \
         "Exits 1 when a check fails, including when VULKAN_SDK names a path that is not" \
-        "a directory, and 2 on a usage error, when VULKAN_SDK is unset, when just pin" \
-        "fails, or when just pin prints no SLANG_BUILD_TAG."
+        "a directory, and 2 on a usage error, when VULKAN_SDK is unset or empty, when" \
+        "just pin fails, or when just pin prints no SLANG_BUILD_TAG."
 }
 
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then

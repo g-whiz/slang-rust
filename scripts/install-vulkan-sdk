@@ -16,9 +16,9 @@ usage() {
         "" \
         "Exits 1 on a SHA-256 mismatch, or when the macOS archive does not hold exactly" \
         "one installer application. Exits 2 on a usage error, a malformed VERSION or" \
-        "SHA256, an unset RUNNER_TEMP, GITHUB_ENV, or GITHUB_PATH, or an unsupported" \
-        "platform. When any other command fails, such as the download, the unpacking," \
-        "or the installer, exits with the status of that command."
+        "SHA256, an unset or empty RUNNER_TEMP, GITHUB_ENV, or GITHUB_PATH, or an" \
+        "unsupported platform. When any other command fails, such as the download, the" \
+        "unpacking, or the installer, exits with the status of that command."
 }
 
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then

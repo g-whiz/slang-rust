@@ -3,4 +3,4 @@ allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-print-in-tests = true
 avoid-breaking-exported-api = false
-doc-valid-idents = ["SlangPy", "DirectX12", "MoltenVK", ".."]
+doc-valid-idents = ["SlangPy", "DirectX12", "MoltenVK", "LunarG", ".."]

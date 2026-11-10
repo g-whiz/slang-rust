@@ -1,5 +1,6 @@
-//! Writes the raw bindings of `slang-compiler-sys` from the Slang headers of
-//! the Vulkan SDK that the environment variable `VULKAN_SDK` names.
+//! Writes the raw bindings of `slang-compiler-sys` and the list of their C
+//! functions from the Slang headers of the Vulkan SDK that the environment
+//! variable `VULKAN_SDK` names.
 
 #![expect(
     clippy::print_stderr,
@@ -35,10 +36,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             )
         })?;
     let headers = Path::new(&sdk).join("include").join("slang");
-    let text = bindings_generator::generate(&headers)?;
-    let output = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/slang-compiler-sys/src/bindings.rs");
-    std::fs::write(&output, text)
-        .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
+    let generated = bindings_generator::generate(&headers)?;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (path, text) in generated.files() {
+        let output = root.join(path);
+        std::fs::write(&output, text)
+            .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
+    }
     Ok(())
 }

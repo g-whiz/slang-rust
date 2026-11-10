@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-const REGENERATE: &str = "run `just generate-bindings` and commit the regenerated file together with the change that caused the difference";
+const REGENERATE: &str = "run `just generate-bindings` and commit the regenerated files together with the change that caused the difference";
 
 fn describe(error: &dyn Error) -> String {
     let mut text = error.to_string();
@@ -27,14 +27,33 @@ fn checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk() {
     let headers = Path::new(&sdk).join("include").join("slang");
     let generated = bindings_generator::generate(&headers)
         .unwrap_or_else(|error| panic!("cannot regenerate the bindings: {}", describe(&error)));
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/slang-compiler-sys/src/bindings.rs");
-    let checked_in = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-    if generated == checked_in {
-        return;
-    }
-    let difference = generated
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let differences: Vec<String> = generated
+        .files()
+        .into_iter()
+        .filter_map(|(path, text)| {
+            let path = root.join(path);
+            let checked_in = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+            (text != checked_in).then(|| {
+                format!(
+                    "{} differs from the file that the generator writes from {}, {}",
+                    path.display(),
+                    headers.display(),
+                    difference(text, &checked_in)
+                )
+            })
+        })
+        .collect();
+    assert!(
+        differences.is_empty(),
+        "{}\nThe generated files are never edited by hand, so {REGENERATE}",
+        differences.join("\n")
+    );
+}
+
+fn difference(generated: &str, checked_in: &str) -> String {
+    generated
         .lines()
         .zip(checked_in.lines())
         .position(|(fresh, old)| fresh != old)
@@ -55,10 +74,5 @@ fn checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk() {
                     checked_in.lines().nth(index).unwrap_or_default()
                 )
             },
-        );
-    panic!(
-        "{} differs from the bindings that the generator writes from {}, {difference}\nThe file is never edited by hand, so {REGENERATE}",
-        path.display(),
-        headers.display()
-    );
+        )
 }
