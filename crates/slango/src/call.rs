@@ -427,7 +427,7 @@ pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) 
         .iter()
         .map(|binding| match &binding.resource {
             Resource::UniformBuffer(block) => Some(zeroed(block)),
-            Resource::StorageBuffer { .. } => None,
+            Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => None,
         })
         .collect();
     let mut immediates = layout.immediates.as_ref().map(zeroed).unwrap_or_default();
@@ -485,6 +485,9 @@ pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) 
             }
             Resource::StorageBuffer { .. } => {}
             Resource::UniformBuffer(block) => require_values(name, block, &set)?,
+            Resource::SampledTexture | Resource::Sampler => {
+                return Err(internal(name, &binding.path));
+            }
         }
     }
     if let Some(block) = &layout.immediates {
@@ -548,7 +551,7 @@ fn find<'l>(layout: &'l KernelLayout, path: &str) -> Option<Target<'l>> {
             Resource::StorageBuffer { .. } if binding.path == path => {
                 return Some(Target::Buffer(index));
             }
-            Resource::StorageBuffer { .. } => {}
+            Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => {}
             Resource::UniformBuffer(block) => {
                 if let Some(plain) = block.values.iter().find(|plain| plain.path == path) {
                     return Some(Target::Uniform(index, plain));

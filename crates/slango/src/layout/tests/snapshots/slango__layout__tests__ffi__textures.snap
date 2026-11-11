@@ -1,0 +1,21 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: "format!(\"{}{}\", render(std::slice::from_ref(kernel)),\nrender_entry_points(&compiled.render))"
+---
+kernel `run` thread group [1, 1, 1]
+  set 0 binding 0 `image` Used: sampled texture
+  set 0 binding 1 `imageSampler` Used: sampler
+  set 0 binding 2 `heights` Used: sampled texture
+  set 0 binding 3 `output` Used: storage buffer ReadWrite, stride 16
+Vertex `vsMain`
+  set 0 binding 0 `image` Unused: sampled texture
+  set 0 binding 1 `imageSampler` Unused: sampler
+  set 0 binding 2 `heights` Unused: sampled texture
+  set 0 binding 3 `output` Unused: storage buffer ReadWrite, stride 16
+  location 0 `input.position` Used: attribute Float32 x2
+  location 1 `input.uv` Used: attribute Float32 x2
+Fragment `fsMain`
+  set 0 binding 0 `image` Used: sampled texture
+  set 0 binding 1 `imageSampler` Used: sampler
+  set 0 binding 2 `heights` Unused: sampled texture
+  set 0 binding 3 `output` Unused: storage buffer ReadWrite, stride 16

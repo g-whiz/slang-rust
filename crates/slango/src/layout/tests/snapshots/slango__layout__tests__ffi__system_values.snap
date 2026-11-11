@@ -1,0 +1,10 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: render_entry_points(&records)
+---
+Vertex `vsMain`
+  location 0 `input.position` Used: attribute Float32 x3
+  location 1 `input.uv` Used: attribute Float32 x2
+Vertex `vsIds`
+  location 0 `position` Used: attribute Float32 x3
+Fragment `fsMain`

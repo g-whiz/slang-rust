@@ -24,7 +24,10 @@ fn stride_of(kernel: &layout::KernelLayout, path: &str) -> u64 {
         .iter()
         .find_map(|binding| match &binding.resource {
             Resource::StorageBuffer { stride, .. } if binding.path == path => Some(*stride),
-            Resource::StorageBuffer { .. } | Resource::UniformBuffer(_) => None,
+            Resource::StorageBuffer { .. }
+            | Resource::UniformBuffer(_)
+            | Resource::SampledTexture
+            | Resource::Sampler => None,
         })
         .unwrap_or_else(|| panic!("a storage buffer `{path}` in {kernel:#?}"))
 }
@@ -41,7 +44,8 @@ fn every_element_type_has_the_reflected_stride_of_its_slang_type() {
         text: BUFFERS,
         search_path: None,
     })
-    .expect("the module compiles");
+    .expect("the module compiles")
+    .kernels;
     let [kernel] = kernels.as_slice() else {
         panic!("one kernel in {kernels:#?}");
     };

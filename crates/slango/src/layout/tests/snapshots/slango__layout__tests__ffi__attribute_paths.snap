@@ -1,0 +1,11 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: render_entry_points(&records)
+---
+Vertex `separate`
+  location 0 `position` Used: attribute Float32 x3
+  location 1 `colour` Used: attribute Float32 x4
+Vertex `nested`
+  location 0 `input.position` Used: attribute Float32 x3
+  location 1 `input.surface.normal` Used: attribute Float32 x3
+  location 2 `input.surface.uv` Used: attribute Float32 x2

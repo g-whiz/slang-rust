@@ -65,6 +65,10 @@ impl Error {
         self
     }
 
+    pub(crate) fn detail(&self) -> Option<&str> {
+        self.detail.as_deref()
+    }
+
     pub(crate) fn compile(error: slang_compiler::Error) -> Self {
         Self::new(ErrorKind::Compile, "compile a Slang module").with_source(error)
     }

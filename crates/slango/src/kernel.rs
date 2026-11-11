@@ -195,32 +195,40 @@ fn bind_group_layout_entries(layout: &KernelLayout) -> Vec<Vec<::wgpu::BindGroup
         .map(|set| {
             used()
                 .filter(|binding| binding.set == set)
-                .map(|binding| {
-                    let (ty, size) = match &binding.resource {
-                        Resource::StorageBuffer { access, stride } => (
-                            ::wgpu::BufferBindingType::Storage {
-                                read_only: *access == Access::ReadOnly,
-                            },
-                            *stride,
-                        ),
-                        Resource::UniformBuffer(block) => {
-                            (::wgpu::BufferBindingType::Uniform, block.size)
-                        }
-                    };
-                    ::wgpu::BindGroupLayoutEntry {
-                        binding: binding.index,
-                        visibility: ::wgpu::ShaderStages::COMPUTE,
-                        ty: ::wgpu::BindingType::Buffer {
-                            ty,
-                            has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(size),
-                        },
-                        count: None,
-                    }
+                .map(|binding| ::wgpu::BindGroupLayoutEntry {
+                    binding: binding.index,
+                    visibility: ::wgpu::ShaderStages::COMPUTE,
+                    ty: binding_type(&binding.resource),
+                    count: None,
                 })
                 .collect()
         })
         .collect()
+}
+
+/// Returns the wgpu binding type of a resource, by the mapping of Sections
+/// 3.3 and 3.9 of `docs/design/slango.md`.
+fn binding_type(resource: &Resource) -> ::wgpu::BindingType {
+    let buffer = |ty, size| ::wgpu::BindingType::Buffer {
+        ty,
+        has_dynamic_offset: false,
+        min_binding_size: NonZeroU64::new(size),
+    };
+    match resource {
+        Resource::StorageBuffer { access, stride } => buffer(
+            ::wgpu::BufferBindingType::Storage {
+                read_only: *access == Access::ReadOnly,
+            },
+            *stride,
+        ),
+        Resource::UniformBuffer(block) => buffer(::wgpu::BufferBindingType::Uniform, block.size),
+        Resource::SampledTexture => ::wgpu::BindingType::Texture {
+            sample_type: ::wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: ::wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        Resource::Sampler => ::wgpu::BindingType::Sampler(::wgpu::SamplerBindingType::Filtering),
+    }
 }
 
 #[cfg(test)]

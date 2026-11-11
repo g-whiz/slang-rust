@@ -1,0 +1,14 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: render_entry_points(&records)
+---
+Vertex `vsMain`
+  immediates
+    size 16
+    +0 16 bytes `offset`: Float32 vector 4
+  location 0 `input.position` Used: attribute Float32 x2
+  location 1 `input.colour` Used: attribute Float32 x4
+Fragment `fsMain`
+  immediates
+    size 16
+    +0 16 bytes `colour`: Float32 vector 4

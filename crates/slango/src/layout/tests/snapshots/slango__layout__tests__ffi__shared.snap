@@ -1,0 +1,27 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: render_entry_points(&records)
+---
+Vertex `vsMain`
+  set 0 binding 0 `` Used: uniform buffer
+    size 80
+    +0 64 bytes `transform`: Float32 matrix 4x4
+    +64 16 bytes `tint`: Float32 vector 4
+  set 0 binding 1 `light` Used: uniform buffer
+    size 16
+    +0 16 bytes `light.colour`: Float32 vector 4
+  set 1 binding 0 `material` Unused: uniform buffer
+    size 16
+    +0 16 bytes `material.albedo`: Float32 vector 4
+  location 0 `input.position` Used: attribute Float32 x2
+Fragment `fsMain`
+  set 0 binding 0 `` Used: uniform buffer
+    size 80
+    +0 64 bytes `transform`: Float32 matrix 4x4
+    +64 16 bytes `tint`: Float32 vector 4
+  set 0 binding 1 `light` Unused: uniform buffer
+    size 16
+    +0 16 bytes `light.colour`: Float32 vector 4
+  set 1 binding 0 `material` Used: uniform buffer
+    size 16
+    +0 16 bytes `material.albedo`: Float32 vector 4

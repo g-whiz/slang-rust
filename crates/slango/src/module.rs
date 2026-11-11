@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::Device;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{self, Source};
+use crate::layout::{self, CompiledRender, KernelLayout, Resource, Source};
 
 const READ: &str = "read a Slang file";
 
@@ -31,6 +31,11 @@ pub struct Module {
     )]
     device: Device,
     kernels: Arc<[Kernel]>,
+    #[expect(
+        dead_code,
+        reason = "SLO-20 of docs/design/slango.md has the load record every vertex and fragment entry point, and step 9 of its Section 14 adds Module::render_pipeline, which reads them"
+    )]
+    render: Arc<[CompiledRender]>,
 }
 
 impl Module {
@@ -191,13 +196,41 @@ impl Device {
     }
 
     fn load(&self, source: &Source<'_>) -> Result<Module> {
-        let kernels = layout::compile(source)?
+        let compiled = layout::compile(source)?;
+        for kernel in &compiled.kernels {
+            refuse_textures_and_samplers(&kernel.layout)?;
+        }
+        let kernels = compiled
+            .kernels
             .into_iter()
             .map(|compiled| Kernel::create(self, compiled))
             .collect::<Result<Vec<Kernel>>>()?;
         Ok(Module {
             device: self.clone(),
             kernels: kernels.into(),
+            render: compiled.render.into(),
         })
     }
+}
+
+/// Fails with [`ErrorKind::UnsupportedParameter`] when the kernel has a
+/// texture or a sampler, which no call can bind until step 8 of Section 14
+/// of `docs/design/slango.md`.
+fn refuse_textures_and_samplers(layout: &KernelLayout) -> Result<()> {
+    for binding in &layout.bindings {
+        let what = match binding.resource {
+            Resource::SampledTexture => "a texture",
+            Resource::Sampler => "a sampler",
+            Resource::StorageBuffer { .. } | Resource::UniformBuffer(_) => continue,
+        };
+        return Err(
+            Error::new(ErrorKind::UnsupportedParameter, "load a Slang module").with_detail(
+                format!(
+                    "the parameter `{}` of the kernel `{}` is {what}, which this version does not support",
+                    binding.path, layout.name
+                ),
+            ),
+        );
+    }
+    Ok(())
 }

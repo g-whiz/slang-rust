@@ -1,6 +1,6 @@
 use std::error::Error as _;
 
-use slango::{AdapterSelection, Device, ErrorKind};
+use slango::{AdapterSelection, Buffer, Device, ErrorKind};
 
 use crate::common::{device_with, device_without_immediates, load, shader};
 
@@ -259,4 +259,75 @@ void sample() { output[0] = image.Load(int3(0, 0, 0)); }
         .expect_err("the walk rejects textures");
     assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
     assert!(error.to_string().contains("`image`"), "{error}");
+}
+
+#[test]
+fn a_kernel_with_a_sampler_is_an_unsupported_parameter() {
+    let error = device()
+        .load_module_from_source(
+            "sampled",
+            r#"
+SamplerState linear;
+Texture2D<float4> image;
+RWStructuredBuffer<float4> output;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void sample() { output[0] = image.SampleLevel(linear, float2(0.5, 0.5), 0); }
+"#,
+        )
+        .expect_err("the load refuses textures and samplers");
+    assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("`linear`") && message.contains("is a sampler"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_kernel_loads_and_runs_beside_vertex_and_fragment_entry_points() -> slango::Result<()> {
+    let device = device();
+    let module = device.load_module_from_source(
+        "mixed",
+        r#"
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; };
+
+RWStructuredBuffer<float> data;
+
+[shader("vertex")]
+VOut vsMain(float3 position : POSITION, float4 colour : COLOR)
+{
+    VOut output;
+    output.position = float4(position, 1.0);
+    output.colour = colour;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input, uniform Sampler2D image) : SV_Target
+{
+    return input.colour * image.Sample(input.position.xy);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void double_each(uint3 id : SV_DispatchThreadID)
+{
+    data[id.x] = data[id.x] * 2.0;
+}
+"#,
+    )?;
+    assert_eq!(
+        module.kernel("vsMain").expect_err("no kernel").kind(),
+        ErrorKind::InvalidArgument
+    );
+    let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0])?;
+    module
+        .kernel("double_each")?
+        .call()
+        .bind("data", &data)
+        .dispatch([3, 1, 1])?;
+    assert_eq!(data.read()?, [2.0, 4.0, 6.0]);
+    Ok(())
 }

@@ -2,12 +2,13 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use super::super::{
-    Access, Binding, CompiledKernel, KernelLayout, PlainValue, Resource, Scalar, Shape, Source,
-    UniformBlock, Usage,
+    Access, Attribute, Binding, Compiled, CompiledKernel, CompiledRender, KernelLayout, PlainValue,
+    Rejection, RenderLayout, RenderStage, Resource, Scalar, Shape, Source, UniformBlock,
+    UsableRender, Usage,
 };
 use crate::{ErrorKind, Result};
 
-fn compile(name: &str, text: &str) -> Result<Vec<CompiledKernel>> {
+fn compile_all(name: &str, text: &str) -> Result<Compiled> {
     let path = format!("{name}.slang");
     super::super::compile(&Source {
         name,
@@ -15,6 +16,10 @@ fn compile(name: &str, text: &str) -> Result<Vec<CompiledKernel>> {
         text,
         search_path: None,
     })
+}
+
+fn compile(name: &str, text: &str) -> Result<Vec<CompiledKernel>> {
+    compile_all(name, text).map(|compiled| compiled.kernels)
 }
 
 fn kernels(source: &str) -> Vec<KernelLayout> {
@@ -64,6 +69,47 @@ fn render_block(out: &mut String, block: &UniformBlock) {
     }
 }
 
+fn render_bindings(out: &mut String, bindings: &[Binding], immediates: Option<&UniformBlock>) {
+    for binding in bindings {
+        let Binding {
+            path,
+            set,
+            index,
+            usage,
+            resource,
+        } = binding;
+        match resource {
+            Resource::StorageBuffer { access, stride } => writeln!(
+                out,
+                "  set {set} binding {index} `{path}` {usage:?}: storage buffer {access:?}, stride {stride}"
+            )
+            .expect("writing to a string"),
+            Resource::UniformBuffer(block) => {
+                writeln!(
+                    out,
+                    "  set {set} binding {index} `{path}` {usage:?}: uniform buffer"
+                )
+                .expect("writing to a string");
+                render_block(out, block);
+            }
+            Resource::SampledTexture => writeln!(
+                out,
+                "  set {set} binding {index} `{path}` {usage:?}: sampled texture"
+            )
+            .expect("writing to a string"),
+            Resource::Sampler => writeln!(
+                out,
+                "  set {set} binding {index} `{path}` {usage:?}: sampler"
+            )
+            .expect("writing to a string"),
+        }
+    }
+    if let Some(block) = immediates {
+        writeln!(out, "  immediates").expect("writing to a string");
+        render_block(out, block);
+    }
+}
+
 fn render(kernels: &[KernelLayout]) -> String {
     let mut out = String::new();
     for kernel in kernels {
@@ -75,33 +121,49 @@ fn render(kernels: &[KernelLayout]) -> String {
         } = kernel;
         writeln!(out, "kernel `{name}` thread group {thread_group_size:?}")
             .expect("writing to a string");
-        for binding in bindings {
-            let Binding {
-                path,
-                set,
-                index,
-                usage,
-                resource,
-            } = binding;
-            match resource {
-                Resource::StorageBuffer { access, stride } => writeln!(
-                    out,
-                    "  set {set} binding {index} `{path}` {usage:?}: storage buffer {access:?}, stride {stride}"
-                )
-                .expect("writing to a string"),
-                Resource::UniformBuffer(block) => {
+        render_bindings(&mut out, bindings, immediates.as_ref());
+    }
+    out
+}
+
+fn render_entry_points(records: &[CompiledRender]) -> String {
+    let mut out = String::new();
+    for record in records {
+        let CompiledRender {
+            name,
+            stage,
+            usable,
+        } = record;
+        writeln!(out, "{stage:?} `{name}`").expect("writing to a string");
+        match usable {
+            Ok(UsableRender {
+                layout:
+                    RenderLayout {
+                        bindings,
+                        immediates,
+                        attributes,
+                    },
+                spirv: _,
+            }) => {
+                render_bindings(&mut out, bindings, immediates.as_ref());
+                for attribute in attributes {
+                    let Attribute {
+                        path,
+                        location,
+                        scalar,
+                        components,
+                        usage,
+                    } = attribute;
                     writeln!(
                         out,
-                        "  set {set} binding {index} `{path}` {usage:?}: uniform buffer"
+                        "  location {location} `{path}` {usage:?}: attribute {scalar:?} x{components}"
                     )
                     .expect("writing to a string");
-                    render_block(&mut out, block);
                 }
             }
-        }
-        if let Some(block) = immediates {
-            writeln!(out, "  immediates").expect("writing to a string");
-            render_block(&mut out, block);
+            Err(Rejection { kind, detail }) => {
+                writeln!(out, "  rejected {kind:?}: {detail}").expect("writing to a string");
+            }
         }
     }
     out
@@ -455,18 +517,8 @@ fn each_kernel_of_a_module_has_its_own_immediates_and_usage() {
 }
 
 #[test]
-fn a_kernel_with_a_texture_sampler_or_other_resource_is_unsupported() {
+fn a_kernel_with_another_resource_or_an_array_of_resources_is_unsupported() {
     let cases = [
-        (
-            "Texture2D<float4> image;",
-            "image.Load(int3(0, 0, 0)).x",
-            "image",
-        ),
-        (
-            "SamplerState linear; Texture2D<float4> image;",
-            "image.SampleLevel(linear, float2(0, 0), 0).x",
-            "linear",
-        ),
         (
             "[format(\"rgba32f\")] RWTexture2D<float4> target;",
             "target[uint2(0, 0)].x",
@@ -580,4 +632,570 @@ void second_kernel() { output[1] = 2.0; }
             kernel.layout.name
         );
     }
+}
+
+fn entry_points(name: &str, source: &str) -> Vec<CompiledRender> {
+    compile_all(name, source)
+        .expect("the source compiles")
+        .render
+}
+
+fn accepted<'a>(records: &'a [CompiledRender], name: &str) -> &'a RenderLayout {
+    let record = records
+        .iter()
+        .find(|record| record.name == name)
+        .unwrap_or_else(|| panic!("an entry point `{name}` in {records:#?}"));
+    &record
+        .usable
+        .as_ref()
+        .unwrap_or_else(|rejection| panic!("the entry point `{name}` is accepted: {rejection:?}"))
+        .layout
+}
+
+fn attributes(layout: &RenderLayout) -> Vec<(&str, u32, Scalar, u32, Usage)> {
+    layout
+        .attributes
+        .iter()
+        .map(|attribute| {
+            (
+                attribute.path.as_str(),
+                attribute.location,
+                attribute.scalar,
+                attribute.components,
+                attribute.usage,
+            )
+        })
+        .collect()
+}
+
+fn placement(layout: &RenderLayout, path: &str) -> (u32, u32, Usage) {
+    let binding = layout
+        .bindings
+        .iter()
+        .find(|binding| binding.path == path)
+        .unwrap_or_else(|| panic!("a binding `{path}` in {layout:#?}"));
+    (binding.set, binding.index, binding.usage)
+}
+
+const ATTRIBUTES: &str = r#"
+struct VIn { float3 position : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; float4 colour : COLOR; };
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; float2 uv : TEXCOORD0; float3 normal : NORMAL; };
+
+[shader("vertex")]
+VOut vsMain(VIn input)
+{
+    VOut output;
+    output.position = float4(input.position, 1.0);
+    output.colour = input.colour;
+    output.uv = input.uv;
+    output.normal = input.normal;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target
+{
+    return float4(input.colour.r, input.uv.x, input.normal.z, input.colour.a);
+}
+"#;
+
+#[test]
+fn the_fields_of_a_vertex_input_structure_are_attributes_at_their_reflected_locations() {
+    let records = entry_points("attributes", ATTRIBUTES);
+    let stages: Vec<(&str, RenderStage)> = records
+        .iter()
+        .map(|record| (record.name.as_str(), record.stage))
+        .collect();
+    assert_eq!(
+        stages,
+        [
+            ("vsMain", RenderStage::Vertex),
+            ("fsMain", RenderStage::Fragment)
+        ]
+    );
+    assert_eq!(
+        attributes(accepted(&records, "vsMain")),
+        [
+            ("input.position", 0, Scalar::Float32, 3, Usage::Used),
+            ("input.normal", 1, Scalar::Float32, 3, Usage::Used),
+            ("input.uv", 2, Scalar::Float32, 2, Usage::Used),
+            ("input.colour", 3, Scalar::Float32, 4, Usage::Used),
+        ]
+    );
+    let fragment = accepted(&records, "fsMain");
+    assert!(fragment.attributes.is_empty() && fragment.bindings.is_empty());
+    insta::assert_snapshot!("attributes", render_entry_points(&records));
+}
+
+#[test]
+fn an_attribute_that_the_code_never_reads_is_unused_and_keeps_every_location() {
+    let source = ATTRIBUTES.replace("output.uv = input.uv;", "output.uv = float2(0.0, 0.0);");
+    let records = entry_points("unused_attribute", &source);
+    assert_eq!(
+        attributes(accepted(&records, "vsMain")),
+        [
+            ("input.position", 0, Scalar::Float32, 3, Usage::Used),
+            ("input.normal", 1, Scalar::Float32, 3, Usage::Used),
+            ("input.uv", 2, Scalar::Float32, 2, Usage::Unused),
+            ("input.colour", 3, Scalar::Float32, 4, Usage::Used),
+        ]
+    );
+}
+
+const PATHS: &str = r#"
+struct Surface { float3 normal : NORMAL; float2 uv : TEXCOORD0; };
+struct VIn { float3 position : POSITION; Surface surface; };
+
+[shader("vertex")]
+float4 separate(float3 position : POSITION, float4 colour : COLOR) : SV_Position
+{
+    return float4(position, colour.a);
+}
+
+[shader("vertex")]
+float4 nested(VIn input) : SV_Position
+{
+    return float4(input.position + input.surface.normal, input.surface.uv.x);
+}
+"#;
+
+#[test]
+fn a_separate_parameter_has_its_name_as_its_path_and_a_nested_field_a_dotted_path() {
+    let records = entry_points("paths", PATHS);
+    assert_eq!(
+        attributes(accepted(&records, "separate")),
+        [
+            ("position", 0, Scalar::Float32, 3, Usage::Used),
+            ("colour", 1, Scalar::Float32, 4, Usage::Used),
+        ]
+    );
+    assert_eq!(
+        attributes(accepted(&records, "nested")),
+        [
+            ("input.position", 0, Scalar::Float32, 3, Usage::Used),
+            ("input.surface.normal", 1, Scalar::Float32, 3, Usage::Used),
+            ("input.surface.uv", 2, Scalar::Float32, 2, Usage::Used),
+        ]
+    );
+    insta::assert_snapshot!("attribute_paths", render_entry_points(&records));
+}
+
+const SYSTEM_VALUES: &str = r#"
+struct VIn {
+    float3 position : POSITION;
+    uint vertex : SV_VulkanVertexID;
+    uint instance : SV_VulkanInstanceID;
+    float2 uv : TEXCOORD0;
+};
+struct VOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
+
+[shader("vertex")]
+VOut vsMain(VIn input)
+{
+    VOut output;
+    output.position = float4(input.position + float(input.vertex + input.instance), 1.0);
+    output.uv = input.uv;
+    return output;
+}
+
+[shader("vertex")]
+float4 vsIds(float3 position : POSITION, uint vertex : SV_VulkanVertexID, uint instance : SV_VulkanInstanceID) : SV_Position
+{
+    return float4(position, float(vertex + instance));
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target
+{
+    return float4(input.position.x / 64.0, input.uv, 1.0);
+}
+"#;
+
+#[test]
+fn system_values_among_the_inputs_are_not_attributes() {
+    let records = entry_points("system_values", SYSTEM_VALUES);
+    assert_eq!(
+        attributes(accepted(&records, "vsMain")),
+        [
+            ("input.position", 0, Scalar::Float32, 3, Usage::Used),
+            ("input.uv", 1, Scalar::Float32, 2, Usage::Used),
+        ]
+    );
+    assert_eq!(
+        attributes(accepted(&records, "vsIds")),
+        [("position", 0, Scalar::Float32, 3, Usage::Used)]
+    );
+    assert_eq!(accepted(&records, "fsMain").attributes, Vec::new());
+    insta::assert_snapshot!("system_values", render_entry_points(&records));
+}
+
+#[test]
+fn integer_attributes_record_their_scalar_type_and_component_count() {
+    let records = entry_points(
+        "integers",
+        r#"
+struct VIn { float3 position : POSITION; int index : INDEX; uint flags : FLAGS; uint2 pair : PAIR; };
+
+[shader("vertex")]
+float4 vsMain(VIn input) : SV_Position
+{
+    return float4(input.position, float(input.index) + float(input.flags + input.pair.y));
+}
+"#,
+    );
+    assert_eq!(
+        attributes(accepted(&records, "vsMain")),
+        [
+            ("input.position", 0, Scalar::Float32, 3, Usage::Used),
+            ("input.index", 1, Scalar::Int32, 1, Usage::Used),
+            ("input.flags", 2, Scalar::Uint32, 1, Usage::Used),
+            ("input.pair", 3, Scalar::Uint32, 2, Usage::Used),
+        ]
+    );
+}
+
+#[test]
+fn an_attribute_of_another_type_rejects_its_vertex_entry_point_and_not_the_module() {
+    let cases = [
+        (
+            "float4x4 transform : TRANSFORM",
+            "input.transform[0].x",
+            "input.transform",
+        ),
+        ("bool flag : FLAG", "(input.flag ? 1.0 : 0.0)", "input.flag"),
+        ("float2 pairs[2] : PAIRS", "input.pairs[1].x", "input.pairs"),
+        (
+            "double precise : PRECISE",
+            "float(input.precise)",
+            "input.precise",
+        ),
+    ];
+    for (declaration, read, path) in cases {
+        let source = format!(
+            "struct VIn {{ float3 position : POSITION; {declaration}; }};\n\
+             [shader(\"vertex\")] float4 vsMain(VIn input) : SV_Position \
+             {{ return float4(input.position, {read}); }}"
+        );
+        let records = entry_points("rejected_attribute", &source);
+        let [record] = records.as_slice() else {
+            panic!("one entry point in {records:#?}");
+        };
+        let rejection = record.usable.as_ref().expect_err("a rejected attribute");
+        assert_eq!(rejection.kind, ErrorKind::UnsupportedParameter);
+        let message = &rejection.detail;
+        assert!(
+            message.contains(&format!("`{path}`"))
+                && message.contains("vertex entry point `vsMain`"),
+            "{message}"
+        );
+    }
+}
+
+const SHARED: &str = r#"
+struct VIn { float2 position : POSITION; };
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; };
+struct Light { float4 colour; };
+struct Material { float4 albedo; };
+
+uniform float4x4 transform;
+uniform float4 tint;
+ConstantBuffer<Light> light;
+ParameterBlock<Material> material;
+
+[shader("vertex")]
+VOut vsMain(VIn input)
+{
+    VOut output;
+    output.position = mul(transform, float4(input.position, 0.0, 1.0));
+    output.colour = light.colour;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target
+{
+    return input.colour * tint * material.albedo;
+}
+"#;
+
+#[test]
+fn each_entry_point_records_the_shared_bindings_with_its_own_usage() {
+    let records = entry_points("shared", SHARED);
+    let vertex = accepted(&records, "vsMain");
+    let fragment = accepted(&records, "fsMain");
+    assert_eq!(placement(vertex, ""), (0, 0, Usage::Used));
+    assert_eq!(placement(fragment, ""), (0, 0, Usage::Used));
+    assert_eq!(placement(vertex, "light"), (0, 1, Usage::Used));
+    assert_eq!(placement(fragment, "light"), (0, 1, Usage::Unused));
+    assert_eq!(placement(vertex, "material"), (1, 0, Usage::Unused));
+    assert_eq!(placement(fragment, "material"), (1, 0, Usage::Used));
+    insta::assert_snapshot!("shared", render_entry_points(&records));
+}
+
+const TEXTURES: &str = r#"
+struct VIn { float2 position : POSITION; float2 uv : TEXCOORD0; };
+struct VOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
+
+Texture2D<float4> image;
+SamplerState imageSampler;
+Texture2D<float> heights;
+RWStructuredBuffer<float4> output;
+
+[shader("vertex")]
+VOut vsMain(VIn input)
+{
+    VOut result;
+    result.position = float4(input.position, 0.0, 1.0);
+    result.uv = input.uv;
+    return result;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target
+{
+    return image.Sample(imageSampler, input.uv);
+}
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run()
+{
+    output[0] = image.SampleLevel(imageSampler, float2(0.5, 0.5), 0)
+        + heights.SampleLevel(imageSampler, float2(0.5, 0.5), 0);
+}
+"#;
+
+#[test]
+fn a_float_texture_and_a_sampler_are_bindings_of_render_entry_points_and_kernels() {
+    let compiled = compile_all("textures", TEXTURES).expect("the source compiles");
+    let vertex = accepted(&compiled.render, "vsMain");
+    let fragment = accepted(&compiled.render, "fsMain");
+    assert_eq!(placement(vertex, "image"), (0, 0, Usage::Unused));
+    assert_eq!(placement(fragment, "image"), (0, 0, Usage::Used));
+    assert_eq!(placement(fragment, "imageSampler"), (0, 1, Usage::Used));
+    assert_eq!(placement(fragment, "heights"), (0, 2, Usage::Unused));
+    let [kernel] = compiled.kernels.as_slice() else {
+        panic!("one kernel in {:#?}", compiled.kernels);
+    };
+    let kernel = &kernel.layout;
+    let kinds: Vec<(&str, u32, u32, &Resource, Usage)> = kernel
+        .bindings
+        .iter()
+        .map(|binding| {
+            (
+                binding.path.as_str(),
+                binding.set,
+                binding.index,
+                &binding.resource,
+                binding.usage,
+            )
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("image", 0, 0, &Resource::SampledTexture, Usage::Used),
+            ("imageSampler", 0, 1, &Resource::Sampler, Usage::Used),
+            ("heights", 0, 2, &Resource::SampledTexture, Usage::Used),
+            (
+                "output",
+                0,
+                3,
+                &Resource::StorageBuffer {
+                    access: Access::ReadWrite,
+                    stride: 16
+                },
+                Usage::Used
+            ),
+        ]
+    );
+    insta::assert_snapshot!(
+        "textures",
+        format!(
+            "{}{}",
+            render(std::slice::from_ref(kernel)),
+            render_entry_points(&compiled.render)
+        )
+    );
+}
+
+#[test]
+fn every_other_texture_or_sampler_is_unsupported() {
+    let cases = [
+        (
+            "Sampler2D image;",
+            "image.SampleLevel(float2(0, 0), 0)",
+            "image",
+        ),
+        (
+            "[format(\"rgba32f\")] RWTexture2D<float4> image;",
+            "image[uint2(0, 0)]",
+            "image",
+        ),
+        (
+            "Texture3D<float4> image; SamplerState linear;",
+            "image.SampleLevel(linear, float3(0, 0, 0), 0)",
+            "image",
+        ),
+        (
+            "TextureCube<float4> image; SamplerState linear;",
+            "image.SampleLevel(linear, float3(0, 0, 1), 0)",
+            "image",
+        ),
+        (
+            "Texture2D<int4> image;",
+            "float4(image.Load(int3(0, 0, 0)))",
+            "image",
+        ),
+        (
+            "Texture2DArray<float4> image; SamplerState linear;",
+            "image.SampleLevel(linear, float3(0, 0, 0), 0)",
+            "image",
+        ),
+        (
+            "Texture2D<float4> images[2]; SamplerState linear;",
+            "images[1].SampleLevel(linear, float2(0, 0), 0)",
+            "images",
+        ),
+        (
+            "Texture2D<float4> image; SamplerState samplers[2];",
+            "image.SampleLevel(samplers[1], float2(0, 0), 0)",
+            "samplers",
+        ),
+        (
+            "Texture2D<float> image; SamplerComparisonState compare;",
+            "float4(image.SampleCmpLevelZero(compare, float2(0, 0), 0.5))",
+            "compare",
+        ),
+    ];
+    for (declaration, read, parameter) in cases {
+        let source = format!(
+            "{declaration}\nRWStructuredBuffer<float4> output;\n\
+             [shader(\"compute\")] [numthreads(1, 1, 1)] void run() {{ output[0] = {read}; }}"
+        );
+        let error = compile("unsupported", &source).expect_err("an unsupported parameter");
+        assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
+        let text = error.to_string();
+        assert!(
+            text.contains(&format!("`{parameter}`")) && text.contains("kernel `run`"),
+            "{declaration}: {text}"
+        );
+    }
+}
+
+#[test]
+fn uniform_parameters_of_render_entry_points_are_recorded_as_their_immediates() {
+    let records = entry_points(
+        "render_immediates",
+        r#"
+struct VIn { float2 position : POSITION; float4 colour : COLOR; };
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; };
+
+[shader("vertex")]
+VOut vsMain(VIn input, uniform float4 offset)
+{
+    VOut output;
+    output.position = float4(input.position, 0.0, 1.0) + offset;
+    output.colour = input.colour;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input, uniform float4 colour) : SV_Target
+{
+    return input.colour * colour;
+}
+"#,
+    );
+    let vertex = accepted(&records, "vsMain");
+    let fragment = accepted(&records, "fsMain");
+    let immediates = vertex.immediates.as_ref().expect("immediates");
+    assert_eq!(offsets_and_size(immediates, &["offset"]), (vec![0], 16));
+    let immediates = fragment.immediates.as_ref().expect("immediates");
+    assert_eq!(offsets_and_size(immediates, &["colour"]), (vec![0], 16));
+    assert_eq!(
+        attributes(vertex),
+        [
+            ("input.position", 0, Scalar::Float32, 2, Usage::Used),
+            ("input.colour", 1, Scalar::Float32, 4, Usage::Used),
+        ]
+    );
+    insta::assert_snapshot!("render_immediates", render_entry_points(&records));
+}
+
+#[test]
+fn a_module_with_kernels_and_render_entry_points_keeps_the_kernels_unchanged() {
+    let render_entry_points_source = r#"
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; };
+
+[shader("vertex")]
+VOut vsMain(float3 position : POSITION, float4 colour : COLOR)
+{
+    VOut output;
+    output.position = float4(position, 1.0);
+    output.colour = colour;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input, uniform Sampler2D image) : SV_Target
+{
+    return input.colour * image.Sample(input.position.xy);
+}
+"#;
+    let source = format!("{TWO_KERNELS}{render_entry_points_source}");
+    let compiled = compile_all("mixed", &source).expect("the source compiles");
+    let mixed: Vec<KernelLayout> = compiled
+        .kernels
+        .into_iter()
+        .map(|kernel| kernel.layout)
+        .collect();
+    assert_eq!(render(&mixed), render(&kernels(TWO_KERNELS)));
+    let stages: Vec<(&str, RenderStage)> = compiled
+        .render
+        .iter()
+        .map(|record| (record.name.as_str(), record.stage))
+        .collect();
+    assert_eq!(
+        stages,
+        [
+            ("vsMain", RenderStage::Vertex),
+            ("fsMain", RenderStage::Fragment)
+        ]
+    );
+    accepted(&compiled.render, "vsMain");
+    let fragment = compiled
+        .render
+        .iter()
+        .find(|record| record.name == "fsMain")
+        .expect("the fragment entry point");
+    let rejection = fragment.usable.as_ref().expect_err("Sampler2D is rejected");
+    assert_eq!(rejection.kind, ErrorKind::UnsupportedParameter);
+    let message = &rejection.detail;
+    assert!(
+        message.contains("`image`") && message.contains("fragment entry point `fsMain`"),
+        "{message}"
+    );
+    let vertex = compiled
+        .render
+        .iter()
+        .find(|record| record.name == "vsMain")
+        .and_then(|record| record.usable.as_ref().ok())
+        .expect("the vertex entry point is usable");
+    assert_eq!(
+        vertex.spirv.first(),
+        Some(&0x0723_0203),
+        "the SPIR-V magic number"
+    );
+    let bytes: Vec<u8> = vertex
+        .spirv
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect();
+    assert!(
+        bytes
+            .windows(b"vsMain".len())
+            .any(|window| window == b"vsMain"),
+        "the SPIR-V of `vsMain` names its entry point"
+    );
 }
