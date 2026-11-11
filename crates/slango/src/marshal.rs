@@ -53,8 +53,8 @@ mod sealed {
 
 pub(crate) use sealed::ValueType;
 
-/// A Rust value that a kernel can receive as a plain value of Slang: a
-/// scalar, a vector, a matrix, or an array of fixed length.
+/// A Rust value that a kernel or a draw can receive as a plain value of
+/// Slang: a scalar, a vector, a matrix, or an array of fixed length.
 ///
 /// The scalars are [`bool`], [`i32`], [`u32`], and [`f32`], which stand for
 /// the Slang types `bool`, `int`, `uint`, and `float`. An array of length `N`
@@ -83,15 +83,15 @@ pub trait Value: sealed::SealedValue + Copy {}
 /// which stand for vectors such as `float3`. Every [`Element`] is a vertex
 /// element. The arrays of 2 and 3 scalars are not, so a buffer of them, whose
 /// elements lie packed 8 or 12 bytes apart as a vertex attribute reads them,
-/// cannot be bound to a kernel.
+/// cannot be bound to a structured buffer.
 ///
 /// This trait is sealed: no type outside this crate can implement it. It
 /// serves as a generic bound only, not as a trait object.
 pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'static {}
 
-/// A Rust type that a [`Buffer`](crate::Buffer) bound to a kernel holds as
-/// its element, whose bytes equal the layout of the matching Slang element
-/// type of a structured buffer.
+/// A Rust type that a [`Buffer`](crate::Buffer) bound to a structured buffer
+/// holds as its element, whose bytes equal the layout of the matching Slang
+/// element type.
 ///
 /// The elements are [`f32`], [`i32`], and [`u32`], which stand for `float`,
 /// `int`, and `uint`, and `[f32; 4]`, `[i32; 4]`, and `[u32; 4]`, which

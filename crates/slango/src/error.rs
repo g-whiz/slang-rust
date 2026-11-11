@@ -135,22 +135,30 @@ pub enum ErrorKind {
     /// A kernel or an entry point of a render pipeline has a parameter of a
     /// kind that this version does not support, such as a storage texture
     /// or a `ByteAddressBuffer`, or `uniform` parameters of the entry point
-    /// of a render pipeline, or, at a call, the layout that Slang reports
-    /// for a plain value cannot hold the value.
+    /// of a render pipeline, or Slang reports a layout that this crate
+    /// cannot use, such as two different layouts for one binding of the two
+    /// entry points of a render pipeline. At a call or a draw, this kind
+    /// also reports a plain value that the layout that Slang reports for it
+    /// cannot hold.
     UnsupportedParameter,
     /// A kernel needs a feature of the device that the device lacks. Request
     /// the feature, or use another adapter.
     MissingFeature,
     /// An argument was invalid, such as an unknown kernel or entry point
-    /// name, a wrong option of a render pipeline, a parameter that a call or
-    /// a draw names but the kernel or the pipeline lacks, a vertex buffer,
-    /// target, or count that does not fit a draw, a file that cannot be read
-    /// as text, a buffer larger than the device allows, or a texture of no
-    /// pixels. Correct the call.
+    /// name, a wrong option of a render pipeline, an argument that does not
+    /// fit the parameters of a call or a draw, a vertex buffer, index
+    /// buffer, target, or count that does not fit a draw, a file that cannot
+    /// be read as text, a buffer or texture of a size that the device does
+    /// not allow, a texture that cannot be read, or a wgpu texture view that
+    /// cannot serve as a texture. Correct the call.
     InvalidArgument,
-    /// wgpu reported a validation error, or a lack of memory, for work that
-    /// this crate submitted. Report a validation error as a defect of this
-    /// crate.
+    /// wgpu reported an error, such as a validation error or a lack of
+    /// memory, while this crate created a kernel, a render pipeline, a
+    /// buffer, a texture, or a sampler, read a buffer or a texture, or
+    /// submitted a dispatch or a draw. Some validation errors come from
+    /// arguments that no check of this crate rejects, such as one texture
+    /// that a draw both samples and draws into. Report any other validation
+    /// error as a defect of this crate.
     Backend,
 }
 

@@ -16,7 +16,7 @@ The crates in this repository wrap the Slang shader compiler, a C++ library with
 
 ### 1.1. Scope
 
-This document applies to every Rust crate, build script, example, test, and tool in the repository. Milestone M1, which delivered `slang-compiler-sys` and the binding generator, is complete. Milestone M2 is in progress, and on 2026-11-11 steps 1 to 3 of its design document added the safe crate `slang-compiler` with the global session, sessions, compiler options, modules, linking, code generation, the error type, and the Slang call guard. The workspace has three members. `crates/slang-compiler` holds those parts. `crates/slang-compiler-sys` holds the checked-in raw bindings and the constants of the pinned Slang version, and its build script links the Slang library of an installed Vulkan SDK by default, or builds Slang from a source tree and links it statically when `SLANG_SOURCE_DIR` is present. `tools/bindings-generator` is the binding generator. The Project Status section of `AGENTS.md` gives the details. The planned crates are:
+This document applies to every Rust crate, build script, example, test, and tool in the repository. The Project Status section of `AGENTS.md` says which crates exist and which milestones are complete. The planned crates are:
 
 - `slang-compiler-sys`: the raw bindings to the native Slang compiler library. The binding generator produces them, and they are checked in. Its build script links the native library, and its manifest declares `links = "slang-compiler"`.
 - `slang-compiler`: the safe crate that wraps `slang-compiler-sys` in idiomatic Rust.
@@ -1196,6 +1196,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-11: Replaced the stale account of milestones and workspace members in Section 1.1 with a pointer to the Project Status section of `AGENTS.md`.
 - 2026-11-11: Extended TEST-1 and its row in Appendix A so that a binary of the examples package may share a module with the integration-test binary through a `#[path]` attribute, as the windowed renderer example does.
 - 2026-11-11: Recorded in Section 4.4 that no item of `slango` carries the exception for an item that only unit tests use after step 10 of its design.
 - 2026-11-11: Recorded in Section 4.4 that no item of `slango` carries the exception for an item that only unit tests use, because step 9 of its design added the caller of `layout::CompiledRender` and `layout::UsableRender`.

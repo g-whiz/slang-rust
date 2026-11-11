@@ -7,8 +7,8 @@ use crate::error::{Error, ErrorKind, Result};
 /// A sampler of a [`Device`], which states how a shader reads a
 /// [`Texture`](crate::Texture) between its pixels and beyond its edges.
 ///
-/// A kernel receives it as a `SamplerState`, which a shader passes to a
-/// method of a texture such as `SampleLevel`. Create one with
+/// A kernel or a draw receives it as a `SamplerState`, which a shader passes
+/// to a method of a texture such as `SampleLevel` or `Sample`. Create one with
 /// [`Sampler::new`] from [`SamplerOptions`].
 ///
 /// Cloning a sampler is cheap and returns another handle to the same

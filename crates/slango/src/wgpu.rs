@@ -115,11 +115,12 @@ pub fn texture(texture: &Texture) -> &::wgpu::Texture {
 /// The wgpu texture that the view shows must be a two-dimensional texture
 /// with one mip level, one array layer, and one sample per pixel, so that
 /// the view shows all of it. The texture takes its size and format from that
-/// wgpu texture, and can do what the usages of that wgpu texture allow: a kernel
-/// samples it only with the usage `TEXTURE_BINDING`, and
-/// [`Texture::read`](crate::Texture::read) reads it only with the usage
-/// `COPY_SRC`, which the texture of a surface usually lacks. The view must
-/// belong to the wgpu device of `device`.
+/// wgpu texture, and can do what the usages of that wgpu texture allow. A
+/// shader samples it only with the usage `TEXTURE_BINDING`, a draw draws
+/// into it only with the usage `RENDER_ATTACHMENT`, which the texture of a
+/// surface has, and [`Texture::read`](crate::Texture::read) reads it only
+/// with the usage `COPY_SRC`, which the texture of a surface usually lacks.
+/// The view must belong to the wgpu device of `device`.
 ///
 /// # Examples
 ///

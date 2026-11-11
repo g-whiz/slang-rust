@@ -13,16 +13,16 @@ const CREATE: &str = "create a buffer";
 const READ: &str = "read a buffer";
 
 /// A buffer on the GPU of a [`Device`], which holds elements of type `T` for
-/// kernels to read and write.
+/// kernels and draws to read and write.
 ///
 /// A kernel reaches it as a `StructuredBuffer` or `RWStructuredBuffer` of
 /// the matching Slang element type, which [`Element`](crate::Element) lists.
 /// A buffer of any [`VertexElement`] can also hold the values of a vertex
 /// attribute of a draw, which [`Draw::vertex`](crate::Draw::vertex) gives,
 /// and a `Buffer<u32>` the indices of the vertices of triangles, which
-/// [`Draw::submit_indexed`](crate::Draw::submit_indexed) reads. Create one from
-/// the elements of a slice with [`Buffer::from_slice`], or filled with zeros
-/// with [`Buffer::zeroed`], and copy its elements back with
+/// [`Draw::submit_indexed`](crate::Draw::submit_indexed) reads. Create one
+/// from the elements of a slice with [`Buffer::from_slice`], or filled with
+/// zeros with [`Buffer::zeroed`], and copy its elements back with
 /// [`Buffer::read`]. A buffer keeps its length for its whole life. The
 /// elements are stored in little-endian byte order, which is the byte order
 /// of every platform that this crate supports.
@@ -140,9 +140,9 @@ impl<T: VertexElement> Buffer<T> {
 
     /// Copies the elements of the buffer back from the GPU into a vector.
     ///
-    /// The call blocks until every kernel that the device ran or queued
-    /// before it has finished, so the vector holds all their results. It and
-    /// [`Texture::read`](crate::Texture::read) are the ways in which a
+    /// The call blocks until every kernel and draw that the device ran or
+    /// queued before it has finished, so the vector holds all their results.
+    /// It and [`Texture::read`](crate::Texture::read) are the ways in which a
     /// program waits for the GPU.
     ///
     /// # Examples
@@ -188,8 +188,8 @@ impl<T: VertexElement> Buffer<T> {
 
     /// Returns whether the buffer has no elements.
     ///
-    /// A kernel cannot bind an empty buffer, but a program may create one,
-    /// such as for a list of results that turned out empty.
+    /// A call or a draw cannot use an empty buffer, but a program may create
+    /// one, such as for a list of results that turned out empty.
     ///
     /// # Examples
     ///

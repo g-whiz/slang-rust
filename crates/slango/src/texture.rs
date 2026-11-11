@@ -14,8 +14,8 @@ const WRAP: &str = "wrap a texture view";
 /// The size in bytes of one pixel of every [`TextureFormat`].
 const BYTES_PER_PIXEL: u32 = 4;
 
-/// A two-dimensional image on the GPU of a [`Device`], which a kernel samples
-/// as a `Texture2D`.
+/// A two-dimensional image on the GPU of a [`Device`], which a shader samples
+/// as a `Texture2D` and a draw draws into.
 ///
 /// Create one from pixels with [`Texture::from_pixels`], or filled with zeros
 /// in a [`TextureFormat`] with [`Texture::new`], and copy its pixels back
@@ -200,9 +200,9 @@ impl Texture {
     ///
     /// A pixel of [`TextureFormat::Rgba8Unorm`] is `[red, green, blue,
     /// alpha]`, and one of [`TextureFormat::Bgra8Unorm`] is `[blue, green,
-    /// red, alpha]`. The call blocks until every kernel that the device ran
-    /// or queued before it has finished, as [`Buffer::read`](crate::Buffer::read)
-    /// does.
+    /// red, alpha]`. The call blocks until every kernel and draw that the
+    /// device ran or queued before it has finished, as
+    /// [`Buffer::read`](crate::Buffer::read) does.
     ///
     /// # Examples
     ///

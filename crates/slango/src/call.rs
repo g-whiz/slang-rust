@@ -38,9 +38,8 @@ const DRAW: &str = "draw with a render pipeline";
 /// so it can run the kernel again with the same arguments.
 ///
 /// A call borrows its kernel, the paths, the buffers, the textures, and the
-/// samplers, and is [`Send`]
-/// and [`Sync`]. Each thread that runs a kernel at the same time as another
-/// uses its own call.
+/// samplers, and is [`Send`] and [`Sync`]. Each thread that runs a kernel at
+/// the same time as another uses its own call.
 ///
 /// # Examples
 ///

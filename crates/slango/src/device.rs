@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use crate::error::{Error, ErrorKind, Result};
 
-/// A GPU device on which this crate runs compute kernels, with the queue
-/// through which it submits work to the device.
+/// A GPU device on which this crate runs compute kernels and draws, with the
+/// queue through which it submits work to the device.
 ///
 /// A device is the connection of a program to one adapter, which is a GPU or
 /// a software implementation of one, such as lavapipe. Create one with
@@ -27,11 +27,11 @@ pub struct Device {
 impl Device {
     /// Creates a device on the adapter that the options select.
     ///
-    /// Use this to start running kernels. The device has the immediates
-    /// feature, through which a kernel receives the `uniform` parameters of
-    /// its entry point, the function that a dispatch runs, whenever the
-    /// adapter offers that feature, and then with the largest size of
-    /// immediate data that the adapter allows. A device searches the adapters
+    /// Use this to start running kernels and drawing. The device has the
+    /// immediates feature, through which a kernel receives the `uniform`
+    /// parameters of its entry point, the function that a dispatch runs,
+    /// whenever the adapter offers that feature, and then with the largest
+    /// size of immediate data that the adapter allows. A device searches the adapters
     /// of Vulkan, Direct3D 12, and Metal, the graphics interfaces of Linux,
     /// Windows, and macOS.
     ///

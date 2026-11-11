@@ -430,17 +430,18 @@ impl<'a> Draw<'a> {
     /// - [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument)
     ///   for each mistake that [`Call::dispatch`](crate::Call::dispatch)
     ///   reports for a parameter. It is also returned when a path names no
-    ///   vertex attribute, a vertex attribute that the vertex entry point uses has no
-    ///   buffer, a vertex buffer belongs to another device, is empty, or has
-    ///   elements of another Slang type than its attribute, the colour target
-    ///   is missing, or a target belongs to another device, has another
-    ///   format than the pipeline, or cannot be drawn into. A depth target
-    ///   given to a pipeline without a depth format, or missing for one with
-    ///   it, or of another size than the colour target, is rejected too. So
-    ///   are a depth given to [`Draw::clear_depth`] outside 0.0 to 1.0,
-    ///   vertex buffers of the attributes that step per vertex, or of those
-    ///   that step per instance, with different lengths, and a count of
-    ///   vertices or instances larger than the length of those buffers.
+    ///   vertex attribute, a vertex attribute that the vertex entry point
+    ///   uses has no buffer, a vertex buffer belongs to another device, is
+    ///   empty, or has elements of another Slang type than its attribute,
+    ///   the colour target is missing, or a target belongs to another
+    ///   device, has another format than the pipeline, or cannot be drawn
+    ///   into. A depth target given to a pipeline without a depth format, or
+    ///   missing for one with it, or of another size than the colour target,
+    ///   is rejected too. So are a depth given to [`Draw::clear_depth`]
+    ///   outside 0.0 to 1.0, vertex buffers of the attributes that step per
+    ///   vertex, or of those that step per instance, with different lengths,
+    ///   and a count of vertices or instances larger than the length of those
+    ///   buffers.
     /// - [`ErrorKind::UnsupportedParameter`](crate::ErrorKind::UnsupportedParameter)
     ///   when the reflected layout of a plain value does not hold the value.
     /// - [`ErrorKind::Backend`](crate::ErrorKind::Backend) when wgpu reports
