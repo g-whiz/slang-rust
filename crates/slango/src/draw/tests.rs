@@ -200,8 +200,7 @@ fn arguments() -> Vec<(&'static str, Arg)> {
 fn vertex(scalar: Scalar, components: u32, len: usize) -> BoundVertex<()> {
     BoundVertex {
         handle: (),
-        scalar,
-        components,
+        element: Some((scalar, components)),
         len,
         on_device: true,
     }
@@ -504,6 +503,20 @@ fn a_vertex_buffer_of_another_type_is_an_invalid_argument() {
             ))
         );
     }
+}
+
+#[test]
+fn a_vertex_buffer_of_a_generated_struct_is_an_invalid_argument() {
+    let bound = BoundVertex {
+        element: None,
+        ..vertex(Scalar::Float32, 2, 3)
+    };
+    assert_eq!(
+        Case::new().vertex("input.position", bound).rejected(),
+        invalid(
+            "the vertex attribute `input.position` of the render pipeline of `vsMain` and `fsMain` has the type float2, and its vertex buffer has elements of a structure, which no vertex attribute holds"
+        )
+    );
 }
 
 #[test]
@@ -830,7 +843,7 @@ fn an_indexed_draw_is_bounded_by_its_index_buffer_and_not_by_the_vertex_buffers(
 }
 
 fn format_of<T: VertexElement>() -> Option<VertexFormat> {
-    let (scalar, components) = element_type::<T>();
+    let (scalar, components) = element_type::<T>()?;
     vertex_format(scalar, components)
 }
 

@@ -34,7 +34,7 @@ fn plain(path: &str, offset: u64, size: u64, scalar: Scalar, shape: Shape) -> Pl
 }
 
 fn value_type(scalar: Scalar, dims: &[usize]) -> ValueType {
-    ValueType {
+    ValueType::Plain {
         scalar,
         dims: dims.to_vec(),
     }

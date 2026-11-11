@@ -274,10 +274,13 @@
 //! By default, that is the Slang shared library of the pinned Vulkan SDK,
 //! which the dynamic loader has to find when the program starts.
 
+#[doc(hidden)]
+pub mod __private;
 mod buffer;
 mod call;
 mod device;
 mod draw;
+mod encoding;
 mod error;
 mod kernel;
 mod layout;

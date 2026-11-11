@@ -8,7 +8,7 @@ use crate::call::{
 use crate::device::scoped;
 use crate::error::Result;
 use crate::layout::Scalar;
-use crate::marshal::{self, Element, Value, VertexElement};
+use crate::marshal::{self, Element, Value, ValueType, VertexElement};
 use crate::render::{PipelineSnapshot, RenderPipeline};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
@@ -66,8 +66,10 @@ pub struct Draw<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BoundVertex<B> {
     pub(crate) handle: B,
-    pub(crate) scalar: Scalar,
-    pub(crate) components: u32,
+    /// The Slang scalar type and the number of components of the elements
+    /// of the buffer, or `None` for a buffer of a generated struct, which no
+    /// vertex attribute holds.
+    pub(crate) element: Option<(Scalar, u32)>,
     pub(crate) len: usize,
     pub(crate) on_device: bool,
 }
@@ -295,11 +297,9 @@ impl<'a> Draw<'a> {
     ///
     /// See the example of [`RenderPipeline::draw`].
     pub fn vertex<T: VertexElement>(&mut self, path: &'a str, buffer: &'a Buffer<T>) -> &mut Self {
-        let (scalar, components) = element_type::<T>();
         let bound = BoundVertex {
             handle: buffer.wgpu_buffer(),
-            scalar,
-            components,
+            element: element_type::<T>(),
             len: buffer.len(),
             on_device: buffer.is_on(&self.pipeline.device),
         };
@@ -625,15 +625,19 @@ fn subject(snapshot: &PipelineSnapshot) -> Subject<'_> {
 
 /// Returns the Slang scalar type and the number of components of the
 /// elements of a `Buffer<T>`, such as `float` and 2 for `[f32; 2]`, which
-/// are those of the vertex attribute that the buffer can hold.
-pub(crate) fn element_type<T: VertexElement>() -> (Scalar, u32) {
-    let value_type = T::value_type();
-    let components = value_type
-        .dims
-        .first()
-        .and_then(|&length| u32::try_from(length).ok())
-        .unwrap_or(1);
-    (value_type.scalar, components)
+/// are those of the vertex attribute that the buffer can hold, or `None`
+/// when the elements are a generated struct.
+pub(crate) fn element_type<T: VertexElement>() -> Option<(Scalar, u32)> {
+    match T::value_type() {
+        ValueType::Plain { scalar, dims } => {
+            let components = dims
+                .first()
+                .and_then(|&length| u32::try_from(length).ok())
+                .unwrap_or(1);
+            Some((scalar, components))
+        }
+        ValueType::Structure { .. } => None,
+    }
 }
 
 /// Returns the name of the Slang type of a vertex attribute, such as `float2`
@@ -733,12 +737,20 @@ fn check_vertices<B>(
             )));
         }
         let attribute = &input.attribute;
-        if (bound.scalar, bound.components) != (attribute.scalar, attribute.components) {
-            return Err(subject.invalid(format!(
-                "the vertex attribute `{path}` of {subject} has the type {}, and its vertex buffer has elements of the type {}",
-                slang_type(attribute.scalar, attribute.components),
-                slang_type(bound.scalar, bound.components)
-            )));
+        let expected = slang_type(attribute.scalar, attribute.components);
+        match bound.element {
+            Some(element) if element == (attribute.scalar, attribute.components) => {}
+            Some((scalar, components)) => {
+                return Err(subject.invalid(format!(
+                    "the vertex attribute `{path}` of {subject} has the type {expected}, and its vertex buffer has elements of the type {}",
+                    slang_type(scalar, components)
+                )));
+            }
+            None => {
+                return Err(subject.invalid(format!(
+                    "the vertex attribute `{path}` of {subject} has the type {expected}, and its vertex buffer has elements of a structure, which no vertex attribute holds"
+                )));
+            }
         }
     }
     Ok(())

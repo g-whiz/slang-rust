@@ -4,10 +4,11 @@ use super::{
     Argument, Bound, BoundSampler, BoundTexture, Call, Entry, Plan, Source, check_workgroups,
     insert, plan, workgroup_counts,
 };
+use crate::__private::StructElement;
 use crate::error::{ErrorKind, Result};
 use crate::layout::{
-    Access, Binding, ElementType, KernelLayout, PlainValue, Resource, Scalar, Shape, UniformBlock,
-    Usage,
+    Access, Binding, ElementType, KernelLayout, PlainValue, Resource, Scalar, Shape, Structure,
+    UniformBlock, Usage,
 };
 use crate::marshal::{Element, Value, marshal};
 use crate::texture::TextureFormat;
@@ -107,6 +108,7 @@ fn layout() -> KernelLayout {
             size: 16,
             values: vec![plain("offset", 0, 4, Scalar::Int32, Shape::Scalar)],
         }),
+        structures: Vec::new(),
     }
 }
 
@@ -378,6 +380,50 @@ fn a_buffer_of_another_stride_is_reported_by_its_stride_before_its_element_type(
     );
 }
 
+#[derive(Clone, Copy)]
+struct Pair;
+
+impl StructElement for Pair {
+    const SLANG_NAME: &'static str = "Pair";
+    const STRIDE: usize = 8;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&[0; 8]);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        (bytes.len() == Self::STRIDE).then_some(Self)
+    }
+}
+
+#[test]
+fn a_buffer_of_a_struct_element_of_another_stride_than_the_structure_is_an_invalid_argument() {
+    let mut layout = layout();
+    if let Some(Resource::StorageBuffer {
+        stride, element, ..
+    }) = layout
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.path == "extra.points")
+        .map(|binding| &mut binding.resource)
+    {
+        *stride = 32;
+        *element = ElementType::Structure(Structure {
+            name: "Particle".to_owned(),
+            size: 32,
+            fields: Vec::new(),
+        });
+    }
+    let mut arguments = complete();
+    insert(&mut arguments, "extra.points", buffer::<Pair>(4));
+    let error = plan(&layout, &arguments).expect_err("the call is rejected");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: the parameter `extra.points` of the kernel `scale` has elements of 32 bytes, and the bound buffer has elements of 8 bytes"
+    );
+}
+
 #[test]
 fn a_composite_element_takes_any_buffer_of_its_stride() {
     let mut layout = layout();
@@ -451,6 +497,7 @@ fn a_kernel_without_parameters_has_no_groups_and_no_immediates() {
         thread_group_size: [1, 1, 1],
         bindings: Vec::new(),
         immediates: None,
+        structures: Vec::new(),
     };
     assert_eq!(
         plan::<(), (), ()>(&layout, &[]).expect("nothing to give"),
@@ -536,6 +583,7 @@ fn textured() -> KernelLayout {
             resource("spareSampler", 4, Usage::Unused, Resource::Sampler),
         ],
         immediates: None,
+        structures: Vec::new(),
     }
 }
 

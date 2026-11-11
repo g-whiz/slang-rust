@@ -38,6 +38,7 @@ fn kernel(bindings: Vec<Binding>) -> KernelLayout {
         thread_group_size: [64, 1, 1],
         bindings,
         immediates: None,
+        structures: Vec::new(),
     }
 }
 

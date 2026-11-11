@@ -1,3 +1,4 @@
+use crate::__private::StructElement;
 use crate::error::{Error, ErrorKind, Result};
 use crate::layout::{ElementType, PlainValue, Scalar, Shape};
 
@@ -10,16 +11,23 @@ const SCALAR_SIZE: u64 = 4;
 mod sealed {
     use crate::layout::Scalar;
 
-    /// The Slang type of a Rust value: its scalar type and the lengths of
-    /// its nested arrays, from the outermost to the innermost.
+    /// The Slang type of a Rust value.
     #[expect(
         unnameable_types,
         reason = "it appears only in the methods of the supertrait that seals `Value` (API-8)"
     )]
+    #[expect(
+        private_interfaces,
+        reason = "no other crate can name the enum (API-8), so the crate-private scalar type of its variant reaches none"
+    )]
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct ValueType {
-        pub(crate) scalar: Scalar,
-        pub(crate) dims: Vec<usize>,
+    pub enum ValueType {
+        /// A scalar or an array of fixed length, with its scalar type and the
+        /// lengths of its nested arrays, from the outermost to the innermost.
+        Plain { scalar: Scalar, dims: Vec<usize> },
+        /// A generated struct, with the Slang name of its structure, which
+        /// only a buffer can hold.
+        Structure { name: &'static str },
     }
 
     #[expect(
@@ -71,8 +79,10 @@ pub(crate) use sealed::ValueType;
 /// Slang's layout gives them, so the layout of the Rust type does not
 /// matter.
 ///
-/// This trait is sealed: no type outside this crate can implement it. It
-/// serves as a generic bound only, not as a trait object.
+/// This trait is sealed, so code outside this crate cannot implement it. The
+/// code that `slango-macros` generates implements it for its structs through
+/// a hidden trait that is not part of the API. It serves as a generic bound
+/// only, not as a trait object.
 pub trait Value: sealed::SealedValue + Copy {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) holds as its element, whose
@@ -85,8 +95,10 @@ pub trait Value: sealed::SealedValue + Copy {}
 /// elements lie packed 8 or 12 bytes apart as a vertex attribute reads them,
 /// cannot be bound to a structured buffer.
 ///
-/// This trait is sealed: no type outside this crate can implement it. It
-/// serves as a generic bound only, not as a trait object.
+/// This trait is sealed, so code outside this crate cannot implement it. The
+/// code that `slango-macros` generates implements it for its structs through
+/// a hidden trait that is not part of the API. It serves as a generic bound
+/// only, not as a trait object.
 pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'static {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) bound to a structured buffer
@@ -98,8 +110,10 @@ pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'sta
 /// stand for `float4`, `int4`, and `uint4`. Each is also a
 /// [`VertexElement`].
 ///
-/// This trait is sealed: no type outside this crate can implement it. It
-/// serves as a generic bound only, not as a trait object.
+/// This trait is sealed, so code outside this crate cannot implement it. The
+/// code that `slango-macros` generates implements it for its structs through
+/// a hidden trait that is not part of the API. It serves as a generic bound
+/// only, not as a trait object.
 pub trait Element: VertexElement + sealed::SealedElement {}
 
 impl sealed::SealedValue for bool {
@@ -152,13 +166,17 @@ impl Value for f32 {}
 
 impl<T: Value, const N: usize> sealed::SealedValue for [T; N] {
     fn value_type() -> ValueType {
-        let element = T::value_type();
-        let mut dims = Vec::with_capacity(element.dims.len() + 1);
-        dims.push(N);
-        dims.extend(element.dims);
-        ValueType {
-            scalar: element.scalar,
-            dims,
+        match T::value_type() {
+            ValueType::Plain {
+                scalar,
+                dims: element,
+            } => {
+                let mut dims = Vec::with_capacity(element.len().saturating_add(1));
+                dims.push(N);
+                dims.extend(element);
+                ValueType::Plain { scalar, dims }
+            }
+            structure @ ValueType::Structure { .. } => structure,
         }
     }
 
@@ -363,6 +381,36 @@ impl sealed::SealedElement for [u32; 4] {}
 
 impl Element for [u32; 4] {}
 
+impl<T: StructElement> sealed::SealedValue for T {
+    fn value_type() -> ValueType {
+        ValueType::Structure {
+            name: T::SLANG_NAME,
+        }
+    }
+
+    fn write_scalars(&self, _out: &mut Vec<[u8; 4]>) {}
+}
+
+impl<T: StructElement> Value for T {}
+
+impl<T: StructElement> sealed::SealedVertexElement for T {
+    const STRIDE: usize = <T as StructElement>::STRIDE;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        StructElement::write_bytes(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        <T as StructElement>::read_bytes(bytes)
+    }
+}
+
+impl<T: StructElement> VertexElement for T {}
+
+impl<T: StructElement> sealed::SealedElement for T {}
+
+impl<T: StructElement> Element for T {}
+
 fn write_vector<S: sealed::SealedVertexElement, const N: usize>(
     vector: &[S; N],
     out: &mut Vec<u8>,
@@ -386,7 +434,7 @@ fn read_vector<S: sealed::SealedVertexElement + Copy + Default, const N: usize>(
 }
 
 fn scalar_type(scalar: Scalar) -> ValueType {
-    ValueType {
+    ValueType::Plain {
         scalar,
         dims: Vec::new(),
     }
@@ -413,7 +461,10 @@ pub(crate) fn marshal<V: Value>(value: &V) -> Marshalled {
 /// value at `path`, and fails with [`ErrorKind::InvalidArgument`] when its
 /// scalar type or its structure differs.
 pub(crate) fn check(path: &str, ty: &ValueType, plain: &PlainValue) -> Result<()> {
-    if ty.scalar == plain.scalar && shape_matches(&plain.shape, &ty.dims) {
+    if let ValueType::Plain { scalar, dims } = ty
+        && *scalar == plain.scalar
+        && shape_matches(&plain.shape, dims)
+    {
         return Ok(());
     }
     Err(
@@ -476,9 +527,9 @@ fn outside(path: &str, what: &str) -> Error {
 /// and otherwise the Slang name of `element`, such as `float4`.
 ///
 /// A scalar or a vector matches only the Rust type of the same scalar type
-/// and number of components, and any other element type matches every Rust
-/// type, because the check of the stride alone covers it (SLM-5 of
-/// `docs/design/slango-macros.md`).
+/// and number of components, and any other element type, a structure
+/// included, matches every Rust type, because the check of the stride alone
+/// covers it (SLM-5 of `docs/design/slango-macros.md`).
 pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<String> {
     match element {
         ElementType::Plain { scalar, components } => {
@@ -489,11 +540,17 @@ pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<
                     length: *components,
                 }
             };
-            let same = ty.scalar == *scalar && shape_matches(&shape, &ty.dims);
+            let same = match ty {
+                ValueType::Plain {
+                    scalar: rust_scalar,
+                    dims,
+                } => rust_scalar == scalar && shape_matches(&shape, dims),
+                ValueType::Structure { .. } => false,
+            };
             (!same).then(|| slang_type_name(*scalar, &shape))
         }
         ElementType::OtherPlain { name } => Some(name.clone()),
-        ElementType::Composite => None,
+        ElementType::Structure(_) | ElementType::Composite => None,
     }
 }
 
@@ -594,14 +651,18 @@ fn slang_type_name(scalar: Scalar, shape: &Shape) -> String {
     }
 }
 
-/// Returns the Rust name of a value type, such as `[[f32; 3]; 2]`.
+/// Returns the Rust name of a value type, such as `[[f32; 3]; 2]`, or the
+/// Slang name of the structure of a generated struct.
 pub(crate) fn rust_type_name(ty: &ValueType) -> String {
-    ty.dims
-        .iter()
-        .rev()
-        .fold(rust_scalar_name(ty.scalar).to_owned(), |inner, dim| {
-            format!("[{inner}; {dim}]")
-        })
+    match ty {
+        ValueType::Plain { scalar, dims } => dims
+            .iter()
+            .rev()
+            .fold(rust_scalar_name(*scalar).to_owned(), |inner, dim| {
+                format!("[{inner}; {dim}]")
+            }),
+        ValueType::Structure { name } => (*name).to_owned(),
+    }
 }
 
 #[cfg(test)]

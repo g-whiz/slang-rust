@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::Device;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{self, CompiledRender, Source};
+use crate::layout::{self, Compilation, Compiled, CompiledRender, Source};
 use crate::render::{RenderPipeline, RenderPipelineOptions};
 
 const READ: &str = "read a Slang file";
@@ -169,12 +169,13 @@ impl Device {
     /// Loads the Slang module in a file and prepares each of its compute
     /// entry points as a [`Kernel`] of this device.
     ///
-    /// The load compiles the module to SPIR-V on the calling thread, with the
-    /// directory of the file as the place where an `import` finds sibling
-    /// modules. It then creates on the device everything that a dispatch of
-    /// each kernel needs, so every error of the module surfaces here. Each
-    /// load starts the Slang compiler afresh, which takes about a tenth of a
-    /// second, so load a module once and keep it.
+    /// The load compiles the module to SPIR-V on the calling thread. Slang
+    /// resolves an `import` relative to the file, and the load also gives
+    /// Slang the directory of the file as a search path. It then creates on
+    /// the device everything that a dispatch of each kernel needs, so every
+    /// error of the module surfaces here. Each load starts the Slang compiler
+    /// afresh, which takes about a tenth of a second, so load a module once
+    /// and keep it.
     ///
     /// # Examples
     ///
@@ -212,7 +213,7 @@ impl Device {
     /// - [`ErrorKind::Backend`] when wgpu reports another error while it
     ///   creates a kernel.
     pub fn load_module(&self, path: impl AsRef<Path>) -> Result<Module> {
-        self.load_module_from_path(path.as_ref())
+        self.load(compile_file(path.as_ref())?.compiled)
     }
 
     /// Loads a Slang module from source text and prepares each of its compute
@@ -232,46 +233,19 @@ impl Device {
     /// returns, except that no file is read.
     pub fn load_module_from_source(&self, name: &str, source: &str) -> Result<Module> {
         let path = format!("{name}.slang");
-        self.load(&Source {
+        let compilation = layout::compile(&Source {
             name,
             path: &path,
             text: source,
             search_path: None,
-        })
-    }
-
-    fn load_module_from_path(&self, path: &Path) -> Result<Module> {
-        let Some(path_text) = path.to_str() else {
-            return Err(
-                Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
-                    "the path `{}` is not valid UTF-8, which Slang needs",
-                    path.display()
-                )),
-            );
-        };
-        let text = std::fs::read_to_string(path).map_err(|error| {
-            Error::new(ErrorKind::InvalidArgument, READ)
-                .with_detail(format!("`{}`", path.display()))
-                .with_source(error)
         })?;
-        let name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(path_text);
-        let directory = path
-            .parent()
-            .filter(|directory| !directory.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        self.load(&Source {
-            name,
-            path: path_text,
-            text: &text,
-            search_path: Some(directory),
-        })
+        self.load(compilation.compiled)
     }
 
-    fn load(&self, source: &Source<'_>) -> Result<Module> {
-        let compiled = layout::compile(source)?;
+    /// Creates a module on this device from the snapshot of a compilation,
+    /// with no call into Slang. Every load of a module ends here, whether it
+    /// compiled the module itself or decoded a precompiled snapshot.
+    pub(crate) fn load(&self, compiled: Compiled) -> Result<Module> {
         let kernels = compiled
             .kernels
             .into_iter()
@@ -283,4 +257,37 @@ impl Device {
             render: compiled.render.into(),
         })
     }
+}
+
+/// Compiles the Slang module in a file as [`Device::load_module`] does, with
+/// the directory of the file, or `.` when the path has none, as a search
+/// path.
+pub(crate) fn compile_file(path: &Path) -> Result<Compilation> {
+    let Some(path_text) = path.to_str() else {
+        return Err(
+            Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
+                "the path `{}` is not valid UTF-8, which Slang needs",
+                path.display()
+            )),
+        );
+    };
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        Error::new(ErrorKind::InvalidArgument, READ)
+            .with_detail(format!("`{}`", path.display()))
+            .with_source(error)
+    })?;
+    let name = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(path_text);
+    let directory = path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    layout::compile(&Source {
+        name,
+        path: path_text,
+        text: &text,
+        search_path: Some(directory),
+    })
 }

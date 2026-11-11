@@ -2,9 +2,9 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use super::super::{
-    Access, Attribute, Binding, Compiled, CompiledKernel, CompiledRender, ElementType,
-    KernelLayout, PlainValue, Rejection, RenderLayout, RenderStage, Resource, Scalar, Shape,
-    Source, UniformBlock, UsableRender, Usage,
+    Access, Attribute, Binding, Compiled, CompiledKernel, CompiledRender, ElementType, Field,
+    FieldType, KernelLayout, PlainValue, Rejection, RenderLayout, RenderStage, Resource, Scalar,
+    Shape, Source, Structure, UniformBlock, UniformStructure, UsableRender, Usage,
 };
 use crate::{ErrorKind, Result};
 
@@ -16,6 +16,7 @@ fn compile_all(name: &str, text: &str) -> Result<Compiled> {
         text,
         search_path: None,
     })
+    .map(|compilation| compilation.compiled)
 }
 
 fn compile(name: &str, text: &str) -> Result<Vec<CompiledKernel>> {
@@ -53,8 +54,28 @@ fn element_type(element: &ElementType) -> String {
     match element {
         ElementType::Plain { scalar, components } => format!("{scalar:?} x{components}"),
         ElementType::OtherPlain { name } => format!("other `{name}`"),
+        ElementType::Structure(structure) => self::structure(structure),
         ElementType::Composite => "composite".to_owned(),
     }
+}
+
+fn structure(structure: &Structure) -> String {
+    let Structure { name, size, fields } = structure;
+    let fields = fields
+        .iter()
+        .map(|Field { name, offset, ty }| {
+            let ty = match ty {
+                FieldType::Plain { scalar, shape } => {
+                    format!("{scalar:?} {}", self::shape(shape))
+                }
+                FieldType::Structure(inner) => self::structure(inner),
+                FieldType::Other { name } => format!("other `{name}`"),
+            };
+            format!("+{offset} {name}: {ty}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("structure {name} of {size} bytes {{ {fields} }}")
 }
 
 fn render_block(out: &mut String, block: &UniformBlock) {
@@ -131,10 +152,14 @@ fn render(kernels: &[KernelLayout]) -> String {
             thread_group_size,
             bindings,
             immediates,
+            structures,
         } = kernel;
         writeln!(out, "kernel `{name}` thread group {thread_group_size:?}")
             .expect("writing to a string");
         render_bindings(&mut out, bindings, immediates.as_ref());
+        for UniformStructure { path, name } in structures {
+            writeln!(out, "  structure `{path}`: {name}").expect("writing to a string");
+        }
     }
     out
 }
@@ -289,9 +314,135 @@ fn the_element_type_of_each_structured_buffer_is_recorded_by_its_kind() {
     assert_eq!(element("uints"), plain(Scalar::Uint32, 4));
     assert_eq!(element("flags"), plain(Scalar::Bool, 1));
     assert!(matches!(element("halves"), ElementType::OtherPlain { .. }));
-    assert_eq!(element("particles"), ElementType::Composite);
+    let float = |length| FieldType::Plain {
+        scalar: Scalar::Float32,
+        shape: if length == 1 {
+            Shape::Scalar
+        } else {
+            Shape::Vector { length }
+        },
+    };
+    let field = |name: &str, offset, ty| Field {
+        name: name.to_owned(),
+        offset,
+        ty,
+    };
+    assert_eq!(
+        element("particles"),
+        ElementType::Structure(Structure {
+            name: "Particle".to_owned(),
+            size: 16,
+            fields: vec![field("position", 0, float(3)), field("mass", 12, float(1))],
+        })
+    );
     assert_eq!(element("matrices"), ElementType::Composite);
     insta::assert_snapshot!("elements", render(&[kernel]));
+}
+
+const STRUCTURE_ELEMENTS: &str = r#"
+struct Inner { uint id; float2 pair; };
+struct Particle { float3 position; float mass; float2 velocity; };
+struct Mixed
+{
+    float3 values[2];
+    Inner inner;
+    bool flag;
+    float2x2 rotation;
+    half small;
+    Inner inners[2];
+    int count;
+};
+RWStructuredBuffer<Particle> particles;
+StructuredBuffer<Mixed> mixed;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run()
+{
+    particles[0].mass = mixed[0].values[1].x + float(mixed[0].inner.id) + (mixed[0].flag ? 1.0 : 0.0)
+        + mixed[0].rotation[0][0] + float(mixed[0].small) + float(mixed[0].inners[1].id)
+        + float(mixed[0].count);
+}
+"#;
+
+#[test]
+fn a_structure_element_records_its_slang_name_size_and_each_field_at_its_offset() {
+    let kernel = kernel(STRUCTURE_ELEMENTS);
+    let structure = |path: &str| match &binding(&kernel, path).resource {
+        Resource::StorageBuffer {
+            element: ElementType::Structure(structure),
+            stride,
+            ..
+        } => (structure.clone(), *stride),
+        other => panic!("`{path}` is not a buffer of structures: {other:?}"),
+    };
+    let (particle, stride) = structure("particles");
+    assert_eq!(particle.name, "Particle");
+    assert_eq!((particle.size, stride), (32, 32));
+    let offsets: Vec<(&str, u64)> = particle
+        .fields
+        .iter()
+        .map(|field| (field.name.as_str(), field.offset))
+        .collect();
+    assert_eq!(offsets, [("position", 0), ("mass", 12), ("velocity", 16)]);
+    let (mixed, _) = structure("mixed");
+    let inner = mixed
+        .fields
+        .iter()
+        .find(|field| field.name == "inner")
+        .map(|field| &field.ty);
+    assert!(
+        matches!(inner, Some(FieldType::Structure(Structure { name, .. })) if name == "Inner"),
+        "{inner:?}"
+    );
+    let small = mixed.fields.iter().find(|field| field.name == "small");
+    assert!(
+        matches!(small.map(|field| &field.ty), Some(FieldType::Other { .. })),
+        "{small:?}"
+    );
+    insta::assert_snapshot!("structure_elements", render(&[kernel]));
+}
+
+const UNIFORM_STRUCTURES: &str = r#"
+struct Inner { float gain; uint2 size; };
+struct Params { float scale; Inner inner; };
+struct Run { uint width; Inner inner; };
+struct Extra { float bias; RWStructuredBuffer<float> output; };
+
+RWStructuredBuffer<float> data;
+uniform Params params;
+ConstantBuffer<Params> settings;
+ParameterBlock<Extra> extra;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run(uniform Run run)
+{
+    data[0] = params.scale + params.inner.gain + float(params.inner.size.x) + settings.scale
+        + settings.inner.gain + float(run.width) + run.inner.gain + extra.bias;
+    extra.output[0] = 1.0;
+}
+"#;
+
+#[test]
+fn each_structure_among_the_plain_values_is_recorded_with_its_path_and_slang_name() {
+    let kernel = kernel(UNIFORM_STRUCTURES);
+    let structures: Vec<(&str, &str)> = kernel
+        .structures
+        .iter()
+        .map(|structure| (structure.path.as_str(), structure.name.as_str()))
+        .collect();
+    assert_eq!(
+        structures,
+        [
+            ("params", "Params"),
+            ("params.inner", "Inner"),
+            ("settings.inner", "Inner"),
+            ("run", "Run"),
+            ("run.inner", "Inner"),
+        ]
+    );
+    insta::assert_snapshot!("uniform_structures", render(&[kernel]));
 }
 
 const GLOBALS: &str = r#"

@@ -1,0 +1,30 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: "render(&[kernel])"
+---
+kernel `run` thread group [1, 1, 1]
+  set 0 binding 0 `` Used: uniform buffer
+    size 32
+    +0 4 bytes `params.scale`: Float32 scalar
+    +16 4 bytes `params.inner.gain`: Float32 scalar
+    +24 8 bytes `params.inner.size`: Uint32 vector 2
+  set 0 binding 1 `data` Used: storage buffer ReadWrite, stride 4, element Float32 x1
+  set 0 binding 2 `settings` Used: uniform buffer
+    size 32
+    +0 4 bytes `settings.scale`: Float32 scalar
+    +16 4 bytes `settings.inner.gain`: Float32 scalar
+    +24 8 bytes `settings.inner.size`: Uint32 vector 2
+  set 1 binding 0 `extra` Used: uniform buffer
+    size 16
+    +0 4 bytes `extra.bias`: Float32 scalar
+  set 1 binding 1 `extra.output` Used: storage buffer ReadWrite, stride 4, element Float32 x1
+  immediates
+    size 24
+    +0 4 bytes `run.width`: Uint32 scalar
+    +8 4 bytes `run.inner.gain`: Float32 scalar
+    +16 8 bytes `run.inner.size`: Uint32 vector 2
+  structure `params`: Params
+  structure `params.inner`: Inner
+  structure `settings.inner`: Inner
+  structure `run`: Run
+  structure `run.inner`: Inner

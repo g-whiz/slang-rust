@@ -15,5 +15,5 @@ void scale(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 4, 2)]
 void double_each(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x < count) { data[id.x] = twice(data[id.x]); }
+    if (id.x < count && id.y == 0 && id.z == 0) { data[id.x] = twice(data[id.x]); }
 }

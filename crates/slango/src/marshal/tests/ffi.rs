@@ -45,6 +45,7 @@ fn every_element_type_has_the_reflected_stride_of_its_slang_type() {
         search_path: None,
     })
     .expect("the module compiles")
+    .compiled
     .kernels;
     let [kernel] = kernels.as_slice() else {
         panic!("one kernel in {kernels:#?}");

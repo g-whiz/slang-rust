@@ -8,5 +8,5 @@ kernel `run` thread group [1, 1, 1]
   set 0 binding 2 `uints` Used: storage buffer ReadWrite, stride 16, element Uint32 x4
   set 0 binding 3 `flags` Used: storage buffer ReadWrite, stride 4, element Bool x1
   set 0 binding 4 `halves` Used: storage buffer ReadWrite, stride 4, element other `vector<half,2>`
-  set 0 binding 5 `particles` Used: storage buffer ReadWrite, stride 16, element composite
+  set 0 binding 5 `particles` Used: storage buffer ReadWrite, stride 16, element structure Particle of 16 bytes { +0 position: Float32 vector 3, +12 mass: Float32 scalar }
   set 0 binding 6 `matrices` Used: storage buffer ReadWrite, stride 16, element composite

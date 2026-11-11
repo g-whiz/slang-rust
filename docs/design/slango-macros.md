@@ -41,7 +41,7 @@ These are not part of M6:
 
 ### 1.6. Current State
 
-This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. No code of `slango-macros`, `slango-codegen`, or the hidden module of `slango` exists, and the next change is step 2 of Section 11.
+This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. Step 2 is done, on 2026-11-11. It added the hidden module `slango::__private` of Section 5.2, with `precompile_file`, the interface description, the encoding of Section 5.3 with `ENCODING_VERSION`, `load_precompiled`, and the trait `StructElement` of Section 5.4, and split the load of `slango` into a compile and a load, as Section 7.1 of `docs/design/slango.md` describes with the behaviour changes. Where the implementation settled or corrected this design, Section 5 states it. No code of `slango-macros` or `slango-codegen` exists, and the next change is step 3 of Section 11.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -98,7 +98,7 @@ An expansion that emits `const _: &[u8] = include_bytes!("<absolute path>");` fo
 
 A load from an embedded, encoded snapshot took 0.89 to 0.93 ms, and a load that compiled embedded source took 148 to 151 ms (run). The encoded snapshot of `saxpy.slang` is a byte string of about 1.5 kB (run). The program still has `libslang-compiler.so.0.2026.17` as a needed library in both cases and fails to start without the library path, because `slango` depends on `slang-compiler` unconditionally (run). An embedded source that imports another file fails with `cannot open file 'common.slang'`, because `load_module_from_source` sets no search path, while the precompiled snapshot resolved the import at build time (run).
 
-The spike split `Device::load` into a compile into the layout snapshot and a load from it, added a hidden public module with the precompile function, the interface description, a little-endian encoding with a magic header and version, a loader from the encoding, and a trait for generated structs with blanket implementations of the sealed traits (run). Coherence accepted the blanket implementations beside the existing ones (run). Afterwards, the 185 unit tests of `slango` and all 305 of its `gpu` tests passed (run). The encoding was exercised only for storage buffers and global uniforms. Immediates, textures, samplers, and render records were encoded but never loaded.
+The spike split `Device::load` into a compile into the layout snapshot and a load from it, added a hidden public module with the precompile function, the interface description, a little-endian encoding with a magic header and version, a loader from the encoding, and a trait for generated structs with blanket implementations of the sealed traits (run). Coherence accepted the blanket implementations beside the existing ones (run). Afterwards, the 185 unit tests of `slango` and all 305 of its `gpu` tests passed (run). The encoding was exercised only for storage buffers and global uniforms. Immediates, textures, samplers, and render records were encoded but never loaded. Step 2 of Section 11 closed this gap, except for a draw from a precompiled module (Section 5.3).
 
 ### 3.6. The Static Route
 
@@ -115,6 +115,8 @@ With `DOCS_RS` set and no SDK, `cargo doc` failed with `E0463`, because the macr
 ### 3.9. Generated Code
 
 For `struct Particle { float3 position; float mass; float2 velocity; }` in a `RWStructuredBuffer`, Slang reported offsets 0, 12, and 16 and a stride of 32, and the generated `#[repr(C)]` struct with a private tail padding of 8 bytes, a `const fn new`, and `size_of` and `offset_of!` assertions matched it and read back correctly (run). Private padding fields rule out a struct literal in user code (run). The spike did not generate arrays inside structures whose stride exceeds the element size, matrices or `bool` in structures, or nested structures, whose code path is untested. A structure in a uniform buffer is flattened into one plain value for each leaf with a dotted path such as `params.scale` (read, Section 7.1 of `docs/design/slango.md`). A unit test of the tokens generated from a hand-made interface description, formatted with `prettyplease`, passed natively and under Miri (run). Every insta snapshot test of the repository sits in a module that Miri skips (read).
+
+Step 2 of Section 11 confirmed SLMA-4 on 2026-11-11. The walk records the Slang name of each structure among the plain values with its parameter path. The `ffi` test `layout::tests::ffi::each_structure_among_the_plain_values_is_recorded_with_its_path_and_slang_name` of `slango` recorded `params` with `Params`, `params.inner` with `Inner`, `settings.inner` with `Inner`, `run` with `Run`, and `run.inner` with `Inner`. These cover a global `uniform` structure, a structure nested in it, a structure inside a `ConstantBuffer<Params>`, and a `uniform` structure of the entry point. The walk also recorded `Particle` above as a structure element of 32 bytes with its fields at the offsets 0, 12, and 16.
 
 This confirms A-10 of the architecture design: vulkano generates typed shader interfaces from reflection.
 
@@ -170,9 +172,9 @@ This section changes the behaviour of `slango` for every user, macro or not.
 
 SLM-5. The layout snapshot MUST record the element type of each structured buffer in its storage buffer record. When the recorded element is a scalar or a vector, `Call::bind` and `Draw::bind` MUST report `ErrorKind::InvalidArgument` naming the parameter unless the Rust element type has the same scalar and component count. When the recorded element is a structure, they MUST keep the check of the stride alone. A check of the stride alone lets a `Buffer<u32>` bind to a `StructuredBuffer<float>` and read wrong values without an error (Section 1.1), while a buffer of structures must stay usable without the macro.
 
-The full element type is a scalar with its component count, or a structure with its Slang name, size, and fields. The check runs at the dispatch or the draw with the other checks of SLO-14 and SLO-26 of `docs/design/slango.md`. A buffer of a built-in `Element`, such as `[f32; 4]`, still binds to a structured buffer of a structure of the same stride, so a user of the runtime API alone keeps today's behaviour for structures. Generated bindings are exact in both cases, because the element type that the generator emits for a structure is that structure's own struct (Section 7.3). The generator also reads the recorded element type to choose the Rust type of each buffer field (Section 7.2).
+The full element type has the four forms that Section 7.1 of `docs/design/slango.md` defines: a scalar or vector of `bool`, `int`, `uint`, or `float` with its component count, a scalar or vector of another scalar type with its Slang name, a structure with its Slang name, size, and fields, and a composite, which is a matrix, an array, or another type. A field of a structure can be a plain value, a nested structure, or another type with its Slang name, such as `half` or `Inner[2]`. The check runs at the dispatch or the draw with the other checks of SLO-14 and SLO-26 of `docs/design/slango.md`. A buffer of a built-in `Element`, such as `[f32; 4]`, still binds to a structured buffer of a structure of the same stride, so a user of the runtime API alone keeps today's behaviour for structures. Generated bindings are exact in both cases, because the element type that the generator emits for a structure is that structure's own struct (Section 7.3). The generator also reads the recorded element type to choose the Rust type of each buffer field (Section 7.2).
 
-Step 1 of Section 11 implemented SLM-5 and confirmed the part of SLMA-4 on structured buffers: the walk records the element type of each structured buffer (Section 7.1 of `docs/design/slango.md`). It records a structure, a matrix, or an array only as a composite, with no Slang name, size, or fields, because the check does not need them. Step 2 adds what the generator needs of a structure (Section 5.2). Section 9.3 of `docs/design/slango.md` states the rules of the check, the choices of the implementation for `bool`, other scalar types, matrices, and arrays, and the behaviour change.
+Step 1 of Section 11 implemented SLM-5 and confirmed the part of SLMA-4 on structured buffers: the walk records the element type of each structured buffer (Section 7.1 of `docs/design/slango.md`). Step 2 added the Slang name, size, and fields of a structure, which the generator needs and the check does not read. Section 9.3 of `docs/design/slango.md` states the rules of the check, the choices of the implementation for `bool`, other scalar types, matrices, and arrays, and the behaviour change.
 
 ### 5.2. The Hidden Module
 
@@ -180,7 +182,7 @@ SLM-6. `slango` MUST provide the module `#[doc(hidden)] pub mod __private`, thro
 
 The module holds:
 
-- The split of loading: `layout::compile` into the layout snapshot, followed by a crate-private load from the snapshot that `Device::load_module` and the precompiled load share.
+- The split of loading into `layout::compile` and a crate-private load from the snapshot, which Section 7.1 of `docs/design/slango.md` describes. `Device::load_module` and `precompile_file` share the crate-private `module::compile_file`, which reads the file.
 - `precompile_file`, which compiles a file exactly as `Device::load_module` does, with the same session, search path, and reflection walk (SLO-5 and SLO-7 of `docs/design/slango.md`), and returns the interface description and the encoded snapshot.
 - The interface description: kernels with their name, thread group size, and parameters, each parameter with its path, kind, and type, including the Slang name of a structure and the element type of a structured buffer, and the files that Slang read.
 - The encoder and the decoder of the snapshot (Section 5.3).
@@ -189,17 +191,33 @@ The module holds:
 
 Generated code calls `slango` only through its public API and this module, so it compiles and dispatches through the same core as the runtime API (ARCH-17).
 
+Step 2 settled the interface description as follows:
+
+- Its types are public types of `__private` that mirror the crate-private layout types, because the layout types stay crate-private (Section 5.3). They are not `#[non_exhaustive]`, so that the tests of step 3 can build them with literals and match them exhaustively.
+- It describes each compute entry point and leaves out the vertex and fragment entry points, for which the generated code offers nothing (Section 7.5).
+- The parameters of a kernel follow the order of its bindings, by set and binding. The plain values of each uniform buffer stand at the place of that buffer, and the `uniform` parameters of the entry point come last. The parameters that the compiled code does not use are listed too (Section 7.1).
+- A plain value inside a structure is listed under its dotted path, and each structure among the plain values is listed once more with its path and Slang name, so the generator rebuilds the nesting from the paths. SLMA-4 is confirmed for these names (Section 3.9).
+- The files that Slang read are part of the description and not of the encoded snapshot, so the encoded bytes embed no path of the build machine.
+
 ### 5.3. The Encoding
 
 SLM-7. The encoding MUST be private to `slango`, little-endian, and versioned by a magic header with a version number, and `load_precompiled` MUST reject a byte string of another version or with trailing bytes with `ErrorKind::InvalidArgument`, because an encoding that decodes wrongly would load a kernel with wrong bindings.
 
 The layout types stay crate-private. The generated code also asserts at compile time that `slango::__private::ENCODING_VERSION` equals the version it was generated for, so a mismatch that SLM-2 does not prevent fails to compile instead of at load. A round-trip test covers every record of the snapshot, including uniform buffers with arrays, immediates, textures, samplers, and render records, which the spike did not load (Section 3.5).
 
+Step 2 implemented the encoding with these properties:
+
+- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 1, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change.
+- `load_precompiled` also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic, bounds every count by the bytes left before it allocates, and accepts at most 256 levels of nested arrays or structures.
+- The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX`, so it never writes bytes that the decoder refuses.
+- The pure tests decode every record and variant of the snapshot back to itself, and reject every truncation of an encoding. Each byte of an encoding set to 0 or 255 either fails to decode or decodes to a snapshot that encodes to the same bytes. These tests use generated variants and exhaustive sweeps, not property tests with regression files as TEST-9 of the coding standard asks, because the step added no dependency.
+- An `ffi` test compiles each test shader of `slango` with `precompile_file` and checks that the decoded snapshot equals the snapshot that `Device::load_module` builds, render records included. The `gpu` tests run kernels from a precompiled load. No draw from a precompiled module has run.
+
 ### 5.4. Generated Structs and the Seal
 
 SLM-8. `slango` MUST provide in `__private` the trait `StructElement`, with the Slang name, the stride, and the conversion to and from little-endian bytes at the reflected offsets, and MUST implement `Element` and `Value` for every type that implements it. `VertexElement` MUST reject such a type at the draw. Generated structs need the sealed traits, and the hidden trait is the only way in that does not unseal them for users.
 
-The seal stays sound. `slango` has no unsafe code (SLO-2 of `docs/design/slango.md`), so a wrong implementation of `StructElement`, written by hand against the documentation, can produce only wrong bytes or an error, never undefined behaviour. A user who implements a hidden trait is outside the API, as with any `__private` item. `Value` for a structure is rejected by `set`, because a uniform structure is set leaf by leaf (Section 7.2), and `VertexElement` reports zero components for it, so `Draw::vertex` rejects it.
+The seal stays sound. `slango` has no unsafe code (SLO-2 of `docs/design/slango.md`), so a wrong implementation of `StructElement`, written by hand against the documentation, can produce only wrong bytes or an error, never undefined behaviour. A user who implements a hidden trait is outside the API, as with any `__private` item. Because `VertexElement` is a supertrait of `Element`, the blanket implementations cover it too, and coherence accepts them beside the built-in implementations. Sections 8, 8.2, and 9.2 of `docs/design/slango.md` state the public behaviour that follows: a draw rejects a vertex buffer of such a type (SLM-8), a dispatch or a draw rejects a value of one given to `set`, and the creation of a buffer rejects an element of 0 bytes.
 
 ## 6. The Macro
 
@@ -326,7 +344,7 @@ An arguments struct holds references to buffers, textures, and samplers, which a
 - The module `ffi` runs trybuild with one passing case and compile-fail cases for a Slang compile error, an unsupported parameter, a name conflict, and input that is not one string literal. The expected text of a Slang error contains Slang's messages, so a new pin can change it (SLM-22).
 - The module `gpu` runs generated bindings: saxpy, and a kernel over a structured buffer of a structure with padding, each checked against values computed on the CPU, and the assertions of SLM-21.
 
-`slango` gains unit tests and `gpu` tests of SLM-5 for each kind of mismatch of a scalar or vector element and for a built-in element of the same stride bound to a structure, a round-trip test of the encoding under Miri (SLM-7), and `gpu` tests that a precompiled load and a load from source give the same results.
+`slango` gains unit tests and `gpu` tests of SLM-5 for each kind of mismatch of a scalar or vector element and for a built-in element of the same stride bound to a structure, a round-trip test of the encoding under Miri (SLM-7), a test that pins the bytes of the encoding to `ENCODING_VERSION`, which guards the version rule of Section 5.3, and `gpu` tests that a precompiled load and a load from source give the same results.
 
 The example `typed-kernel` of the examples package runs `examples/shaders/saxpy.slang` through the macro and checks its results, and a `gpu` test of the examples runs it, so a crate that uses the macro builds in CI and `check-doc-without-slang` documents it without Slang (SLM-13).
 
@@ -337,7 +355,7 @@ SLM-22. An agent that changes the pin MUST run the compile-fail tests and update
 These steps implement M6. Each step leaves `just check` passing and adds its tests.
 
 1. In `slango`, record the element type of each structured buffer in the snapshot and check it in `Call::bind` and `Draw::bind` (SLM-5). Update `docs/design/slango.md` with the behaviour change. Tests: the unit and `gpu` tests of SLM-5. Done on 2026-11-11 (Section 5.1).
-2. In `slango`, split loading into compile and load, and add `__private` with `precompile_file`, the interface description, the encoding, `load_precompiled`, `ENCODING_VERSION`, and `StructElement` with its blanket implementations (Section 5). Confirm SLMA-4. Tests: the round trip under Miri and the `gpu` tests of the precompiled load.
+2. In `slango`, split loading into compile and load, and add `__private` with `precompile_file`, the interface description, the encoding, `load_precompiled`, `ENCODING_VERSION`, and `StructElement` with its blanket implementations (Section 5). Confirm SLMA-4. Tests: the round trip under Miri and the `gpu` tests of the precompiled load. Done on 2026-11-11 (Section 5).
 3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy.
 4. Add generated structs (Section 7.3) with their tests, including the `gpu` test of a structure element. Confirm SLMA-7.
 5. Add the example `typed-kernel` with its `gpu` test, and record it in Section 10 of `docs/design/architecture.md`. Confirm SLMA-2 with `check-doc-without-slang`. Check: CI runs the example's test on lavapipe, WARP, and hosted Metal.
@@ -352,7 +370,6 @@ Each row is a statement that this design relies on and that the spike did not es
 | SLMA-1 | The generator compiles against `syn` 2 and `prettyplease` 0.2 as it did against `syn` 3 and `prettyplease` 0.3 | SLM-3 | Step 3 |
 | SLMA-2 | A crate whose public signatures name only `Shader` of the generated items builds its documentation without Slang | Section 6.4 | Step 5 |
 | SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M7 |
-| SLMA-4 | The reflection walk can record the Slang name of a uniform structure. Step 1 confirmed the element type of each structured buffer (Section 5.1) | Section 5.2 | Step 2 |
 | SLMA-5 | `-Wl,-rpath` makes the macro library load on macOS with no library path set | SLM-12 | Step 3, in CI |
 | SLMA-6 | On Windows, the macro library finds `slang-compiler.dll` through the `PATH` that the CI job sets | Section 6.3 | Step 3, in CI |
 | SLMA-7 | A nested structure as a field generates a correct layout | SLM-18 | Step 4 |
@@ -456,5 +473,6 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 2 of Section 11, the hidden module `slango::__private`, as done in Sections 1.6 and 11, corrected Sections 5.1 and 5.4 to the element types and the rejection of a vertex buffer that the implementation has, recorded how step 2 settled the interface description in Section 5.2 and the encoding with its tests in Section 5.3, closed the gap of Section 3.5, named the test that pins the bytes of the encoding in Section 10, and confirmed SLMA-4 in Section 3.9 and removed its row from Section 12.
 - 2026-11-11: Recorded step 1 of Section 11, the check of the element type of a bound buffer in `slango`, as done in Sections 1.6, 5.1, and 11, put the problem of the stride-only check in the past in Section 1.1, and narrowed SLMA-4 to the Slang name of a uniform structure in Section 12.
 - 2026-11-11: First draft, written after the spike of M6 as the first task of M6.

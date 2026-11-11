@@ -20,6 +20,16 @@ fn size_within_rejects_a_size_above_the_limit() {
 }
 
 #[test]
+fn size_within_rejects_elements_of_zero_bytes() {
+    let error = size_within(3, 0, u64::MAX).expect_err("elements of 0 bytes");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot create a buffer: the elements have a size of 0 bytes"
+    );
+}
+
+#[test]
 fn size_within_rejects_a_size_that_overflows() {
     let error = size_within(usize::MAX, 16, u64::MAX).expect_err("the size overflows");
     assert_eq!(error.kind(), ErrorKind::InvalidArgument);

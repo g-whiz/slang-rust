@@ -28,6 +28,18 @@ pub(crate) struct KernelLayout {
     /// The `uniform` parameters of the entry point, which the dispatch
     /// passes as immediates, when it has any.
     pub(crate) immediates: Option<UniformBlock>,
+    /// The structures among the plain values of the kernel, in the order of
+    /// the walk, which the generator of typed bindings reads.
+    pub(crate) structures: Vec<UniformStructure>,
+}
+
+/// A structure among the plain values of a kernel, whose fields are the
+/// plain values under its path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UniformStructure {
+    pub(crate) path: String,
+    /// The Slang name of the structure.
+    pub(crate) name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,10 +96,47 @@ pub(crate) enum ElementType {
     /// A scalar or a vector of another scalar type, such as `half2`, which
     /// no Rust element type has, with the name that Slang gives it.
     OtherPlain { name: String },
-    /// A structure, a matrix, an array, or another type that is neither a
-    /// scalar nor a vector, whose bound buffer is checked by its stride
+    /// A structure, whose bound buffer is checked by its stride alone.
+    Structure(Structure),
+    /// A matrix, an array, or another type that is neither a scalar, a
+    /// vector, nor a structure, whose bound buffer is checked by its stride
     /// alone.
     Composite,
+}
+
+/// A structure that is the element of a structured buffer, with its layout
+/// in the buffer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Structure {
+    /// The Slang name of the structure.
+    pub(crate) name: String,
+    /// The size of the structure in bytes.
+    pub(crate) size: u64,
+    pub(crate) fields: Vec<Field>,
+}
+
+/// A field of a structure, at its byte offset in the structure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Field {
+    pub(crate) name: String,
+    pub(crate) offset: u64,
+    pub(crate) ty: FieldType,
+}
+
+/// The type of a field of a structure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FieldType {
+    /// A scalar, vector, matrix, or array of `bool`, `int`, `uint`, or
+    /// `float`.
+    Plain {
+        scalar: Scalar,
+        shape: Shape,
+    },
+    Structure(Structure),
+    /// Any other type, with the name that Slang gives it.
+    Other {
+        name: String,
+    },
 }
 
 /// A block of plain values, a uniform buffer or the immediates, with its
@@ -220,7 +269,7 @@ impl Position {
 
 /// One compute entry point as one compilation yields it: its layout snapshot
 /// and its SPIR-V, whose entry point keeps the Slang name.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct CompiledKernel {
     pub(crate) layout: KernelLayout,
     pub(crate) spirv: Vec<u32>,
@@ -228,7 +277,7 @@ pub(crate) struct CompiledKernel {
 
 /// One vertex or fragment entry point as one compilation yields it: its
 /// layout snapshot and its SPIR-V, or the rejection that makes it unusable.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct CompiledRender {
     pub(crate) name: String,
     pub(crate) stage: RenderStage,
@@ -237,7 +286,7 @@ pub(crate) struct CompiledRender {
 
 /// The layout snapshot of a vertex or fragment entry point and its SPIR-V,
 /// whose entry point keeps the Slang name.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UsableRender {
     pub(crate) layout: RenderLayout,
     pub(crate) spirv: Vec<u32>,
@@ -254,15 +303,25 @@ pub(crate) struct Rejection {
 }
 
 /// What one compilation of a module yields for its compute, vertex, and
-/// fragment entry points, in the order of the module.
-#[derive(Debug)]
+/// fragment entry points, in the order of the module: the layout snapshot
+/// of the module with the SPIR-V of each entry point, from which a load
+/// creates a [`Module`](crate::Module).
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Compiled {
     pub(crate) kernels: Vec<CompiledKernel>,
     pub(crate) render: Vec<CompiledRender>,
 }
 
+/// One compilation of a module: its snapshot, and the paths of the files
+/// that Slang read for it, which a load does not need.
+#[derive(Debug)]
+pub(crate) struct Compilation {
+    pub(crate) compiled: Compiled,
+    pub(crate) dependencies: Vec<String>,
+}
+
 /// The Slang source of one module, with the path that diagnostics name and
-/// the directory in which an `import` searches for sibling modules.
+/// the directory, if any, that the compilation adds as a search path.
 pub(crate) struct Source<'a> {
     pub(crate) name: &'a str,
     pub(crate) path: &'a str,
@@ -290,13 +349,14 @@ impl Role {
 }
 
 /// Compiles Slang source for SPIR-V and returns the layout snapshot and the
-/// SPIR-V of each compute, vertex, and fragment entry point, releasing every
-/// Slang object before it returns.
+/// SPIR-V of each compute, vertex, and fragment entry point, with the paths
+/// of the files that Slang read, releasing every Slang object before it
+/// returns.
 ///
 /// A failure that belongs to one kernel fails the compilation. A failure that
 /// belongs to one vertex or fragment entry point, in its metadata, its walk,
 /// or its SPIR-V, becomes the rejection of its record (SLO-20).
-pub(crate) fn compile(source: &Source<'_>) -> Result<Compiled> {
+pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
     let global = GlobalSession::new().map_err(Error::compile)?;
     let mut options = CompilerOptions::default();
     options.vulkan_use_entry_point_name(Toggle::On);
@@ -327,6 +387,7 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compiled> {
         .map_err(Error::compile)?
         .into_value();
     let layout = program.layout(target).map_err(Error::compile)?.into_value();
+    let dependencies = dependencies(&module)?;
     let mut compiled = Compiled {
         kernels: Vec::new(),
         render: Vec::new(),
@@ -367,6 +428,7 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compiled> {
                         thread_group_size,
                         bindings: walk.bindings,
                         immediates: walk.immediates,
+                        structures: walk.structures,
                         name,
                     },
                     spirv,
@@ -387,7 +449,20 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compiled> {
             }
         }
     }
-    Ok(compiled)
+    Ok(Compilation {
+        compiled,
+        dependencies,
+    })
+}
+
+/// Returns the paths of the files that Slang read to compile `module`.
+fn dependencies(module: &slang_compiler::Module) -> Result<Vec<String>> {
+    module
+        .dependency_file_paths()
+        .map_err(Error::compile)?
+        .filter_map(|path| path.map(|path| path.map(str::to_owned)).transpose())
+        .collect::<slang_compiler::Result<Vec<String>>>()
+        .map_err(Error::compile)
 }
 
 /// Returns the record of a vertex or fragment entry point from the outcome of
@@ -446,6 +521,7 @@ fn walk<'a>(
         bindings: Vec::new(),
         immediates: None,
         attributes: Vec::new(),
+        structures: Vec::new(),
     };
     if let Some(globals) = layout.global_params_var_layout() {
         walk.variable(globals, "", Position::default(), None)?;
@@ -508,6 +584,7 @@ struct Walk<'a> {
     bindings: Vec<Binding>,
     immediates: Option<UniformBlock>,
     attributes: Vec<Attribute>,
+    structures: Vec<UniformStructure>,
 }
 
 impl Walk<'_> {
@@ -524,12 +601,14 @@ impl Walk<'_> {
         let here = base.descend(offsets(variable));
         match layout.kind().map_err(Error::compile)? {
             TypeKind::Struct => {
-                let mut values = values;
-                for field in layout.field_layouts() {
-                    let field_path = join(path, &name_of(field)?);
-                    self.variable(field, &field_path, here, values.as_deref_mut())?;
+                if values.is_some() {
+                    let name = self.structure_name(layout, path)?;
+                    self.structures.push(UniformStructure {
+                        path: path.to_owned(),
+                        name,
+                    });
                 }
-                Ok(())
+                self.fields(layout, path, here, values)
             }
             kind @ (TypeKind::ConstantBuffer | TypeKind::ParameterBlock) => {
                 self.block(layout, kind, path, here)
@@ -549,6 +628,20 @@ impl Walk<'_> {
             }
             other => Err(self.unsupported(path, &format!("a parameter of kind {other:?}"))),
         }
+    }
+
+    fn fields(
+        &mut self,
+        layout: TypeLayout<'_>,
+        path: &str,
+        here: Position,
+        mut values: Option<&mut Vec<PlainValue>>,
+    ) -> Result<()> {
+        for field in layout.field_layouts() {
+            let field_path = join(path, &name_of(field)?);
+            self.variable(field, &field_path, here, values.as_deref_mut())?;
+        }
+        Ok(())
     }
 
     fn block(
@@ -573,7 +666,12 @@ impl Walk<'_> {
         };
         let size = self.finite(element_layout.size(ParameterCategory::Uniform), path)?;
         let mut values = Vec::new();
-        self.variable(element, path, inner.block_element(), Some(&mut values))?;
+        if element_layout.kind().map_err(Error::compile)? == TypeKind::Struct {
+            let here = inner.block_element().descend(offsets(element));
+            self.fields(element_layout, path, here, Some(&mut values))?;
+        } else {
+            self.variable(element, path, inner.block_element(), Some(&mut values))?;
+        }
         let block = UniformBlock { size, values };
         let is_push_constant = layout
             .categories()
@@ -631,6 +729,9 @@ impl Walk<'_> {
     /// the layout `element`.
     fn element_type(&self, element: TypeLayout<'_>, path: &str) -> Result<ElementType> {
         let kind = element.kind().map_err(Error::compile)?;
+        if kind == TypeKind::Struct {
+            return self.structure(element, path).map(ElementType::Structure);
+        }
         if !matches!(kind, TypeKind::Scalar | TypeKind::Vector) {
             return Ok(ElementType::Composite);
         }
@@ -653,6 +754,55 @@ impl Walk<'_> {
             }
         };
         Ok(ElementType::Plain { scalar, components })
+    }
+
+    /// Returns the layout of a structure that is, or is inside, the element
+    /// of the structured buffer at `path`.
+    fn structure(&self, layout: TypeLayout<'_>, path: &str) -> Result<Structure> {
+        let name = self.structure_name(layout, path)?;
+        let size = self.finite(layout.size(ParameterCategory::Uniform), path)?;
+        let mut fields = Vec::new();
+        for field in layout.field_layouts() {
+            let name = name_of(field)?;
+            let Some(field_layout) = field.type_layout() else {
+                return Err(self.unsupported(path, "a structure whose field has no layout"));
+            };
+            let offset = self.finite(field.offset(ParameterCategory::Uniform), path)?;
+            let ty = self.field_type(field_layout, path)?;
+            fields.push(Field { name, offset, ty });
+        }
+        Ok(Structure { name, size, fields })
+    }
+
+    /// Returns the type of a field of a structure in the structured buffer at
+    /// `path`. A type that a plain value cannot have is recorded by its
+    /// Slang name, because only the generator of typed bindings reads it.
+    fn field_type(&self, layout: TypeLayout<'_>, path: &str) -> Result<FieldType> {
+        if layout.kind().map_err(Error::compile)? == TypeKind::Struct {
+            return self.structure(layout, path).map(FieldType::Structure);
+        }
+        match self.value_type(layout, path) {
+            Ok((scalar, shape)) => Ok(FieldType::Plain { scalar, shape }),
+            Err(error) if error.kind() == ErrorKind::UnsupportedParameter => {
+                let Some(ty) = layout.ty() else {
+                    return Err(self.unsupported(path, "a structure whose field has no type"));
+                };
+                let name = ty.full_name().map_err(Error::compile)?;
+                Ok(FieldType::Other { name })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Returns the Slang name of the structure whose layout is `layout`.
+    fn structure_name(&self, layout: TypeLayout<'_>, path: &str) -> Result<String> {
+        let Some(ty) = layout.ty() else {
+            return Err(self.unsupported(path, "a structure without a type"));
+        };
+        match ty.name().map_err(Error::compile)? {
+            Some(name) => Ok(name.to_owned()),
+            None => ty.full_name().map_err(Error::compile),
+        }
     }
 
     /// Records a `Texture2D` with a `float` result, the one texture of the

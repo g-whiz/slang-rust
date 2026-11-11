@@ -12,3 +12,4 @@ kernel `run` thread group [64, 1, 1]
     +96 4 bytes `pair.first`: Float32 scalar
     +100 4 bytes `pair.second`: Uint32 scalar
     +104 4 bytes `enabled`: Bool scalar
+  structure `pair`: Pair

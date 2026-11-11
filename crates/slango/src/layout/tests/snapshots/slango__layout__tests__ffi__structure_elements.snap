@@ -1,0 +1,7 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+expression: "render(&[kernel])"
+---
+kernel `run` thread group [1, 1, 1]
+  set 0 binding 0 `particles` Used: storage buffer ReadWrite, stride 32, element structure Particle of 32 bytes { +0 position: Float32 vector 3, +12 mass: Float32 scalar, +16 velocity: Float32 vector 2 }
+  set 0 binding 1 `mixed` Used: storage buffer ReadOnly, stride 128, element structure Mixed of 128 bytes { +0 values: Float32 array 2 stride 16 of vector 3, +32 inner: structure Inner of 16 bytes { +0 id: Uint32 scalar, +8 pair: Float32 vector 2 }, +48 flag: Bool scalar, +56 rotation: Float32 matrix 2x2, +72 small: other `half`, +80 inners: other `Inner[2]`, +112 count: Int32 scalar }

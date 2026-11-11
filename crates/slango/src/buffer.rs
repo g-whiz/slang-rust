@@ -65,9 +65,10 @@ impl<T: VertexElement> Buffer<T> {
     /// # Errors
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::InvalidArgument`] when the
-    /// buffer would be larger than the device allows, and of kind
-    /// [`ErrorKind::Backend`] when wgpu reports an error, such as a lack of
-    /// memory, while it creates the buffer.
+    /// element type has a size of zero bytes or the buffer would be larger
+    /// than the device allows, and of kind [`ErrorKind::Backend`] when wgpu
+    /// reports an error, such as a lack of memory, while it creates the
+    /// buffer.
     pub fn from_slice(device: &Device, elements: &[T]) -> Result<Self> {
         checked_size(device, elements.len(), T::STRIDE)?;
         let mut contents = Vec::with_capacity(elements.len().saturating_mul(T::STRIDE));
@@ -106,7 +107,8 @@ impl<T: VertexElement> Buffer<T> {
     /// # Errors
     ///
     /// Returns an [`Error`] of the kinds that [`Buffer::from_slice`]
-    /// returns.
+    /// returns, including [`ErrorKind::InvalidArgument`] when the element
+    /// type has a size of zero bytes.
     pub fn zeroed(device: &Device, len: usize) -> Result<Self> {
         let size = checked_size(device, len, T::STRIDE)?;
         let wgpu_device = device.wgpu_device();
@@ -309,6 +311,10 @@ fn checked_size(device: &Device, len: usize, stride: usize) -> Result<u64> {
 }
 
 fn size_within(len: usize, stride: usize, limit: u64) -> Result<u64> {
+    if stride == 0 {
+        return Err(Error::new(ErrorKind::InvalidArgument, CREATE)
+            .with_detail("the elements have a size of 0 bytes".to_owned()));
+    }
     match len
         .checked_mul(stride)
         .and_then(|size| u64::try_from(size).ok())
