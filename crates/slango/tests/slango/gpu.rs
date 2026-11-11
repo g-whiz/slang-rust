@@ -3,6 +3,7 @@ use slango::{AdapterSelection, Device, DeviceOptions, ErrorKind};
 use crate::common::{assert_immediates_follow_the_adapter, device_with, instance};
 
 mod buffer;
+mod call;
 mod load;
 
 #[test]

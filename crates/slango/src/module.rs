@@ -27,7 +27,7 @@ const READ: &str = "read a Slang file";
 pub struct Module {
     #[expect(
         dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the dispatch that reads it"
+        reason = "SLO-3 of docs/design/slango.md has a module hold its device, and no method of M3 reads it, because each kernel holds the device too"
     )]
     device: Device,
     kernels: Arc<[Kernel]>,

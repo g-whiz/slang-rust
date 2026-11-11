@@ -17,8 +17,7 @@ const LOAD: &str = "load a Slang module";
 /// a dispatch runs on many threads of the GPU at once. Get one from
 /// [`Module::kernel`](crate::Module::kernel) by its Slang name. Loading the
 /// module already checked that the device accepts the kernel, so a kernel
-/// always has its compiled form on the device. Running a kernel follows in a
-/// later version.
+/// always has its compiled form on the device. [`Kernel::call`] runs it.
 ///
 /// Cloning a kernel is cheap and returns another handle to the same kernel. A
 /// kernel keeps its [`Device`] alive, holds no object of the Slang compiler,
@@ -29,22 +28,10 @@ const LOAD: &str = "load a Slang module";
 /// See the example of [`Module::kernel`](crate::Module::kernel).
 #[derive(Clone)]
 pub struct Kernel {
-    layout: Arc<KernelLayout>,
-    #[expect(
-        dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the dispatch that reads it"
-    )]
-    device: Device,
-    #[expect(
-        dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the dispatch that reads it"
-    )]
-    bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
-    #[expect(
-        dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the dispatch that reads it"
-    )]
-    pipeline: ::wgpu::ComputePipeline,
+    pub(crate) layout: Arc<KernelLayout>,
+    pub(crate) device: Device,
+    pub(crate) bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
+    pub(crate) pipeline: ::wgpu::ComputePipeline,
 }
 
 impl Kernel {

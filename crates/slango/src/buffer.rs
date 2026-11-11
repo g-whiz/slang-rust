@@ -249,15 +249,12 @@ impl<T: Element> Buffer<T> {
 
     /// Returns whether the buffer was created on `device` or a clone of it,
     /// and not on another [`Device`], even one built from the same wgpu device.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "step 5 of Section 14 of docs/design/slango.md adds the call that checks the device of a buffer, and the unit tests use it"
-        )
-    )]
     pub(crate) fn is_on(&self, device: &Device) -> bool {
         self.device.is_same(device)
+    }
+
+    pub(crate) fn wgpu_buffer(&self) -> &::wgpu::Buffer {
+        &self.inner
     }
 }
 

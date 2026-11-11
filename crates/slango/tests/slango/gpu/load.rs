@@ -1,17 +1,8 @@
 use std::error::Error as _;
-use std::path::PathBuf;
 
 use slango::{AdapterSelection, Device, ErrorKind};
 
-use crate::common::{device_with, device_without_immediates, load};
-
-fn shader(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("slango")
-        .join("shaders")
-        .join(name)
-}
+use crate::common::{device_with, device_without_immediates, load, shader};
 
 fn device() -> Device {
     device_with(AdapterSelection::Default)

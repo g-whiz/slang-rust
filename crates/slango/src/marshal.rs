@@ -67,7 +67,7 @@ pub(crate) use sealed::ValueType;
 ///
 /// This trait is sealed: no type outside this crate can implement it. It
 /// serves as a generic bound only, not as a trait object.
-pub trait Value: sealed::SealedValue {}
+pub trait Value: sealed::SealedValue + Copy {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) holds as its element, whose
 /// bytes equal the layout of the matching Slang element type of a structured
@@ -266,13 +266,6 @@ pub(crate) struct Marshalled {
     pub(crate) scalars: Vec<[u8; 4]>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the call that marshals values, and the unit tests use it"
-    )
-)]
 pub(crate) fn marshal<V: Value>(value: &V) -> Marshalled {
     let mut scalars = Vec::new();
     value.write_scalars(&mut scalars);
@@ -304,13 +297,6 @@ pub(crate) fn check(path: &str, ty: &ValueType, plain: &PlainValue) -> Result<()
 ///
 /// No byte is written unless the value matches and every scalar falls
 /// inside both the reflected size of the plain value and `block`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 5 of Section 14 of docs/design/slango.md adds the call that writes values, and the unit tests use it"
-    )
-)]
 pub(crate) fn write(
     path: &str,
     value: &Marshalled,

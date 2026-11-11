@@ -11,41 +11,64 @@
 //! kernels, and `slang-compiler` alone to compile or inspect shaders without
 //! a GPU.
 //!
-//! This version is the first part of the crate. It offers the [`Device`], the
-//! connection to one adapter, a GPU or a software implementation of one,
-//! which [`Device::new`] creates on the adapter that [`DeviceOptions`]
-//! selects, and the module [`wgpu`], which connects a [`Device`] to wgpu code
-//! of your own. [`Device::load_module`] compiles a Slang module and prepares
-//! each of its compute entry points as a [`Kernel`] of the device, which
-//! [`Module::kernel`] looks up by name. A [`Buffer`] holds elements of a type
-//! that [`Element`] lists on the GPU, and [`Buffer::read`] copies them back.
-//! [`Value`] lists the Rust types that stand for the plain values of Slang,
-//! its scalars, vectors, matrices, and arrays. Every failure is an
-//! [`Error`], whose [`Error::kind`] says what went wrong. The call of a
-//! kernel, which binds buffers and sets values, follows in a later version,
-//! so a kernel cannot run yet.
+//! [`Device::new`] creates a [`Device`], the connection to one adapter, a
+//! GPU or a software implementation of one, on the adapter that
+//! [`DeviceOptions`] selects, and the module [`wgpu`] connects a [`Device`]
+//! to wgpu code of your own. [`Device::load_module`] compiles a Slang module
+//! and prepares each of its compute entry points as a [`Kernel`] of the
+//! device, which [`Module::kernel`] looks up by name. A [`Buffer`] holds
+//! elements of a type that [`Element`] lists on the GPU. [`Kernel::call`]
+//! starts a [`Call`], which sets the plain values of the kernel by name,
+//! from the Rust types that [`Value`] lists, binds buffers by name, checks
+//! every argument against the parameters of the kernel, and runs the kernel
+//! on the GPU. [`Buffer::read`] waits for the kernel and copies the results
+//! back. Every failure is an [`Error`], whose [`Error::kind`] says what went
+//! wrong.
 //!
 //! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
 //! [`Module`], a [`Kernel`], and a [`Buffer`] are cheap to clone.
 //!
 //! # Examples
 //!
-//! This example creates a device on the adapter that wgpu chooses, loads a
-//! module from a file, prints the size of the thread groups of one of its
-//! kernels, and creates a buffer on the device. It needs a GPU driver or a
+//! This example creates a device on the adapter that wgpu chooses, loads the
+//! module in `scale.slang`, and runs its kernel `scale` over a buffer of four
+//! numbers. The file holds this Slang source:
+//!
+//! ```slang
+//! RWStructuredBuffer<float> data;
+//! uniform float factor;
+//! uniform uint count;
+//!
+//! [shader("compute")]
+//! [numthreads(64, 1, 1)]
+//! void scale(uint3 id : SV_DispatchThreadID)
+//! {
+//!     if (id.x < count) { data[id.x] *= factor; }
+//! }
+//! ```
+//!
+//! The program sets the two uniforms, binds the buffer, runs the kernel on
+//! four threads, and reads the result back. It needs a GPU driver or a
 //! software driver at run time, so it is compiled but not run:
 //!
 //! ```no_run
 //! use slango::{Buffer, Device, DeviceOptions};
 //!
-//! let device = Device::new(&DeviceOptions::default())?;
-//! println!("running on {}", device.adapter_name());
-//! let module = device.load_module("/tmp/shaders/scale.slang")?;
-//! let scale = module.kernel("scale")?;
-//! println!("`scale` runs in groups of {:?}", scale.thread_group_size());
-//! let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0, 4.0])?;
-//! assert_eq!(data.read()?, [1.0, 2.0, 3.0, 4.0]);
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! fn main() -> slango::Result<()> {
+//!     let device = Device::new(&DeviceOptions::default())?;
+//!     let module = device.load_module("/tmp/shaders/scale.slang")?;
+//!     let scale = module.kernel("scale")?;
+//!     let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0, 4.0])?;
+//!     scale
+//!         .call()
+//!         .set("factor", 2.0_f32)
+//!         .set("count", 4_u32)
+//!         .bind("data", &data)
+//!         .dispatch([4, 1, 1])?;
+//!     let result: Vec<f32> = data.read()?;
+//!     assert_eq!(result, [2.0, 4.0, 6.0, 8.0]);
+//!     Ok(())
+//! }
 //! ```
 //!
 //! # Features
@@ -57,9 +80,10 @@
 //! The crate supports the platforms of `slang-compiler`, which are Linux on
 //! x86-64, Windows on x86-64, and macOS on Apple silicon and on x86-64. It
 //! searches the adapters of whichever of Vulkan, Direct3D 12, and Metal wgpu
-//! offers on the platform. It creates devices on Vulkan on Linux, on
-//! Direct3D 12 on Windows, and on Metal on macOS. On macOS, Metal offers no
-//! software adapter, so [`AdapterSelection::Software`] finds none there.
+//! offers on the platform. It creates devices and runs kernels on Vulkan on
+//! Linux, on Direct3D 12 on Windows, and on Metal on macOS. On macOS, Metal
+//! offers no software adapter, so [`AdapterSelection::Software`] finds none
+//! there.
 //!
 //! # Finding the Slang library
 //!
@@ -69,6 +93,7 @@
 //! which the dynamic loader has to find when the program starts.
 
 mod buffer;
+mod call;
 mod device;
 mod error;
 mod kernel;
@@ -78,6 +103,7 @@ mod module;
 pub mod wgpu;
 
 pub use buffer::Buffer;
+pub use call::Call;
 pub use device::{AdapterSelection, Device, DeviceOptions};
 pub use error::{Error, ErrorKind, Result};
 pub use kernel::Kernel;

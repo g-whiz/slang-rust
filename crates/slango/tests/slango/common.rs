@@ -1,4 +1,6 @@
-use slango::{AdapterSelection, Device, DeviceOptions, Module};
+use std::path::PathBuf;
+
+use slango::{AdapterSelection, Device, DeviceOptions, Kernel, Module};
 
 pub(crate) fn device_with(adapter: AdapterSelection) -> Device {
     let mut options = DeviceOptions::default();
@@ -56,4 +58,19 @@ pub(crate) fn load(device: &Device, source: &str) -> Module {
     device
         .load_module_from_source("kernels", source)
         .expect("the module loads")
+}
+
+pub(crate) fn shader(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("slango")
+        .join("shaders")
+        .join(name)
+}
+
+pub(crate) fn kernel(device: &Device, source: &str, name: &str) -> Kernel {
+    load(device, source)
+        .kernel(name)
+        .expect("the kernel exists")
+        .clone()
 }
