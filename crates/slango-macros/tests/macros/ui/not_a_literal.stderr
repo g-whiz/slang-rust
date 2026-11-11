@@ -1,0 +1,5 @@
+error: shader! takes one string literal, the path of a Slang file
+ --> tests/macros/ui/not_a_literal.rs:1:38
+  |
+1 | slango_macros::shader!("broken.slang", "vector3.slang");
+  |                                      ^

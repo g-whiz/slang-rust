@@ -963,6 +963,8 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 **DEP-2.** Add a dependency only when it replaces code or risk that outweighs its own cost, prefer the standard library, such as `std::sync::LazyLock`, and widely used crates, and declare every version once in `[workspace.dependencies]`. Reason: each dependency adds build time, licence obligations, and supply-chain risk, and two versions of one crate in a build have incompatible types. [IR-5] [IR-1] [S-10] [IR-3]
 
+The one exception is a member that needs another version requirement on a workspace member than the one that `[workspace.dependencies]` gives the other members, such as an exact requirement. That member MUST declare the dependency in its own manifest, with a comment that names the rule of its design document that requires it, because a workspace entry has one requirement for every member that inherits it. `slango-codegen` requires `slango` this way (SLM-2 of `docs/design/slango-macros.md`).
+
 **DEP-3.** Treat every dependency whose types appear in a public signature as a public dependency, whose version is part of the crate's own. The GPU stack, wgpu and the crates around it, is below version 1.0, so the requirement of the Rust API Guidelines that a stable crate expose only stable dependencies (C-STABLE) cannot be met yet. Instead, keep every crate in this repository below 1.0, keep wgpu types out of `slang-compiler` and `slang-compiler-sys`, confine them to `slango` and `slang-slint`, and release a breaking wgpu upgrade as a breaking change of those crates. Reason: a breaking change of a public dependency is a breaking change of the crate, whether or not the crate's own code changed. [IR-8] [S-10] [IR-86]
 
 **DEP-4.** Declare the MSRV as `rust-version` in the workspace manifest, and do not use language or library features newer than it. Develop on the latest stable toolchain, and use the nightly toolchain only for checkers such as Miri, never to build the crates. Reason: the declared version is a promise to users, and Clippy reads it to hold back suggestions that need a newer compiler. [S-10] [IR-4]
@@ -1186,7 +1188,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
 | DEP-1 | Cargo features are additive and named after what they enable. |
-| DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace. |
+| DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |
 | SIMP-1 | Concrete types first, and abstractions only for two implementations that exist now. |
@@ -1196,6 +1198,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-11: Added to DEP-2 the exception for a member that needs another version requirement on a workspace member than the workspace entry gives, as `slango-codegen` needs an exact requirement on `slango`.
 - 2026-11-11: Replaced the stale account of milestones and workspace members in Section 1.1 with a pointer to the Project Status section of `AGENTS.md`.
 - 2026-11-11: Extended TEST-1 and its row in Appendix A so that a binary of the examples package may share a module with the integration-test binary through a `#[path]` attribute, as the windowed renderer example does.
 - 2026-11-11: Recorded in Section 4.4 that no item of `slango` carries the exception for an item that only unit tests use after step 10 of its design.

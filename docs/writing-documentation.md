@@ -307,6 +307,8 @@ Every example is a doctest that `cargo test --doc` compiles and, unless the exam
 
 When an example needs something that exists only when the example runs, such as a GPU, a display, a file, or a shared library that the dynamic loader must find, an author MUST mark the example `no_run` and MUST NOT mark it `ignore`, because rustdoc still compiles a `no_run` example, so a renamed or removed item breaks the build, while an `ignore` example is never compiled and becomes wrong without any warning. The lead-in sentence of the example states the reason, as the illustration in Section 7.3 does. A `no_run` example cannot avoid a failed build of the crate itself, such as when the native Slang library is missing at build time, because rustdoc still compiles and links the example against the crate.
 
+The one exception is an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against the Rust file that calls it, which a doctest does not have. An author MAY write such an example as a `text` block and MUST state the reason in its lead-in sentence, because a doctest of it would fail on every build. A compiled example of the same use, such as an example program, SHOULD exist, because nothing checks the `text` block.
+
 A code block that is not Rust names its language, such as `toml`, `slang`, or `text`, because rustdoc compiles a code block with no language tag as Rust.
 
 Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately. `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`. Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules. `check-doctest-attributes` reports a code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows`, in the `///` and `//!` comments of every Rust file and in every `README.md` file. It splits the info string of a code block into attributes the way rustdoc does, at commas, spaces, and tabs, so a variant such as `rust,ignore` is found. Whether the lead-in of a `no_run` example states the reason, and whether that reason is correct, are judgement rules.
@@ -425,7 +427,7 @@ This table summarizes how each rule in this section is checked.
 | No visible `fn main` in examples | 7.5 | `clippy::needless_doctest_main` |
 | `?` instead of `unwrap`, and the style of example code | 7.5 | Judgement |
 | No code block marked `ignore` or `ignore-` | 7.5 | `check-doctest-attributes` |
-| The lead-in states why an example is `no_run` | 7.5 | Judgement |
+| The lead-in states why an example is `no_run` or a `text` block | 7.5 | Judgement |
 | `# Errors` exists | 7.6 | `clippy::missing_errors_doc` |
 | `# Panics` exists | 7.6 | `clippy::missing_panics_doc` |
 | An abort is stated in a body paragraph that begins with "Aborts", in the crate documentation for the general case and on each function whose abort was observed | 7.6 | Judgement |
@@ -596,6 +598,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-11: Added to Section 7.5 the exception for an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against its invoking file, which is a `text` block whose lead-in states the reason, and extended its row in Section 7.12.
 - 2026-11-11: Added to Section 7.6 that a function that can abort the process states each condition of the abort in a paragraph of the body that begins with "Aborts", with no heading of its own, that the crate-level documentation states the general case once in such a paragraph, and that a function carries its own paragraph only when its abort was observed, and added its row to Section 7.12.
 - 2026-11-10: Widened the exemption of Section 7.9 for generated raw bindings to `# Safety` sections and safety comments, on the condition that the crate-level documentation states one shared safety contract, and added cross-references in Sections 7.2 and 7.6 and a row in Section 7.12, and replaced the feature name in the example sentence of Section 7.8 with an illustrative one.
 - 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.

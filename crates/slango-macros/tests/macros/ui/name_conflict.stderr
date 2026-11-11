@@ -1,0 +1,5 @@
+error: cannot name an item of the bindings: the kernel `scale_twice` and the kernel `scaleTwice` both become the Rust name `ScaleTwice`
+ --> tests/macros/ui/name_conflict.rs:1:24
+  |
+1 | slango_macros::shader!("conflict.slang");
+  |                        ^^^^^^^^^^^^^^^^

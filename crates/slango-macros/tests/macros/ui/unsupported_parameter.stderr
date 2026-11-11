@@ -1,0 +1,5 @@
+error: cannot generate the bindings: the parameter `points` of the kernel `offset` is not supported, because it is a structured buffer of `float3`, which has no built-in element type in slango
+ --> tests/macros/ui/unsupported_parameter.rs:1:24
+  |
+1 | slango_macros::shader!("vector3.slang");
+  |                        ^^^^^^^^^^^^^^^

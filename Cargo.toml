@@ -5,6 +5,8 @@ members = [
     "crates/slang-compiler-sys",
     "crates/slang-slint",
     "crates/slango",
+    "crates/slango-codegen",
+    "crates/slango-macros",
     "examples",
     "tools/bindings-generator",
 ]
@@ -22,11 +24,17 @@ readme = "README.md"
 clang = { version = "2.1.0", features = ["runtime", "clang_10_0"] }
 insta = { version = "1.49.0", default-features = false }
 pollster = "0.4.0"
+prettyplease = "0.2.37"
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
 slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
 slang-slint = { path = "crates/slang-slint", version = "0.1.0" }
 slango = { path = "crates/slango", version = "0.1.0" }
+slango-codegen = { path = "crates/slango-codegen", version = "=0.1.0" }
 slint = { version = "~1.18", default-features = false }
+syn = { version = "2.0.119", default-features = false }
+trybuild = "1.0.122"
 wgpu = { version = "30.0.1", features = ["spirv"] }
 winit = { version = "0.30.13", default-features = false, features = [
     "rwh_06",

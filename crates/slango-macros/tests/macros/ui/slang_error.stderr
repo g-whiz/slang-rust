@@ -1,0 +1,17 @@
+error: cannot generate the bindings of the Slang file
+         caused by: cannot compile a Slang module
+         caused by: cannot load module `broken`:
+       error[E30015]: undefined identifier
+        --> tests/macros/ui/broken.slang
+         |
+         | data[id.x] = undefinedValue;
+         |              ^^^^^^^^^^^^^^ undefined identifier 'undefinedValue'.
+       --'
+       error[E39999]: import failed due to compilation error
+       fatal error[E40003]: compilation ceased
+       abort compilation: fatal error[E40003]: compilation ceased
+
+ --> tests/macros/ui/slang_error.rs:1:24
+  |
+1 | slango_macros::shader!("broken.slang");
+  |                        ^^^^^^^^^^^^^^

@@ -41,7 +41,7 @@ These are not part of M6:
 
 ### 1.6. Current State
 
-This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. Step 2 is done, on 2026-11-11. It added the hidden module `slango::__private` of Section 5.2, with `precompile_file`, the interface description, the encoding of Section 5.3 with `ENCODING_VERSION`, `load_precompiled`, and the trait `StructElement` of Section 5.4, and split the load of `slango` into a compile and a load, as Section 7.1 of `docs/design/slango.md` describes with the behaviour changes. Where the implementation settled or corrected this design, Section 5 states it. No code of `slango-macros` or `slango-codegen` exists, and the next change is step 3 of Section 11.
+This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. Step 2 is done, on 2026-11-11. It added the hidden module `slango::__private` of Section 5.2, with `precompile_file`, the interface description, the encoding of Section 5.3 with `ENCODING_VERSION`, `load_precompiled`, and the trait `StructElement` of Section 5.4, and split the load of `slango` into a compile and a load, as Section 7.1 of `docs/design/slango.md` describes with the behaviour changes. Where the implementation settled or corrected this design, Section 5 states it. Step 3 is done, on 2026-11-11. It added the crates `slango-codegen` at `crates/slango-codegen/` and `slango-macros` at `crates/slango-macros/`, for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with the path resolution, the rebuild tracking, the build script, and the docs.rs stub of Section 6. Where it settled or corrected this design, Sections 3.10, 4.2, 6.3, 6.4, 7.4, 7.5, 8, and 10 state it. A structure as a buffer element or as a value is reported as unsupported until step 4. The next change is step 4 of Section 11.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -126,6 +126,8 @@ One expansion took 141 to 159 ms when idle and up to 236 ms under load, the cost
 
 `syn`, `quote`, `proc-macro2`, `prettyplease`, `trybuild`, and `target-tuple`, which trybuild brings, are `MIT OR Apache-2.0`, which the allow-list admits, and each declares a `rust-version` of 1.88 or less (run). `cargo deny` reported no advisory and one new duplicate, `prettyplease` 0.2.37, which `bindgen` of Slint's iOS-only renderer brings, beside the 0.3.0 of the spike (run). `syn` 2 and `syn` 3 are both in the lock file already, with a skip for `syn` 2 (read, `deny.toml`). `proc-macro-error` and `proc-macro-error2` are unmaintained (read, RUSTSEC-2024-0370 and RUSTSEC-2026-0173).
 
+Step 3 of Section 11 measured the cost in the workspace on 2026-11-11. `Cargo.lock` went from 524 to 528 packages: `slango-codegen`, `slango-macros`, `trybuild` 1.0.122, and `target-tuple` 1.0.2. A clean debug build of the workspace with all targets, `cargo build --workspace --all-targets` in a fresh target directory, took 58.8 s, against 45.2 s before the step.
+
 ## 4. Crate Structure and Dependencies
 
 ### 4.1. Decisions
@@ -150,15 +152,17 @@ SLM-1. The generator MUST live in the library crate `slango-codegen`, and `slang
 
 The owner approved `slango-codegen` as a separate published crate on 2026-11-11, and Sections 3.1, 3.2, and 13 of `docs/design/architecture.md` list it. Its crates.io name is checked before the first release (SLMA-8).
 
-`slango-codegen` has two steps: one from a path to an interface description, which calls `slango` and so Slang, and one from an interface description to tokens, which is pure. It depends on `slango`, `proc-macro2`, and `quote`, and on `syn` with the feature `full` and `prettyplease` for its tests only. `slango-macros` depends on `slango-codegen`, `proc-macro2`, and `syn`. Both are published, because a published crate cannot depend on an unpublished one.
+`slango-codegen` has two steps: one from a path to an interface description, which calls `slango` and so Slang, and one from an interface description to tokens, which is pure. It depends on `slango`, `proc-macro2`, and `quote`. For its tests only, it depends on `syn` with the features `full`, `parsing`, and `printing`, on `prettyplease`, and on `insta`. `slango-macros` depends on `slango-codegen` and on `syn` with the features `parsing`, `printing`, and `proc-macro`. For its tests only, it depends on `slango` and `trybuild`. It needs no `proc-macro2` of its own. Both are published, because a published crate cannot depend on an unpublished one.
+
+Step 3 of Section 11 implemented the generator as two public functions: `generate`, which takes the path of a Slang file, calls `precompile_file`, and generates from its result, and `generate_precompiled`, which takes the result of `precompile_file` and is pure. Both return a `proc_macro2::TokenStream`. Only the tests format the tokens with `prettyplease`.
 
 SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, and `slango-macros` MUST require `slango-codegen` with an exact version, because the encoded snapshot and the hidden module of `slango` have no stability across versions (SLM-6), so a mismatch would fail at load or not compile.
 
-Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3).
+Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it. The requirement on `slango` cannot come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry as `0.1.0`, so `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0" }` in its own manifest, with a comment that cites SLM-2. This is the exception to DEP-2 that the coding standard states. With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace after step 3, `cargo tree -i slango -e normal,dev` showed one node `slango v0.1.0` that serves `slango-codegen` with `=0.1.0`, `slang-slint` and the examples package with `0.1.0`, and `slango-macros` as a development dependency. That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 
 SLM-3. The crates MUST use `syn` 2 and `prettyplease` 0.2, the versions already in the lock file, and MUST NOT use `proc-macro-error` or `proc-macro-error2`. TOOL-26 of `docs/design/tooling.md` admits an exception only for a duplicate that no change to the workspace can remove, and these versions add none, while `prettyplease` 0.3 would add a skip. The two crates of error reporting are unmaintained (Section 3.10).
 
-If the generator does not compile against `syn` 2 and `prettyplease` 0.2 (SLMA-1), the step uses `syn` 3 and `prettyplease` 0.3 with one skip for `prettyplease@0.2.37` under TOOL-26. If any step needs a new licence or a new advisory exception, the step stops and the agent asks the owner. `trybuild` is a development dependency of `slango-macros`. Every dependency is declared once in `[workspace.dependencies]` (DEP-2).
+Step 3 of Section 11 confirmed on 2026-11-11 that the generator compiles against `syn` 2.0.119 and `prettyplease` 0.2.37, which were in the lock file already. Its unit tests passed natively and under Miri, and `cargo deny check` passed with no change to `deny.toml`: no new licence, no new skip, and no new advisory exception. If a later step needs a new licence or a new advisory exception, the step stops and the agent asks the owner. Every other dependency of both crates is declared once in `[workspace.dependencies]` (DEP-2).
 
 SLM-4. `slango-macros` and `slango-codegen` MUST contain no unsafe code and MUST emit no logs, because neither needs either: they call only safe `slango` code and report every failure as a compile error or an error value. This answers Q-16 of the architecture design for both crates.
 
@@ -235,15 +239,17 @@ The generated code therefore contains absolute paths of the build machine. When 
 
 ### 6.3. The Build Script
 
-SLM-12. The build script of `slango-macros` MUST print `cargo::rustc-link-arg=-Wl,-rpath,<VULKAN_SDK>/lib` when `VULKAN_SDK` is set and the macro is built for Linux or macOS, `cargo::rerun-if-env-changed` for `VULKAN_SDK` and `DOCS_RS`, and the `cfg` of SLM-13, and nothing else. Without the rpath, every build of a crate that uses the macro fails with a misleading `E0463` unless the user puts the library on the path of rustc (Section 3.3).
+SLM-12. The build script of `slango-macros` MUST print `cargo::rustc-link-arg=-Wl,-rpath,<VULKAN_SDK>/lib` when `VULKAN_SDK` is set and not empty and the macro is built for Linux or macOS, `cargo::rerun-if-env-changed` for `VULKAN_SDK` and `DOCS_RS`, and the `cfg` of SLM-13 with its `cargo::rustc-check-cfg` declaration, and nothing else. Without the rpath, every build of a crate that uses the macro fails with a misleading `E0463` unless the user puts the library on the path of rustc (Section 3.3).
 
 The build script reads two variables and prints Cargo instructions. It writes no file, downloads nothing, and installs nothing, so it meets Hard Rule 7 of `AGENTS.md` and SYS-5 of the coding standard. The rpath is the build machine's own directory, stored in the macro library, which only the compiler on that machine loads. On the static route, `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (SLMA-6). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
+
+Step 3 of Section 11 settled these details. The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run under Miri (SYS-8 of the coding standard). On Linux and macOS, a `VULKAN_SDK` that is not valid UTF-8, or that contains a comma, which the linker would read as the end of the `-Wl` argument, stops the build of `slango-macros` with a message that says to install the SDK in another directory. The rpath and the `cfg` of SLM-13 are independent of each other.
 
 ### 6.4. docs.rs
 
 SLM-13. When `DOCS_RS` is present, the build script MUST set the `cfg` `slango_docs_rs`, and under it the macro MUST emit a documented stub `pub struct Shader;` and MUST NOT call the generator. Otherwise the macro library links Slang's symbols unresolved and rustdoc cannot load it (Section 3.8).
 
-The stub's documentation says that the bindings are generated only in a build with Slang. The other generated items are absent from the documentation of the user's crate. A crate whose public signatures name a generated item other than `Shader` fails to build its documentation without Slang (SLMA-2).
+The stub's documentation says that the bindings are generated only in a build with Slang. The macro emits the stub without resolving or reading the path, so a wrong path does not fail the documentation build. The other generated items are absent from the documentation of the user's crate. A crate whose public signatures name a generated item other than `Shader` fails to build its documentation without Slang (SLMA-2).
 
 ### 6.5. Diagnostics
 
@@ -289,6 +295,14 @@ SLM-19. The generator MUST derive each Rust name from its Slang name by fixed ru
 
 A field name is the path in snake case, with `.` replaced by `_` and `_` inserted before an uppercase letter that follows a lowercase letter or a digit. A kernel struct name is the entry point name in upper camel case, and its arguments struct adds `Args`. A struct keeps its Slang name. A Rust keyword becomes a raw identifier. A name that cannot be raw, such as `self`, is a compile error, and so is a name that equals `Shader`, `load`, or `module` where it would collide with a generated item.
 
+Step 3 of Section 11 settled these details:
+
+- The keywords that become raw identifiers are the strict and reserved keywords of edition 2024.
+- A name that is not a Rust identifier is a compile error of the kind `NameConflict`: `self`, `Self`, `super`, `crate`, `_`, an empty name, a name that starts with a digit, and a name with a character that is not ASCII, which is rejected and never mapped.
+- The reserved names are `Shader` among the type names, and `load` and `module` among the fields of `Shader`.
+- The name of each arguments struct takes part in the search for conflicts, so a kernel `scale` beside a kernel `scaleArgs` is a conflict.
+- The generated code names every item of `core` and `slango` by its full path, such as `::core::result::Result::Ok`, so an item of the user's module cannot shadow it.
+
 ### 7.5. Not Supported in M6
 
 The macro reports each of these as a compile error that names the kernel, the parameter, the field when there is one, and the reason:
@@ -299,6 +313,15 @@ The macro reports each of these as a compile error that names the kernel, the pa
 - 16-bit and 64-bit scalars.
 
 A module with render entry points compiles, and the generated code offers nothing for them. A user reaches them through `Shader::module`.
+
+Step 3 of Section 11 reports these cases, each as an error of the kind `Unsupported` (SLM-20):
+
+- A structured buffer whose element is not `i32`, `u32`, `f32`, or an array of four of them, which are the built-in `Element` types: a vector of 2 or 3 components such as `float3`, `bool`, another plain type such as `half` or `vector<double,2>`, and a matrix, an array, or another composite type.
+- A structured buffer of a structure, and a value of a structure, such as a `uniform` structure. The message says that this version generates no struct for the structure. Step 4 lifts both.
+- A parameter that `precompile_file` of `slango` rejects with `UnsupportedParameter`, such as a 64-bit or 16-bit scalar value. The error of `slango` is the source.
+- The path of a file that Slang read that is not valid UTF-8, which the tracking of SLM-11 cannot write.
+
+In the first two cases, the message names the parameter by its path and the kernel, and gives the reason.
 
 ### 7.6. Usage Illustration
 
@@ -324,6 +347,8 @@ fn run(device: &slango::Device) -> slango::Result<Vec<f32>> {
 
 SLM-20. `slango-codegen` MUST have one public error type `Error` with the alias `Result`, as ERR-1 defines, with the kinds `Compile`, whose source is the error of `slango`, `Unsupported`, for every case of Section 7.5, and `NameConflict`, for SLM-19, because the macro's tests match on the kind.
 
+As step 3 of Section 11 built it, `ErrorKind` is `#[non_exhaustive]`. `Compile` covers every error of `slango` other than `UnsupportedParameter`, such as a file that cannot be read or does not compile. `Unsupported` also covers an error of `slango` of the kind `UnsupportedParameter`, with that error as its source (Section 7.5). `NameConflict` also covers a Slang name that gives no Rust identifier (Section 7.4). The macro reports the text of the error followed by one line `caused by:` for each cause (SLM-14).
+
 At run time, generated code returns `slango::Error`. A load of an encoded snapshot of another version gives `InvalidArgument` (SLM-7), and every mistake at a dispatch gives the error that `slango` gives for the same call by name.
 
 ## 9. Threading
@@ -348,6 +373,14 @@ An arguments struct holds references to buffers, textures, and samplers, which a
 
 The example `typed-kernel` of the examples package runs `examples/shaders/saxpy.slang` through the macro and checks its results, and a `gpu` test of the examples runs it, so a crate that uses the macro builds in CI and `check-doc-without-slang` documents it without Slang (SLM-13).
 
+Step 3 of Section 11 added these tests, and the structures and their tests follow in step 4:
+
+- `slango-codegen`: the pure unit tests in `src/emit/tests.rs` and in the modules `names` and `error`, which Miri runs. They cover each row of SLM-17 that step 3 supports, the documentation of read and read-write buffers, a kernel with no parameters, the tracking of every file read, a path that is not UTF-8, raw keywords, each unsupported case of Section 7.5, and each kind of name conflict.
+- `slango-codegen`, module `ffi` of `tests/codegen/`: two `insta` snapshots, of saxpy and of a shader with a named constant buffer, a texture, a sampler, a uniform array, a `bool`, `int4` and `float4` buffers, a matrix, and two kernels. Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`, so the snapshots do not depend on the machine, the checkout, or the SPIR-V of the pin. Further tests check the absolute paths and the embedded encoding that `generate` emits, the files read for a shader with an `import`, a Slang error with Slang's message among the causes, a missing file, a `float3` buffer, a buffer of a structure, and a `double` uniform.
+- `slango-macros`, `tests/macros/`: the module `bindings`, which Miri runs, asserts SLM-21 and resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10). The module `build_script` tests the logic of the build script under Miri (Section 6.3). The module `ffi` runs the trybuild cases listed above. A missing file is no trybuild case, because its expected text would hold an error message of the operating system that differs on Windows, and the `ffi` test of `slango-codegen` covers it. The module `gpu` runs saxpy through `dispatch` over 1000 elements, and through `dispatch_groups` with a count of 130 on 3 groups, against values computed on the CPU.
+
+No automated test covers the rebuild after a change of an imported file, because it needs a nested Cargo build. On 2026-11-11 it was verified by hand on a crate outside the repository that called the macro on a shader that imports another file: after an edit of the imported file, Cargo reported the file as changed and recompiled the crate, and the next build was fresh. The crate-level example of `slango-macros` is a `text` block, because a doctest has no invoking file and the macro fails there by SLM-10, as Section 7.5 of `docs/writing-documentation.md` permits. The example `typed-kernel` of step 5 is its compiled form.
+
 SLM-22. An agent that changes the pin MUST run the compile-fail tests and update their expected text in the same change, because that text contains Slang's messages, so a new Slang can fail them with no change to the macro.
 
 ## 11. Implementation Order for M6
@@ -356,7 +389,7 @@ These steps implement M6. Each step leaves `just check` passing and adds its tes
 
 1. In `slango`, record the element type of each structured buffer in the snapshot and check it in `Call::bind` and `Draw::bind` (SLM-5). Update `docs/design/slango.md` with the behaviour change. Tests: the unit and `gpu` tests of SLM-5. Done on 2026-11-11 (Section 5.1).
 2. In `slango`, split loading into compile and load, and add `__private` with `precompile_file`, the interface description, the encoding, `load_precompiled`, `ENCODING_VERSION`, and `StructElement` with its blanket implementations (Section 5). Confirm SLMA-4. Tests: the round trip under Miri and the `gpu` tests of the precompiled load. Done on 2026-11-11 (Section 5).
-3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy.
+3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy. Done on 2026-11-11 (Section 1.6), with SLMA-1 confirmed and SLMA-5 and SLMA-6 waiting for its CI run (Section 12).
 4. Add generated structs (Section 7.3) with their tests, including the `gpu` test of a structure element. Confirm SLMA-7.
 5. Add the example `typed-kernel` with its `gpu` test, and record it in Section 10 of `docs/design/architecture.md`. Confirm SLMA-2 with `check-doc-without-slang`. Check: CI runs the example's test on lavapipe, WARP, and hosted Metal.
 6. Complete the crate-level documentation of both crates, with the need for Slang at build time and the limits of Section 15.6, and update the documents that M6 makes false. With this step, M6 is complete.
@@ -365,9 +398,10 @@ These steps implement M6. Each step leaves `just check` passing and adds its tes
 
 Each row is a statement that this design relies on and that the spike did not establish. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row. An identifier is never reused.
 
+Step 3 confirmed SLMA-1 on 2026-11-11, and the row is removed: the generator compiles against `syn` 2 and `prettyplease` 0.2 (Sections 3.10 and 4.2). SLMA-5 and SLMA-6 wait for a CI run of step 3 on macOS and Windows.
+
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLMA-1 | The generator compiles against `syn` 2 and `prettyplease` 0.2 as it did against `syn` 3 and `prettyplease` 0.3 | SLM-3 | Step 3 |
 | SLMA-2 | A crate whose public signatures name only `Shader` of the generated items builds its documentation without Slang | Section 6.4 | Step 5 |
 | SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M7 |
 | SLMA-5 | `-Wl,-rpath` makes the macro library load on macOS with no library path set | SLM-12 | Step 3, in CI |
@@ -401,7 +435,7 @@ Neither crate has Cargo features. The build script of `slango-macros` reads `VUL
 
 ### 15.2. Platforms and Minimum Supported Rust Version
 
-The spike ran on x86_64 Linux only (Section 3.1). Step 3 of Section 11 builds and tests both crates on Windows and macOS in CI. `Span::local_file` needs Rust 1.88.0, and every new dependency declares 1.88 or less, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The spike ran on x86_64 Linux only (Section 3.1). CI builds and tests both crates on Windows and macOS, but no run of step 3 has happened yet (Section 12). `Span::local_file` needs Rust 1.88.0, and every new dependency declares 1.88 or less, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 15.3. Failure Modes
 
@@ -473,6 +507,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 3 of Section 11, the crates `slango-codegen` and `slango-macros`, as done in Sections 1.6 and 11, recorded its costs in Section 3.10, the generator's functions, the dependencies of both crates, and the exception to DEP-2 for the exact requirement on `slango` in Section 4.2, the checks of `VULKAN_SDK` in Section 6.3, the stub without a path check in Section 6.4, the settled naming rules in Section 7.4, the unsupported cases as built in Section 7.5, the error kinds as built in Section 8, and the tests as built with the manual check of the rebuild in Section 10, confirmed SLMA-1 and removed its row from Section 12, and added the evidence for SLMA-3 to Section 4.2.
 - 2026-11-11: Recorded step 2 of Section 11, the hidden module `slango::__private`, as done in Sections 1.6 and 11, corrected Sections 5.1 and 5.4 to the element types and the rejection of a vertex buffer that the implementation has, recorded how step 2 settled the interface description in Section 5.2 and the encoding with its tests in Section 5.3, closed the gap of Section 3.5, named the test that pins the bytes of the encoding in Section 10, and confirmed SLMA-4 in Section 3.9 and removed its row from Section 12.
 - 2026-11-11: Recorded step 1 of Section 11, the check of the element type of a bound buffer in `slango`, as done in Sections 1.6, 5.1, and 11, put the problem of the stride-only check in the past in Section 1.1, and narrowed SLMA-4 to the Slang name of a uniform structure in Section 12.
 - 2026-11-11: First draft, written after the spike of M6 as the first task of M6.
