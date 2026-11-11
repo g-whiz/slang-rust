@@ -34,9 +34,9 @@ This document does not cover:
 
 - Running compiled code on a GPU, any graphics API, or any type of wgpu, which belong to `slango` (ARCH-14).
 - The raw bindings and the build script that links Slang, which `docs/design/slang-compiler-sys.md` specifies.
-- An owned snapshot of a program layout that outlives the program it came from, which `slango` may need and which its design document decides (Section 17, CQ-4).
+- An owned snapshot of a program layout that outlives the program it came from, which `slango` keeps as its own private data (Section 7.1 of `docs/design/slango.md`).
 - Parsing diagnostics text into structured records, which a later version can add (Section 6.8).
-- A version of the API that is `Send` or `Sync`, which waits for the answer to CQ-1 (Section 10).
+- A version of the API that is `Send` or `Sync`, which M3 does not need (Section 10).
 - The deprecated, experimental, and process-level Slang surface that Section 12 lists.
 
 ### 1.6. Current State
@@ -933,7 +933,7 @@ The handle types are `ProgramLayout`, `EntryPointLayout`, `VariableLayout`, `Typ
 
 The safe source of a `Type` is `ProgramLayout::find_type_by_name`, together with every type that a layout reaches, so a program gets the types that `specialize` and `type_conformance` take from the layout of a module. `Type::from_raw(raw, session)` stays as the raw escape for a type that a function the crate does not wrap returned (SLC-4), and its lifetime borrows the session, which keeps the syntax trees of the type alive (Sections 3.3 and 3.9).
 
-Owned reflection handles that each hold a session were rejected, because a program makes thousands of queries and each would cost two count changes. An eager snapshot as the only API was rejected, because it loses the lazy queries, such as finding a type by name. An owned snapshot of a layout for `slango` is a later addition (Section 17, CQ-4).
+Owned reflection handles that each hold a session were rejected, because a program makes thousands of queries and each would cost two count changes. An eager snapshot as the only API was rejected, because it loses the lazy queries, such as finding a type by name. `slango` keeps its own owned snapshot of a layout (Section 7.1 of `docs/design/slango.md`).
 
 `Type` does not implement `PartialEq` in the first version, because it is not established that two pointers to equal types are always equal (Section 16, CA-6).
 
@@ -987,7 +987,7 @@ SLC-22. The types `Error`, `ErrorKind`, `Operation`, `Diagnostics`, `CompilerOpt
 
 The reasoning is this. Every wrapper is a cheap clone of a handle into one shared graph of Slang objects (Section 5.2). `Send` on one handle would therefore let a clone move to another thread while the original stays, which is shared use of the graph, the case that Slang forbids without external synchronization. A sound `Send` would need a proof that no other handle to the same graph exists on another thread, which reference-counted handles cannot give. The atomic reference counts of the implementation (Section 3.5) are an implementation detail of the pinned commit, which the documentation tells users not to rely on. The thread-local syntax tree builder (Section 3.5) is a hazard even for a move of a whole graph, which one run survived but nothing proves. Every wrapper stays on the thread that created it.
 
-A program that compiles on several threads creates one global session on each thread, which Slang supports (Section 3.5). Two alternatives remain open: one owning type that holds a whole quiescent graph and is `Send` as a unit, and a `Sync` view of a linked program that exposes only the five methods that Slang documents for concurrent code generation. Both are CQ-1 of Section 17, which the design of `slango` answers, because `slango` is the first crate that may want to compile on a worker thread.
+A program that compiles on several threads creates one global session on each thread, which Slang supports (Section 3.5). Two alternatives remain open: one owning type that holds a whole quiescent graph and is `Send` as a unit, and a `Sync` view of a linked program that exposes only the five methods that Slang documents for concurrent code generation. M3 needs neither, because `slango` compiles on the calling thread and releases every Slang object before a load returns (Sections 7.1 and 11 of `docs/design/slango.md`).
 
 SLC-28. The crate MUST keep a crate-private Slang call guard for each thread, which counts the calls from this crate into Slang that are in progress on the thread. It MUST follow these rules, because Slang's front end is not reentrant, and a Slang object released during a call on the same thread can leave that call holding a freed pointer (Section 3.5):
 
@@ -1285,12 +1285,10 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| CQ-1 | Can a quiescent graph of Slang objects move to another thread soundly, so that an owning type that holds the whole graph can be `Send`, and should a `Sync` view of a linked program expose the five methods documented for concurrent code generation? The evidence is in Sections 3.5 and 10, and an upstream question can settle the first part. The architecture design tracks it as Q-30 | `docs/design/slango.md` | M3 |
 | CQ-3 | Can the bound `Send + Sync` of `FileSystem` be relaxed while every wrapper stays on one thread, which CONC-6 would prefer (Section 8.3), given that tightening it again later would be a breaking change? | This document | Deferred with the custom file system, and answered before the trait is first released |
-| CQ-4 | What is the design of an owned snapshot of a program layout that outlives its program, for `slango`? The architecture design tracks it as Q-31 | `docs/design/slango.md` | M3 |
 | CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 was reported on 2026-11-11 as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M7 |
 
-Step 5 of Section 15 removed CQ-2, whether the shape of `Compiled<T>` is acceptable after the example, which Section 6.8 answers. Step 4 removed CQ-6, whether to keep the abort or add a C++ shim, which Section 11.6 answers: the mechanism is frozen, and a change that would modify it removes it.
+Step 5 of Section 15 removed CQ-2, whether the shape of `Compiled<T>` is acceptable after the example, which Section 6.8 answers. Step 4 removed CQ-6, whether to keep the abort or add a C++ shim, which Section 11.6 answers: the mechanism is frozen, and a change that would modify it removes it. `docs/design/slango.md` settles CQ-1 and CQ-4 for M3, and their rows are removed: `slango` copies an owned layout snapshot and releases every Slang object before a load returns, so no Slang object needs to cross a thread (its Sections 7.1 and 11).
 
 ## 18. Security Considerations
 
@@ -1422,6 +1420,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded in Section 17 that `docs/design/slango.md` settles CQ-1 and CQ-4 for M3, removed their rows, and pointed Sections 1.5, 9, and 10 to that document.
 - 2026-11-11: Recorded M2 as complete in Sections 1.6 and 15, deferred step 6, the custom file system, out of M2 with its reason, recorded step 7 as the closing pass of the documentation, and marked as deferred with the custom file system Sections 8 and 11.5, SLC-17, SLC-18, the documentation of SLC-27 on a file system, the test of SLC-28 in Section 13.3, CA-9, CA-11, CA-15, CQ-3, and their rows in Appendix A.
 - 2026-11-11: Recorded step 5 of Section 15 as done in Sections 1.6 and 15, with the counts and the CI run, corrected Section 13.6 to the example that was built, which prints the size of the generated code and never the code, answered CQ-2 in Section 6.8 and removed its row, and updated Section 6.2 to match.
 - 2026-11-11: Recorded step 4 of Section 15 as done in Sections 1.6 and 15 with the counts and the review of the order of steps 5 to 7, corrected Section 9 and Sections 5 and 6 to the reflection that was built, amended SLC-12 and SLC-13 for binding numbers, added Section 1.7 on defects of Slang and trusted input and Section 3.12 with the known upstream bugs, shortened Sections 3.5 and 3.6 to match, removed SLC-29, CA-14, the error kind `AlreadyExists`, and every statement of the rule of one global session for each thread, froze the mechanism of Section 11.6, rewrote SLC-24, removed CA-10, CA-12, CA-17, and CQ-6, recorded the report of CQ-5, and updated Sections 8.1, 10, 11, 13, 14, 18, 19, 20.2, and Appendix A to match.
