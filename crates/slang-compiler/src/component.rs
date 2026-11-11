@@ -3,17 +3,18 @@ use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
     CompilerOptionEntry, IComponentType, IEntryPoint, IMetadata, IModule, ISlangBlob,
-    ITypeConformance, SlangInt, SlangResult, SpecializationArg as RawSpecializationArg,
-    SpecializationArg_Kind, SpecializationArg_anon0,
+    ITypeConformance, ProgramLayout as RawProgramLayout, SlangInt, SlangReflection, SlangResult,
+    SpecializationArg as RawSpecializationArg, SpecializationArg_Kind, SpecializationArg_anon0,
 };
 
 use crate::blob::{self, Blob, Metadata};
 use crate::error::{Compiled, Error, ErrorKind, Operation, Result};
 use crate::guard;
+use crate::mapping;
 use crate::module::{EntryPoint, Module};
 use crate::options::{CompilerOptions, PreparedOptions};
 use crate::owned::{ComInterface, Owned};
-use crate::reflection::Type;
+use crate::reflection::{ProgramLayout, Type};
 use crate::session::{Session, TargetIndex};
 
 /// The linking calls of a generated interface type that derives from
@@ -53,6 +54,19 @@ pub(crate) unsafe trait ComponentInterface: ComInterface {
         entries: *const CompilerOptionEntry,
         diagnostics: *mut *mut ISlangBlob,
     ) -> SlangResult;
+
+    /// Calls `getLayout` on the object.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live object that implements `Self`, `diagnostics`
+    /// is a live out-pointer, and the caller raises the Slang call guard.
+    /// Breaking any of them is undefined behaviour.
+    unsafe fn get_layout(
+        this: *mut Self,
+        target: SlangInt,
+        diagnostics: *mut *mut ISlangBlob,
+    ) -> *mut RawProgramLayout;
 }
 
 macro_rules! component_interfaces {
@@ -90,6 +104,20 @@ macro_rules! component_interfaces {
                         concat!(stringify!($interface), "::linkWithOptions"),
                         || $interface::linkWithOptions(this, out, count, entries, diagnostics),
                     )
+                }
+            }
+
+            unsafe fn get_layout(
+                this: *mut Self,
+                target: SlangInt,
+                diagnostics: *mut *mut ISlangBlob,
+            ) -> *mut RawProgramLayout {
+                // SAFETY: the caller guarantees that `this` is live and that
+                // `diagnostics` is live.
+                unsafe {
+                    guard::abort_on_exception(concat!(stringify!($interface), "::getLayout"), || {
+                        $interface::getLayout(this, target, diagnostics)
+                    })
                 }
             }
         }
@@ -152,6 +180,42 @@ pub(crate) fn link<I: ComponentInterface>(
                 session: session.clone(),
                 entry_point_count,
             },
+            diagnostics,
+        })
+    })
+}
+
+/// Lays out the component type `raw` of `session` for `target`, for the
+/// public method `method`, and returns the program layout, which borrows the
+/// wrapper that holds `raw` and `session` for `'a`.
+pub(crate) fn layout<'a, I: ComponentInterface>(
+    raw: &'a Owned<I>,
+    session: &'a Session,
+    target: TargetIndex,
+    method: &str,
+) -> Result<Compiled<ProgramLayout<'a>>> {
+    let operation = Operation::Layout;
+    let target = session.slang_target(target, operation)?;
+    guard::call(method, || {
+        let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
+        // SAFETY: `raw` points to a live component type of `session`, which
+        // the caller's wrapper holds (Section 11.2 of
+        // `docs/design/slang-compiler.md`), `target` is below the target count
+        // of the session, `diagnostics` is a live out-pointer, and the call
+        // runs with the Slang call guard raised (SLC-28).
+        let layout = unsafe { I::get_layout(raw.as_ptr(), target, &raw mut diagnostics) };
+        // SAFETY: every diagnostics output carries a new reference or is null
+        // (Section 5.3 of `docs/design/slang-compiler.md`).
+        let diagnostics = unsafe { blob::take_diagnostics(diagnostics) };
+        let layout = NonNull::new(layout.cast::<SlangReflection>())
+            .ok_or_else(|| mapping::null(operation, diagnostics.clone()))?;
+        Ok(Compiled {
+            // SAFETY: `getLayout` returned the program layout of the component
+            // type for this target, which the component type owns and which
+            // is not counted, and the caller's wrapper, which holds the
+            // component type and `session`, is borrowed for `'a` (Sections 5.3
+            // and 11.3 of `docs/design/slang-compiler.md`).
+            value: unsafe { ProgramLayout::from_slang(layout, session) },
             diagnostics,
         })
     })
@@ -346,8 +410,8 @@ impl Session {
     ///
     /// This example records that a structure implements an interface and
     /// composes the record with a module and its entry point. It takes the
-    /// two types as arguments, because this version finds types only through
-    /// the raw bindings, as [`Type::from_raw`] describes:
+    /// two types as arguments, which a program finds with
+    /// [`ProgramLayout::find_type_by_name`](crate::reflection::ProgramLayout::find_type_by_name):
     ///
     /// ```
     /// use slang_compiler::reflection::Type;
@@ -579,15 +643,16 @@ impl ComponentType {
     ///
     /// A generic parameter is a type parameter of Slang code, like a type
     /// parameter of a Rust function, and a component type with one cannot
-    /// generate code until it is specialized. This version finds types only
-    /// through the raw bindings, as [`Type::from_raw`] describes.
+    /// generate code until it is specialized. Find the types with
+    /// [`ProgramLayout::find_type_by_name`](crate::reflection::ProgramLayout::find_type_by_name).
     ///
     /// # Examples
     ///
     /// This example specializes a component type with one generic parameter
     /// and generates the code of its entry point. It takes the type as an
-    /// argument, because this version finds types only through the raw
-    /// bindings, as [`Type::from_raw`] describes:
+    /// argument, which the example of
+    /// [`ProgramLayout::find_type_by_name`](crate::reflection::ProgramLayout::find_type_by_name)
+    /// shows how to find:
     ///
     /// ```
     /// use slang_compiler::reflection::Type;
@@ -782,6 +847,45 @@ impl ComponentType {
         )
     }
 
+    /// Returns the layout of the component type for the target `target`, the root of
+    /// its reflection, which describes where each parameter sits in memory
+    /// and in the bindings of the target.
+    ///
+    /// A binding is a numbered slot of a graphics API through which a shader
+    /// reaches one resource, such as a buffer or a texture. The layout
+    /// borrows the component type, so it cannot outlive it. Slang creates the layout
+    /// once for each target and returns the same layout to every later call.
+    ///
+    /// Aborts the process, instead of returning an error, when Slang lets a
+    /// C++ exception escape while it lays out the parameters, which it does
+    /// for a parameter whose type is a chain of 127 or more nested
+    /// structures, one inside the other, or of generic types nested as
+    /// deeply, just under Slang's nesting limit of 128 levels, such as a
+    /// `uniform` parameter or the element type of a `StructuredBuffer`. The
+    /// crate then writes one line to standard error that names the call
+    /// `IComponentType::getLayout` and aborts before any destructor runs.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`ProgramLayout`](crate::reflection::ProgramLayout).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `target`
+    /// belongs to another session and is past the end of this session's
+    /// targets, which the crate checks before it calls Slang, and an error of
+    /// kind [`ErrorKind::Compile`] with the diagnostics, or of kind
+    /// [`ErrorKind::Internal`] without them, when Slang returns no layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn layout(&self, target: TargetIndex) -> Result<Compiled<ProgramLayout<'_>>> {
+        layout(&self.raw, &self.session, target, "ComponentType::layout")
+    }
+
     /// Adopts a component type that the caller obtained through the raw
     /// bindings of `slang-compiler-sys`.
     ///
@@ -972,6 +1076,45 @@ impl TypeConformance {
             Some(options),
             "TypeConformance::link_with_options",
         )
+    }
+
+    /// Returns the layout of the type conformance for the target `target`, the root of
+    /// its reflection, which describes where each parameter sits in memory
+    /// and in the bindings of the target.
+    ///
+    /// A binding is a numbered slot of a graphics API through which a shader
+    /// reaches one resource, such as a buffer or a texture. The layout
+    /// borrows the type conformance, so it cannot outlive it. Slang creates the layout
+    /// once for each target and returns the same layout to every later call.
+    ///
+    /// Aborts the process, instead of returning an error, when Slang lets a
+    /// C++ exception escape while it lays out the parameters, which it does
+    /// for a parameter whose type is a chain of 127 or more nested
+    /// structures, one inside the other, or of generic types nested as
+    /// deeply, just under Slang's nesting limit of 128 levels, such as a
+    /// `uniform` parameter or the element type of a `StructuredBuffer`. The
+    /// crate then writes one line to standard error that names the call
+    /// `ITypeConformance::getLayout` and aborts before any destructor runs.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`ProgramLayout`](crate::reflection::ProgramLayout).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `target`
+    /// belongs to another session and is past the end of this session's
+    /// targets, which the crate checks before it calls Slang, and an error of
+    /// kind [`ErrorKind::Compile`] with the diagnostics, or of kind
+    /// [`ErrorKind::Internal`] without them, when Slang returns no layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn layout(&self, target: TargetIndex) -> Result<Compiled<ProgramLayout<'_>>> {
+        layout(&self.raw, &self.session, target, "TypeConformance::layout")
     }
 
     /// Adopts a type conformance that the caller obtained through the raw
@@ -1345,6 +1488,47 @@ impl LinkedProgram {
         })
     }
 
+    /// Returns the layout of the linked program for the target `target`,
+    /// the root of its reflection, which describes where each parameter sits
+    /// in memory and in the bindings of the target.
+    ///
+    /// A binding is a numbered slot of a graphics API through which a shader
+    /// reaches one resource, such as a buffer or a texture. The layout
+    /// borrows the program, so it cannot outlive it. Slang creates the layout
+    /// once for each target and returns the same layout to every later call.
+    ///
+    /// Aborts the process, instead of returning an error, when Slang lets a
+    /// C++ exception escape while it lays out the parameters, which it does
+    /// for a parameter whose type is a chain of 127 or more nested
+    /// structures, one inside the other, or of generic types nested as
+    /// deeply, just under Slang's nesting limit of 128 levels, such as a
+    /// generic parameter specialized with `Box<Box<...<Leaf>...>>` nested
+    /// 127 times. The crate then writes one line to standard error that
+    /// names the call `IComponentType::getLayout` and aborts before any
+    /// destructor runs.
+    ///
+    /// # Examples
+    ///
+    /// See the example of the crate documentation, and of
+    /// [`ProgramLayout`](crate::reflection::ProgramLayout).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `target`
+    /// belongs to another session and is past the end of this session's
+    /// targets, which the crate checks before it calls Slang, and an error of
+    /// kind [`ErrorKind::Compile`] with the diagnostics, or of kind
+    /// [`ErrorKind::Internal`] without them, when Slang returns no layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn layout(&self, target: TargetIndex) -> Result<Compiled<ProgramLayout<'_>>> {
+        layout(&self.raw, &self.session, target, "LinkedProgram::layout")
+    }
+
     /// Adopts a linked program that the caller obtained through the raw
     /// bindings of `slang-compiler-sys`.
     ///
@@ -1518,13 +1702,18 @@ impl fmt::Debug for LinkedProgram {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::ptr;
+
     use slang_compiler_sys::{CompilerOptionName, SlangResult};
 
     use super::{Component, ComponentType, LinkedProgram};
     use crate::fake::{
-        self, Code, Compose, Event, FAKE_CODE, FAKE_DIAGNOSTICS, FAKE_ENTRY_POINT, FAKE_MODULE,
-        FAKE_SESSION, FakeSession, Link, Log, OptionSnapshot, Script, Specialize,
+        self, Code, Compose, Event, FAKE_CODE, FAKE_DIAGNOSTICS, FAKE_ENTRY_POINT, FAKE_LAYOUT,
+        FAKE_MODULE, FAKE_SESSION, FakeSession, Layout, Link, Log, OptionSnapshot, Script,
+        Specialize,
     };
+    use crate::guard;
     use crate::{
         BindingIndex, BindingSpace, CompilerOptions, ErrorKind, GlobalSession, Module, Operation,
         OptimizationLevel, ParameterCategory, Session,
@@ -1919,5 +2108,82 @@ mod tests {
         // SAFETY: as above, for a linked program.
         let program = unsafe { LinkedProgram::from_raw(raw, session, count) };
         assert_eq!(program.entry_point_count(), 1);
+    }
+
+    #[test]
+    fn layout_returns_the_layout_of_the_component_with_its_diagnostics() {
+        let fixture = Fixture::new(2);
+        fixture.script().layout.set(Layout::WithDiagnostics);
+        let program = fixture.program();
+        let target = fixture.session.target_index(1).expect("a second target");
+        let layout = program.layout(target).expect("the fake lays out");
+        assert_eq!(layout.diagnostics.as_str(), FAKE_DIAGNOSTICS);
+        assert_eq!(
+            layout.value.as_raw().as_ptr().cast_const().cast::<u8>(),
+            ptr::from_ref(&FAKE_LAYOUT)
+        );
+        assert!(
+            fixture
+                .log
+                .events()
+                .contains(&Event::check_target("composite", 1)),
+            "{:?}",
+            fixture.log.events()
+        );
+    }
+
+    #[test]
+    fn layout_without_a_result_is_an_error_with_or_without_diagnostics() {
+        let fixture = Fixture::new(1);
+        let composed = fixture.composed();
+        let target = fixture.session.target_index(0).expect("a target");
+        let error = composed.layout(target).expect_err("a null layout fails");
+        assert_eq!(error.kind(), ErrorKind::Internal);
+        assert_eq!(error.operation(), Operation::Layout);
+        assert_eq!(error.code(), None);
+        fixture.script().layout.set(Layout::NullWithDiagnostics);
+        let error = composed.layout(target).expect_err("a null layout fails");
+        assert_eq!(error.kind(), ErrorKind::Compile);
+        assert_eq!(error.diagnostics().as_str(), FAKE_DIAGNOSTICS);
+    }
+
+    #[test]
+    fn layout_checks_the_target_before_any_call() {
+        let fixture = Fixture::new(1);
+        let program = fixture.program();
+        let other = fake::session(&fixture.global, 3);
+        let past_the_end = other.target_index(2).expect("a third target");
+        let before = fixture.log.events().len();
+        let error = program
+            .layout(past_the_end)
+            .expect_err("a target past the end fails");
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(error.operation(), Operation::Layout);
+        assert!(
+            !fixture.log.events()[before..]
+                .iter()
+                .any(|event| *event == Event::call("composite", "getLayout")),
+            "{:?}",
+            fixture.log.events()
+        );
+    }
+
+    #[test]
+    fn layout_panics_while_the_guard_is_raised_without_calling_slang() {
+        let fixture = Fixture::new(1);
+        let program = fixture.program();
+        let target = fixture.session.target_index(0).expect("a target");
+        let before = fixture.log.events().len();
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _raised = guard::raise();
+            let _layout = program.layout(target);
+        }))
+        .expect_err("a reentrant call panics");
+        assert!(
+            fake::panic_message(&*panic).starts_with("reentrant call: LinkedProgram::layout"),
+            "{}",
+            fake::panic_message(&*panic)
+        );
+        assert_eq!(fixture.log.events().len(), before);
     }
 }

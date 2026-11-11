@@ -670,10 +670,61 @@ fn every_call_that_takes_a_target_index_checks_it_against_the_session_again() {
     }
 }
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+unsafe extern "C" {
+    fn mallopt(param: std::ffi::c_int, value: std::ffi::c_int) -> std::ffi::c_int;
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+const M_PERTURB: std::ffi::c_int = -6;
+
+/// Makes glibc overwrite every block that `free` releases while the value
+/// lives, so that a read of freed memory reads garbage instead of the old
+/// value, and restores glibc's default, which overwrites nothing, when it
+/// drops.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+struct FreedBlocksPoisoned;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl FreedBlocksPoisoned {
+    fn set() -> Self {
+        // SAFETY: `mallopt` with `M_PERTURB` only sets the byte that glibc
+        // writes into freed blocks and returns whether it accepted the
+        // setting.
+        let accepted = unsafe { mallopt(M_PERTURB, 0x5A) };
+        assert_eq!(accepted, 1);
+        Self
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl Drop for FreedBlocksPoisoned {
+    fn drop(&mut self) {
+        // SAFETY: `mallopt` with `M_PERTURB` and zero only restores glibc's
+        // default of overwriting nothing.
+        unsafe { mallopt(M_PERTURB, 0) };
+    }
+}
+
+/// Allocates and frees many blocks of many sizes, filled with a pattern, and
+/// keeps every second one, so that freed memory is reused and overwritten.
+fn churn_the_heap() -> Vec<Vec<u8>> {
+    let mut kept = Vec::new();
+    for round in 0..4_u8 {
+        for size in (16..=65_536).step_by(48) {
+            let block = vec![0xA5 ^ round; size];
+            if size % 96 == 16 {
+                kept.push(block);
+            }
+        }
+    }
+    kept
+}
+
 #[test]
 fn blobs_and_metadata_stay_valid_after_every_other_object_is_released() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    let _poisoned = super::two_global_sessions::FreedBlocksPoisoned::set();
+    let _poisoned = FreedBlocksPoisoned::set();
     let global = GlobalSession::new().expect("Slang creates a global session");
     let session = spirv_session(&global);
     let target = session.target_index(0).expect("a target");
@@ -695,7 +746,7 @@ fn blobs_and_metadata_stay_valid_after_every_other_object_is_released() {
     drop(code_session);
     drop(metadata_session);
     drop(global);
-    let _churn = super::two_global_sessions::churn_the_heap();
+    let _churn = churn_the_heap();
     // SAFETY: `raw_code` carries the reference that `into_raw` gave up, and
     // this test reads the blob through it on this thread, which is what CA-3
     // of `docs/design/slang-compiler.md` asserts stays valid.

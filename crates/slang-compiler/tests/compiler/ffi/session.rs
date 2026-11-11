@@ -259,12 +259,6 @@ fn a_session_keeps_its_global_session_alive_after_the_handle_is_dropped() {
         .global_session()
         .check_target_support(TargetFormat::Spirv)
         .expect("the global session still works");
-    assert_eq!(
-        GlobalSession::new().map(drop).map_err(|error| error.kind()),
-        Err(ErrorKind::AlreadyExists)
-    );
-    drop(session);
-    GlobalSession::new().expect("no global session is alive on this thread");
 }
 
 /// Shows only that the pinned Slang accepts each of the four settings that
@@ -336,10 +330,6 @@ fn the_global_session_of_into_raw_outlives_the_release_of_the_raw_session() {
         .expect("Slang creates the session")
         .into_raw();
     drop(global);
-    assert_eq!(
-        GlobalSession::new().map(drop).map_err(|error| error.kind()),
-        Err(ErrorKind::AlreadyExists)
-    );
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
     // live session of the pinned build that only this thread uses, and
     // `parent` keeps its global session alive past this release.
@@ -347,6 +337,4 @@ fn the_global_session_of_into_raw_outlives_the_release_of_the_raw_session() {
     parent
         .check_target_support(TargetFormat::Spirv)
         .expect("the global session still works");
-    drop(parent);
-    GlobalSession::new().expect("no global session is alive on this thread");
 }

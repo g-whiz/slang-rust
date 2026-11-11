@@ -4,17 +4,13 @@
 
 use std::fs;
 
+use slang_compiler::reflection::{LayoutSize, TypeLayout, VariableLayout};
 use slang_compiler::{
     Blob, CompilerOptions, Component, DebugInfoLevel, ErrorKind, FloatingPointMode, GlobalSession,
     LanguageVersion, LineDirectiveMode, LinkedProgram, MatrixLayout, OptimizationLevel, OptionName,
-    Session, SessionBuilder, Target, TargetFormat, Toggle,
+    ParameterCategory, Session, SessionBuilder, Target, TargetFormat, Toggle,
 };
-use slang_compiler_sys::{
-    CompilerOptionName, IComponentType, SlangParameterCategory, SlangReflection,
-    spReflection_GetParameterByIndex, spReflectionTypeLayout_GetElementTypeLayout,
-    spReflectionTypeLayout_GetFieldByIndex, spReflectionTypeLayout_GetFieldCount,
-    spReflectionVariableLayout_GetOffset, spReflectionVariableLayout_GetTypeLayout,
-};
+use slang_compiler_sys::CompilerOptionName;
 
 use super::support::{
     DECORATION_ARRAY_STRIDE, DECORATION_OFFSET, GLSLANG_GENERATOR, OP_EXT_INST_IMPORT, compile,
@@ -110,49 +106,22 @@ fn code(session: &Session, program: &LinkedProgram) -> Vec<u32> {
 
 /// Returns the uniform offsets of the fields of the first parameter, the
 /// constant buffer of [`LAYOUT`], from the layout that reflection reports for
-/// `program`, through the raw bindings, because reflection is not wrapped
-/// yet.
-#[expect(
-    ffi_unwind_calls,
-    reason = "the test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
-)]
-fn reflected_offsets(program: &LinkedProgram) -> Vec<usize> {
-    let mut diagnostics = std::ptr::null_mut();
-    // SAFETY: `program` keeps the linked program and its session alive, the
-    // target index 0 exists, and `diagnostics` is a live out-pointer.
-    let layout =
-        unsafe { IComponentType::getLayout(program.as_raw().as_ptr(), 0, &raw mut diagnostics) };
-    assert!(!layout.is_null(), "Slang lays out the program");
-    if !diagnostics.is_null() {
-        // SAFETY: the test owns the one reference of the diagnostics blob.
-        unsafe { slang_compiler_sys::ISlangBlob::release(diagnostics) };
-    }
-    let layout = layout.cast::<SlangReflection>();
-    // SAFETY: `layout` is non-null and lives as long as `program`, and the
-    // program has a parameter at index 0.
-    let parameter = unsafe { spReflection_GetParameterByIndex(layout, 0) };
-    assert!(!parameter.is_null());
-    // SAFETY: `parameter` is non-null and lives as long as `layout`.
-    let buffer = unsafe { spReflectionVariableLayout_GetTypeLayout(parameter) };
-    assert!(!buffer.is_null());
-    // SAFETY: `buffer` is non-null and lives as long as `layout`.
-    let fields = unsafe { spReflectionTypeLayout_GetElementTypeLayout(buffer) };
-    assert!(!fields.is_null());
-    // SAFETY: as for `buffer`, with `fields`.
-    let count = unsafe { spReflectionTypeLayout_GetFieldCount(fields) };
-    (0..count)
-        .map(|index| {
-            // SAFETY: `fields` is non-null and `index` is below its count.
-            let field = unsafe { spReflectionTypeLayout_GetFieldByIndex(fields, index) };
-            assert!(!field.is_null());
-            // SAFETY: `field` is non-null and lives as long as `layout`.
-            unsafe {
-                spReflectionVariableLayout_GetOffset(
-                    field,
-                    SlangParameterCategory::SLANG_PARAMETER_CATEGORY_UNIFORM,
-                )
-            }
-        })
+/// `program`.
+fn reflected_offsets(session: &Session, program: &LinkedProgram) -> Vec<LayoutSize> {
+    let target = session.target_index(0).expect("a target");
+    let layout = program
+        .layout(target)
+        .expect("Slang lays out the program")
+        .into_value();
+    let buffer = layout
+        .parameter_layouts()
+        .next()
+        .and_then(VariableLayout::type_layout)
+        .and_then(TypeLayout::element_type_layout)
+        .expect("the first parameter is a constant buffer of a structure");
+    buffer
+        .field_layouts()
+        .map(|field| field.offset(ParameterCategory::Uniform).amount)
         .collect()
 }
 
@@ -628,8 +597,8 @@ fn link_with_options_changes_the_code_but_not_the_reflected_layout_of_the_layout
     );
     let default = link(&session, LAYOUT, None);
     let default_code = code(&session, &default);
-    let default_offsets = reflected_offsets(&default);
-    assert_eq!(default_offsets, [0, 16, 32, 64]);
+    let default_offsets = reflected_offsets(&session, &default);
+    assert_eq!(default_offsets, [0, 16, 32, 64].map(LayoutSize::Finite));
     let setters: [fn(&mut CompilerOptions); 3] = [
         |options| {
             options.force_dx_layout(Toggle::On);
@@ -652,8 +621,8 @@ fn link_with_options_changes_the_code_but_not_the_reflected_layout_of_the_layout
         let reference = link(&on_session, LAYOUT, None);
         assert_eq!(code(&fresh, &linked), code(&on_session, &reference));
         assert_ne!(code(&fresh, &linked), default_code);
-        assert_ne!(reflected_offsets(&reference), default_offsets);
-        assert_eq!(reflected_offsets(&linked), default_offsets);
+        assert_ne!(reflected_offsets(&on_session, &reference), default_offsets);
+        assert_eq!(reflected_offsets(&fresh, &linked), default_offsets);
     }
     let preserve = options(|options| {
         options.preserve_parameters(Toggle::On);

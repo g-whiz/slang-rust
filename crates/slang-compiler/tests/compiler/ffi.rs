@@ -2,16 +2,21 @@
 mod compile;
 #[cfg(test)]
 mod exceptions;
+#[cfg(test)]
+mod paths;
+#[cfg(test)]
+mod reflection;
 mod session;
 #[cfg(test)]
 mod settings;
 #[cfg(test)]
 mod support;
-mod two_global_sessions;
 
 use std::thread;
 
-use slang_compiler::{ErrorKind, GlobalSession, LanguageVersion, Operation, TargetFormat, Toggle};
+use slang_compiler::{
+    ErrorKind, GlobalSession, LanguageVersion, Operation, Session, Target, TargetFormat, Toggle,
+};
 use slang_compiler_sys::SLANG_BUILD_TAG;
 
 #[test]
@@ -64,35 +69,32 @@ fn check_target_support_reports_each_format_as_supported_or_unsupported() {
 }
 
 #[test]
-fn a_second_global_session_on_the_same_thread_fails_with_already_exists() {
-    let global = GlobalSession::new().expect("Slang creates a global session");
-    for result in [GlobalSession::new(), GlobalSession::builder().build()] {
-        let error = result.expect_err("a global session is alive on this thread");
-        assert_eq!(error.kind(), ErrorKind::AlreadyExists);
-        assert_eq!(error.operation(), Operation::CreateGlobalSession);
-        assert_eq!(error.code(), None);
-        assert!(error.diagnostics().is_empty());
+fn two_global_sessions_on_one_thread_create_sessions_and_drop_in_either_order() {
+    for first_dropped_first in [true, false] {
+        let first = GlobalSession::new().expect("Slang creates a global session");
+        let second = GlobalSession::new().expect("Slang creates a second global session");
+        let sessions = [&first, &second].map(|global| {
+            Session::builder(global)
+                .target(Target::new(TargetFormat::Spirv))
+                .build()
+                .expect("Slang creates a session of each global session")
+        });
+        let [first_session, second_session] = sessions;
+        if first_dropped_first {
+            drop((first_session, first));
+            drop((second_session, second));
+        } else {
+            drop((second_session, second));
+            drop((first_session, first));
+        }
     }
-    let clone = global.clone();
-    drop(global);
-    let error = GlobalSession::new().expect_err("a clone keeps the global session alive");
-    assert_eq!(error.kind(), ErrorKind::AlreadyExists);
-    drop(clone);
-}
-
-#[test]
-fn a_global_session_after_the_first_is_dropped_succeeds() {
-    let first = GlobalSession::new().expect("Slang creates a global session");
-    drop(first);
-    let second = GlobalSession::new().expect("no global session is alive on this thread");
-    assert_eq!(second.build_tag(), SLANG_BUILD_TAG);
 }
 
 #[test]
 fn a_global_session_on_another_thread_succeeds_while_one_is_alive() {
     let global = GlobalSession::new().expect("Slang creates a global session");
     let other = thread::spawn(|| {
-        let global = GlobalSession::new().expect("the other thread has no global session");
+        let global = GlobalSession::new().expect("Slang creates a global session");
         global
             .check_target_support(TargetFormat::Spirv)
             .map(|()| global.build_tag().to_owned())
@@ -111,15 +113,10 @@ fn into_raw_and_from_raw_hand_the_global_session_over() {
         .expect("Slang creates a global session")
         .into_raw();
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    // global session of the pinned build, no other global session of the
-    // crate is alive on this thread, and only this thread uses it.
+    // global session of the pinned build, and only this thread uses it.
     let global = unsafe { GlobalSession::from_raw(raw) };
     assert_eq!(global.as_raw(), raw);
     global
         .check_target_support(TargetFormat::Spirv)
         .expect("the adopted global session works");
-    assert_eq!(
-        GlobalSession::new().map(drop).map_err(|error| error.kind()),
-        Err(ErrorKind::AlreadyExists)
-    );
 }

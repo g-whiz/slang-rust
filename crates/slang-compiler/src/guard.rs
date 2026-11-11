@@ -9,8 +9,7 @@ use std::ptr::NonNull;
 
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
-    static LIVE_GLOBAL_SESSIONS: Cell<usize> = const { Cell::new(0) };
-    static PENDING: RefCell<VecDeque<Pending>> = const { RefCell::new(VecDeque::new()) };
+    static PENDING: RefCell<VecDeque<Release>> = const { RefCell::new(VecDeque::new()) };
 }
 
 /// One reference of a Slang object, with the function that releases it.
@@ -38,11 +37,6 @@ impl Release {
         // released once, on the thread of its graph.
         unsafe { (self.release)(self.raw) };
     }
-}
-
-enum Pending {
-    Release(Release),
-    EndGlobalSession,
 }
 
 /// A raised Slang call guard, which lowers the guard when it is dropped and
@@ -78,30 +72,26 @@ fn is_raised() -> bool {
 }
 
 fn drain() {
-    while let Some(pending) = PENDING
+    while let Some(release) = PENDING
         .try_with(|queue| queue.borrow_mut().pop_front())
         .ok()
         .flatten()
     {
-        match pending {
-            Pending::Release(release) => {
-                DEPTH.with(|depth| depth.set(depth.get() + 1));
-                release.run();
-                DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-            }
-            Pending::EndGlobalSession => end_global_session(),
-        }
+        DEPTH.with(|depth| depth.set(depth.get() + 1));
+        release.run();
+        DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
     }
 }
 
-/// Queues work until the guard falls back to zero, and returns whether it did.
+/// Queues a release until the guard falls back to zero, and returns whether it
+/// did.
 ///
 /// When the queue of this thread is already destroyed, which happens only
-/// while the thread exits, the work is dropped. A dropped release leaks its
+/// while the thread exits, the release is dropped. A dropped release leaks its
 /// reference, which is sound (UNS-4), where a release during a call is not.
-fn defer(pending: Pending) -> bool {
+fn defer(release: Release) -> bool {
     PENDING
-        .try_with(|queue| queue.borrow_mut().push_back(pending))
+        .try_with(|queue| queue.borrow_mut().push_back(release))
         .is_ok()
 }
 
@@ -181,57 +171,11 @@ fn exception_escaped(callee: &str) -> ! {
 /// raised (rule 3 of SLC-28).
 pub(crate) fn release(release: Release) {
     if is_raised() {
-        defer(Pending::Release(release));
+        defer(release);
     } else {
         let _raised = raise();
         release.run();
     }
-}
-
-/// The record that a global session of this crate is alive on this thread
-/// (SLC-29), which ends when the last wrapper of the global session drops and
-/// its deferred release, if any, has run.
-pub(crate) struct GlobalSessionRecord {
-    thread: PhantomData<*const ()>,
-}
-
-impl GlobalSessionRecord {
-    /// Starts the record of a new global session, or returns `None` when a
-    /// global session of this crate is alive on this thread.
-    pub(crate) fn begin() -> Option<Self> {
-        LIVE_GLOBAL_SESSIONS.with(|live| {
-            if live.get() == 0 {
-                live.set(1);
-                Some(Self {
-                    thread: PhantomData,
-                })
-            } else {
-                None
-            }
-        })
-    }
-
-    /// Starts the record of a global session that the caller adopted, without
-    /// checking for another one, which the caller of `from_raw` guarantees.
-    pub(crate) fn adopt() -> Self {
-        LIVE_GLOBAL_SESSIONS.with(|live| live.set(live.get().saturating_add(1)));
-        Self {
-            thread: PhantomData,
-        }
-    }
-}
-
-impl Drop for GlobalSessionRecord {
-    fn drop(&mut self) {
-        if is_raised() && defer(Pending::EndGlobalSession) {
-            return;
-        }
-        end_global_session();
-    }
-}
-
-fn end_global_session() {
-    LIVE_GLOBAL_SESSIONS.with(|live| live.set(live.get().saturating_sub(1)));
 }
 
 #[cfg(test)]
@@ -243,7 +187,7 @@ mod tests {
 
     use slang_compiler_sys::ISlangBlob;
 
-    use super::{GlobalSessionRecord, PENDING, abort_on_exception, call, raise};
+    use super::{PENDING, abort_on_exception, call, raise};
     use crate::fake::{Event, FakeBlob, Log, panic_message};
     use crate::owned::Owned;
 
@@ -346,57 +290,31 @@ mod tests {
         assert!(!super::is_raised());
     }
 
-    #[test]
-    fn a_second_global_session_record_is_refused_until_the_first_ends() {
-        let first = GlobalSessionRecord::begin().expect("no record exists yet");
-        assert!(GlobalSessionRecord::begin().is_none());
-        drop(first);
-        assert!(GlobalSessionRecord::begin().is_some());
-    }
-
-    #[test]
-    fn a_record_dropped_while_the_guard_is_raised_ends_after_it_falls() {
-        let record = GlobalSessionRecord::begin().expect("no record exists yet");
-        call("Test::method", || {
-            drop(record);
-            assert!(GlobalSessionRecord::begin().is_none());
-        });
-        assert!(GlobalSessionRecord::begin().is_some());
-    }
-    /// What happened to a release and to the record of a global session that
-    /// were dropped with the guard raised after the queue of the thread was
-    /// destroyed.
+    /// What happened to a release that was dropped with the guard raised after
+    /// the queue of the thread was destroyed.
     #[derive(Debug, PartialEq, Eq)]
     struct AtThreadExit {
-        record_began: bool,
-        events_while_raised: Vec<Event>,
-        record_ended_while_raised: bool,
-        events_after_lowering: Vec<Event>,
-        events_after_reclaim: Vec<Event>,
+        while_raised: Vec<Event>,
+        after_lowering: Vec<Event>,
+        after_reclaim: Vec<Event>,
     }
 
     fn drop_with_the_guard_raised_after_the_queue_is_destroyed() -> AtThreadExit {
         let log = Log::new();
         let blob = adopt_blob(&log, "blob");
         let raw = blob.as_non_null();
-        let record = GlobalSessionRecord::begin();
-        let record_began = record.is_some();
         let raised = raise();
         drop(blob);
-        drop(record);
-        let events_while_raised = log.events();
-        let record_ended_while_raised = GlobalSessionRecord::begin().is_some();
+        let while_raised = log.events();
         drop(raised);
-        let events_after_lowering = log.events();
+        let after_lowering = log.events();
         // SAFETY: the release of `blob` was dropped without running, so the
         // reference of `create` is still owned and nothing else releases it.
         unsafe { FakeBlob::release_raw(raw) };
         AtThreadExit {
-            record_began,
-            events_while_raised,
-            record_ended_while_raised,
-            events_after_lowering,
-            events_after_reclaim: log.events(),
+            while_raised,
+            after_lowering,
+            after_reclaim: log.events(),
         }
     }
 
@@ -424,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_with_the_guard_raised_at_thread_exit_leak_the_release_and_end_the_record() {
+    fn a_drop_with_the_guard_raised_at_thread_exit_leaks_the_release() {
         let (report, outcomes) = mpsc::channel();
         thread::spawn(move || {
             BEFORE_QUEUE.with(|probe| *probe.report.borrow_mut() = Some(report.clone()));
@@ -437,11 +355,9 @@ mod tests {
         assert_eq!(
             outcomes,
             [AtThreadExit {
-                record_began: true,
-                events_while_raised: Vec::new(),
-                record_ended_while_raised: true,
-                events_after_lowering: Vec::new(),
-                events_after_reclaim: vec![Event::release("blob", 0), Event::freed("blob")],
+                while_raised: Vec::new(),
+                after_lowering: Vec::new(),
+                after_reclaim: vec![Event::release("blob", 0), Event::freed("blob")],
             }]
         );
     }
@@ -451,14 +367,10 @@ mod tests {
     /// sit in a module named `ffi`, which Miri skips.
     mod ffi {
         use std::env;
-        use std::ffi::CString;
         use std::process::{Command, ExitStatus};
-        use std::ptr::{self, NonNull};
+        use std::ptr;
 
-        use slang_compiler_sys::{
-            IComponentType, IModule, ISlangBlob, SlangReflection, TypeReflection,
-            spReflection_FindTypeByName,
-        };
+        use slang_compiler_sys::{IComponentType, ISlangBlob};
 
         use super::super::abort_on_exception;
         use crate::reflection::Type;
@@ -575,38 +487,18 @@ void main<T : IValue>(uniform T value)
 
         /// Finds the type `name` in the layout of a module that has no
         /// deeply nested parameter, which Slang lays out without an exception.
-        fn find_type<'session>(
-            session: &'session Session,
-            module: &crate::Module,
+        fn find_type<'module>(
+            session: &Session,
+            module: &'module crate::Module,
             name: &str,
-        ) -> Option<Type<'session>> {
-            let name = CString::new(name).expect("no NUL byte");
-            let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
-            // SAFETY: `module` keeps the module and its session alive, the
-            // session has a target at index 0, and `diagnostics` is a live
-            // out-pointer.
-            let layout =
-                unsafe { IModule::getLayout(module.as_raw().as_ptr(), 0, &raw mut diagnostics) };
-            if !diagnostics.is_null() {
-                // SAFETY: the call returned a new reference, which the test
-                // owns.
-                unsafe { ISlangBlob::release(diagnostics) };
-            }
-            assert!(!layout.is_null(), "Slang lays out the module");
-            #[expect(
-                ffi_unwind_calls,
-                reason = "the test calls a C function of Slang directly, and an exception that escaped it would unwind into the test, which is defined and fails it"
-            )]
-            // SAFETY: `layout` is a live layout of `module`, `ShaderReflection`
-            // and `SlangReflection` name the same object, and `name` is a C
-            // string.
-            let raw = unsafe {
-                spReflection_FindTypeByName(layout.cast::<SlangReflection>(), name.as_ptr())
-            };
-            let raw = NonNull::new(raw.cast::<TypeReflection>())?;
-            // SAFETY: Slang returned a type of the session of `module`, which
-            // `session` is and keeps alive with the module, on this thread.
-            Some(unsafe { Type::from_raw(raw, session) })
+        ) -> Option<Type<'module>> {
+            let target = session.target_index(0).expect("the session has a target");
+            module
+                .layout(target)
+                .expect("Slang lays out the module")
+                .into_value()
+                .find_type_by_name(name)
+                .expect("the name has no NUL byte")
         }
 
         /// The body of the child processes of the tests below, which does

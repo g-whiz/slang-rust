@@ -1,152 +1,306 @@
 //! Handles to what Slang reports about compiled code, which is called
 //! reflection.
 //!
-//! Reflection describes the parameters and types of Slang code. Each handle
-//! borrows the object it came from, so it cannot outlive it, and it is
-//! neither [`Send`] nor [`Sync`]. This version offers only [`Type`], a type of
-//! Slang code, which
-//! [`ComponentType::specialize`](crate::ComponentType::specialize) and
-//! [`Session::type_conformance`](crate::Session::type_conformance) take, and
-//! which a program gets from the raw bindings of `slang-compiler-sys` through
-//! [`Type::from_raw`].
+//! Reflection describes the parameters and types of Slang code, so that a
+//! program can fill the buffers and bindings that a shader reads. A binding is
+//! a numbered slot of a graphics API through which a shader reaches one
+//! resource, such as a buffer or a texture. Slang separates a type from its
+//! layout, because one type can be laid out differently depending on its use.
+//! A layout says where a parameter sits in memory and in the bindings of one
+//! target, the format of code that Slang generates, such as SPIR-V for
+//! Vulkan. Each size and offset of a layout is counted in the units of a
+//! [`ParameterCategory`](crate::ParameterCategory), such as bytes of uniform data or whole bindings,
+//! which is why [`LayoutUnits`] carries its category.
+//!
+//! Start from [`ProgramLayout`], which the method `layout` of a component
+//! type returns, such as [`LinkedProgram::layout`](crate::LinkedProgram::layout)
+//! or [`Module::layout`](crate::Module::layout). From it, reach the
+//! [`EntryPointLayout`] of each entry point, a function that a graphics API
+//! calls, the [`VariableLayout`] of each parameter, and the [`TypeLayout`] and
+//! [`Type`] of each. [`ProgramLayout::find_type_by_name`] finds a type by its
+//! name, which [`ComponentType::specialize`](crate::ComponentType::specialize)
+//! and [`Session::type_conformance`](crate::Session::type_conformance) take.
+//!
+//! Every handle of this module is a [`Copy`] value that borrows the object it
+//! came from, so it cannot outlive it, and it is neither [`Send`] nor
+//! [`Sync`]. A handle belongs to the session of that object, and a method that
+//! takes a handle of another session rejects it with
+//! [`ErrorKind::InvalidArgument`]. A method
+//! returns `None` where Slang returns nothing, and an [`Error`]
+//! where the crate converts Slang's answer and it does not fit, such as a name
+//! that is not UTF-8 or a value of an enumeration that the pinned Slang
+//! header does not list.
 
-use std::fmt;
-use std::ptr::NonNull;
+use std::ffi::{CStr, c_char};
 
-use slang_compiler_sys::TypeReflection;
+use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangInt};
 
-use crate::session::Session;
+use crate::error::{Error, ErrorKind, Operation, Result};
 
-/// A type of Slang code, such as a structure or a Slang interface, an
-/// `interface` declaration that Slang types implement.
-///
-/// This version has no safe way to find a type: a program finds one through
-/// the reflection functions of `slang-compiler-sys`, such as
-/// `spReflection_FindTypeByName`, and wraps it with [`Type::from_raw`]. A
-/// type borrows its [`Session`], so it cannot outlive it, and it belongs to
-/// that session: a method of another session rejects it.
-///
-/// # Examples
-///
-/// See the example of
-/// [`ComponentType::specialize`](crate::ComponentType::specialize).
-///
-/// A type handle cannot move to another thread, so this example does not
-/// compile:
-///
-/// ```compile_fail,E0277
-/// fn assert_send<T: Send>() {}
-/// assert_send::<slang_compiler::reflection::Type<'static>>();
-/// ```
-///
-/// A type handle cannot be shared between threads either, so this example
-/// does not compile:
-///
-/// ```compile_fail,E0277
-/// fn assert_sync<T: Sync>() {}
-/// assert_sync::<slang_compiler::reflection::Type<'static>>();
-/// ```
-#[derive(Clone, Copy)]
-pub struct Type<'session> {
-    raw: NonNull<TypeReflection>,
-    session: &'session Session,
+mod binding;
+mod kinds;
+mod program;
+mod type_layout;
+mod types;
+mod variable;
+
+pub use binding::{
+    BindingRange, BindingRanges, BindingType, DescriptorRange, DescriptorRanges, DescriptorSet,
+    DescriptorSets,
+};
+pub use kinds::{
+    LayoutSize, LayoutUnits, ResourceAccess, ResourceBaseShape, ResourceShape, ScalarType, TypeKind,
+};
+pub use program::{EntryPointLayout, EntryPointLayouts, ParameterLayouts, ProgramLayout};
+pub use type_layout::{Categories, FieldLayouts, TypeLayout};
+pub use types::{Fields, Function, Parameters, Type};
+pub use variable::{Attribute, UserAttributes, Variable, VariableLayout};
+
+/// The positions that an iterator of this module has not yet yielded, from
+/// the front and from the back, below the count that it read once.
+#[derive(Clone, Copy, Debug)]
+struct Positions {
+    front: usize,
+    back: usize,
 }
 
-impl<'session> Type<'session> {
-    /// Wraps a type that the caller found through the raw bindings of
-    /// `slang-compiler-sys`.
-    ///
-    /// # Examples
-    ///
-    /// This example finds a type by its name in the layout of a module, which
-    /// the caller got from `getLayout` through the raw bindings:
-    ///
-    /// ```
-    /// use std::ffi::CStr;
-    /// use std::ptr::NonNull;
-    ///
-    /// use slang_compiler::Session;
-    /// use slang_compiler::reflection::Type;
-    /// use slang_compiler_sys::{SlangReflection, TypeReflection, spReflection_FindTypeByName};
-    ///
-    /// /// # Safety
-    /// ///
-    /// /// `layout` is a live layout of a module of `session`, which stays loaded
-    /// /// while `session` lives. Breaking this is undefined behaviour.
-    /// unsafe fn find<'session>(
-    ///     session: &'session Session,
-    ///     layout: NonNull<SlangReflection>,
-    ///     name: &CStr,
-    /// ) -> Option<Type<'session>> {
-    ///     // SAFETY: the caller guarantees that `layout` is live, and `name` is a
-    ///     // C string.
-    ///     let raw = unsafe { spReflection_FindTypeByName(layout.as_ptr(), name.as_ptr()) };
-    ///     let raw = NonNull::new(raw.cast::<TypeReflection>())?;
-    ///     // SAFETY: Slang returned a non-null type of the session of `layout`,
-    ///     // which `session` keeps alive.
-    ///     Some(unsafe { Type::from_raw(raw, session) })
-    /// }
-    /// # let _ = find;
-    /// ```
-    ///
-    /// # Safety
-    ///
-    /// The caller guarantees all of these, and breaking any of them is
-    /// undefined behaviour:
-    ///
-    /// - `raw` points to a type that a reflection function of the Slang
-    ///   library of the build tag [`slang_compiler_sys::SLANG_BUILD_TAG`]
-    ///   returned for an object of `session`, such as the layout of one of its
-    ///   modules.
-    /// - The type stays alive while `session` lives, which holds for the types
-    ///   of the modules that the session loaded and of the core module.
-    /// - The type is not used on another thread while the returned value
-    ///   exists.
-    ///
-    /// Section 11.3 of the design of this crate states the conditions of a
-    /// reflection handle.
-    #[must_use]
-    pub unsafe fn from_raw(raw: NonNull<TypeReflection>, session: &'session Session) -> Self {
-        Self { raw, session }
+impl Positions {
+    fn new(count: usize) -> Self {
+        Self {
+            front: 0,
+            back: count,
+        }
     }
 
-    /// Returns the session that the type belongs to, for the check of SLC-7.
-    pub(crate) fn session(&self) -> &'session Session {
-        self.session
+    /// Returns the item at the next position from the front at which `at`
+    /// returns one, and skips each position at which it returns `None`.
+    fn next<T>(&mut self, mut at: impl FnMut(usize) -> Option<T>) -> Option<T> {
+        while self.front < self.back {
+            let position = self.front;
+            self.front += 1;
+            if let Some(item) = at(position) {
+                return Some(item);
+            }
+        }
+        None
     }
 
-    /// Returns the pointer to the type, for use with the reflection functions
-    /// of `slang-compiler-sys` that this version does not wrap.
-    ///
-    /// The pointer is valid only while the session that the type borrows
-    /// lives. Every use of it is unsafe and follows the safety contract of
-    /// `slang-compiler-sys`.
-    ///
-    /// # Examples
-    ///
-    /// This example reads the kind of a type through the raw bindings:
-    ///
-    /// ```
-    /// use slang_compiler::reflection::Type;
-    /// use slang_compiler_sys::{SlangReflectionType, SlangTypeKind, spReflectionType_GetKind};
-    ///
-    /// fn kind(ty: Type<'_>) -> SlangTypeKind {
-    ///     // SAFETY: `ty` borrows its session, which keeps the type alive during
-    ///     // the call, and only this thread uses it.
-    ///     unsafe { spReflectionType_GetKind(ty.as_raw().as_ptr().cast::<SlangReflectionType>()) }
-    /// }
-    /// # let _ = kind;
-    /// ```
-    #[must_use]
-    pub fn as_raw(&self) -> NonNull<TypeReflection> {
-        self.raw
+    /// Returns the item at the next position from the back at which `at`
+    /// returns one, and skips each position at which it returns `None`.
+    fn next_back<T>(&mut self, mut at: impl FnMut(usize) -> Option<T>) -> Option<T> {
+        while self.front < self.back {
+            self.back -= 1;
+            if let Some(item) = at(self.back) {
+                return Some(item);
+            }
+        }
+        None
+    }
+
+    /// Returns the number of positions left.
+    fn len(self) -> usize {
+        self.back - self.front
     }
 }
 
-impl fmt::Debug for Type<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Type")
-            .field("raw", &self.raw)
-            .finish_non_exhaustive()
+/// Converts a count that Slang returned as an unsigned integer of 32 bits.
+///
+/// Every supported platform has a `usize` of 64 bits, because
+/// `slang-compiler-sys` compiles for no other, so the conversion never fails.
+/// Were it to fail, the count would be 0, so that no position past the real
+/// end reaches Slang.
+fn count(value: u32) -> usize {
+    usize::try_from(value).unwrap_or(0)
+}
+
+/// Converts a position below a count that [`count`] converted back to
+/// Slang's unsigned integer of 32 bits, or returns `None` when it does not
+/// fit, which no position below such a count does.
+fn index(position: usize) -> Option<u32> {
+    u32::try_from(position).ok()
+}
+
+/// Converts a position below a signed count back to Slang's signed integer,
+/// or returns `None` when it does not fit, which no position below such a
+/// count does.
+fn signed_index(position: usize) -> Option<SlangInt> {
+    SlangInt::try_from(position).ok()
+}
+
+/// Converts a count or a position that Slang returned as a signed integer,
+/// and reports a negative value as an error of kind `Internal` that names
+/// `what` (SLC-12).
+fn signed(value: SlangInt, what: &str) -> Result<usize> {
+    usize::try_from(value).map_err(|error| {
+        Error::new(ErrorKind::Internal, Operation::Reflect)
+            .with_detail(format!("Slang reported {what} {value}: {error}"))
+    })
+}
+
+/// Converts a binding number or a binding space that Slang returned as
+/// `size_t`, or returns `None` for `SLANG_UNKNOWN_SIZE`, which Slang returns
+/// when the number is not known, and for `SLANG_UNBOUNDED_SIZE`, which the
+/// pinned Slang does not return for these numbers (SLC-12, SLC-13).
+fn binding_number(raw: usize) -> Option<u64> {
+    match raw {
+        SLANG_UNBOUNDED_SIZE | SLANG_UNKNOWN_SIZE => None,
+        number => u64::try_from(number).ok(),
+    }
+}
+
+/// Converts a binding number that Slang returned as a signed integer, which
+/// holds the sentinels of `size_t` as -1 and -2, as [`binding_number`] does,
+/// and reports any other negative value as an error of kind `Internal` that
+/// names `what`.
+fn signed_binding_number(raw: SlangInt, what: &str) -> Result<Option<u64>> {
+    if raw >= 0 {
+        return Ok(binding_number(raw.cast_unsigned()));
+    }
+    match raw.cast_unsigned() {
+        SLANG_UNBOUNDED_SIZE | SLANG_UNKNOWN_SIZE => Ok(None),
+        _ => Err(Error::new(ErrorKind::Internal, Operation::Reflect)
+            .with_detail(format!("Slang reported {what} {raw}"))),
+    }
+}
+
+/// Returns the error of a position past the end of a list of `count` items
+/// that `what` names (SLC-20).
+fn out_of_range(what: &str, position: usize, count: usize) -> Error {
+    Error::new(ErrorKind::InvalidArgument, Operation::Reflect).with_detail(format!(
+        "{what} {position} is past the end of the {count} that Slang reports"
+    ))
+}
+
+/// Reads a string that Slang returned, as text borrowed for `'a`.
+///
+/// A null pointer is `None`, and bytes that are not UTF-8 are an error of
+/// kind `InvalidUtf8` whose detail names the string as `what` (Section 6.11
+/// of `docs/design/slang-compiler.md`).
+///
+/// # Safety
+///
+/// `raw` is null or points to a NUL-terminated string that stays alive and
+/// unchanged for `'a`, which holds for the strings of reflection while the
+/// wrapper that a handle of lifetime `'a` borrows lives (Section 11.3).
+/// Breaking this is undefined behaviour.
+unsafe fn text<'a>(raw: *const c_char, what: &str) -> Result<Option<&'a str>> {
+    if raw.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: `raw` is non-null, and the caller guarantees that it points to
+    // a NUL-terminated string that lives for `'a`.
+    let text = unsafe { CStr::from_ptr(raw) };
+    text.to_str().map(Some).map_err(|error| {
+        Error::new(ErrorKind::InvalidUtf8, Operation::Reflect)
+            .with_detail(format!("{what} is not UTF-8: {error}"))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::c_char;
+    use std::ptr;
+
+    use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE};
+
+    use super::{
+        Positions, binding_number, count, index, out_of_range, signed, signed_binding_number,
+        signed_index, text,
+    };
+    use crate::{ErrorKind, Operation};
+
+    #[test]
+    fn counts_and_positions_convert_without_loss() {
+        assert_eq!(count(u32::MAX), 4_294_967_295);
+        assert_eq!(index(4_294_967_295), Some(u32::MAX));
+        assert_eq!(index(4_294_967_296), None);
+        assert_eq!(signed_index(7), Some(7));
+        assert_eq!(signed_index(usize::MAX), None);
+        assert_eq!(signed(3, "the count").ok(), Some(3));
+    }
+
+    #[test]
+    fn a_negative_number_from_slang_is_internal() {
+        let error = signed(-1, "the binding range count").expect_err("a negative count fails");
+        assert_eq!(error.kind(), ErrorKind::Internal);
+        assert_eq!(error.operation(), Operation::Reflect);
+        assert!(
+            error
+                .to_string()
+                .starts_with("cannot read reflection: Slang reported the binding range count -1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn binding_numbers_turn_the_sentinels_into_none() {
+        assert_eq!(binding_number(0), Some(0));
+        assert_eq!(binding_number(7), Some(7));
+        assert_eq!(binding_number(SLANG_UNKNOWN_SIZE - 1), Some(u64::MAX - 2));
+        assert_eq!(binding_number(SLANG_UNKNOWN_SIZE), None);
+        assert_eq!(binding_number(SLANG_UNBOUNDED_SIZE), None);
+        assert_eq!(signed_binding_number(3, "the offset").ok(), Some(Some(3)));
+        assert_eq!(signed_binding_number(-1, "the offset").ok(), Some(None));
+        assert_eq!(signed_binding_number(-2, "the offset").ok(), Some(None));
+        let error = signed_binding_number(-3, "the index offset of a descriptor range")
+            .expect_err("-3 is no sentinel");
+        assert_eq!(error.kind(), ErrorKind::Internal);
+        assert_eq!(
+            error.to_string(),
+            "cannot read reflection: Slang reported the index offset of a descriptor range -3"
+        );
+    }
+
+    #[test]
+    fn a_position_past_the_end_names_the_count() {
+        let error = out_of_range("field", 4, 2);
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(
+            error.to_string(),
+            "cannot read reflection: field 4 is past the end of the 2 that Slang reports"
+        );
+    }
+
+    #[test]
+    fn text_reads_null_as_none_and_checks_utf8() {
+        // SAFETY: a null pointer is allowed.
+        assert_eq!(unsafe { text(ptr::null(), "the name") }.ok(), Some(None));
+        let name = c"value";
+        // SAFETY: `name` is a static NUL-terminated string.
+        let read = unsafe { text(name.as_ptr(), "the name") };
+        assert_eq!(read.ok(), Some(Some("value")));
+        let invalid = [0xFF_u8, 0];
+        // SAFETY: `invalid` is NUL-terminated and outlives the call.
+        let error = unsafe { text(invalid.as_ptr().cast::<c_char>(), "the name") }
+            .expect_err("0xFF is not UTF-8");
+        assert_eq!(error.kind(), ErrorKind::InvalidUtf8);
+        assert!(
+            error
+                .to_string()
+                .starts_with("cannot read reflection: the name is not UTF-8"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn positions_skip_none_from_both_ends_and_stop_at_the_count() {
+        let mut positions = Positions::new(5);
+        assert_eq!(positions.len(), 5);
+        let odd = |position: usize| (position % 2 == 1).then_some(position);
+        assert_eq!(positions.next(odd), Some(1));
+        assert_eq!(positions.next_back(odd), Some(3));
+        assert_eq!(positions.len(), 1);
+        assert_eq!(positions.next(odd), None);
+        assert_eq!(positions.len(), 0);
+        assert_eq!(positions.next_back(odd), None);
+        let mut seen = Vec::new();
+        let mut all = Positions::new(3);
+        while let Some(position) = all.next(|position| {
+            seen.push(position);
+            Some(position)
+        }) {
+            assert!(position < 3);
+        }
+        assert_eq!(seen, [0, 1, 2]);
     }
 }

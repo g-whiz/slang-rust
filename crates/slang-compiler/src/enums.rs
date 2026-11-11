@@ -4,6 +4,16 @@ use slang_compiler_sys::{
     SlangStage,
 };
 
+use crate::error::{Error, ErrorKind, Operation, Result};
+
+/// Returns the error for a value of a Slang enumeration that the pinned
+/// header does not list, which `what` names, such as `stage` (SLC-14).
+pub(crate) fn unrecognized(what: &str, value: u32) -> Error {
+    Error::new(ErrorKind::Unrecognized, Operation::Reflect).with_detail(format!(
+        "Slang returned the {what} {value}, which the pinned Slang header does not list"
+    ))
+}
+
 /// A format of code that Slang can generate, which this crate calls a target
 /// format.
 ///
@@ -167,6 +177,18 @@ impl MatrixLayout {
             Self::ColumnMajor => SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_COLUMN_MAJOR,
         }
     }
+
+    /// Converts a matrix layout that reflection returned, with `None` for
+    /// `SLANG_MATRIX_LAYOUT_MODE_UNKNOWN`, which Slang returns for a type
+    /// layout that is not a matrix (SLC-14).
+    pub(crate) fn from_raw(raw: SlangMatrixLayoutMode) -> Result<Option<Self>> {
+        match raw {
+            SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_MODE_UNKNOWN => Ok(None),
+            SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_ROW_MAJOR => Ok(Some(Self::RowMajor)),
+            SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_COLUMN_MAJOR => Ok(Some(Self::ColumnMajor)),
+            SlangMatrixLayoutMode(other) => Err(unrecognized("matrix layout", other)),
+        }
+    }
 }
 
 /// The kind of work that an entry point of a shader does in a pipeline,
@@ -253,6 +275,33 @@ impl Stage {
             Self::Dispatch => SlangStage::SLANG_STAGE_DISPATCH,
             Self::Node => SlangStage::SLANG_STAGE_NODE,
         }
+    }
+
+    /// Converts a stage that reflection returned, with `None` for
+    /// `SLANG_STAGE_NONE`, which Slang returns for a variable that is not an
+    /// input or output of a stage (SLC-14).
+    pub(crate) fn from_raw(raw: SlangStage) -> Result<Option<Self>> {
+        let stage = match raw {
+            SlangStage::SLANG_STAGE_NONE => return Ok(None),
+            SlangStage::SLANG_STAGE_VERTEX => Self::Vertex,
+            SlangStage::SLANG_STAGE_HULL => Self::Hull,
+            SlangStage::SLANG_STAGE_DOMAIN => Self::Domain,
+            SlangStage::SLANG_STAGE_GEOMETRY => Self::Geometry,
+            SlangStage::SLANG_STAGE_FRAGMENT => Self::Fragment,
+            SlangStage::SLANG_STAGE_COMPUTE => Self::Compute,
+            SlangStage::SLANG_STAGE_RAY_GENERATION => Self::RayGeneration,
+            SlangStage::SLANG_STAGE_INTERSECTION => Self::Intersection,
+            SlangStage::SLANG_STAGE_ANY_HIT => Self::AnyHit,
+            SlangStage::SLANG_STAGE_CLOSEST_HIT => Self::ClosestHit,
+            SlangStage::SLANG_STAGE_MISS => Self::Miss,
+            SlangStage::SLANG_STAGE_CALLABLE => Self::Callable,
+            SlangStage::SLANG_STAGE_MESH => Self::Mesh,
+            SlangStage::SLANG_STAGE_AMPLIFICATION => Self::Amplification,
+            SlangStage::SLANG_STAGE_DISPATCH => Self::Dispatch,
+            SlangStage::SLANG_STAGE_NODE => Self::Node,
+            SlangStage(other) => return Err(unrecognized("stage", other)),
+        };
+        Ok(Some(stage))
     }
 }
 
@@ -417,7 +466,8 @@ impl LineDirectiveMode {
 /// descriptor slots of Vulkan or the texture registers of Direct3D. A
 /// parameter category names one such kind, and a binding space and a binding
 /// number are counted within it. The enumeration has no variant for Slang's
-/// `SLANG_PARAMETER_CATEGORY_NONE`, which names no category. It is
+/// `SLANG_PARAMETER_CATEGORY_NONE`, which names no category: a reflection
+/// method that Slang can answer with it returns `None` instead. It is
 /// non-exhaustive, so a later version can add categories, and a `match` on
 /// it needs a wildcard arm.
 ///
@@ -557,6 +607,46 @@ impl ParameterCategory {
             Self::MetalPayload => SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD,
         }
     }
+
+    /// Converts a parameter category that reflection returned, with `None`
+    /// for `SLANG_PARAMETER_CATEGORY_NONE`, which Slang returns for a type
+    /// layout that uses no resource, such as an empty structure (SLC-14).
+    pub(crate) fn from_raw(raw: SlangParameterCategory) -> Result<Option<Self>> {
+        use SlangParameterCategory as C;
+        let category = match raw {
+            C::SLANG_PARAMETER_CATEGORY_NONE => return Ok(None),
+            C::SLANG_PARAMETER_CATEGORY_MIXED => Self::Mixed,
+            C::SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER => Self::ConstantBuffer,
+            C::SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE => Self::ShaderResource,
+            C::SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS => Self::UnorderedAccess,
+            C::SLANG_PARAMETER_CATEGORY_VARYING_INPUT => Self::VaryingInput,
+            C::SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT => Self::VaryingOutput,
+            C::SLANG_PARAMETER_CATEGORY_SAMPLER_STATE => Self::SamplerState,
+            C::SLANG_PARAMETER_CATEGORY_UNIFORM => Self::Uniform,
+            C::SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT => Self::DescriptorTableSlot,
+            C::SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT => Self::SpecializationConstant,
+            C::SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER => Self::PushConstantBuffer,
+            C::SLANG_PARAMETER_CATEGORY_REGISTER_SPACE => Self::RegisterSpace,
+            C::SLANG_PARAMETER_CATEGORY_GENERIC => Self::Generic,
+            C::SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD => Self::RayPayload,
+            C::SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES => Self::HitAttributes,
+            C::SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD => Self::CallablePayload,
+            C::SLANG_PARAMETER_CATEGORY_SHADER_RECORD => Self::ShaderRecord,
+            C::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM => Self::ExistentialTypeParam,
+            C::SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM => Self::ExistentialObjectParam,
+            C::SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE => Self::SubElementRegisterSpace,
+            C::SLANG_PARAMETER_CATEGORY_SUBPASS => Self::Subpass,
+            C::SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT => {
+                Self::MetalArgumentBufferElement
+            }
+            C::SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE => Self::MetalAttribute,
+            C::SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD => Self::MetalPayload,
+            SlangParameterCategory(other) => {
+                return Err(unrecognized("parameter category", other));
+            }
+        };
+        Ok(Some(category))
+    }
 }
 
 #[cfg(test)]
@@ -571,6 +661,7 @@ mod tests {
         DebugInfoLevel, FloatingPointMode, LanguageVersion, LineDirectiveMode, MatrixLayout,
         OptimizationLevel, ParameterCategory, Stage, TargetFormat, Toggle,
     };
+    use crate::{ErrorKind, Operation};
 
     #[test]
     fn every_target_format_converts_to_its_slang_target() {
@@ -849,5 +940,101 @@ mod tests {
             ParameterCategory::Subpass.to_raw(),
             SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT_V1
         );
+    }
+
+    const ALL_STAGES: [Stage; 16] = [
+        Stage::Vertex,
+        Stage::Hull,
+        Stage::Domain,
+        Stage::Geometry,
+        Stage::Fragment,
+        Stage::Compute,
+        Stage::RayGeneration,
+        Stage::Intersection,
+        Stage::AnyHit,
+        Stage::ClosestHit,
+        Stage::Miss,
+        Stage::Callable,
+        Stage::Mesh,
+        Stage::Amplification,
+        Stage::Dispatch,
+        Stage::Node,
+    ];
+
+    #[test]
+    fn every_stage_converts_back_from_its_slang_value() {
+        for stage in ALL_STAGES {
+            assert_eq!(Stage::from_raw(stage.to_raw()).ok(), Some(Some(stage)));
+        }
+        assert_eq!(
+            Stage::from_raw(SlangStage::SLANG_STAGE_PIXEL).ok(),
+            Some(Some(Stage::Fragment))
+        );
+        assert_eq!(
+            Stage::from_raw(SlangStage::SLANG_STAGE_NONE).ok(),
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn a_stage_sentinel_or_unknown_value_from_slang_is_unrecognized() {
+        for value in [SlangStage::SLANG_STAGE_COUNT, SlangStage(1000)] {
+            let error = Stage::from_raw(value).expect_err("no stage has this value");
+            assert_eq!(error.kind(), ErrorKind::Unrecognized);
+            assert_eq!(error.operation(), Operation::Reflect);
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "cannot read reflection: Slang returned the stage {}, which the pinned Slang header does not list",
+                    value.0
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn every_matrix_layout_converts_back_from_its_slang_value() {
+        for layout in [MatrixLayout::RowMajor, MatrixLayout::ColumnMajor] {
+            assert_eq!(
+                MatrixLayout::from_raw(layout.to_raw()).ok(),
+                Some(Some(layout))
+            );
+        }
+        assert_eq!(
+            MatrixLayout::from_raw(SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_MODE_UNKNOWN).ok(),
+            Some(None)
+        );
+        let error = MatrixLayout::from_raw(SlangMatrixLayoutMode(3)).expect_err("no layout is 3");
+        assert_eq!(error.kind(), ErrorKind::Unrecognized);
+    }
+
+    #[test]
+    fn every_parameter_category_converts_back_and_none_and_the_sentinel_do_not() {
+        for value in 1..SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT.0 {
+            let category = ParameterCategory::from_raw(SlangParameterCategory(value))
+                .expect("every value below the sentinel is a category")
+                .expect("only NONE converts to no category");
+            assert_eq!(category.to_raw(), SlangParameterCategory(value));
+        }
+        assert_eq!(
+            ParameterCategory::from_raw(SlangParameterCategory::SLANG_PARAMETER_CATEGORY_NONE).ok(),
+            Some(None)
+        );
+        assert_eq!(
+            ParameterCategory::from_raw(
+                SlangParameterCategory::SLANG_PARAMETER_CATEGORY_METAL_SAMPLER
+            )
+            .ok(),
+            Some(Some(ParameterCategory::SamplerState))
+        );
+        assert_eq!(
+            ParameterCategory::from_raw(SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT_V1)
+                .ok(),
+            Some(Some(ParameterCategory::Subpass))
+        );
+        let error =
+            ParameterCategory::from_raw(SlangParameterCategory::SLANG_PARAMETER_CATEGORY_COUNT)
+                .expect_err("the sentinel is no category");
+        assert_eq!(error.kind(), ErrorKind::Unrecognized);
     }
 }

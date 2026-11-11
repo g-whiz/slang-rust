@@ -4,7 +4,8 @@ use std::iter::FusedIterator;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
-    IEntryPoint, IModule, ISession, ISlangBlob, SlangInt32, slang_createBlob,
+    IEntryPoint, IModule, ISession, ISlangBlob, SlangInt32, SlangReflectionFunction,
+    slang_createBlob,
 };
 
 use crate::blob::{self, Blob};
@@ -15,7 +16,8 @@ use crate::guard;
 use crate::mapping;
 use crate::options::CompilerOptions;
 use crate::owned::Owned;
-use crate::session::Session;
+use crate::reflection::{Function, ProgramLayout};
+use crate::session::{Session, TargetIndex};
 use crate::strings::c_string;
 
 impl Session {
@@ -923,6 +925,46 @@ impl Module {
         )
     }
 
+    /// Returns the layout of the module for the target `target`, the root of
+    /// its reflection, which describes where each parameter sits in memory
+    /// and in the bindings of the target.
+    ///
+    /// A binding is a numbered slot of a graphics API through which a shader
+    /// reaches one resource, such as a buffer or a texture. The layout
+    /// borrows the module, so it cannot outlive it. Slang creates the layout
+    /// once for each target and returns the same layout to every later call.
+    ///
+    /// Aborts the process, instead of returning an error, when Slang lets a
+    /// C++ exception escape while it lays out the parameters, which it does
+    /// for a parameter whose type is a chain of 127 or more nested
+    /// structures, one inside the other, or of generic types nested as
+    /// deeply, just under Slang's nesting limit of 128 levels, such as a
+    /// `uniform` parameter or the element type of a `StructuredBuffer`. The
+    /// crate then writes one line to standard error that names the call
+    /// `IModule::getLayout` and aborts before any destructor runs.
+    ///
+    /// # Examples
+    ///
+    /// See the example of
+    /// [`ProgramLayout::find_type_by_name`](crate::reflection::ProgramLayout::find_type_by_name).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `target`
+    /// belongs to another session and is past the end of this session's
+    /// targets, which the crate checks before it calls Slang, and an error of
+    /// kind [`ErrorKind::Compile`] with the diagnostics, or of kind
+    /// [`ErrorKind::Internal`] without them, when Slang returns no layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn layout(&self, target: TargetIndex) -> Result<Compiled<ProgramLayout<'_>>> {
+        component::layout(&self.raw, &self.session, target, "Module::layout")
+    }
+
     /// Adopts a module that the caller obtained through the raw bindings of
     /// `slang-compiler-sys`.
     ///
@@ -1180,6 +1222,100 @@ impl EntryPoint {
             Some(options),
             "EntryPoint::link_with_options",
         )
+    }
+
+    /// Returns the layout of the entry point for the target `target`, the root of
+    /// its reflection, which describes where each parameter sits in memory
+    /// and in the bindings of the target.
+    ///
+    /// A binding is a numbered slot of a graphics API through which a shader
+    /// reaches one resource, such as a buffer or a texture. The layout
+    /// borrows the entry point, so it cannot outlive it. Slang creates the layout
+    /// once for each target and returns the same layout to every later call.
+    ///
+    /// Aborts the process, instead of returning an error, when Slang lets a
+    /// C++ exception escape while it lays out the parameters, which it does
+    /// for a parameter whose type is a chain of 127 or more nested
+    /// structures, one inside the other, or of generic types nested as
+    /// deeply, just under Slang's nesting limit of 128 levels, such as a
+    /// `uniform` parameter or the element type of a `StructuredBuffer`. The
+    /// crate then writes one line to standard error that names the call
+    /// `IEntryPoint::getLayout` and aborts before any destructor runs.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`ProgramLayout`](crate::reflection::ProgramLayout).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `target`
+    /// belongs to another session and is past the end of this session's
+    /// targets, which the crate checks before it calls Slang, and an error of
+    /// kind [`ErrorKind::Compile`] with the diagnostics, or of kind
+    /// [`ErrorKind::Internal`] without them, when Slang returns no layout.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn layout(&self, target: TargetIndex) -> Result<Compiled<ProgramLayout<'_>>> {
+        component::layout(&self.raw, &self.session, target, "EntryPoint::layout")
+    }
+
+    /// Returns the function of the entry point, which describes its
+    /// declaration in the source with its name, parameters, and return type,
+    /// or `None` when Slang returns none.
+    ///
+    /// The function borrows the entry point, so it cannot outlive it.
+    ///
+    /// # Examples
+    ///
+    /// This example reads the names of the parameters of an entry point:
+    ///
+    /// ```
+    /// use slang_compiler::EntryPoint;
+    ///
+    /// fn parameter_names(entry_point: &EntryPoint) -> slang_compiler::Result<Vec<String>> {
+    ///     let mut names = Vec::new();
+    ///     if let Some(function) = entry_point.function() {
+    ///         for parameter in function.parameters() {
+    ///             if let Some(name) = parameter.name()? {
+    ///                 names.push(name.to_owned());
+    ///             }
+    ///         }
+    ///     }
+    ///     Ok(names)
+    /// }
+    /// # let _ = parameter_names;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn function(&self) -> Option<Function<'_>> {
+        let raw = guard::call("EntryPoint::function", || {
+            // SAFETY: `self.raw` points to a live entry point of
+            // `self.session` (Sections 11.1 and 11.2 of
+            // `docs/design/slang-compiler.md`), and the call runs with the
+            // Slang call guard raised (SLC-28).
+            unsafe {
+                guard::abort_on_exception("IEntryPoint::getFunctionReflection", || {
+                    IEntryPoint::getFunctionReflection(self.raw.as_ptr())
+                })
+            }
+        });
+        NonNull::new(raw.cast::<SlangReflectionFunction>()).map(|raw| {
+            // SAFETY: `getFunctionReflection` returns a pointer that is not
+            // counted to the function of the entry point, which lives in the
+            // syntax trees that the session keeps, and `self` holds the session
+            // for the borrow (Sections 5.3 and 11.3 of
+            // `docs/design/slang-compiler.md`).
+            unsafe { Function::new(raw, &self.session) }
+        })
     }
 
     /// Adopts an entry point that the caller obtained through the raw
@@ -1537,8 +1673,8 @@ mod tests {
 
     use super::Module;
     use crate::fake::{
-        self, Event, FAKE_CODE, FAKE_DIAGNOSTICS, FAKE_ENTRY_POINT, FAKE_MODULE, FAKE_SESSION,
-        FakeBlob, FakeSession, Load, Log, panic_message,
+        self, Event, FAKE_CODE, FAKE_DIAGNOSTICS, FAKE_ENTRY_POINT, FAKE_LAYOUT, FAKE_MODULE,
+        FAKE_SESSION, FakeBlob, FakeSession, Layout, Load, Log, panic_message,
     };
     use crate::{ErrorKind, Operation, guard};
 
@@ -1951,5 +2087,66 @@ mod tests {
         // module that `parent` loaded, on this thread.
         let module = unsafe { Module::from_raw(pointer, parent) };
         assert_eq!(module.as_raw(), raw);
+    }
+
+    #[test]
+    fn entry_point_function_is_none_for_null_and_borrows_the_entry_point() {
+        let log = Log::new();
+        let global = fake::global_session(&log);
+        let session = fake::session(&global, 1);
+        let module = load(&session);
+        let entry_point = module
+            .entry_point(FAKE_ENTRY_POINT)
+            .expect("the fake finds its entry point");
+        assert!(entry_point.function().is_none());
+        // SAFETY: `session` keeps the fake session alive while the script
+        // is used.
+        unsafe { FakeSession::script(session.as_raw()) }
+            .function
+            .set(true);
+        let function = entry_point.function().expect("the fake returns a function");
+        assert_eq!(
+            function.as_raw().as_ptr().cast_const().cast::<u8>(),
+            std::ptr::from_ref(&FAKE_LAYOUT)
+        );
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _raised = guard::raise();
+            let _function = entry_point.function();
+        }))
+        .expect_err("a reentrant call panics");
+        assert!(
+            panic_message(&*panic).starts_with("reentrant call: EntryPoint::function"),
+            "{}",
+            panic_message(&*panic)
+        );
+    }
+
+    #[test]
+    fn module_and_entry_point_layouts_reach_the_fake_with_their_target() {
+        let log = Log::new();
+        let global = fake::global_session(&log);
+        let session = fake::session(&global, 2);
+        let module = load(&session);
+        // SAFETY: `session` keeps the fake session alive while the script
+        // is used.
+        unsafe { FakeSession::script(session.as_raw()) }
+            .layout
+            .set(Layout::WithDiagnostics);
+        let target = session.target_index(1).expect("a second target");
+        let layout = module.layout(target).expect("the fake lays out");
+        assert_eq!(layout.diagnostics.as_str(), FAKE_DIAGNOSTICS);
+        assert!(
+            log.events().contains(&Event::check_target(FAKE_MODULE, 1)),
+            "{:?}",
+            log.events()
+        );
+        let entry_point = module
+            .entry_point(FAKE_ENTRY_POINT)
+            .expect("the fake finds its entry point");
+        let layout = entry_point.layout(target).expect("the fake lays out");
+        assert_eq!(
+            layout.value.as_raw().as_ptr().cast_const().cast::<u8>(),
+            std::ptr::from_ref(&FAKE_LAYOUT)
+        );
     }
 }

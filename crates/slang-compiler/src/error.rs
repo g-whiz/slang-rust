@@ -31,22 +31,20 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// # Examples
 ///
-/// This example handles a second global session on the same thread, which
-/// the crate refuses. It needs the Slang shared library at run time, so it is
-/// compiled but not run:
+/// This example handles a Slang library of another build than the one this
+/// crate was built for, which the crate refuses. It needs the Slang shared
+/// library at run time, so it is compiled but not run:
 ///
 /// ```no_run
 /// use slang_compiler::{ErrorKind, GlobalSession};
 ///
-/// let global = GlobalSession::new()?;
 /// match GlobalSession::new() {
-///     Ok(_second) => println!("created a second global session"),
-///     Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-///         eprintln!("reusing the first global session: {error}");
+///     Ok(global) => println!("Slang {}", global.build_tag()),
+///     Err(error) if error.kind() == ErrorKind::VersionMismatch => {
+///         eprintln!("install the Vulkan SDK that slang-compiler-sys names: {error}");
 ///     }
 ///     Err(error) => return Err(error.into()),
 /// }
-/// # drop(global);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug)]
@@ -226,10 +224,6 @@ pub enum ErrorKind {
     /// crate was built for. Make the dynamic loader find the library of the
     /// Vulkan SDK that `slang-compiler-sys` names.
     VersionMismatch,
-    /// A global session of this crate is already alive on this thread, and the
-    /// crate allows one for each thread. Reuse it, or create the new one on
-    /// another thread.
-    AlreadyExists,
 }
 
 /// The operation that an [`Error`] reports.
@@ -352,6 +346,19 @@ pub enum Operation {
     /// [`Blob::to_str`]: crate::Blob::to_str
     /// [`Blob::from_raw`]: crate::Blob::from_raw
     ReadBlob,
+    /// The layout of a component type for a target, by the methods `layout`
+    /// of [`Module`], [`EntryPoint`], [`ComponentType`], [`TypeConformance`],
+    /// and [`LinkedProgram`].
+    ///
+    /// [`Module`]: crate::Module
+    /// [`EntryPoint`]: crate::EntryPoint
+    /// [`ComponentType`]: crate::ComponentType
+    /// [`TypeConformance`]: crate::TypeConformance
+    /// [`LinkedProgram`]: crate::LinkedProgram
+    Layout,
+    /// A query of reflection, by a method of a handle of the module
+    /// [`reflection`](crate::reflection).
+    Reflect,
 }
 
 impl Operation {
@@ -379,6 +386,8 @@ impl Operation {
             Self::ReadMetadata => "read metadata",
             Self::QueryMetadata => "query metadata",
             Self::ReadBlob => "read a blob",
+            Self::Layout => "lay out a component type",
+            Self::Reflect => "read reflection",
         }
     }
 }
@@ -553,11 +562,11 @@ mod tests {
 
     #[test]
     fn display_adds_the_detail_after_a_colon() {
-        let error = Error::new(ErrorKind::AlreadyExists, Operation::CreateGlobalSession)
-            .with_detail("a global session is alive".to_owned());
+        let error = Error::new(ErrorKind::VersionMismatch, Operation::CreateGlobalSession)
+            .with_detail("the library reports no build tag".to_owned());
         assert_eq!(
             error.to_string(),
-            "cannot create a global session: a global session is alive"
+            "cannot create a global session: the library reports no build tag"
         );
     }
 
@@ -668,6 +677,8 @@ mod tests {
             (Operation::ReadMetadata, "cannot read metadata"),
             (Operation::QueryMetadata, "cannot query metadata"),
             (Operation::ReadBlob, "cannot read a blob"),
+            (Operation::Layout, "cannot lay out a component type"),
+            (Operation::Reflect, "cannot read reflection"),
         ];
         for (operation, text) in cases {
             assert_eq!(

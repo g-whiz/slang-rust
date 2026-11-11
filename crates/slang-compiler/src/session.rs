@@ -487,6 +487,22 @@ impl Target {
 /// # Examples
 ///
 /// See the example of [`Session`].
+///
+/// A session builder cannot move to another thread, so this example does not
+/// compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slang_compiler::SessionBuilder>();
+/// ```
+///
+/// A session builder cannot be shared between threads either, so this
+/// example does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slang_compiler::SessionBuilder>();
+/// ```
 #[derive(Debug)]
 pub struct SessionBuilder {
     global: GlobalSession,
@@ -1059,8 +1075,8 @@ mod tests {
 
     fn adopt(log: &Log) -> GlobalSession {
         // SAFETY: the new fake global session carries one reference, it
-        // reports the pinned build tag, the test uses it on this thread only,
-        // and each test adopts at most one global session at a time.
+        // reports the pinned build tag, and the test uses it on this thread
+        // only.
         unsafe {
             GlobalSession::from_raw(FakeGlobalSession::create(
                 log,
@@ -1411,7 +1427,6 @@ mod tests {
             .build()
             .expect("the fake creates the session");
         drop(global);
-        assert!(guard::GlobalSessionRecord::begin().is_none());
         assert_eq!(
             session.global_session().build_tag(),
             slang_compiler_sys::SLANG_BUILD_TAG
@@ -1428,7 +1443,6 @@ mod tests {
                 Event::freed("global"),
             ]
         );
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
@@ -1811,7 +1825,6 @@ mod tests {
             .expect("the fake creates the session")
             .into_raw();
         drop(global);
-        assert!(guard::GlobalSessionRecord::begin().is_none());
         let before = log.events().len();
         // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
         // live fake session, and `parent` keeps its global session alive past
@@ -1828,7 +1841,6 @@ mod tests {
                 Event::freed("global"),
             ]
         );
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]

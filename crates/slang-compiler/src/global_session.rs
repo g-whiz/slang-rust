@@ -1,7 +1,6 @@
 use std::ffi::CStr;
 use std::fmt;
 use std::ptr::{self, NonNull};
-use std::rc::Rc;
 
 use slang_compiler_sys::{
     IGlobalSession, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
@@ -10,7 +9,7 @@ use slang_compiler_sys::{
 
 use crate::enums::{LanguageVersion, TargetFormat, Toggle};
 use crate::error::{Diagnostics, Error, ErrorKind, Operation, Result};
-use crate::guard::{self, GlobalSessionRecord};
+use crate::guard;
 use crate::mapping;
 use crate::owned::Owned;
 
@@ -23,13 +22,6 @@ use crate::owned::Owned;
 /// one is slow, so a program creates one global session and keeps it. Use it
 /// to check which target formats this installation of Slang can produce,
 /// with [`GlobalSession::check_target_support`].
-///
-/// This crate allows one live global session on each thread. Creating a
-/// second one on a thread on which one is alive fails with
-/// [`ErrorKind::AlreadyExists`]. Two global sessions on one thread share
-/// state that Slang keeps for each thread, and the crate cannot rule out that
-/// one of them then reads memory that the other freed. A program that
-/// compiles on several threads creates one global session on each.
 ///
 /// A global session is neither [`Send`] nor [`Sync`], so it stays on the
 /// thread that created it. Slang documents a global session and every object
@@ -69,7 +61,6 @@ use crate::owned::Owned;
 #[derive(Clone)]
 pub struct GlobalSession {
     raw: Owned<IGlobalSession>,
-    record: Rc<GlobalSessionRecord>,
 }
 
 impl GlobalSession {
@@ -87,8 +78,6 @@ impl GlobalSession {
     ///
     /// Returns an error of kind:
     ///
-    /// - [`ErrorKind::AlreadyExists`] when a global session of this crate is
-    ///   alive on this thread, without calling Slang.
     /// - [`ErrorKind::VersionMismatch`] when the Slang library that the
     ///   program loaded is not the build that this crate was built for. The
     ///   error names both builds.
@@ -200,9 +189,7 @@ impl GlobalSession {
     ///
     /// Use this to hand a global session from code that calls Slang directly
     /// to this crate. The wrapper takes over the reference that the caller
-    /// owns and releases it when its last handle drops. The global session
-    /// then counts as the live global session of this thread for the rule of
-    /// one global session for each thread.
+    /// owns and releases it when its last handle drops.
     ///
     /// # Examples
     ///
@@ -215,8 +202,8 @@ impl GlobalSession {
     ///
     /// let raw = GlobalSession::new()?.into_raw();
     /// // SAFETY: `raw` carries the one reference that `into_raw` gave up, of
-    /// // a global session of the pinned Slang build, no other global session
-    /// // of the crate is alive on this thread, and this thread alone uses it.
+    /// // a global session of the pinned Slang build, and this thread alone
+    /// // uses it.
     /// let global = unsafe { GlobalSession::from_raw(raw) };
     /// println!("Slang {}", global.build_tag());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -232,8 +219,6 @@ impl GlobalSession {
     /// - The caller owns one reference to it and transfers that reference.
     /// - The global session and every object created from it are not used on
     ///   another thread while the returned value or a clone of it exists.
-    /// - No other global session that this crate created or adopted is alive
-    ///   on this thread.
     ///
     /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
@@ -242,31 +227,21 @@ impl GlobalSession {
         // session of the pinned build and transfers one reference to it
         // (Section 11.7 of `docs/design/slang-compiler.md`).
         let raw = unsafe { Owned::adopt(raw) };
-        Self {
-            raw,
-            record: Rc::new(GlobalSessionRecord::adopt()),
-        }
+        Self { raw }
     }
 
     /// Gives up this handle's reference to the global session without
     /// releasing it, and returns the pointer for use with the raw bindings of
     /// `slang-compiler-sys`.
     ///
-    /// The caller then owns the reference and releases it. When this was the
-    /// last handle of the crate to the global session, the global session no
-    /// longer counts as the live global session of this thread, so the crate
-    /// lets the thread create another one. A caller that keeps the raw global
-    /// session alive and creates another on the same thread takes on the
-    /// hazard that the rule of one global session for each thread avoids.
+    /// The caller then owns the reference and releases it.
     ///
     /// # Examples
     ///
     /// See the example of [`GlobalSession::from_raw`].
     #[must_use]
     pub fn into_raw(self) -> NonNull<IGlobalSession> {
-        let Self { raw, record } = self;
-        drop(record);
-        raw.into_raw()
+        self.raw.into_raw()
     }
 
     /// Returns the pointer to the global session without changing its
@@ -346,9 +321,9 @@ impl GlobalSession {
         unsafe { Self::create_with(builder, method, build_tag, create) }
     }
 
-    /// Creates a global session with `create`, after the rule of SLC-29 and
-    /// the build tag check of SLC-5 have passed, so that nothing reaches a
-    /// library of another build except the call that reads its build tag.
+    /// Creates a global session with `create`, after the build tag check of
+    /// SLC-5 has passed, so that nothing reaches a library of another build
+    /// except the call that reads its build tag.
     ///
     /// # Safety
     ///
@@ -364,11 +339,6 @@ impl GlobalSession {
         create: impl FnOnce(&SlangGlobalSessionDesc, &mut *mut IGlobalSession) -> SlangResult,
     ) -> Result<Self> {
         guard::call(method, || {
-            let record = GlobalSessionRecord::begin().ok_or_else(|| {
-                Error::new(ErrorKind::AlreadyExists, Operation::CreateGlobalSession).with_detail(
-                    "a global session of slang-compiler is already alive on this thread, and the crate allows one for each thread".to_owned(),
-                )
-            })?;
             check_build_tag(build_tag())?;
             let desc = builder.desc();
             let mut raw: *mut IGlobalSession = ptr::null_mut();
@@ -386,10 +356,7 @@ impl GlobalSession {
             // session of the library whose build tag matched the pin, with one
             // reference that this thread alone owns.
             let raw = unsafe { Owned::adopt(raw) };
-            Ok(Self {
-                raw,
-                record: Rc::new(record),
-            })
+            Ok(Self { raw })
         })
     }
 }
@@ -535,8 +502,8 @@ mod tests {
 
     fn adopt(log: &Log, name: &'static str, target_support: SlangResult) -> GlobalSession {
         // SAFETY: the new fake global session carries one reference, it
-        // reports the pinned build tag, the test uses it on this thread only,
-        // and each test adopts at most one global session at a time.
+        // reports the pinned build tag, and the test uses it on this thread
+        // only.
         unsafe { GlobalSession::from_raw(FakeGlobalSession::create(log, name, target_support)) }
     }
 
@@ -587,7 +554,6 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::VersionMismatch);
         assert_eq!(error.operation(), Operation::CreateGlobalSession);
         assert_eq!(calls, ["build tag"]);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
@@ -603,11 +569,10 @@ mod tests {
             Err(ErrorKind::VersionMismatch)
         );
         assert_eq!(calls, ["build tag"]);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
-    fn create_with_a_failing_result_code_ends_the_record() {
+    fn create_with_a_failing_result_code_fails_with_the_mapped_kind() {
         let pin = pin();
         let (result, calls) = create_with(
             &GlobalSessionBuilder::default(),
@@ -619,11 +584,10 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::Internal);
         assert_eq!(error.code(), Some(SlangResult::SLANG_E_INTERNAL_FAIL.0));
         assert_eq!(calls, ["build tag", "create"]);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
-    fn create_with_a_null_global_session_ends_the_record() {
+    fn create_with_a_null_global_session_fails() {
         let pin = pin();
         let (result, calls) = create_with(
             &GlobalSessionBuilder::default(),
@@ -635,7 +599,6 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::Internal);
         assert_eq!(error.code(), None);
         assert_eq!(calls, ["build tag", "create"]);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
@@ -666,33 +629,12 @@ mod tests {
             desc.into_inner(),
             Some((true, SlangGlobalSessionDesc::default().structureSize))
         );
-        assert!(guard::GlobalSessionRecord::begin().is_none());
         assert_eq!(log.events(), []);
         drop(global);
         assert_eq!(
             log.events(),
             [Event::release("global", 0), Event::freed("global")]
         );
-        assert!(guard::GlobalSessionRecord::begin().is_some());
-    }
-
-    #[test]
-    fn create_with_while_a_global_session_is_alive_calls_nothing() {
-        let log = Log::new();
-        let global = adopt(&log, "global", SlangResult::SLANG_OK);
-        let pin = pin();
-        let (result, calls) = create_with(
-            &GlobalSessionBuilder::default(),
-            Some(&pin),
-            SlangResult::SLANG_OK,
-            ptr::null_mut(),
-        );
-        assert_eq!(
-            result.map(drop).map_err(|error| error.kind()),
-            Err(ErrorKind::AlreadyExists)
-        );
-        assert_eq!(calls, Vec::<&str>::new());
-        drop(global);
     }
 
     #[test]
@@ -798,9 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn creating_a_global_session_while_the_guard_is_raised_panics_before_the_one_session_rule() {
-        let log = Log::new();
-        let global = adopt(&log, "global", SlangResult::SLANG_OK);
+    fn creating_a_global_session_while_the_guard_is_raised_panics() {
         let creators: [fn() -> crate::Result<GlobalSession>; 2] =
             [GlobalSession::new, || GlobalSession::builder().build()];
         for create in creators {
@@ -811,27 +751,6 @@ mod tests {
                 "{message}"
             );
         }
-        drop(global);
-    }
-
-    #[test]
-    fn a_second_global_session_fails_with_already_exists_without_calling_slang() {
-        let log = Log::new();
-        let global = adopt(&log, "global", SlangResult::SLANG_OK);
-        for result in [GlobalSession::new(), GlobalSession::builder().build()] {
-            let error = result.expect_err("a global session is alive");
-            assert_eq!(error.kind(), ErrorKind::AlreadyExists);
-            assert_eq!(error.operation(), Operation::CreateGlobalSession);
-            assert_eq!(error.code(), None);
-        }
-        let clone = global.clone();
-        drop(global);
-        assert_eq!(
-            GlobalSession::new().map(drop).map_err(|error| error.kind()),
-            Err(ErrorKind::AlreadyExists)
-        );
-        drop(clone);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
@@ -861,44 +780,36 @@ mod tests {
         guard::call("Test::callback", || {
             drop(global);
             assert_eq!(log.events(), []);
-            assert!(guard::GlobalSessionRecord::begin().is_none());
         });
         assert_eq!(
             log.events(),
             [Event::release("global", 0), Event::freed("global")]
         );
-        assert!(guard::GlobalSessionRecord::begin().is_some());
     }
 
     #[test]
-    fn into_raw_ends_the_record_without_releasing_the_global_session() {
+    fn into_raw_gives_up_the_reference_without_releasing_it() {
         let log = Log::new();
         let raw = adopt(&log, "global", SlangResult::SLANG_OK).into_raw();
-        assert!(guard::GlobalSessionRecord::begin().is_some());
         assert_eq!(log.events(), []);
         // SAFETY: `into_raw` gave up the one reference of the fake, which
-        // `from_raw` takes back, and no other global session is alive.
+        // `from_raw` takes back.
         drop(unsafe { GlobalSession::from_raw(raw) });
         assert_eq!(
             log.events(),
             [Event::release("global", 0), Event::freed("global")]
         );
     }
+
     #[test]
-    fn into_raw_while_a_clone_is_alive_keeps_the_record() {
+    fn into_raw_while_a_clone_is_alive_gives_up_one_reference() {
         let log = Log::new();
         let global = adopt(&log, "global", SlangResult::SLANG_OK);
         let clone = global.clone();
         let raw = global.into_raw();
-        assert!(guard::GlobalSessionRecord::begin().is_none());
-        assert_eq!(
-            GlobalSession::new().map(drop).map_err(|error| error.kind()),
-            Err(ErrorKind::AlreadyExists)
-        );
         drop(clone);
-        assert!(guard::GlobalSessionRecord::begin().is_some());
         // SAFETY: `into_raw` gave up one reference of the fake, which
-        // `from_raw` takes back, and no other global session is alive.
+        // `from_raw` takes back.
         drop(unsafe { GlobalSession::from_raw(raw) });
         assert_eq!(
             log.events(),

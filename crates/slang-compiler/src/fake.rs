@@ -969,7 +969,30 @@ pub(crate) struct Script {
     /// The count that every count of the session and its objects returns
     /// instead of its own when it is set, such as a negative count.
     pub(crate) count: Cell<Option<i16>>,
+    /// What `getLayout` returns.
+    pub(crate) layout: Cell<Layout>,
+    /// Whether `getFunctionReflection` returns a function, which is
+    /// [`FAKE_LAYOUT`], instead of null.
+    pub(crate) function: Cell<bool>,
 }
+
+/// What a fake `getLayout` returns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Layout {
+    /// Null and no diagnostics blob, as Slang returns for a layout that it
+    /// cannot create without a message.
+    #[default]
+    Null,
+    /// Null and a diagnostics blob.
+    NullWithDiagnostics,
+    /// [`FAKE_LAYOUT`] and a diagnostics blob, as a layout with warnings.
+    WithDiagnostics,
+}
+
+/// The byte whose address the fake returns as a program layout or a
+/// function, which the crate never reads under Miri, because only reflection
+/// functions, which Miri cannot run, read through such a pointer.
+pub(crate) static FAKE_LAYOUT: u8 = 0;
 
 /// What a fake module load returns.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1548,13 +1571,27 @@ unsafe extern "system-unwind" fn component_session(this: *mut IComponentType) ->
 
 unsafe extern "system-unwind" fn component_layout(
     this: *mut IComponentType,
-    _: SlangInt,
-    _: *mut *mut ISlangBlob,
+    target: SlangInt,
+    diagnostics: *mut *mut ISlangBlob,
 ) -> *mut ProgramLayout {
     // SAFETY: the vtable belongs to a live fake component type only.
     let object = unsafe { component(this) };
     object.log.push(Event::call(object.name, "getLayout"));
-    ptr::null_mut()
+    object.log.push(Event::check_target(
+        object.name,
+        i32::try_from(target).unwrap_or(i32::MAX),
+    ));
+    // SAFETY: the crate keeps the session of a component alive.
+    let script = unsafe { session_script(object.state.session) };
+    let layout = script.layout.get();
+    if layout != Layout::Null {
+        // SAFETY: the crate passes a live out-pointer.
+        unsafe { write_diagnostics(&object.log, diagnostics) };
+    }
+    match layout {
+        Layout::Null | Layout::NullWithDiagnostics => ptr::null_mut(),
+        Layout::WithDiagnostics => ptr::from_ref(&FAKE_LAYOUT).cast_mut().cast(),
+    }
 }
 
 unsafe extern "system-unwind" fn component_specialization_param_count(
@@ -1837,9 +1874,20 @@ static ENTRY_POINT_VTABLE: IEntryPointVtbl = IEntryPointVtbl {
 };
 
 unsafe extern "system-unwind" fn entry_point_function(
-    _: *mut IEntryPoint,
+    this: *mut IEntryPoint,
 ) -> *mut FunctionReflection {
-    ptr::null_mut()
+    // SAFETY: the vtable belongs to a live fake entry point only.
+    let object = unsafe { component(this) };
+    object
+        .log
+        .push(Event::call(object.name, "getFunctionReflection"));
+    // SAFETY: the crate keeps the session of a component alive.
+    let script = unsafe { session_script(object.state.session) };
+    if script.function.get() {
+        ptr::from_ref(&FAKE_LAYOUT).cast_mut().cast()
+    } else {
+        ptr::null_mut()
+    }
 }
 
 /// Returns the entry point of a fake module, creating it on the first call,
@@ -2070,11 +2118,10 @@ unsafe extern "system-unwind" fn metadata_build_identifier(_: *mut IMetadata) ->
 }
 
 /// Adopts a new fake global session for a test, which uses it on this thread
-/// only and adopts at most one global session at a time.
+/// only.
 pub(crate) fn global_session(log: &Log) -> GlobalSession {
     // SAFETY: the new fake global session carries one reference, it reports
-    // the pinned build tag, the test uses it on this thread only, and each
-    // test adopts at most one global session at a time.
+    // the pinned build tag, and the test uses it on this thread only.
     unsafe {
         GlobalSession::from_raw(FakeGlobalSession::create(
             log,

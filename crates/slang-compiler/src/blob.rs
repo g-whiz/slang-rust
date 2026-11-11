@@ -92,6 +92,35 @@ pub(crate) unsafe fn take_diagnostics(raw: *mut ISlangBlob) -> Diagnostics {
     })
 }
 
+/// Copies the text of a blob that a Slang call returned, such as a type name
+/// or the JSON text of a layout, and releases the blob.
+///
+/// The caller drops `blob` afterwards, which releases it. One trailing NUL
+/// byte that Slang counted in the size is removed. A blob
+/// whose bytes cannot be read fails with kind `Internal`, and bytes that are
+/// not UTF-8 fail with kind `InvalidUtf8`, each of `operation`, with a detail
+/// that names the text as `what`. The caller raises the Slang call guard
+/// (SLC-28).
+pub(crate) fn take_text(
+    blob: &Owned<ISlangBlob>,
+    operation: Operation,
+    what: &str,
+) -> Result<String> {
+    let bytes = Bytes::read(blob).ok_or_else(|| {
+        Error::new(ErrorKind::Internal, operation).with_detail(format!(
+            "Slang returned {what} in a blob with a null pointer or an impossible size"
+        ))
+    })?;
+    // SAFETY: `bytes` was read from `blob`, which lives until the end of this
+    // function, after the text is copied.
+    let bytes = unsafe { bytes.as_slice() };
+    let bytes = bytes.strip_suffix(&[0]).unwrap_or(bytes);
+    String::from_utf8(bytes.to_vec()).map_err(|error| {
+        Error::new(ErrorKind::InvalidUtf8, operation)
+            .with_detail(format!("{what} is not UTF-8: {}", error.utf8_error()))
+    })
+}
+
 /// Finishes a Slang call that writes an output object and a diagnostics blob:
 /// takes the diagnostics, adopts the output, then checks the result code and
 /// the output for null.

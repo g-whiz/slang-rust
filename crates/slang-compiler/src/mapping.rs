@@ -53,7 +53,9 @@ impl Operation {
             | Self::GenerateCode
             | Self::ReadMetadata
             | Self::QueryMetadata
-            | Self::ReadBlob => Class::Other,
+            | Self::ReadBlob
+            | Self::Layout
+            | Self::Reflect => Class::Other,
         }
     }
 }

@@ -1,16 +1,11 @@
 //! Helpers of the tests that compile Slang code: compilation in one call,
 //! a scratch directory for files, and a reader of SPIR-V words.
 
-use std::ffi::CString;
 use std::fs;
 use std::path::PathBuf;
-use std::ptr::{self, NonNull};
 
 use slang_compiler::reflection::Type;
 use slang_compiler::{Blob, Compiled, Component, Diagnostics, Module, Result, Session};
-use slang_compiler_sys::{
-    IModule, ISlangBlob, SlangReflection, TypeReflection, spReflection_FindTypeByName,
-};
 
 /// The first word of every SPIR-V module.
 pub(super) const SPIRV_MAGIC: u32 = 0x0723_0203;
@@ -185,38 +180,21 @@ pub(super) fn has_code(diagnostics: &Diagnostics, code: u32) -> bool {
 }
 
 /// Finds the type `name` in the layout of `module` for the first target of
-/// its session, through the raw bindings, because the crate offers no layout
-/// yet, and wraps it with [`Type::from_raw`].
+/// its session.
 ///
-/// `getLayout` can let a C++ exception escape for a module whose parameters
-/// nest types past Slang's limit (CA-1 of `docs/design/slang-compiler.md`),
+/// `getLayout` lets a C++ exception escape for a module whose parameters nest
+/// types past Slang's limit (Section 3.6 of `docs/design/slang-compiler.md`),
 /// so the tests call it only on modules without such parameters.
-#[expect(
-    ffi_unwind_calls,
-    reason = "the test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
-)]
-pub(super) fn find_type<'session>(
-    session: &'session Session,
-    module: &Module,
+pub(super) fn find_type<'module>(
+    session: &Session,
+    module: &'module Module,
     name: &str,
-) -> Option<Type<'session>> {
-    let name = CString::new(name).expect("no NUL byte");
-    let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
-    // SAFETY: `module` keeps the module and its session alive, the session
-    // has a target at index 0, and `diagnostics` is a live out-pointer. The
-    // module has no parameter that nests types deeply.
-    let layout = unsafe { IModule::getLayout(module.as_raw().as_ptr(), 0, &raw mut diagnostics) };
-    if !diagnostics.is_null() {
-        // SAFETY: the call returned a new reference, which the test owns.
-        unsafe { ISlangBlob::release(diagnostics) };
-    }
-    assert!(!layout.is_null(), "Slang lays out the module");
-    // SAFETY: `layout` is a live layout of `module`, `ShaderReflection` and
-    // `SlangReflection` name the same object, and `name` is a C string.
-    let raw =
-        unsafe { spReflection_FindTypeByName(layout.cast::<SlangReflection>(), name.as_ptr()) };
-    let raw = NonNull::new(raw.cast::<TypeReflection>())?;
-    // SAFETY: Slang returned a type of the session of `module`, which
-    // `session` is and keeps alive with the module, on this thread.
-    Some(unsafe { Type::from_raw(raw, session) })
+) -> Option<Type<'module>> {
+    let target = session.target_index(0).expect("the session has a target");
+    module
+        .layout(target)
+        .expect("Slang lays out the module")
+        .into_value()
+        .find_type_by_name(name)
+        .expect("the name has no NUL byte")
 }

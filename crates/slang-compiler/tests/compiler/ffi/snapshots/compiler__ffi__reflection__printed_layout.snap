@@ -1,0 +1,40 @@
+---
+source: crates/slang-compiler/tests/compiler/ffi/reflection.rs
+expression: print_layout(layout.value)
+---
+global constant buffer: binding Some(0), size LayoutUnits { category: Uniform, amount: Finite(64) }
+global parameters:
+  <scope>:  (ConstantBuffer) [DescriptorTableSlot offset Finite(0) space Some(0) size Finite(1)]
+    <scope>:  (Struct) [Uniform offset Finite(0) space Some(0) size Finite(64)]
+      light: ConstantBuffer<Light, DefaultDataLayout> (ConstantBuffer) [DescriptorTableSlot offset Finite(1) space Some(0) size Finite(1)]
+        <scope>: Light (Struct) [Uniform offset Finite(0) space Some(0) size Finite(16)]
+          position: vector<float,3> (Vector) [Uniform offset Finite(0) space Some(0) size Finite(12)]
+          intensity: float (Scalar) [Uniform offset Finite(12) space Some(0) size Finite(4)]
+      material: ParameterBlock<Material> (ParameterBlock) [SubElementRegisterSpace offset Finite(1) space Some(0) size Finite(1)]
+        <scope>: Material (Struct) [DescriptorTableSlot offset Finite(1) space Some(0) size Finite(2)] [Uniform offset Finite(0) space Some(0) size Finite(16)]
+          albedo: Texture2D<vector<float,4>> (Resource) [DescriptorTableSlot offset Finite(0) space Some(0) size Finite(1)]
+          linearSampler: SamplerState (SamplerState) [DescriptorTableSlot offset Finite(1) space Some(0) size Finite(1)]
+          roughness: float (Scalar) [Uniform offset Finite(0) space Some(0) size Finite(4)]
+      inputs: StructuredBuffer<vector<float,4>, DefaultDataLayout> (Resource) [DescriptorTableSlot offset Finite(2) space Some(0) size Finite(1)]
+      outputs: RWStructuredBuffer<vector<float,4>, DefaultDataLayout> (Resource) [DescriptorTableSlot offset Finite(3) space Some(0) size Finite(1)]
+      masks: Texture2D<float>[4] (Array) [DescriptorTableSlot offset Finite(4) space Some(0) size Finite(1)]
+      transform: matrix<float,4,4> (Matrix) [Uniform offset Finite(0) space Some(0) size Finite(64)] matrix RowMajor
+global binding ranges:
+  range <none>: ConstantBuffer x Finite(1), set Some(0), descriptor ranges 5 from 0, specializable false
+  set at space offset 0
+    Some(DescriptorTableSlot) ConstantBuffer x Finite(1) at Some(0)
+    Some(DescriptorTableSlot) ConstantBuffer x Finite(1) at Some(1)
+    Some(DescriptorTableSlot) RawBuffer x Finite(1) at Some(2)
+    Some(DescriptorTableSlot) MutableRawBuffer x Finite(1) at Some(3)
+    Some(DescriptorTableSlot) Texture x Finite(4) at Some(4)
+entry point Some("process"), override Some("process"): stage Some(Compute), threads [8, 4, 1], default constant buffer true
+  <scope>:  (ConstantBuffer) [PushConstantBuffer offset Finite(0) space Some(0) size Finite(1)]
+    <scope>: process (Struct) [Uniform offset Finite(0) space Some(0) size Finite(8)]
+      id: vector<uint,3> (Vector) semantic SV_DISPATCHTHREADID0
+      scale: float (Scalar) [Uniform offset Finite(0) space Some(0) size Finite(4)]
+      count: uint (Scalar) [Uniform offset Finite(4) space Some(0) size Finite(4)]
+  result: none
+  parameter Some("id")
+  parameter Some("scale")
+  parameter Some("count")
+  function Some("process")(vector<uint,3>, float, uint) -> Some("void")

@@ -12,7 +12,7 @@
 //! `slang-compiler-sys` only to reach a part of Slang that this crate does not
 //! wrap.
 //!
-//! This version is the third part of the crate. It offers the
+//! This version is the fourth part of the crate. It offers the
 //! [`GlobalSession`], the root object of Slang from which every compilation
 //! starts, with its builder and the check of which [`TargetFormat`] values
 //! Slang can produce. It offers the [`Session`], the context of a compilation
@@ -23,19 +23,17 @@
 //! that a graphics API calls. [`Session::compose`] combines them into a
 //! [`ComponentType`], which [`ComponentType::specialize`] can specialize,
 //! and linking returns a [`LinkedProgram`], which generates code as a
-//! [`Blob`] and reports [`Metadata`] about it. Every failure is an [`Error`]
-//! with the [`Diagnostics`] that Slang prints. Reflection, which describes the
-//! parameters and types of compiled code, and a custom file system follow in
-//! later versions. Until reflection arrives, the only [`reflection::Type`]
-//! that [`ComponentType::specialize`] and [`Session::type_conformance`] take
-//! is one that a program finds through the raw bindings.
+//! [`Blob`] and reports [`Metadata`] about it. The method `layout` of each of
+//! them returns a [`reflection::ProgramLayout`], the start of reflection,
+//! which describes each parameter of the code with its type and where it
+//! sits in memory and in the bindings of a target, the numbered slots
+//! through which a shader reaches its resources. The module [`reflection`]
+//! holds every handle of reflection. Every failure is an [`Error`] with the
+//! [`Diagnostics`] that Slang prints. A custom file system follows in a later
+//! version.
 //!
 //! These rules hold for every object of the crate:
 //!
-//! - One global session for each thread. Creating a second global session on
-//!   a thread on which one is alive fails with [`ErrorKind::AlreadyExists`].
-//!   A program that compiles on several threads creates one global session on
-//!   each.
 //! - No object that holds a Slang object is [`Send`] or [`Sync`], because
 //!   Slang documents its objects as not safe to use from several threads at
 //!   once. Errors, diagnostics, enumerations, options, targets, and builders
@@ -44,7 +42,8 @@
 //!   [`Session`] keeps its [`GlobalSession`] alive, and a [`Module`], an
 //!   [`EntryPoint`], a [`ComponentType`], a [`LinkedProgram`], a [`Blob`],
 //!   and [`Metadata`] keep their [`Session`] alive. Dropping a handle in any
-//!   order is safe.
+//!   order is safe. A handle of [`reflection`] borrows the object that it
+//!   came from, so the compiler rejects a use after that object is dropped.
 //! - An object of one session is rejected by a method of another session
 //!   with [`ErrorKind::InvalidArgument`], before any call into Slang.
 //! - Slang is not reentrant. A method that would call Slang while another
@@ -65,18 +64,25 @@
 //! [`std::panic::catch_unwind`] cannot catch either. Any call into Slang can
 //! abort this way, so a method states the abort in its own documentation
 //! only when an exception has been observed to escape the call that it
-//! makes, which is so for [`Module::entry_point_with_stage`] with a parameter
-//! type nested more than 128 levels deep.
+//! makes. That is so for [`Module::entry_point_with_stage`] with a parameter
+//! type nested more than 128 levels deep, for the method `layout` of each
+//! component type with a parameter whose type nests 127 or more structures,
+//! and for some methods of [`reflection`] on a type or a layout whose sizes
+//! a generic value parameter gives.
 //!
 //! # Examples
 //!
 //! This example compiles a compute shader, a shader that runs as a general
 //! computation on the GPU, to SPIR-V for version 1.5 of SPIR-V, and prints
-//! the size of the code and any messages of Slang. It needs the Slang shared
-//! library at run time, which the dynamic loader must find, so it is compiled
-//! but not run:
+//! the size of the code and any messages of Slang. It then lists the
+//! parameters of the entry point with the kind of each parameter's type,
+//! through the layout of the program, and unwraps the constant buffer, a
+//! buffer of uniform data, that Slang can place around them. It needs the
+//! Slang shared library at run time, which the dynamic loader must find, so
+//! it is compiled but not run:
 //!
 //! ```no_run
+//! use slang_compiler::reflection::TypeKind;
 //! use slang_compiler::{Component, GlobalSession, Session, Target, TargetFormat};
 //!
 //! let source = r#"
@@ -109,6 +115,28 @@
 //!     eprintln!("{}", code.diagnostics);
 //! }
 //! println!("{} bytes of SPIR-V", code.value.as_bytes().len());
+//!
+//! let layout = program.layout(spirv)?.into_value();
+//! for entry in layout.entry_point_layouts() {
+//!     let Some(scope) = entry.var_layout().and_then(|v| v.type_layout()) else {
+//!         continue;
+//!     };
+//!     let parameters = match scope.kind()? {
+//!         TypeKind::ConstantBuffer | TypeKind::ParameterBlock => scope
+//!             .element_var_layout()
+//!             .and_then(|v| v.type_layout())
+//!             .unwrap_or(scope),
+//!         _ => scope,
+//!     };
+//!     for field in parameters.field_layouts() {
+//!         let name = match field.variable() {
+//!             Some(variable) => variable.name()?.unwrap_or("<unnamed>"),
+//!             None => "<unnamed>",
+//!         };
+//!         let kind = field.type_layout().map(|t| t.kind()).transpose()?;
+//!         println!("{name}: {kind:?}");
+//!     }
+//! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
