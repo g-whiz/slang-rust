@@ -4,15 +4,16 @@ use std::fmt;
 use ::wgpu::util::DeviceExt as _;
 
 use crate::buffer::Buffer;
-use crate::device::scoped;
+use crate::device::{Device, scoped};
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{KernelLayout, PlainValue, Resource, UniformBlock, Usage};
+use crate::layout::{Binding, KernelLayout, PlainValue, Resource, UniformBlock, Usage};
 use crate::marshal::{self, Element, Marshalled, Value};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
 
 const CALL: &str = "call a kernel";
+const DRAW: &str = "draw with a render pipeline";
 
 /// One call of a [`Kernel`], which collects the arguments of the kernel and
 /// then runs it on the GPU.
@@ -49,8 +50,10 @@ pub struct Call<'a> {
     arguments: Vec<(&'a str, CallArgument<'a>)>,
 }
 
-/// An argument of a [`Call`], with the wgpu objects that it binds.
-type CallArgument<'a> = Argument<&'a ::wgpu::Buffer, &'a ::wgpu::TextureView, &'a ::wgpu::Sampler>;
+/// An argument of a [`Call`] or a [`Draw`](crate::Draw), with the wgpu
+/// objects that it binds.
+pub(crate) type CallArgument<'a> =
+    Argument<&'a ::wgpu::Buffer, &'a ::wgpu::TextureView, &'a ::wgpu::Sampler>;
 
 /// One argument of a call, with the handle `B` of a bound buffer, `V` of a
 /// bound texture, and `S` of a bound sampler.
@@ -176,7 +179,11 @@ impl<'a> Call<'a> {
     ///
     /// See the example of [`Kernel::call`].
     pub fn set<V: Value>(&mut self, path: &'a str, value: V) -> &mut Self {
-        self.insert(path, Argument::Value(marshal::marshal(&value)));
+        insert(
+            &mut self.arguments,
+            path,
+            Argument::Value(marshal::marshal(&value)),
+        );
         self
     }
 
@@ -190,13 +197,8 @@ impl<'a> Call<'a> {
     ///
     /// See the example of [`Kernel::call`].
     pub fn bind<T: Element>(&mut self, path: &'a str, buffer: &'a Buffer<T>) -> &mut Self {
-        let bound = Bound {
-            handle: buffer.wgpu_buffer(),
-            stride: T::STRIDE,
-            len: buffer.len(),
-            on_device: buffer.is_on(&self.kernel.device),
-        };
-        self.insert(path, Argument::Buffer(bound));
+        let argument = buffer_argument(buffer, &self.kernel.device);
+        insert(&mut self.arguments, path, argument);
         self
     }
 
@@ -243,13 +245,8 @@ impl<'a> Call<'a> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn texture(&mut self, path: &'a str, texture: &'a Texture) -> &mut Self {
-        let bound = BoundTexture {
-            handle: texture.wgpu_view(),
-            format: texture.format(),
-            sampleable: texture.is_sampleable(),
-            on_device: texture.is_on(&self.kernel.device),
-        };
-        self.insert(path, Argument::Texture(bound));
+        let argument = texture_argument(texture, &self.kernel.device);
+        insert(&mut self.arguments, path, argument);
         self
     }
 
@@ -262,11 +259,8 @@ impl<'a> Call<'a> {
     ///
     /// See the example of [`Call::texture`].
     pub fn sampler(&mut self, path: &'a str, sampler: &'a Sampler) -> &mut Self {
-        let bound = BoundSampler {
-            handle: sampler.wgpu_sampler(),
-            on_device: sampler.is_on(&self.kernel.device),
-        };
-        self.insert(path, Argument::Sampler(bound));
+        let argument = sampler_argument(sampler, &self.kernel.device);
+        insert(&mut self.arguments, path, argument);
         self
     }
 
@@ -371,64 +365,17 @@ impl<'a> Call<'a> {
         }
     }
 
-    fn insert(&mut self, path: &'a str, argument: CallArgument<'a>) {
-        match self.arguments.iter_mut().find(|(given, _)| *given == path) {
-            Some((_, slot)) => *slot = argument,
-            None => self.arguments.push((path, argument)),
-        }
-    }
-
     fn submit(&self, plan: &Plan, groups: [u32; 3]) {
         let kernel = self.kernel;
         let device = kernel.device.wgpu_device();
         let name = kernel.layout.name.as_str();
-        let uniforms: Vec<Vec<Option<::wgpu::Buffer>>> = plan
-            .groups
-            .iter()
-            .map(|entries| {
-                entries
-                    .iter()
-                    .map(|entry| match &entry.source {
-                        Source::Uniform(bytes) => Some(device.create_buffer_init(
-                            &::wgpu::util::BufferInitDescriptor {
-                                label: Some(name),
-                                contents: bytes,
-                                usage: ::wgpu::BufferUsages::UNIFORM,
-                            },
-                        )),
-                        Source::Argument(_) => None,
-                    })
-                    .collect()
-            })
-            .collect();
-        let bind_groups: Vec<::wgpu::BindGroup> = plan
-            .groups
-            .iter()
-            .zip(&uniforms)
-            .zip(kernel.bind_group_layouts.iter())
-            .map(|((entries, uniforms), layout)| {
-                let entries: Vec<::wgpu::BindGroupEntry<'_>> = entries
-                    .iter()
-                    .zip(uniforms)
-                    .filter_map(|(entry, uniform)| {
-                        let resource = match (&entry.source, uniform) {
-                            (Source::Uniform(_), Some(buffer)) => buffer.as_entire_binding(),
-                            (Source::Argument(index), _) => self.resource_of(*index)?,
-                            (Source::Uniform(_), None) => return None,
-                        };
-                        Some(::wgpu::BindGroupEntry {
-                            binding: entry.index,
-                            resource,
-                        })
-                    })
-                    .collect();
-                device.create_bind_group(&::wgpu::BindGroupDescriptor {
-                    label: Some(name),
-                    layout,
-                    entries: &entries,
-                })
-            })
-            .collect();
+        let bind_groups = bind_groups(
+            device,
+            name,
+            plan,
+            &kernel.bind_group_layouts,
+            &self.arguments,
+        );
         let mut encoder =
             device.create_command_encoder(&::wgpu::CommandEncoderDescriptor { label: Some(name) });
         {
@@ -447,18 +394,119 @@ impl<'a> Call<'a> {
         }
         kernel.device.wgpu_queue().submit([encoder.finish()]);
     }
+}
 
-    fn resource_of(&self, index: usize) -> Option<::wgpu::BindingResource<'a>> {
-        match self.arguments.get(index) {
-            Some((_, Argument::Buffer(bound))) => Some(bound.handle.as_entire_binding()),
-            Some((_, Argument::Texture(bound))) => {
-                Some(::wgpu::BindingResource::TextureView(bound.handle))
-            }
-            Some((_, Argument::Sampler(bound))) => {
-                Some(::wgpu::BindingResource::Sampler(bound.handle))
-            }
-            Some((_, Argument::Value(_))) | None => None,
+/// Records `argument` for `path`, in place of an earlier argument for the
+/// same path, whichever setter gave it.
+pub(crate) fn insert<'a, T>(arguments: &mut Vec<(&'a str, T)>, path: &'a str, argument: T) {
+    match arguments.iter_mut().find(|(given, _)| *given == path) {
+        Some((_, slot)) => *slot = argument,
+        None => arguments.push((path, argument)),
+    }
+}
+
+/// Returns the argument that binds `buffer`, for a call or draw on `device`.
+pub(crate) fn buffer_argument<'a, T: Element>(
+    buffer: &'a Buffer<T>,
+    device: &Device,
+) -> CallArgument<'a> {
+    Argument::Buffer(Bound {
+        handle: buffer.wgpu_buffer(),
+        stride: T::STRIDE,
+        len: buffer.len(),
+        on_device: buffer.is_on(device),
+    })
+}
+
+/// Returns the argument that binds `texture`, for a call or draw on
+/// `device`.
+pub(crate) fn texture_argument<'a>(texture: &'a Texture, device: &Device) -> CallArgument<'a> {
+    Argument::Texture(BoundTexture {
+        handle: texture.wgpu_view(),
+        format: texture.format(),
+        sampleable: texture.is_sampleable(),
+        on_device: texture.is_on(device),
+    })
+}
+
+/// Returns the argument that binds `sampler`, for a call or draw on
+/// `device`.
+pub(crate) fn sampler_argument<'a>(sampler: &'a Sampler, device: &Device) -> CallArgument<'a> {
+    Argument::Sampler(BoundSampler {
+        handle: sampler.wgpu_sampler(),
+        on_device: sampler.is_on(device),
+    })
+}
+
+/// Creates the uniform buffers and the bind group of each set that `plan`
+/// binds, from the bind group `layouts` of a kernel or render pipeline and
+/// the buffers, textures, and samplers of `arguments`.
+pub(crate) fn bind_groups(
+    device: &::wgpu::Device,
+    label: &str,
+    plan: &Plan,
+    layouts: &[::wgpu::BindGroupLayout],
+    arguments: &[(&str, CallArgument<'_>)],
+) -> Vec<::wgpu::BindGroup> {
+    let uniforms: Vec<Vec<Option<::wgpu::Buffer>>> = plan
+        .groups
+        .iter()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| match &entry.source {
+                    Source::Uniform(bytes) => Some(device.create_buffer_init(
+                        &::wgpu::util::BufferInitDescriptor {
+                            label: Some(label),
+                            contents: bytes,
+                            usage: ::wgpu::BufferUsages::UNIFORM,
+                        },
+                    )),
+                    Source::Argument(_) => None,
+                })
+                .collect()
+        })
+        .collect();
+    plan.groups
+        .iter()
+        .zip(&uniforms)
+        .zip(layouts)
+        .map(|((entries, uniforms), layout)| {
+            let entries: Vec<::wgpu::BindGroupEntry<'_>> = entries
+                .iter()
+                .zip(uniforms)
+                .filter_map(|(entry, uniform)| {
+                    let resource = match (&entry.source, uniform) {
+                        (Source::Uniform(_), Some(buffer)) => buffer.as_entire_binding(),
+                        (Source::Argument(index), _) => resource_of(arguments, *index)?,
+                        (Source::Uniform(_), None) => return None,
+                    };
+                    Some(::wgpu::BindGroupEntry {
+                        binding: entry.index,
+                        resource,
+                    })
+                })
+                .collect();
+            device.create_bind_group(&::wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout,
+                entries: &entries,
+            })
+        })
+        .collect()
+}
+
+fn resource_of<'a>(
+    arguments: &[(&str, CallArgument<'a>)],
+    index: usize,
+) -> Option<::wgpu::BindingResource<'a>> {
+    match arguments.get(index) {
+        Some((_, Argument::Buffer(bound))) => Some(bound.handle.as_entire_binding()),
+        Some((_, Argument::Texture(bound))) => {
+            Some(::wgpu::BindingResource::TextureView(bound.handle))
         }
+        Some((_, Argument::Sampler(bound))) => Some(::wgpu::BindingResource::Sampler(bound.handle)),
+        Some((_, Argument::Value(_))) | None => None,
     }
 }
 
@@ -506,7 +554,98 @@ pub(crate) fn check_workgroups(kernel: &str, groups: [u32; 3], limit: u32) -> Re
     Ok(())
 }
 
-/// Where a parameter path leads in the layout snapshot of a kernel.
+/// What a check of arguments belongs to, which every error of the check
+/// names: a kernel by its name, or a render pipeline by its two entry points.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Subject<'s> {
+    Kernel(&'s str),
+    Pipeline { vertex: &'s str, fragment: &'s str },
+}
+
+impl Subject<'_> {
+    fn operation(self) -> &'static str {
+        match self {
+            Self::Kernel(_) => CALL,
+            Self::Pipeline { .. } => DRAW,
+        }
+    }
+
+    /// Returns the noun of the request that gives the arguments.
+    fn request(self) -> &'static str {
+        match self {
+            Self::Kernel(_) => "call",
+            Self::Pipeline { .. } => "draw",
+        }
+    }
+
+    /// Returns the subject as the one that runs a shader, such as "a
+    /// kernel".
+    fn runner(self) -> &'static str {
+        match self {
+            Self::Kernel(_) => "a kernel",
+            Self::Pipeline { .. } => "a render pipeline",
+        }
+    }
+
+    /// Returns an error of [`ErrorKind::InvalidArgument`] with `detail`.
+    pub(crate) fn invalid(self, detail: String) -> Error {
+        Error::new(ErrorKind::InvalidArgument, self.operation()).with_detail(detail)
+    }
+
+    /// Returns an error of [`ErrorKind::Backend`] for an error that wgpu
+    /// reported while it prepared or submitted the work.
+    pub(crate) fn rejected(self, error: ::wgpu::Error) -> Error {
+        Error::new(ErrorKind::Backend, self.operation())
+            .with_detail(format!("wgpu rejected the {} of {self}", self.request()))
+            .with_source(error)
+    }
+
+    fn internal(self, path: &str) -> Error {
+        Error::new(ErrorKind::UnsupportedParameter, self.operation()).with_detail(format!(
+            "internal error: the layout of {self} lost the parameter `{path}`"
+        ))
+    }
+}
+
+impl fmt::Display for Subject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Kernel(name) => write!(f, "the kernel `{name}`"),
+            Self::Pipeline { vertex, fragment } => {
+                write!(f, "the render pipeline of `{vertex}` and `{fragment}`")
+            }
+        }
+    }
+}
+
+/// The parameters of a kernel or a render pipeline that the checks of a call
+/// or draw read: the bindings, ordered by set and binding, each with its
+/// usage, and the block of immediates, when there is one.
+pub(crate) struct Parameters<'l, P> {
+    pub(crate) subject: Subject<'l>,
+    pub(crate) bindings: &'l [P],
+    pub(crate) immediates: Option<&'l UniformBlock>,
+}
+
+impl<P> Clone for Parameters<'_, P> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<P> Copy for Parameters<'_, P> {}
+
+impl<'l> Parameters<'l, Binding> {
+    fn of_kernel(layout: &'l KernelLayout) -> Self {
+        Self {
+            subject: Subject::Kernel(&layout.name),
+            bindings: &layout.bindings,
+            immediates: layout.immediates.as_ref(),
+        }
+    }
+}
+
+/// Where a parameter path leads in the parameters.
 #[derive(Clone, Copy)]
 enum Target<'l> {
     /// The storage buffer at this index of the bindings.
@@ -521,80 +660,97 @@ enum Target<'l> {
     Immediate(&'l PlainValue),
 }
 
+/// The state of the checks after each given argument passed: the bytes of
+/// each uniform buffer and of the immediates, the argument that gives each
+/// binding, and the paths of the plain values that the arguments set.
+pub(crate) struct Checked<'p> {
+    blocks: Vec<Option<Vec<u8>>>,
+    immediates: Vec<u8>,
+    given: Vec<Option<usize>>,
+    set: HashSet<&'p str>,
+}
+
 /// Checks the arguments of a call against the layout snapshot of its kernel
 /// and returns what the dispatch binds.
 ///
-/// It fails with [`ErrorKind::InvalidArgument`] on the first argument, in
-/// the order of the arguments, whose path names no parameter, whose kind
-/// differs from that of its parameter, whose value does not match, whose
-/// buffer, texture, or sampler belongs to another device, whose buffer is
-/// empty or has another stride, or whose texture cannot be sampled. It then
-/// fails on the first parameter, in the order of the bindings and then the
-/// immediates, that the kernel uses and that no argument gives. An argument
-/// for a parameter that the kernel does not use is checked and then
-/// ignored.
+/// It runs [`check_arguments`] and then [`finish`].
 pub(crate) fn plan<B, V, S>(
     layout: &KernelLayout,
     arguments: &[(&str, Argument<B, V, S>)],
 ) -> Result<Plan> {
-    let mut blocks: Vec<Option<Vec<u8>>> = layout
+    let parameters = Parameters::of_kernel(layout);
+    let checked = check_arguments(parameters, arguments)?;
+    finish(parameters, checked)
+}
+
+/// Checks each given argument, in the order of the arguments.
+///
+/// It fails with [`ErrorKind::InvalidArgument`] on the first argument whose
+/// path names no parameter, whose kind differs from that of its parameter,
+/// whose value does not match, whose buffer, texture, or sampler belongs to
+/// another device, whose buffer is empty or has another stride, or whose
+/// texture cannot be sampled. An argument for a parameter that is not used
+/// gets the same checks.
+pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
+    parameters: Parameters<'_, P>,
+    arguments: &[(&'p str, Argument<B, V, S>)],
+) -> Result<Checked<'p>> {
+    let subject = parameters.subject;
+    let mut blocks: Vec<Option<Vec<u8>>> = parameters
         .bindings
         .iter()
-        .map(|binding| match &binding.resource {
+        .map(|binding| match &binding.as_ref().resource {
             Resource::UniformBuffer(block) => Some(zeroed(block)),
             Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => None,
         })
         .collect();
-    let mut immediates = layout.immediates.as_ref().map(zeroed).unwrap_or_default();
-    let mut given: Vec<Option<usize>> = vec![None; layout.bindings.len()];
+    let mut immediates = parameters.immediates.map(zeroed).unwrap_or_default();
+    let mut given: Vec<Option<usize>> = vec![None; parameters.bindings.len()];
     let mut set: HashSet<&str> = HashSet::new();
-    let name = layout.name.as_str();
     for (index, (path, argument)) in arguments.iter().enumerate() {
         let path = *path;
-        let target = find(layout, path).ok_or_else(|| {
-            invalid(format!(
-                "the kernel `{name}` has no parameter at the path `{path}`"
-            ))
+        let target = find(parameters, path).ok_or_else(|| {
+            subject.invalid(format!("{subject} has no parameter at the path `{path}`"))
         })?;
         let binding = match target {
             Target::Buffer(binding) => {
                 let Argument::Buffer(bound) = argument else {
-                    return Err(mismatch(name, path, "a buffer", argument));
+                    return Err(mismatch(subject, path, "a buffer", argument));
                 };
-                check_buffer(layout, binding, path, bound)?;
+                check_buffer(parameters, binding, path, bound)?;
                 binding
             }
             Target::Texture(binding) => {
                 let Argument::Texture(bound) = argument else {
-                    return Err(mismatch(name, path, "a texture", argument));
+                    return Err(mismatch(subject, path, "a texture", argument));
                 };
-                check_texture(name, path, bound)?;
+                check_texture(subject, path, bound)?;
                 binding
             }
             Target::Sampler(binding) => {
                 let Argument::Sampler(bound) = argument else {
-                    return Err(mismatch(name, path, "a sampler", argument));
+                    return Err(mismatch(subject, path, "a sampler", argument));
                 };
-                check_on_device(name, path, "sampler", bound.on_device)?;
+                check_on_device(subject, path, "sampler", bound.on_device)?;
                 binding
             }
             Target::Uniform(binding, plain) => {
                 let Argument::Value(value) = argument else {
-                    return Err(mismatch(name, path, "a plain value", argument));
+                    return Err(mismatch(subject, path, "a plain value", argument));
                 };
                 let block = blocks
                     .get_mut(binding)
                     .and_then(Option::as_mut)
-                    .ok_or_else(|| internal(name, path))?;
-                write(name, path, value, plain, block)?;
+                    .ok_or_else(|| subject.internal(path))?;
+                write(subject, path, value, plain, block)?;
                 set.insert(path);
                 continue;
             }
             Target::Immediate(plain) => {
                 let Argument::Value(value) = argument else {
-                    return Err(mismatch(name, path, "a plain value", argument));
+                    return Err(mismatch(subject, path, "a plain value", argument));
                 };
-                write(name, path, value, plain, &mut immediates)?;
+                write(subject, path, value, plain, &mut immediates)?;
                 set.insert(path);
                 continue;
             }
@@ -603,25 +759,47 @@ pub(crate) fn plan<B, V, S>(
             *slot = Some(index);
         }
     }
-    require_arguments(layout, &given, &set)?;
-    let groups = group_sets(layout)
+    Ok(Checked {
+        blocks,
+        immediates,
+        given,
+        set,
+    })
+}
+
+/// Fails on the first parameter, in the order of the bindings and then the
+/// immediates, that is used and that no argument gives, and otherwise returns
+/// what the work binds.
+pub(crate) fn finish<P: AsRef<Binding>>(
+    parameters: Parameters<'_, P>,
+    checked: Checked<'_>,
+) -> Result<Plan> {
+    let Checked {
+        mut blocks,
+        immediates,
+        given,
+        set,
+    } = checked;
+    require_arguments(parameters, &given, &set)?;
+    let subject = parameters.subject;
+    let groups = group_sets(parameters.bindings)
         .into_iter()
         .map(|indexes| {
             indexes
                 .into_iter()
                 .map(|binding| {
-                    let index = layout
+                    let index = parameters
                         .bindings
                         .get(binding)
-                        .map(|binding| binding.index)
-                        .ok_or_else(|| internal(name, ""))?;
+                        .map(|binding| binding.as_ref().index)
+                        .ok_or_else(|| subject.internal(""))?;
                     let source = match given.get(binding).copied().flatten() {
                         Some(argument) => Source::Argument(argument),
                         None => Source::Uniform(
                             blocks
                                 .get_mut(binding)
                                 .and_then(Option::take)
-                                .ok_or_else(|| internal(name, ""))?,
+                                .ok_or_else(|| subject.internal(""))?,
                         ),
                     };
                     Ok(Entry { index, source })
@@ -633,16 +811,17 @@ pub(crate) fn plan<B, V, S>(
 }
 
 /// Fails with [`ErrorKind::InvalidArgument`] on the first parameter, in the
-/// order of the bindings and then the immediates, that the kernel uses and
-/// that no argument gives, where `given` holds the argument of each binding
-/// and `set` the paths of the plain values that the arguments set.
-fn require_arguments(
-    layout: &KernelLayout,
+/// order of the bindings and then the immediates, that is used and that no
+/// argument gives, where `given` holds the argument of each binding and
+/// `set` the paths of the plain values that the arguments set.
+fn require_arguments<P: AsRef<Binding>>(
+    parameters: Parameters<'_, P>,
     given: &[Option<usize>],
     set: &HashSet<&str>,
 ) -> Result<()> {
-    let name = layout.name.as_str();
-    for (binding, given) in layout.bindings.iter().zip(given) {
+    let subject = parameters.subject;
+    for (binding, given) in parameters.bindings.iter().zip(given) {
+        let binding = binding.as_ref();
         if binding.usage == Usage::Unused {
             continue;
         }
@@ -651,31 +830,31 @@ fn require_arguments(
             Resource::SampledTexture => "texture",
             Resource::Sampler => "sampler",
             Resource::UniformBuffer(block) => {
-                require_values(name, block, set)?;
+                require_values(subject, block, set)?;
                 continue;
             }
         };
         if given.is_none() {
-            return Err(invalid(format!(
-                "no {what} is bound to the parameter `{}` of the kernel `{name}`",
+            return Err(subject.invalid(format!(
+                "no {what} is bound to the parameter `{}` of {subject}",
                 binding.path
             )));
         }
     }
-    if let Some(block) = &layout.immediates {
-        require_values(name, block, set)?;
+    if let Some(block) = parameters.immediates {
+        require_values(subject, block, set)?;
     }
     Ok(())
 }
 
 /// Returns the indexes of the used bindings of each set, from set 0 to the
 /// last set with a used binding, which are the bind group layouts that the
-/// load created.
-fn group_sets(layout: &KernelLayout) -> Vec<Vec<usize>> {
+/// load or the creation of the render pipeline created.
+fn group_sets<P: AsRef<Binding>>(bindings: &[P]) -> Vec<Vec<usize>> {
     let used = || {
-        layout
-            .bindings
+        bindings
             .iter()
+            .map(AsRef::as_ref)
             .enumerate()
             .filter(|(_, binding)| binding.usage == Usage::Used)
     };
@@ -692,8 +871,8 @@ fn group_sets(layout: &KernelLayout) -> Vec<Vec<usize>> {
         .collect()
 }
 
-fn find<'l>(layout: &'l KernelLayout, path: &str) -> Option<Target<'l>> {
-    for (index, binding) in layout.bindings.iter().enumerate() {
+fn find<'l, P: AsRef<Binding>>(parameters: Parameters<'l, P>, path: &str) -> Option<Target<'l>> {
+    for (index, binding) in parameters.bindings.iter().map(AsRef::as_ref).enumerate() {
         match &binding.resource {
             Resource::StorageBuffer { .. } if binding.path == path => {
                 return Some(Target::Buffer(index));
@@ -712,73 +891,73 @@ fn find<'l>(layout: &'l KernelLayout, path: &str) -> Option<Target<'l>> {
             }
         }
     }
-    layout
-        .immediates
-        .as_ref()?
+    parameters
+        .immediates?
         .values
         .iter()
         .find(|plain| plain.path == path)
         .map(Target::Immediate)
 }
 
-fn check_buffer<B>(
-    layout: &KernelLayout,
+fn check_buffer<P: AsRef<Binding>, B>(
+    parameters: Parameters<'_, P>,
     binding: usize,
     path: &str,
     bound: &Bound<B>,
 ) -> Result<()> {
-    let name = layout.name.as_str();
-    let Some(Resource::StorageBuffer { stride, .. }) = layout
+    let subject = parameters.subject;
+    let Some(Resource::StorageBuffer { stride, .. }) = parameters
         .bindings
         .get(binding)
-        .map(|binding| &binding.resource)
+        .map(|binding| &binding.as_ref().resource)
     else {
-        return Err(internal(name, path));
+        return Err(subject.internal(path));
     };
-    check_on_device(name, path, "buffer", bound.on_device)?;
+    check_on_device(subject, path, "buffer", bound.on_device)?;
     if bound.len == 0 {
-        return Err(invalid(format!(
-            "the buffer bound to the parameter `{path}` of the kernel `{name}` is empty"
+        return Err(subject.invalid(format!(
+            "the buffer bound to the parameter `{path}` of {subject} is empty"
         )));
     }
     if !u64::try_from(bound.stride).is_ok_and(|given| given == *stride) {
-        return Err(invalid(format!(
-            "the parameter `{path}` of the kernel `{name}` has elements of {stride} bytes, and the bound buffer has elements of {} bytes",
+        return Err(subject.invalid(format!(
+            "the parameter `{path}` of {subject} has elements of {stride} bytes, and the bound buffer has elements of {} bytes",
             bound.stride
         )));
     }
     Ok(())
 }
 
-fn check_texture<V>(name: &str, path: &str, bound: &BoundTexture<V>) -> Result<()> {
-    check_on_device(name, path, "texture", bound.on_device)?;
+fn check_texture<V>(subject: Subject<'_>, path: &str, bound: &BoundTexture<V>) -> Result<()> {
+    check_on_device(subject, path, "texture", bound.on_device)?;
+    let runner = subject.runner();
     if bound.format.is_depth() {
-        return Err(invalid(format!(
-            "the texture bound to the parameter `{path}` of the kernel `{name}` has the depth format {:?}, which a kernel cannot sample",
+        return Err(subject.invalid(format!(
+            "the texture bound to the parameter `{path}` of {subject} has the depth format {:?}, which {runner} cannot sample",
             bound.format
         )));
     }
     if !bound.sampleable {
-        return Err(invalid(format!(
-            "the texture bound to the parameter `{path}` of the kernel `{name}` lacks the usage TEXTURE_BINDING, which a kernel needs to sample it"
+        return Err(subject.invalid(format!(
+            "the texture bound to the parameter `{path}` of {subject} lacks the usage TEXTURE_BINDING, which {runner} needs to sample it"
         )));
     }
     Ok(())
 }
 
-fn check_on_device(name: &str, path: &str, what: &str, on_device: bool) -> Result<()> {
+fn check_on_device(subject: Subject<'_>, path: &str, what: &str, on_device: bool) -> Result<()> {
     if on_device {
         return Ok(());
     }
-    Err(invalid(format!(
-        "the {what} bound to the parameter `{path}` of the kernel `{name}` belongs to another device"
+    Err(subject.invalid(format!(
+        "the {what} bound to the parameter `{path}` of {subject} belongs to another device"
     )))
 }
 
 /// Returns the error of an argument whose kind differs from that of its
 /// parameter, which is `parameter`, such as "a buffer".
 fn mismatch<B, V, S>(
-    name: &str,
+    subject: Subject<'_>,
     path: &str,
     parameter: &str,
     argument: &Argument<B, V, S>,
@@ -789,19 +968,20 @@ fn mismatch<B, V, S>(
         Argument::Texture(_) => "binds a texture to it",
         Argument::Sampler(_) => "binds a sampler to it",
     };
-    invalid(format!(
-        "the parameter `{path}` of the kernel `{name}` is {parameter}, and the call {given}"
+    subject.invalid(format!(
+        "the parameter `{path}` of {subject} is {parameter}, and the {} {given}",
+        subject.request()
     ))
 }
 
-fn require_values(name: &str, block: &UniformBlock, set: &HashSet<&str>) -> Result<()> {
+fn require_values(subject: Subject<'_>, block: &UniformBlock, set: &HashSet<&str>) -> Result<()> {
     match block
         .values
         .iter()
         .find(|plain| !set.contains(plain.path.as_str()))
     {
-        Some(plain) => Err(invalid(format!(
-            "the parameter `{}` of the kernel `{name}` is not set",
+        Some(plain) => Err(subject.invalid(format!(
+            "the parameter `{}` of {subject} is not set",
             plain.path
         ))),
         None => Ok(()),
@@ -809,16 +989,16 @@ fn require_values(name: &str, block: &UniformBlock, set: &HashSet<&str>) -> Resu
 }
 
 fn write(
-    name: &str,
+    subject: Subject<'_>,
     path: &str,
     value: &Marshalled,
     plain: &PlainValue,
     block: &mut [u8],
 ) -> Result<()> {
     marshal::write(path, value, plain, block).map_err(|error| {
-        Error::new(error.kind(), CALL)
+        Error::new(error.kind(), subject.operation())
             .with_detail(format!(
-                "the kernel `{name}` cannot take the value of the parameter `{path}`"
+                "{subject} cannot take the value of the parameter `{path}`"
             ))
             .with_source(error)
     })
@@ -828,16 +1008,6 @@ fn write(
 /// when the size does not fit in memory, which no reflected layout reaches.
 fn zeroed(block: &UniformBlock) -> Vec<u8> {
     vec![0; usize::try_from(block.size).unwrap_or(0)]
-}
-
-fn invalid(detail: String) -> Error {
-    Error::new(ErrorKind::InvalidArgument, CALL).with_detail(detail)
-}
-
-fn internal(name: &str, path: &str) -> Error {
-    Error::new(ErrorKind::UnsupportedParameter, CALL).with_detail(format!(
-        "internal error: the layout of the kernel `{name}` lost the parameter `{path}`"
-    ))
 }
 
 #[cfg(test)]

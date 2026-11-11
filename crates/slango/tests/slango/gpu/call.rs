@@ -44,6 +44,28 @@ fn a_call_runs_again_with_the_same_arguments() -> slango::Result<()> {
     Ok(())
 }
 
+#[test]
+fn a_later_argument_for_a_path_replaces_the_earlier_one_whatever_its_kind() -> slango::Result<()> {
+    let device = device();
+    let module = device.load_module(shader("scale.slang"))?;
+    let earlier = Buffer::from_slice(&device, &[1.0_f32, 2.0])?;
+    let later = Buffer::from_slice(&device, &[3.0_f32, 4.0])?;
+    module
+        .kernel("scale")?
+        .call()
+        .set("data", 1.0_f32)
+        .bind("factor", &earlier)
+        .set("count", 2_u32)
+        .bind("data", &earlier)
+        .set("factor", 3.0_f32)
+        .bind("data", &later)
+        .set("factor", 5.0_f32)
+        .dispatch([2, 1, 1])?;
+    assert_eq!(earlier.read()?, [1.0, 2.0]);
+    assert_eq!(later.read()?, [15.0, 20.0]);
+    Ok(())
+}
+
 const SHAPES: &str = r#"
 RWStructuredBuffer<float> output;
 

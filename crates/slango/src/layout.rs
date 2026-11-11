@@ -41,6 +41,12 @@ pub(crate) struct Binding {
     pub(crate) resource: Resource,
 }
 
+impl AsRef<Self> for Binding {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Usage {
     Used,

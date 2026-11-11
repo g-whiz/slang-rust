@@ -7,6 +7,13 @@ use slango::{
 
 use crate::common::{device_with, load, shader};
 
+mod conventions;
+mod draw;
+mod inputs;
+mod rejections;
+mod sharing;
+mod uniforms;
+
 fn device() -> Device {
     device_with(AdapterSelection::Default)
 }

@@ -36,7 +36,7 @@ mod sealed {
         unnameable_types,
         reason = "the supertrait that seals `VertexElement` is private so that no other crate implements it (API-8)"
     )]
-    pub trait SealedVertexElement: Sized {
+    pub trait SealedVertexElement: SealedValue + Sized {
         const STRIDE: usize;
 
         fn write_bytes(&self, out: &mut Vec<u8>);

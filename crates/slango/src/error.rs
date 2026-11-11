@@ -142,10 +142,11 @@ pub enum ErrorKind {
     /// the feature, or use another adapter.
     MissingFeature,
     /// An argument was invalid, such as an unknown kernel or entry point
-    /// name, a wrong option of a render pipeline, a parameter that a call
-    /// names but the kernel lacks, a file that cannot be read as text, a
-    /// buffer larger than the device allows, or a texture of no pixels.
-    /// Correct the call.
+    /// name, a wrong option of a render pipeline, a parameter that a call or
+    /// a draw names but the kernel or the pipeline lacks, a vertex buffer,
+    /// target, or count that does not fit a draw, a file that cannot be read
+    /// as text, a buffer larger than the device allows, or a texture of no
+    /// pixels. Correct the call.
     InvalidArgument,
     /// wgpu reported a validation error, or a lack of memory, for work that
     /// this crate submitted. Report a validation error as a defect of this

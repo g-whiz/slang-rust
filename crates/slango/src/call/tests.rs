@@ -1,8 +1,8 @@
 use std::error::Error as _;
 
 use super::{
-    Argument, Bound, BoundSampler, BoundTexture, Call, Entry, Plan, Source, check_workgroups, plan,
-    workgroup_counts,
+    Argument, Bound, BoundSampler, BoundTexture, Call, Entry, Plan, Source, check_workgroups,
+    insert, plan, workgroup_counts,
 };
 use crate::error::{ErrorKind, Result};
 use crate::layout::{
@@ -158,6 +158,24 @@ fn without(path: &str) -> Vec<(&'static str, Arg)> {
         .into_iter()
         .filter(|(given, _)| *given != path)
         .collect()
+}
+
+#[test]
+fn a_later_argument_for_a_path_replaces_the_earlier_one_whatever_its_kind() {
+    let mut arguments = Vec::new();
+    insert(&mut arguments, "factor", value(1.0_f32));
+    insert(&mut arguments, "data", buffer(4, 4));
+    insert(&mut arguments, "factor", value(2.0_f32));
+    assert_eq!(
+        arguments,
+        vec![("factor", value(2.0_f32)), ("data", buffer(4, 4))]
+    );
+    insert(&mut arguments, "data", value(3_u32));
+    insert(&mut arguments, "factor", buffer(16, 2));
+    assert_eq!(
+        arguments,
+        vec![("factor", buffer(16, 2)), ("data", value(3_u32))]
+    );
 }
 
 #[test]

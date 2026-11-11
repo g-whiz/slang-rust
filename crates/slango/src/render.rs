@@ -21,8 +21,8 @@ const CREATE: &str = "create a render pipeline";
 /// the colour of each pixel that a triangle covers. Create a pipeline with
 /// [`Module::render_pipeline`](crate::Module::render_pipeline), which
 /// checks that the device accepts both entry points together, so every error
-/// of the pipeline surfaces there. This version creates render pipelines and
-/// does not draw with them yet.
+/// of the pipeline surfaces there. [`RenderPipeline::draw`] draws with it
+/// into a [`Texture`](crate::Texture).
 ///
 /// Cloning a render pipeline is cheap and returns another handle to the same
 /// pipeline. A render pipeline keeps its [`Device`] alive, holds no object of
@@ -34,22 +34,10 @@ const CREATE: &str = "create a render pipeline";
 /// [`Module::render_pipeline`](crate::Module::render_pipeline).
 #[derive(Clone)]
 pub struct RenderPipeline {
-    snapshot: Arc<PipelineSnapshot>,
-    #[expect(
-        dead_code,
-        reason = "SLO-19 of docs/design/slango.md has a render pipeline hold its device, and step 10 of its Section 14 adds the draw, which reads it"
-    )]
-    device: Device,
-    #[expect(
-        dead_code,
-        reason = "step 10 of Section 14 of docs/design/slango.md adds the draw, which creates its bind groups from these layouts"
-    )]
-    bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
-    #[expect(
-        dead_code,
-        reason = "step 10 of Section 14 of docs/design/slango.md adds the draw, which records this pipeline"
-    )]
-    pipeline: ::wgpu::RenderPipeline,
+    pub(crate) snapshot: Arc<PipelineSnapshot>,
+    pub(crate) device: Device,
+    pub(crate) bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
+    pub(crate) pipeline: ::wgpu::RenderPipeline,
 }
 
 impl RenderPipeline {
@@ -274,6 +262,12 @@ pub(crate) struct PipelineSnapshot {
 pub(crate) struct PipelineBinding {
     pub(crate) binding: Binding,
     pub(crate) visibility: ::wgpu::ShaderStages,
+}
+
+impl AsRef<Binding> for PipelineBinding {
+    fn as_ref(&self) -> &Binding {
+        &self.binding
+    }
 }
 
 /// One vertex attribute of a render pipeline, with its vertex format, its
@@ -525,7 +519,7 @@ fn vertex_inputs(
 
 /// Returns the vertex format of an attribute of a scalar type with a number
 /// of components, or `None` when no vertex format holds it.
-fn vertex_format(scalar: Scalar, components: u32) -> Option<::wgpu::VertexFormat> {
+pub(crate) fn vertex_format(scalar: Scalar, components: u32) -> Option<::wgpu::VertexFormat> {
     use ::wgpu::VertexFormat as F;
     let formats = match scalar {
         Scalar::Float32 => [F::Float32, F::Float32x2, F::Float32x3, F::Float32x4],

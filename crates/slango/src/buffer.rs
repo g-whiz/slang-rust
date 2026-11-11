@@ -18,8 +18,9 @@ const READ: &str = "read a buffer";
 /// A kernel reaches it as a `StructuredBuffer` or `RWStructuredBuffer` of
 /// the matching Slang element type, which [`Element`](crate::Element) lists.
 /// A buffer of any [`VertexElement`] can also hold the values of a vertex
-/// attribute, and a `Buffer<u32>` the indices of the vertices of triangles,
-/// for the drawing that a later version adds. Create one from
+/// attribute of a draw, which [`Draw::vertex`](crate::Draw::vertex) gives,
+/// and a `Buffer<u32>` the indices of the vertices of triangles, which
+/// [`Draw::submit_indexed`](crate::Draw::submit_indexed) reads. Create one from
 /// the elements of a slice with [`Buffer::from_slice`], or filled with zeros
 /// with [`Buffer::zeroed`], and copy its elements back with
 /// [`Buffer::read`]. A buffer keeps its length for its whole life. The

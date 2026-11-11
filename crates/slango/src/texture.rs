@@ -24,10 +24,10 @@ const BYTES_PER_PIXEL: u32 = 4;
 /// are in rows from the top, so the texture coordinates (0, 0) of a shader
 /// address its top-left pixel.
 ///
-/// A texture of a colour format can be sampled, read, and drawn into. A
-/// texture of the depth format [`TextureFormat::Depth32Float`] can only serve
-/// as the depth target of the drawing that a later version adds, so it is
-/// neither sampled nor read.
+/// A texture of a colour format can be sampled, read, and drawn into as the
+/// colour target of a [`Draw`](crate::Draw). A texture of the depth format
+/// [`TextureFormat::Depth32Float`] can only serve as the depth target of a
+/// draw, so it is neither sampled nor read.
 ///
 /// Cloning a texture is cheap and returns another handle to the same texture
 /// on the GPU. A texture keeps its [`Device`] alive and is [`Send`] and
@@ -273,6 +273,14 @@ impl Texture {
         self.inner
             .usage()
             .contains(::wgpu::TextureUsages::TEXTURE_BINDING)
+    }
+
+    /// Returns whether the texture has the usage `RENDER_ATTACHMENT`, which
+    /// a draw needs to draw into it or to test and write its depths.
+    pub(crate) fn is_attachable(&self) -> bool {
+        self.inner
+            .usage()
+            .contains(::wgpu::TextureUsages::RENDER_ATTACHMENT)
     }
 
     pub(crate) fn wgpu_texture(&self) -> &::wgpu::Texture {
