@@ -6,15 +6,17 @@ use crate::Device;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
 use crate::layout::{self, CompiledRender, Source};
+use crate::render::{RenderPipeline, RenderPipelineOptions};
 
 const READ: &str = "read a Slang file";
 
 /// One loaded Slang module, with a [`Kernel`] for each of its compute entry
-/// points.
+/// points, and its vertex and fragment entry points.
 ///
 /// Load a module with [`Device::load_module`] or
 /// [`Device::load_module_from_source`], then get its kernels by name with
-/// [`Module::kernel`].
+/// [`Module::kernel`], and create a [`RenderPipeline`] from a vertex and a
+/// fragment entry point with [`Module::render_pipeline`].
 ///
 /// Cloning a module is cheap and returns another handle to the same module.
 /// A module keeps its [`Device`] alive, holds no object of the Slang
@@ -25,16 +27,8 @@ const READ: &str = "read a Slang file";
 /// See the example of [`Module::kernel`].
 #[derive(Clone)]
 pub struct Module {
-    #[expect(
-        dead_code,
-        reason = "SLO-3 of docs/design/slango.md has a module hold its device, and no method of M3 reads it, because each kernel holds the device too"
-    )]
     device: Device,
     kernels: Arc<[Kernel]>,
-    #[expect(
-        dead_code,
-        reason = "SLO-20 of docs/design/slango.md has the load record every vertex and fragment entry point, and step 9 of its Section 14 adds Module::render_pipeline, which reads them"
-    )]
     render: Arc<[CompiledRender]>,
 }
 
@@ -80,6 +74,86 @@ impl Module {
                     "the module has no compute entry point named `{name}`"
                 ))
             })
+    }
+
+    /// Creates a render pipeline from the vertex entry point named `vertex`
+    /// and the fragment entry point named `fragment`, with the options.
+    ///
+    /// The pipeline binds every global parameter that either entry point
+    /// uses, and takes one vertex buffer for each vertex attribute that the
+    /// vertex entry point uses. The creation checks the entry points and the
+    /// options first, then creates everything that a draw needs on the
+    /// device, so every error of the pipeline surfaces here. Each call
+    /// creates a new pipeline.
+    ///
+    /// # Examples
+    ///
+    /// This example loads a module with a vertex and a fragment entry point
+    /// and creates a render pipeline from them that draws into a
+    /// `Bgra8Unorm` target with a depth target and discards the triangles
+    /// that face away. It needs a GPU driver or a software driver at run
+    /// time, so it is compiled but not run:
+    ///
+    /// ```no_run
+    /// use slango::{CullMode, Device, DeviceOptions, RenderPipelineOptions, TextureFormat};
+    ///
+    /// let device = Device::new(&DeviceOptions::default())?;
+    /// let module = device.load_module_from_source(
+    ///     "triangle",
+    ///     r#"
+    ///         struct VOut { float4 position : SV_Position; float3 colour : COLOR; };
+    ///
+    ///         [shader("vertex")]
+    ///         VOut vsMain(float2 position : POSITION, float3 colour : COLOR)
+    ///         {
+    ///             VOut output;
+    ///             output.position = float4(position, 0.0, 1.0);
+    ///             output.colour = colour;
+    ///             return output;
+    ///         }
+    ///
+    ///         [shader("fragment")]
+    ///         float4 fsMain(VOut input) : SV_Target { return float4(input.colour, 1.0); }
+    ///     "#,
+    /// )?;
+    /// let mut options = RenderPipelineOptions::default();
+    /// options.colour_format = TextureFormat::Bgra8Unorm;
+    /// options.depth_format = Some(TextureFormat::Depth32Float);
+    /// options.cull_mode = CullMode::Back;
+    /// let pipeline = module.render_pipeline("vsMain", "fsMain", &options)?;
+    /// # drop(pipeline);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] of these kinds:
+    ///
+    /// - [`ErrorKind::InvalidArgument`] when the module has no vertex entry
+    ///   point named `vertex` or no fragment entry point named `fragment`,
+    ///   when the colour format is a depth format or the depth format is a
+    ///   colour format, or when `instance_attributes` names no vertex
+    ///   attribute of the vertex entry point.
+    /// - [`ErrorKind::UnsupportedParameter`] when either entry point has a
+    ///   parameter of a kind that this version does not support, or
+    ///   `uniform` parameters of its own, which a render pipeline does not
+    ///   accept.
+    /// - [`ErrorKind::Compile`] when Slang failed on either entry point while
+    ///   the module was loaded.
+    /// - [`ErrorKind::UnsupportedShader`] when the backend rejects the
+    ///   compiled form of either entry point, or the two together, such as
+    ///   when the outputs of the vertex entry point do not match the inputs
+    ///   of the fragment entry point. The source error carries the backend's
+    ///   text.
+    /// - [`ErrorKind::Backend`] when wgpu reports another error while it
+    ///   creates the pipeline.
+    pub fn render_pipeline(
+        &self,
+        vertex: &str,
+        fragment: &str,
+        options: &RenderPipelineOptions,
+    ) -> Result<RenderPipeline> {
+        RenderPipeline::create(&self.device, &self.render, vertex, fragment, options)
     }
 }
 

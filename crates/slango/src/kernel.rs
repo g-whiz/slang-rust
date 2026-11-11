@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::Device;
 use crate::device::scoped;
 use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{Access, CompiledKernel, KernelLayout, Resource, Usage};
+use crate::layout::{Access, Binding, CompiledKernel, KernelLayout, Resource, Usage};
 
 const LOAD: &str = "load a Slang module";
 
@@ -135,9 +135,10 @@ impl fmt::Debug for Kernel {
     }
 }
 
-/// Returns the kind of the error of a load when wgpu raises `error` while it
-/// creates the layouts or the pipeline of a kernel.
-fn pipeline_error_kind(error: &::wgpu::Error) -> ErrorKind {
+/// Returns the kind of the error when wgpu raises `error` while it creates
+/// the layouts or the compute pipeline of a kernel, or the layouts of a
+/// render pipeline.
+pub(crate) fn pipeline_error_kind(error: &::wgpu::Error) -> ErrorKind {
     match error {
         ::wgpu::Error::Internal { .. } => ErrorKind::UnsupportedShader,
         ::wgpu::Error::OutOfMemory { .. } | ::wgpu::Error::Validation { .. } => ErrorKind::Backend,
@@ -182,22 +183,31 @@ fn checked_immediate_size(name: &str, has_feature: bool, limit: u32, size: u64) 
 /// that Slang generates omits it, and a set between used sets gets an empty
 /// layout.
 fn bind_group_layout_entries(layout: &KernelLayout) -> Vec<Vec<::wgpu::BindGroupLayoutEntry>> {
-    let used = || {
-        layout
-            .bindings
-            .iter()
-            .filter(|binding| binding.usage == Usage::Used)
-    };
-    let Some(last_set) = used().map(|binding| binding.set).max() else {
+    let used: Vec<(&Binding, ::wgpu::ShaderStages)> = layout
+        .bindings
+        .iter()
+        .filter(|binding| binding.usage == Usage::Used)
+        .map(|binding| (binding, ::wgpu::ShaderStages::COMPUTE))
+        .collect();
+    layout_entries(&used)
+}
+
+/// Returns the entries of the bind group layout of each set, from set 0 to
+/// the last set of the `used` bindings, each visible to its stages, with an
+/// empty layout for a set that holds no used binding.
+pub(crate) fn layout_entries(
+    used: &[(&Binding, ::wgpu::ShaderStages)],
+) -> Vec<Vec<::wgpu::BindGroupLayoutEntry>> {
+    let Some(last_set) = used.iter().map(|(binding, _)| binding.set).max() else {
         return Vec::new();
     };
     (0..=last_set)
         .map(|set| {
-            used()
-                .filter(|binding| binding.set == set)
-                .map(|binding| ::wgpu::BindGroupLayoutEntry {
+            used.iter()
+                .filter(|(binding, _)| binding.set == set)
+                .map(|&(binding, visibility)| ::wgpu::BindGroupLayoutEntry {
                     binding: binding.index,
-                    visibility: ::wgpu::ShaderStages::COMPUTE,
+                    visibility,
                     ty: binding_type(&binding.resource),
                     count: None,
                 })

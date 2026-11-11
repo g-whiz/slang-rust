@@ -56,14 +56,21 @@
 //! them. The crate loads every kernel through wgpu's validated path and
 //! contains no unsafe code.
 //!
-//! A module may also declare vertex and fragment entry points, which a load
-//! accepts and this version does not run, because the crate does not draw
-//! yet. A [`Buffer`] of a [`VertexElement`] and a [`Texture`] of each format
-//! already have the uses that drawing needs.
+//! A module may also declare vertex and fragment entry points, marked
+//! `[shader("vertex")]` and `[shader("fragment")]`. [`Module::render_pipeline`]
+//! creates a [`RenderPipeline`] from one of each, with the colour format, the
+//! optional depth format, the [`Blend`], the [`CullMode`], and the vertex
+//! attributes that step per instance that [`RenderPipelineOptions`] give.
+//! The two entry points share the global parameters, constant buffers,
+//! parameter blocks, textures, and samplers of the module, and take their
+//! vertex attributes from vertex buffers. They cannot have `uniform`
+//! parameters of their own. This version creates render pipelines and does
+//! not draw with them yet. A [`Buffer`] of a [`VertexElement`] and a
+//! [`Texture`] of each format already have the uses that drawing needs.
 //!
 //! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
-//! [`Module`], a [`Kernel`], a [`Buffer`], a [`Texture`], and a [`Sampler`]
-//! are cheap to clone.
+//! [`Module`], a [`Kernel`], a [`RenderPipeline`], a [`Buffer`], a
+//! [`Texture`], and a [`Sampler`] are cheap to clone.
 //!
 //! # Examples
 //!
@@ -144,6 +151,7 @@ mod kernel;
 mod layout;
 mod marshal;
 mod module;
+mod render;
 mod sampler;
 mod texture;
 pub mod wgpu;
@@ -155,5 +163,6 @@ pub use error::{Error, ErrorKind, Result};
 pub use kernel::Kernel;
 pub use marshal::{Element, Value, VertexElement};
 pub use module::Module;
+pub use render::{Blend, CullMode, RenderPipeline, RenderPipelineOptions};
 pub use sampler::{AddressMode, FilterMode, Sampler, SamplerOptions};
 pub use texture::{Texture, TextureFormat};

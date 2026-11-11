@@ -204,13 +204,6 @@ pub(crate) struct CompiledKernel {
 
 /// One vertex or fragment entry point as one compilation yields it: its
 /// layout snapshot and its SPIR-V, or the rejection that makes it unusable.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 9 of Section 14 of docs/design/slango.md creates render pipelines from these fields, and until then only the unit tests read them"
-    )
-)]
 #[derive(Debug)]
 pub(crate) struct CompiledRender {
     pub(crate) name: String,
@@ -220,13 +213,6 @@ pub(crate) struct CompiledRender {
 
 /// The layout snapshot of a vertex or fragment entry point and its SPIR-V,
 /// whose entry point keeps the Slang name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 9 of Section 14 of docs/design/slango.md creates render pipelines from these fields, and until then only the unit tests read them"
-    )
-)]
 #[derive(Debug)]
 pub(crate) struct UsableRender {
     pub(crate) layout: RenderLayout,

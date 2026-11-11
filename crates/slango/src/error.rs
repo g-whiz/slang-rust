@@ -126,22 +126,26 @@ pub enum ErrorKind {
     /// error is the error of wgpu.
     DeviceRequest,
     /// naga, the shader translator inside wgpu, or the backend of wgpu
-    /// rejected the SPIR-V of a kernel, the compiled form of the shader. The
-    /// source error carries the rejecting text, which names the construct to
-    /// avoid.
+    /// rejected the SPIR-V of a kernel or of the entry points of a render
+    /// pipeline, the compiled form of the shader, or rejected the two entry
+    /// points of a render pipeline together, such as when their varyings do
+    /// not match. The source error carries the rejecting text, which names
+    /// the construct to avoid.
     UnsupportedShader,
-    /// A kernel has a parameter of a kind that this version does not
-    /// support, such as a storage texture or a `ByteAddressBuffer`, or, at a
-    /// call, the layout
-    /// that Slang reports for a plain value cannot hold the value.
+    /// A kernel or an entry point of a render pipeline has a parameter of a
+    /// kind that this version does not support, such as a storage texture
+    /// or a `ByteAddressBuffer`, or `uniform` parameters of the entry point
+    /// of a render pipeline, or, at a call, the layout that Slang reports
+    /// for a plain value cannot hold the value.
     UnsupportedParameter,
     /// A kernel needs a feature of the device that the device lacks. Request
     /// the feature, or use another adapter.
     MissingFeature,
-    /// An argument was invalid, such as an unknown kernel name, a parameter
-    /// that a call names but the kernel lacks, a file that cannot be read as
-    /// text, a buffer larger than the device allows, or a texture of no
-    /// pixels. Correct the call.
+    /// An argument was invalid, such as an unknown kernel or entry point
+    /// name, a wrong option of a render pipeline, a parameter that a call
+    /// names but the kernel lacks, a file that cannot be read as text, a
+    /// buffer larger than the device allows, or a texture of no pixels.
+    /// Correct the call.
     InvalidArgument,
     /// wgpu reported a validation error, or a lack of memory, for work that
     /// this crate submitted. Report a validation error as a defect of this
