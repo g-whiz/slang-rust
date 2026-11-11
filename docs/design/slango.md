@@ -34,7 +34,7 @@ This document designs nothing beyond M3. These belong to later milestones: kerne
 
 ### 1.6. Current State
 
-Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. It has 11 unit tests and the first 6 tests of the `gpu` tier, which create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with 5 unit tests that Miri runs and 9 `ffi` unit tests that call Slang (Section 13.1). Only its tests call it until step 3, so the public API did not change. Steps 3 to 6 do not exist yet, so a program can create a device but cannot load a module or run a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
+Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. Its first tests of the `gpu` tier create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with unit tests that Miri runs and `ffi` unit tests that call Slang (Section 13.1). Until step 3, only its tests called it. Step 3 is done, on 2026-11-11. `Device::load_module` loads a Slang file and `Device::load_module_from_source` loads source text, each into a `Module` with one `Kernel` for each compute entry point, and the load creates the compute pipeline of each kernel (Sections 7.1 and 7.3). `Module::kernel` looks a kernel up by name, and `Kernel::name` and `Kernel::thread_group_size` return its name and the size of its thread group. Steps 4 to 6 do not exist yet, so a program can create a device and load a module but cannot run a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -75,7 +75,7 @@ This section is non-normative. It states each fact that a later section relies o
 
 Each fact carries one of these marks:
 
-- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux.
+- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux. In a fact that names step 3, it means verified on 2026-11-11 by the work of step 3 of Section 14, in CI run 42952435667 or, where the fact says so, locally on the two Vulkan adapters of the development machine and not in CI.
 - (read): Read in a source on 2026-11-11, which the fact names.
 - (inferred): Concluded from other facts and not verified. Every inferred fact that the design depends on is also a row of Section 15.
 
@@ -114,7 +114,6 @@ naga rejects these valid Slang constructs, with the same text on both adapters (
 | Construct | naga's error text |
 | --- | --- |
 | Scalar layout (`glsl_force_scalar_layout`) | `The struct member[1] offset 4 is not a multiple of the required alignment 16` |
-| `int16_t`, `uint16_t` | `parsing error: InvalidTypeWidth(2)` |
 | `uint8_t` | `parsing error: UnsupportedCapability(UniformAndStorageBuffer8BitAccess)` |
 | `frexp` | `parsing error: UnsupportedExtInst(51)` |
 | `ByteAddressBuffer` read as both `uint` and `float` | `Bindings for [2] conflict with other resource` |
@@ -123,7 +122,7 @@ naga rejects these valid Slang constructs, with the same text on both adapters (
 | `RWTexture2D<float4>` without a `[format(...)]` | `parsing error: UnsupportedCapability(StorageImageReadWithoutFormat)` |
 | A subscript of a `Texture2D` | `Cannot textureLoad from a mipmapped image without specifying a level.` |
 
-`double`, `int64_t`, and `half` load only on a device with the matching feature, and naga otherwise names the missing capability, such as `Using 'f64' values requires the 'naga::valid::Capabilities::FLOAT64' flag` (run).
+`double`, `int64_t`, and `half` load only on a device with the matching feature, and naga otherwise names the missing capability, such as `Using 'f64' values requires the 'naga::valid::Capabilities::FLOAT64' flag` (run). 16-bit integers belong with them. On the two Vulkan adapters of the development machine, a kernel with a local `int16_t` on a device without the 16-bit integer feature failed when its shader module was created, with a validation error that names the capability `SHADER_INT16`. This was run locally on 2026-11-11 and not in CI. It corrects the spike's record of `parsing error: InvalidTypeWidth(2)` for `int16_t`. `uint16_t` was not run.
 
 ### 3.6. Costs
 
@@ -143,7 +142,7 @@ In CI run 42943216478, in which all six jobs passed, the `gpu` tests created a d
 | `windows-latest` | WARP, named `Microsoft Basic Render Driver` | Direct3D 12 | `Cpu` | 128 bytes |
 | `macos-latest` | `Apple Paravirtual device` | Metal | `IntegratedGpu` | 256 bytes |
 
-lavapipe is the only adapter of the Linux runner, so the default selection also finds it there (run). Metal offers no software adapter: on the macOS runner, `AdapterSelection::Software` returned `ErrorKind::NoAdapter` in the earlier run 42941845864 (run). No runner has dispatched a kernel yet, so these facts cover device creation only (SOA-2).
+lavapipe is the only adapter of the Linux runner, so the default selection also finds it there (run). Metal offers no software adapter: on the macOS runner, `AdapterSelection::Software` returned `ErrorKind::NoAdapter` in the earlier run 42941845864 (run). In CI run 42952435667, in which all six jobs passed, the `gpu` tests loaded modules on all three adapters (run, step 3). Kernels with immediates, a global uniform, a constant buffer, a parameter block, an import, and two kernels in one module reached the creation of their compute pipelines, and a kernel that calls `frexp` failed with the same backend text on all three. No runner has dispatched a kernel yet, so dispatch stays open (SOA-2).
 
 ## 4. Crate Structure and Dependencies
 
@@ -231,6 +230,12 @@ SLO-5. `Device::load_module` MUST compile the module on the calling thread and c
 
 The load reads the file as text and compiles it with `Session::load_module_from_source`, with the directory of the file as a search path so that an `import` of a sibling module resolves. A variant takes the source text and a module name instead of a path. The session targets `TargetFormat::Spirv` with Slang's default layout, and sets `vulkan_use_entry_point_name(Toggle::On)` so that every message of wgpu names the Slang function (Section 3.2). The load generates one SPIR-V module for each compute entry point through `LinkedProgram::entry_point_code`.
 
+Step 3 settled these choices, which the design left open:
+
+- `Device::load_module` takes the file stem as the module name, and the directory of the file, or `.` when the path has none, as the search path.
+- `Device::load_module_from_source` takes the module name and the source text and sets no search path, so an `import` finds only what Slang finds by default.
+- A path that is not valid UTF-8, which Slang needs, gives `ErrorKind::InvalidArgument`. So does a file that cannot be read as text, with the I/O error as the source error.
+
 SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `slango`. The data is the thread group size, the immediate size, and for each parameter its parameter path, its kind, its set and binding, whether the code uses it, and either its element stride or the scalar type, shape, offset, and size of each plain value. The snapshot is the backend-neutral boundary of Section 6, and a public snapshot would freeze its shape. The walk MUST follow the rules of Section 3.3, including the shift of global bindings for global plain values and the sum of `SubElementRegisterSpace` offsets for parameter blocks.
 
 This answers Q-31 of the architecture design, and CQ-4 of `docs/design/slang-compiler.md`, for M3. It also makes Q-30 of the architecture design, and CQ-1 of `docs/design/slang-compiler.md`, unnecessary for M3, because no Slang object leaves `load_module`.
@@ -275,9 +280,11 @@ The cost is about 135 ms for each load (Section 3.6). That is acceptable for a p
 
 SLO-8. `Device::load_module` MUST create the shader module, the bind group layouts, and the compute pipeline of every compute entry point before it returns. It MUST fail as a whole when any of them fails, because every error of a module then surfaces at one call. Each creation costs under 1 ms (Section 3.6).
 
-SLO-9. `slango` MUST create each shader module inside an error scope and MUST return a rejection by naga as `ErrorKind::UnsupportedShader` with naga's text unchanged, because the text names the construct that the user must change (Section 3.5). An error that wgpu reports to its uncaptured-error handler is lost to the caller.
+SLO-9. `slango` MUST create each shader module inside an error scope and MUST return a rejection by naga as `ErrorKind::UnsupportedShader`, with naga's text returned unchanged as the source error (Section 10), because the text names the construct that the user must change (Section 3.5). An error that wgpu reports to its uncaptured-error handler is lost to the caller.
 
-The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A parameter that the walk rejects fails the load with `ErrorKind::UnsupportedParameter` (Section 7.1). `Module::kernel` looks a kernel up by its Slang name and returns `ErrorKind::InvalidArgument` for a name that is no compute entry point of the module.
+The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A kernel has one bind group layout for each set from 0 to the last set that holds a used binding, and a set between them with no used binding gets an empty layout. A parameter that the walk rejects fails the load with `ErrorKind::UnsupportedParameter` (Section 7.1). The load checks SLO-18 before it creates the shader module of a kernel, so it fails with `ErrorKind::MissingFeature` when the kernel has immediates and the device lacks `Features::IMMEDIATES`, or when the reflected size of the immediates exceeds the device's `max_immediate_size`. Section 10 states how the load maps the errors of wgpu.
+
+`Module::kernel` looks a kernel up by its Slang name and returns a reference to it. For a name that is no compute entry point of the module, it returns `ErrorKind::InvalidArgument` with a text that lists no names. No method lists the kernels of a module.
 
 ## 8. Buffers
 
@@ -320,11 +327,19 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 | `Compile` | Slang failed to compile or link the module. `source()` returns the error of `slang-compiler` with its diagnostics |
 | `NoAdapter` | wgpu found no adapter that matches the options |
 | `DeviceRequest` | The adapter refused the device that the options request |
-| `UnsupportedShader` | naga rejected the SPIR-V of a kernel. The error carries naga's text |
+| `UnsupportedShader` | The backend rejected a kernel at load, as the list below states. The source error carries the backend's text |
 | `UnsupportedParameter` | A kernel has a parameter that the walk rejects (Section 7.1) |
 | `MissingFeature` | A kernel needs a device feature that the device lacks |
 | `InvalidArgument` | A check of Section 9.3, an unknown kernel name, or a file that cannot be read as text |
-| `Backend` | wgpu reported a validation error in an error scope |
+| `Backend` | wgpu reported a validation or out-of-memory error in an error scope at load, as the list below states, or a validation error at dispatch (SLO-15) |
+
+The load creates every shader module, bind group layout, pipeline layout, and compute pipeline inside error scopes for validation, internal, and out-of-memory errors, so that no error reaches wgpu's uncaptured-error handler. It maps each error that a scope returns to a kind:
+
+- Any error while the shader module is created gives `UnsupportedShader`.
+- An internal error while the layouts or the pipeline are created gives `UnsupportedShader`, because a shader that the backend cannot translate is reported as an internal error.
+- A validation or out-of-memory error while the layouts or the pipeline are created gives `Backend`.
+
+The message names the kernel, and the backend's text is returned unchanged as the source error.
 
 `NoAdapter` answers Q-22 of the architecture design.
 
@@ -344,11 +359,11 @@ The default immediate size of wgpu is 0. The adapters of the spike and of the CI
 
 ### 13.1. Tests
 
-`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23). The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API. The tests of marshalling and of the workgroup counts are pure and run under Miri. The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
+`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23). The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API. The tests of marshalling and of the workgroup counts are pure and run under Miri. The tests of loading are `gpu` tests of the integration-test binary, in the module `gpu::load`, with the shader files that they load under `tests/slango/shaders/`. The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
 
 ### 13.2. Continuous Integration
 
-The `check` and `coverage` jobs on Linux install lavapipe from Mesa's package `mesa-vulkan-drivers` and run the `gpu` tier. The jobs on Windows and macOS run `just test-gpu`, so they run the same tests on WARP and on hosted Metal. The tier of step 1 passed on all three platforms (Section 3.8). Whether loading and dispatching a kernel pass on Windows and macOS stays open until step 5 of Section 14 (SOA-2). If a platform cannot run the tier, its job runs `just test` instead, as Section 8.1 of `docs/design/tooling.md` allows, and Q-21 of the architecture design is answered for that platform.
+The `check` and `coverage` jobs on Linux install lavapipe from Mesa's package `mesa-vulkan-drivers` and run the `gpu` tier. The jobs on Windows and macOS run `just test-gpu`, so they run the same tests on WARP and on hosted Metal. The tier passed on all three platforms with the tests of steps 1 and 3, which create devices and load modules (Section 3.8). Whether dispatching a kernel passes on Windows and macOS stays open until step 5 of Section 14 (SOA-2). If a platform cannot run the tier, its job runs `just test` instead, as Section 8.1 of `docs/design/tooling.md` allows, and Q-21 of the architecture design is answered for that platform.
 
 ### 13.3. The Example
 
@@ -360,7 +375,7 @@ Each step leaves `just check` passing.
 
 1. Add the crate skeleton, `Device` with `DeviceOptions`, adapter selection, the features of Section 12, `Error` and `ErrorKind`, the changes of Section 4.2, and the installation of lavapipe in the `check` job. Tests: the `Send` and `Sync` assertions of SLO-17, the `Display` text of each error kind, and a `gpu` test that creates a device and checks that it has immediates when the adapter offers them. Done on 2026-11-11, with lavapipe also installed in the `coverage` job, and all six CI jobs passed with it (Section 3.8).
 2. Add the layout snapshot and the walk of Section 3.3. Tests: `ffi` snapshot tests for global plain values, constant buffers, parameter blocks, nested parameter blocks, parameters of the entry point, system values, unused parameters, and a texture that the walk reports as unsupported. Done on 2026-11-11, with the `ffi` tests as unit tests (Section 13.1) and the snapshot as Section 7.1 describes.
-3. Add `Module`, `Kernel`, and `load_module` with the SPIR-V of each entry point, the error scope of SLO-9, and the layouts and pipelines. Tests: `gpu` tests that load the kernels of Section 3.2, a module that naga rejects, which returns `UnsupportedShader` with naga's text (TEST-6), and a kernel with uniforms of its entry point on a device without immediates, which returns `MissingFeature`.
+3. Add `Module`, `Kernel`, and `load_module` with the SPIR-V of each entry point, the error scope of SLO-9, and the layouts and pipelines. Tests: `gpu` tests that load the kernels of Section 3.2, a module that naga rejects, which returns `UnsupportedShader` with naga's text (TEST-6), and a kernel with uniforms of its entry point on a device without immediates, which returns `MissingFeature`. Done on 2026-11-11, with the choices of Sections 7.1 and 7.3 and the mapping of errors of Section 10. The rejected module calls `frexp`, because a 16-bit integer loads on a device with the matching feature (Section 3.5), and the tests passed on all three CI runners (Section 3.8).
 4. Add `Buffer<T>` with upload and `read`, and the marshalling of plain values. Tests: the stride test of SLO-10, pure tests that write the values of Section 3.4 at their reflected offsets, and a `gpu` round trip of a buffer.
 5. Add the call builder, the checks of Section 9.3, and the dispatch. Tests: one test of each check of SLO-14, pure tests of the workgroup counts, and `gpu` tests that dispatch the kernels of Section 3.2 and assert every value.
 6. Add the example of Section 13.3 with its test and the crate documentation, and update the documents that M3 makes false. Tests: the example's `gpu` test.
@@ -371,13 +386,11 @@ Each row is a statement that this design relies on and that the spike did not es
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SOA-2 | SPIR-V through naga, with immediates, loads and dispatches on Direct3D 12 with WARP on the Windows runner and on Metal on the macOS runner | Section 13.2, architecture A-17, A-18, and Q-21 | Step 5 of Section 14, by the first CI run that dispatches |
+| SOA-2 | SPIR-V through naga, with immediates, dispatches on Direct3D 12 with WARP on the Windows runner and on Metal on the macOS runner | Section 13.2, architecture A-17, A-18, and Q-21 | Step 5 of Section 14, by the first CI run that dispatches |
 | SOA-3 | On the validated path, wgpu adds bounds checks to every buffer access of a kernel | Section 17 | Step 5 of Section 14, by reading the bounds-check policy of the shader translation of wgpu 30 in its source |
 | SOA-4 | The size of a storage buffer must be a multiple of its element stride, which every `Buffer<T>` meets | Section 8 | Step 4 of Section 14, by the stride test of SLO-10 |
 
-Of the assumptions of the architecture design that name this document, Section 3.3 to Section 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. Section 3.7 confirms A-10 in part, which covers the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". It did not cover typed shader interfaces generated from reflection, so A-10 stays for that pattern. A-9 holds as far as SlangPy's documentation was read (Section 3.7), and M3 does not depend on it. SOA-2 carries what stays open of A-17 and A-18.
-
-SOA-2 covers loading and dispatch only, because WARP and Metal each create a device with immediates (Section 3.8).
+Of the assumptions of the architecture design that name this document, Section 3.3 to Section 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. Section 3.7 confirms A-10 in part, which covers the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". It did not cover typed shader interfaces generated from reflection, so A-10 stays for that pattern. A-9 holds as far as SlangPy's documentation was read (Section 3.7), and M3 does not depend on it. SOA-2 carries what stays open of A-17 and A-18, which is dispatch only, because WARP and Metal each create a device with immediates and load modules (Section 3.8).
 
 ## 16. Open Questions
 
@@ -388,7 +401,7 @@ Each row is a question that this document leaves open. The owner in the third co
 | SOQ-1 | Should a caller-held compiler object or a cache of global sessions replace the global session for each load of SLO-7, once loading many modules or hot reload makes its cost of about 135 ms matter? | This document | The milestone that measures the cost in a real use, at the latest the hot reload of M4 |
 | SOQ-3 | How large must a kernel be before naga's parsing at load or lavapipe's first dispatch takes long enough to matter? | This document | The milestone that first loads kernels larger than those of the example |
 
-Of the questions of the architecture design that name this document, Section 18.5 answers Q-16 for `slango`, Section 6 answers Q-17, Section 9.1 answers Q-18 for M3, SLO-2 answers Q-19 for `slango` in M3, SLO-1 answers Q-20, Section 10 answers Q-22, and Section 7.1 answers Q-31 and makes Q-30 unnecessary for M3. Q-21 is answered for Linux. On Windows and macOS, a device with immediates is created (Section 3.8), and SOA-2 carries the rest.
+Of the questions of the architecture design that name this document, Section 18.5 answers Q-16 for `slango`, Section 6 answers Q-17, Section 9.1 answers Q-18 for M3, SLO-2 answers Q-19 for `slango` in M3, SLO-1 answers Q-20, Section 10 answers Q-22, and Section 7.1 answers Q-31 and makes Q-30 unnecessary for M3. Q-21 is answered for Linux. On Windows and macOS, a device with immediates is created and modules load (Section 3.8), and SOA-2 carries the rest.
 
 `slango` waits on wgpu's futures with `pollster::block_on`, because wgpu 30 offers no blocking form of `Instance::request_adapter`, `Instance::enumerate_adapters`, or `Adapter::request_device`.
 
@@ -408,7 +421,7 @@ The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel 
 
 ### 18.2. Platforms and Minimum Supported Rust Version
 
-The crate runs on x86_64 Linux with Vulkan, which the spike verified on a software and a hardware adapter. On Windows with Direct3D 12 and on macOS with Metal, it creates a device in CI (Section 3.8), and loading and dispatching stay unverified until SOA-2 is confirmed. wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The crate runs on x86_64 Linux with Vulkan, which the spike verified on a software and a hardware adapter. On Windows with Direct3D 12 and on macOS with Metal, it creates a device and loads modules in CI (Section 3.8), and dispatching stays unverified until SOA-2 is confirmed. wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 18.3. Failure Modes
 
@@ -417,11 +430,11 @@ The crate runs on x86_64 Linux with Vulkan, which the spike verified on a softwa
 | No adapter exists, such as on a machine without a GPU driver or software adapter | `NoAdapter` | Install a driver or lavapipe |
 | The Slang shared library is not on the library path | The program stops before `main`, as `slang-compiler-sys` describes | Run through the recipes, or set the library path |
 | The module does not compile | `Compile`, with Slang's diagnostics | Fix the shader |
-| naga rejects a kernel | `UnsupportedShader`, with naga's text | Avoid the construct (Section 3.5) |
+| naga or the backend rejects a kernel | `UnsupportedShader`, with the backend's text as the source error (Section 10) | Avoid the construct (Section 3.5) |
 | A kernel has a parameter that the walk rejects (Section 7.1) | `UnsupportedParameter` | Wait for the milestone that supports it |
 | A kernel needs a feature the device lacks | `MissingFeature` | Create the wgpu device with the feature and pass it to `slango::wgpu::from_device_and_queue` (Section 12), or use another adapter |
 | A call has a wrong name, value, or buffer | `InvalidArgument`, naming the parameter | Fix the call |
-| wgpu reports a validation error | `Backend` | Report it as a defect of `slango` |
+| wgpu reports a validation or out-of-memory error (Section 10) | `Backend` | Report a validation error as a defect of `slango` |
 
 ### 18.4. Costs
 
@@ -472,6 +485,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 3 of Section 14, which added `Module`, `Kernel`, and the load of a module from a file or from source text with a compute pipeline for each kernel, in Sections 1.6, 7.1, 7.3, 13.1, and 14, with the choices that the design left open in Sections 7.1 and 7.3 and the mapping of wgpu's errors at load in Sections 10 and 18.3. Recorded in Section 3.8 that modules load on all three CI runners, narrowed SOA-2 to dispatch in Sections 13.2, 15, 16, and 18.2, moved 16-bit integers in Section 3.5 to the constructs that need a device feature, and defined the mark (run) for step 3 in Section 3.1.
 - 2026-11-11: Recorded step 2 of Section 14, which added the private layout snapshot and its walk, in Sections 1.6, 7.1, 13.1, and 14, with the choices that the design left open and the supported and rejected parameters in Section 7.1. Recorded in Sections 3.3 and 3.4 that a system value has a uniform size of 0 and that the immediates round their size up to their alignment, and defined the mark (run) for step 2 in Section 3.1. Made the rows of Sections 10 and 18.3 for `UnsupportedParameter` cite Section 7.1.
 - 2026-11-11: Recorded step 1 of Section 14, which added `Device`, `DeviceOptions`, `AdapterSelection`, the error type, and the module `slango::wgpu`, in Sections 1.6, 5.1, 13.1, and 14, added Section 3.8 with the adapters of the CI runners, recorded the licence changes in Section 4.2, corrected in Sections 12 and 18.3 how a caller requests another device feature, updated Sections 13.2 and 18.2 for the `gpu` tier in CI, narrowed SOA-2 to loading and dispatch, and answered SOQ-2 through `pollster` in SLO-1 and Appendix A.
 - 2026-11-11: First draft, written after the spike of ARCH-18 as the first task of M3.

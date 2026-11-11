@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::Path;
 
 use slang_compiler::reflection::{
     LayoutSize, LayoutUnits, ResourceAccess, ResourceBaseShape, ScalarType, TypeKind, TypeLayout,
@@ -145,20 +146,40 @@ impl Position {
     }
 }
 
-/// Compiles Slang source for SPIR-V and returns the layout snapshot of each
-/// compute entry point, releasing every Slang object before it returns.
-pub(crate) fn compile(name: &str, source: &str) -> Result<Vec<KernelLayout>> {
+/// One compute entry point as one compilation yields it: its layout snapshot
+/// and its SPIR-V, whose entry point keeps the Slang name.
+#[derive(Debug)]
+pub(crate) struct CompiledKernel {
+    pub(crate) layout: KernelLayout,
+    pub(crate) spirv: Vec<u32>,
+}
+
+/// The Slang source of one module, with the path that diagnostics name and
+/// the directory in which an `import` searches for sibling modules.
+pub(crate) struct Source<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) path: &'a str,
+    pub(crate) text: &'a str,
+    pub(crate) search_path: Option<&'a Path>,
+}
+
+/// Compiles Slang source for SPIR-V and returns the layout snapshot and the
+/// SPIR-V of each compute entry point, releasing every Slang object before it
+/// returns.
+pub(crate) fn compile(source: &Source<'_>) -> Result<Vec<CompiledKernel>> {
     let global = GlobalSession::new().map_err(Error::compile)?;
     let mut options = CompilerOptions::default();
     options.vulkan_use_entry_point_name(Toggle::On);
-    let session = Session::builder(&global)
+    let mut builder = Session::builder(&global)
         .target(Target::new(TargetFormat::Spirv))
-        .options(options)
-        .build()
-        .map_err(Error::compile)?;
+        .options(options);
+    if let Some(search_path) = source.search_path {
+        builder = builder.search_path(search_path);
+    }
+    let session = builder.build().map_err(Error::compile)?;
     let target = session.target_index(0).map_err(Error::compile)?;
     let module = session
-        .load_module_from_source(name, &format!("{name}.slang"), source)
+        .load_module_from_source(source.name, source.path, source.text)
         .map_err(Error::compile)?
         .into_value();
     let entry_points = module
@@ -213,11 +234,26 @@ pub(crate) fn compile(name: &str, source: &str) -> Result<Vec<KernelLayout>> {
         ];
         let mut bindings = walk.bindings;
         bindings.sort_by_key(|binding| (binding.set, binding.index));
-        kernels.push(KernelLayout {
-            thread_group_size,
-            bindings,
-            immediates: walk.immediates,
-            name,
+        let code = program
+            .entry_point_code(index, target)
+            .map_err(Error::compile)?
+            .into_value();
+        let spirv = code
+            .as_spirv_words()
+            .ok_or_else(|| {
+                Error::new(ErrorKind::Compile, LOAD).with_detail(format!(
+                    "Slang generated code for the kernel `{name}` that is not a sequence of SPIR-V words"
+                ))
+            })?
+            .to_vec();
+        kernels.push(CompiledKernel {
+            layout: KernelLayout {
+                thread_group_size,
+                bindings,
+                immediates: walk.immediates,
+                name,
+            },
+            spirv,
         });
     }
     Ok(kernels)

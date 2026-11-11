@@ -1,4 +1,4 @@
-use slango::{AdapterSelection, Device, DeviceOptions};
+use slango::{AdapterSelection, Device, DeviceOptions, Module};
 
 pub(crate) fn device_with(adapter: AdapterSelection) -> Device {
     let mut options = DeviceOptions::default();
@@ -39,4 +39,21 @@ pub(crate) fn assert_immediates_follow_the_adapter(device: &Device) {
         0
     };
     assert_eq!(wgpu_device.limits().max_immediate_size, expected_size);
+}
+
+pub(crate) fn device_without_immediates() -> Device {
+    let adapter =
+        pollster::block_on(instance().request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("an adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("a device without optional features");
+    assert!(!device.features().contains(wgpu::Features::IMMEDIATES));
+    slango::wgpu::from_device_and_queue(device, queue)
+}
+
+pub(crate) fn load(device: &Device, source: &str) -> Module {
+    device
+        .load_module_from_source("kernels", source)
+        .expect("the module loads")
 }

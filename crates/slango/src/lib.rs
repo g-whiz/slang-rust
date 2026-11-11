@@ -15,17 +15,20 @@
 //! connection to one adapter, a GPU or a software implementation of one,
 //! which [`Device::new`] creates on the adapter that [`DeviceOptions`]
 //! selects, and the module [`wgpu`], which connects a [`Device`] to wgpu code
-//! of your own. Every failure is an [`Error`], whose [`Error::kind`] says
-//! what went wrong. The loading of Slang modules, kernels, buffers, and the
-//! call of a kernel follow in later versions.
+//! of your own. [`Device::load_module`] compiles a Slang module and prepares
+//! each of its compute entry points as a [`Kernel`] of the device, which
+//! [`Module::kernel`] looks up by name. Every failure is an [`Error`], whose
+//! [`Error::kind`] says what went wrong. Buffers and the call of a kernel
+//! follow in later versions, so a kernel cannot run yet.
 //!
-//! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`] is
-//! cheap to clone.
+//! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
+//! [`Module`], and a [`Kernel`] are cheap to clone.
 //!
 //! # Examples
 //!
-//! This example creates a device on the adapter that wgpu chooses and prints
-//! its name. It needs a GPU driver or a software driver at run time, so it is
+//! This example creates a device on the adapter that wgpu chooses, loads a
+//! module from a file, and prints the size of the thread groups of one of its
+//! kernels. It needs a GPU driver or a software driver at run time, so it is
 //! compiled but not run:
 //!
 //! ```no_run
@@ -33,6 +36,9 @@
 //!
 //! let device = Device::new(&DeviceOptions::default())?;
 //! println!("running on {}", device.adapter_name());
+//! let module = device.load_module("/tmp/shaders/scale.slang")?;
+//! let scale = module.kernel("scale")?;
+//! println!("`scale` runs in groups of {:?}", scale.thread_group_size());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -58,15 +64,12 @@
 
 mod device;
 mod error;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 3 of Section 14 of docs/design/slango.md adds the load of a module that calls it, and until then only the unit tests use the layout snapshot"
-    )
-)]
+mod kernel;
 mod layout;
+mod module;
 pub mod wgpu;
 
 pub use device::{AdapterSelection, Device, DeviceOptions};
 pub use error::{Error, ErrorKind, Result};
+pub use kernel::Kernel;
+pub use module::Module;

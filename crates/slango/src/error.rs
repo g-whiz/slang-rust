@@ -65,13 +65,6 @@ impl Error {
         self
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "step 3 of Section 14 of docs/design/slango.md adds the load of a module that calls it, and until then only the unit tests use it"
-        )
-    )]
     pub(crate) fn compile(error: slang_compiler::Error) -> Self {
         Self::new(ErrorKind::Compile, "compile a Slang module").with_source(error)
     }

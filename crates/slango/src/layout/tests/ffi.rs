@@ -2,13 +2,27 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use super::super::{
-    Access, Binding, KernelLayout, PlainValue, Resource, Scalar, Shape, UniformBlock, Usage,
-    compile,
+    Access, Binding, CompiledKernel, KernelLayout, PlainValue, Resource, Scalar, Shape, Source,
+    UniformBlock, Usage,
 };
-use crate::ErrorKind;
+use crate::{ErrorKind, Result};
+
+fn compile(name: &str, text: &str) -> Result<Vec<CompiledKernel>> {
+    let path = format!("{name}.slang");
+    super::super::compile(&Source {
+        name,
+        path: &path,
+        text,
+        search_path: None,
+    })
+}
 
 fn kernels(source: &str) -> Vec<KernelLayout> {
-    compile("kernels", source).expect("the source compiles and every parameter is supported")
+    compile("kernels", source)
+        .expect("the source compiles and every parameter is supported")
+        .into_iter()
+        .map(|kernel| kernel.layout)
+        .collect()
 }
 
 fn kernel(source: &str) -> KernelLayout {
@@ -528,4 +542,42 @@ fn source_that_does_not_compile_is_a_compile_error_with_slangs_diagnostics() {
         "{}",
         source.diagnostics()
     );
+}
+
+#[test]
+fn each_kernel_gets_spirv_whose_entry_point_keeps_its_slang_name() {
+    let compiled = compile(
+        "two",
+        r#"
+RWStructuredBuffer<float> output;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void first_kernel() { output[0] = 1.0; }
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void second_kernel() { output[1] = 2.0; }
+"#,
+    )
+    .expect("the source compiles");
+    assert_eq!(compiled.len(), 2);
+    for kernel in &compiled {
+        assert_eq!(
+            kernel.spirv.first(),
+            Some(&0x0723_0203),
+            "the SPIR-V magic number"
+        );
+        let bytes: Vec<u8> = kernel
+            .spirv
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect();
+        let name = kernel.layout.name.as_bytes();
+        assert!(
+            bytes.windows(name.len()).any(|window| window == name),
+            "the SPIR-V of `{}` names its entry point",
+            kernel.layout.name
+        );
+    }
 }

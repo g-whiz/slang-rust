@@ -2,6 +2,8 @@ use slango::{AdapterSelection, Device, DeviceOptions, ErrorKind};
 
 use crate::common::{assert_immediates_follow_the_adapter, device_with, instance};
 
+mod load;
+
 #[test]
 fn default_device_reports_its_adapter() {
     let device = device_with(AdapterSelection::Default);
