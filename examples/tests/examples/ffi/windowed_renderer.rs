@@ -50,6 +50,14 @@ fn windowed_renderer_rejects_frames_that_are_not_a_whole_number() {
 }
 
 #[test]
+fn windowed_renderer_rejects_zero_frames() {
+    assert_fails_with(
+        &["--frames", "0", "shaders/textured-quad.slang"],
+        "--frames needs a number above zero",
+    );
+}
+
+#[test]
 fn windowed_renderer_rejects_two_files() {
     assert_fails_with(
         &["shaders/textured-quad.slang", "shaders/scale.slang"],

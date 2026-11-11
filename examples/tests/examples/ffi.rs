@@ -1,3 +1,4 @@
+mod shader_playground;
 mod windowed_renderer;
 
 use std::process::{Command, Output};

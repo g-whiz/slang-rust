@@ -76,6 +76,8 @@ Step 1 of Section 14 of `docs/design/slango.md`, the first code of M3, added the
 
 Step 1 of Section 11 of `docs/design/slang-slint.md`, the first code of M5, added the member `crates/slang-slint` with the workspace dependency `slint` (Sections 3.2 and 3.3), one licence, four duplicate-version exceptions, and the first advisory exception in `deny.toml` (Section 9), and the installation of fontconfig in the Linux jobs (Section 8.1). It added no recipe, hook, or checker.
 
+Step 3 of that Section 11 added the binary target `shader-playground` to the examples package (Section 3.2), with `slang-slint` in `[workspace.dependencies]` (Section 3.3), and three licences, eight duplicate-version exceptions, and four more advisory exceptions in `deny.toml` (Section 9). It changed no recipe, hook, checker, or workflow.
+
 ## 2. Requirements Language
 
 Best Current Practice (BCP) 14 defines the key words in this section.
@@ -125,11 +127,11 @@ The skeleton contains a manifest and `src/lib.rs`. The manifest has the publicat
 
 TOOL-3. An agent MUST create the examples as one workspace member, the package `slang-rust-examples` at `examples/`, with `publish = false`, in which each example is a binary target, because one package needs one manifest with one `publish = false`, one integration-test binary under TEST-10 of the coding standard, and one place for shared helpers. M2 creates this member together with example 1. Building one example builds the dependencies of every example, which the examples accept, because ARCH-14 of the architecture design limits the dependencies of `slang-compiler` and no rule limits those of the examples.
 
-M2 adds two members. Step 1 of Section 15 of `docs/design/slang-compiler.md` added the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document) on 2026-11-11, with the publication metadata that TOOL-27 requires of a published crate. Step 5 added the package `slang-rust-examples` at `examples/` on 2026-11-11, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document). Each change adds its member to the `members` list of the root `Cargo.toml`. M3 added the library crate `slango` at `crates/slango/` in step 1 of Section 14 of `docs/design/slango.md`, on 2026-11-11, and the binary target `compute-kernel` of the examples package in step 6 (Section 13.3 of that document). M4 added the binary target `windowed-renderer` in step 11 (Section 13.5 of that document). M5 added the library crate `slang-slint` at `crates/slang-slint/` in step 1 of Section 11 of `docs/design/slang-slint.md`, on 2026-11-11.
+M2 adds two members. Step 1 of Section 15 of `docs/design/slang-compiler.md` added the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document) on 2026-11-11, with the publication metadata that TOOL-27 requires of a published crate. Step 5 added the package `slang-rust-examples` at `examples/` on 2026-11-11, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document). Each change adds its member to the `members` list of the root `Cargo.toml`. M3 added the library crate `slango` at `crates/slango/` in step 1 of Section 14 of `docs/design/slango.md`, on 2026-11-11, and the binary target `compute-kernel` of the examples package in step 6 (Section 13.3 of that document). M4 added the binary target `windowed-renderer` in step 11 (Section 13.5 of that document). M5 added the library crate `slang-slint` at `crates/slang-slint/` in step 1 of Section 11 of `docs/design/slang-slint.md`, on 2026-11-11, and the binary target `shader-playground` of the examples package in step 3 (Section 10 of that document).
 
 ### 3.3. Workspace Manifest
 
-The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires. Its `[workspace.dependencies]` table declares each dependency once (DEP-2): `clang` for the binding generator and, since step 1 of Section 15 of `docs/design/slang-compiler.md`, `slang-compiler-sys` by path and version, which `slang-compiler` inherits, and, since step 4 of that document, `insta`, which `slang-compiler` inherits as a development dependency (Section 9), and, since step 5, `slang-compiler`, which the examples package inherits, and, since step 1 of Section 14 of `docs/design/slango.md`, `pollster` and `wgpu`, which `slango` inherits, and, since step 6, `slango` by path and version, which the examples package inherits, and, since step 11, `winit`, which the examples package inherits together with `pollster` and `wgpu`, and, since step 1 of Section 11 of `docs/design/slang-slint.md`, `slint` with its default features off, which `slang-slint` inherits (Section 9).
+The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires. Its `[workspace.dependencies]` table declares each dependency once (DEP-2): `clang` for the binding generator and, since step 1 of Section 15 of `docs/design/slang-compiler.md`, `slang-compiler-sys` by path and version, which `slang-compiler` inherits, and, since step 4 of that document, `insta`, which `slang-compiler` inherits as a development dependency (Section 9), and, since step 5, `slang-compiler`, which the examples package inherits, and, since step 1 of Section 14 of `docs/design/slango.md`, `pollster` and `wgpu`, which `slango` inherits, and, since step 6, `slango` by path and version, which the examples package inherits, and, since step 11, `winit`, which the examples package inherits together with `pollster` and `wgpu`, and, since step 1 of Section 11 of `docs/design/slang-slint.md`, `slint` with its default features off, which `slang-slint` inherits (Section 9), and, since step 3, `slang-slint` by path and version, which the examples package inherits together with `slint`.
 
 TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence identifier `GPL-3.0-or-later`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`, and every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that cargo-deny checks and with the minimum supported Rust version (MSRV) that Clippy reads.
 
@@ -724,7 +726,7 @@ wgpu also brings four duplicate versions that no change to the workspace can rem
 | `hashbrown@0.16.1` | `gpu-allocator` 0.28 of `wgpu-hal` 30 | 0.17.1, of `indexmap` 2 of naga |
 | `syn@2.0.119` | `jni-sys-macros`, `windows-implement`, `windows-interface`, and `zerocopy-derive` | 3.0.10, of `bytemuck_derive`, `thiserror-impl`, and `wasm-bindgen-macro-support` |
 
-Step 11 of Section 14 of `docs/design/slango.md` added winit 0.30.13 to `[workspace.dependencies]` as a dependency of the examples package only, for the windowed renderer example. The examples package also depends directly on `wgpu` and `pollster` at the versions of the workspace. winit's default features are off, and the features `rwh_06`, `x11`, `wayland`, and `wayland-dlopen` are on. The default feature `wayland-csd-adwaita`, which draws client-side decorations on Wayland, is therefore not built, and neither are the crates under BSD licences that it brings, `arrayref` under `BSD-2-Clause` and `tiny-skia` and `tiny-skia-path` under `BSD-3-Clause`. The licence allow-list is unchanged.
+Step 11 of Section 14 of `docs/design/slango.md` added winit 0.30.13 to `[workspace.dependencies]` as a dependency of the examples package only, for the windowed renderer example. The examples package also depends directly on `wgpu` and `pollster` at the versions of the workspace. winit's default features are off, and the features `rwh_06`, `x11`, `wayland`, and `wayland-dlopen` are on. The default feature `wayland-csd-adwaita`, which draws client-side decorations on Wayland, was therefore not built with that step, and neither were the crates under BSD licences that it brings, `arrayref` under `BSD-2-Clause` and `tiny-skia` and `tiny-skia-path` under `BSD-3-Clause`, so the licence allow-list did not change. Since step 3 of Section 11 of `docs/design/slang-slint.md`, Slint's winit backend turns that feature on, as the end of this section records.
 
 winit brings duplicate versions of 13 crates. Each older version has its own `skip` entry, with its reason in `deny.toml`, which makes fifteen entries, because `redox_syscall` and `windows-sys` each have two older versions. No exception covers the subtree of winit, because such an exception would stop the check for about 120 crates under winit, most of which are not duplicated, while the single entries admit exactly the duplicated versions. TOOL-26 permits this form, so it is unchanged. These are the fifteen entries:
 
@@ -762,7 +764,7 @@ allow = ["GPL-3.0-or-later", "Apache-2.0", "GPL-3.0-only", "ISC", "MIT", "Unicod
 
 Both FSF pages were read through a tool that summarizes long pages, so this section states what they establish and quotes neither.
 
-The design of M5 had planned `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` for this step as well, and the owner approved them on 2026-11-11. No crate in the graph uses them, because `arrayref`, `tiny-skia`, `tiny-skia-path`, `bindgen`, `clipboard-win`, and `error-code` come only through Slint's winit backend, Skia, and `arboard`, which `slang-slint` does not enable. TOOL-31 fails the check on an unused licence, so they are not in `deny.toml`. Step 3 of Section 11 of that design enables a windowing backend and a renderer for the examples package, and adds each of them that its graph then needs, with its evidence under TOOL-24.
+The design of M5 had planned `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` for step 1 as well, and the owner approved them on 2026-11-11. The library alone needs none of them, and TOOL-31 fails the check on an unused licence, so step 1 did not add them. Step 3 added them, as recorded below.
 
 Slint brings four duplicate versions that no change to the workspace can remove. Each has a `skip` entry for the older version, with its reason in `deny.toml`, under TOOL-26:
 
@@ -773,11 +775,55 @@ Slint brings four duplicate versions that no change to the workspace can remove.
 | `objc2-app-kit@0.2.2` | The macOS backend of winit 0.30 of the examples package | 0.3.2, of `i-slint-core` on macOS |
 | `smol_str@0.2.2` | winit 0.30 of the examples package | 0.3.7, of `i-slint-compiler` |
 
-The other eight duplicates that the design of M5 planned, `glow`, `itertools`, `nom`, `objc2-ui-kit`, `rustc-hash`, `shlex`, `tiny-skia`, and `tiny-skia-path`, are not in the graph without a backend and a renderer, and step 3 adds an entry for each that its graph then reports.
+The other eight duplicates that the design of M5 planned are not in the graph without a backend and a renderer, and step 3 added them, as recorded below.
 
 `just check-deny` also reported the advisory RUSTSEC-2026-0441: `pin-utils` 0.1.1 is unmaintained, its repository was archived on 2026-10-01, and no upgrade exists. No vulnerability is reported for it. It enters through `spin_on` 0.1.1, which `slint-macros` 1.18.1 requires unconditionally, so no feature set of Slint avoids it, and it runs only at build time, inside a procedural macro. On 2026-11-11, the owner decided to ignore exactly this advisory, so the `ignore` list of the `[advisories]` table holds one entry for it, with its reason, as TOOL-26 permits. The entry is removed when a release of Slint no longer depends on `pin-utils`. TOOL-31 then fails the check until the entry is removed.
 
-Without Slint's winit backend, Slint turns on no feature of the examples' winit, so the description of winit's features above still holds. Step 3 checks it again. A Linux build of Slint links fontconfig, so the Linux jobs install its development files (Section 8.1). Section 3.6 of `docs/design/slang-slint.md` records how the lock file grew.
+A Linux build of Slint links fontconfig, so the Linux jobs install its development files (Section 8.1). Sections 3.6 and 15.5 of `docs/design/slang-slint.md` record how the lock file and the build grew.
+
+Step 3 of Section 11 of `docs/design/slang-slint.md` added the example `shader-playground`, for which the examples package inherits `slint` and `slang-slint` and enables Slint's windowing backend on winit and its FemtoVG renderer on wgpu (Section 10 of that design). Their dependency tree needs the three licences that step 1 left out, so the allow-list is now, with one entry per line in `deny.toml`:
+
+```toml
+allow = ["GPL-3.0-or-later", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "GPL-3.0-only", "ISC", "MIT", "Unicode-3.0", "Zlib"]
+```
+
+The owner approved the three on 2026-11-11. Each is there for these crates:
+
+| Licence | Crates that need it | How they enter |
+| --- | --- | --- |
+| `BSD-2-Clause` | `arrayref` 0.3.9 | `tiny-skia` 0.11 and 0.12, and `tiny-skia-path` 0.11 |
+| `BSD-3-Clause` | `tiny-skia` and `tiny-skia-path` 0.11.4 and 0.12.0, and `bindgen` 0.72.1 | `tiny-skia` 0.11 through `sctk-adwaita` 0.10, `tiny-skia` 0.12 through `resvg` of `i-slint-common`, and `bindgen` as a build dependency of `skia-bindings` of Slint's Skia renderer, which `i-slint-backend-winit` uses only on Apple targets other than macOS |
+| `BSL-1.0` | `clipboard-win` 5.4.3 and `error-code` 3.4.0 | `arboard` of `i-slint-backend-winit`, on Windows |
+
+The licence list of the FSF, in its version dated 2026-04-22 and read on 2026-11-11, gives the evidence of compatibility that TOOL-24 requires [FSF-LICENSES]:
+
+- Of the FreeBSD license, which it says "is also sometimes called the '2-clause BSD license'", it says: "It is a lax, permissive non-copyleft free software license, compatible with the GNU GPL."
+- Of the Modified BSD license, it says: "It is a lax, permissive non-copyleft free software license, compatible with the GNU GPL. This license is sometimes referred to as the 3-clause BSD license."
+- Of the Boost Software License, it says: "This is a lax, permissive non-copyleft free software license, compatible with the GNU GPL."
+
+The backend and the renderer bring the eight duplicate versions that the design of M5 planned, and no change to the workspace can remove them. Each has a `skip` entry for the older version, with its reason in `deny.toml`, under TOOL-26, so the `[bans]` table now has 31 entries:
+
+| Skip | Needed by | Other versions in the tree |
+| --- | --- | --- |
+| `glow@0.17.0` | `wgpu-hal` 30 | 0.18, of `femtovg` 0.27 and `i-slint-renderer-femtovg` 1.18 |
+| `itertools@0.13.0` | `bindgen` 0.72, a build dependency of `skia-bindings` on Apple targets other than macOS | 0.15, of `femtovg` 0.27 and `i-slint-compiler` 1.18 |
+| `nom@7.1.3` | `cexpr` 0.6 of `bindgen` 0.72 | 8, of `tree_magic_mini` 3.2 of `wl-clipboard-rs` of `arboard` |
+| `objc2-ui-kit@0.2.2` | The iOS backend of winit 0.30 | 0.3, of `i-slint-backend-winit` 1.18 |
+| `rustc-hash@1.1.0` | naga 30, `naga-types` 30, and `wgpu-core` 30, and `rowan` 0.17 of `i-slint-compiler` | 2, of `bindgen` 0.72 |
+| `shlex@1.3.0` | `bindgen` 0.72 | 2, of `cc` |
+| `tiny-skia@0.11.4` | `sctk-adwaita` 0.10 | 0.12, of `resvg` 0.48 of `i-slint-common` |
+| `tiny-skia-path@0.11.4` | `tiny-skia` 0.11 | 0.12, of `tiny-skia` 0.12 and `usvg` 0.48 |
+
+`just check-deny` also reported four advisories that only Slint's winit backend brings, and only into the unpublished examples package, not into `slang-slint`. Each is for a crate that is unmaintained, with no upgrade available and no vulnerability reported, and Section 3.6 of `docs/design/slang-slint.md` says how each enters. On 2026-11-11, the owner decided to ignore exactly these four, as TOOL-26 permits, so the `ignore` list of the `[advisories]` table holds five entries, each with its reason. TOOL-31 fails the check once an entry no longer applies, so each entry is removed when its condition holds:
+
+| Advisory | Crate | Removed when |
+| --- | --- | --- |
+| RUSTSEC-2026-0370 | `zvariant` 5.15 | `Cargo.lock` no longer holds `zvariant` 5.15, such as after a release of Slint's winit backend that requires another `zbus` |
+| RUSTSEC-2026-0371 | `zbus_names` 4.3 | `Cargo.lock` no longer holds `zbus_names` 4.3, as for RUSTSEC-2026-0370 |
+| RUSTSEC-2026-0372 | `zvariant_derive` 5.15 | `Cargo.lock` no longer holds `zvariant_derive` 5.15, as for RUSTSEC-2026-0370 |
+| RUSTSEC-2026-0192 | `ttf-parser` 0.25 | `Cargo.lock` no longer holds `ttf-parser` 0.25, such as after a release of winit or Slint without `sctk-adwaita` 0.10 |
+
+Slint's winit backend turns on winit's feature `wayland-csd-adwaita` for every example, including `windowed-renderer`, as Section 3.6 of `docs/design/slang-slint.md` records, so `sctk-adwaita` and the crates under BSD licences above are now in the graph.
 
 `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
 
@@ -1036,6 +1082,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 3 of Section 11 of `docs/design/slang-slint.md`, the example `shader-playground`, in Sections 1.6, 3.2, 3.3, and 9, with the licences `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` and their evidence, eight `skip` entries, and the owner's exceptions for four advisories with their removal conditions, and corrected the statements that winit's `wayland-csd-adwaita` is not built and that Slint turns on no feature of the examples' winit.
 - 2026-11-11: Recorded step 1 of Section 11 of `docs/design/slang-slint.md` in Sections 1.6, 3.2, 3.3, 8.1, and 9. These are the member `crates/slang-slint` with the workspace dependency `slint`, the licence `GPL-3.0-only` with its evidence, four `skip` entries, the owner's exception for advisory RUSTSEC-2026-0441, and fontconfig in the Linux jobs. The BSD and BSL licences and eight planned `skip` entries wait for step 3. Added the reference [GPL-FAQ].
 - 2026-11-11: Recorded in Section 9, as planned, the dependency Slint 1.18 that the design of M5 in `docs/design/slang-slint.md` adds, with the licences `GPL-3.0-only`, `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`, twelve `skip` entries, the installation of fontconfig in the Linux jobs, and the correction of the description of winit's features that its step 1 settles.
 - 2026-11-11: Recorded in Section 9 that step 11 of `docs/design/slango.md` added winit 0.30.13 to the examples package with the features that leave out the crates under BSD licences, and fifteen single `skip` entries for the duplicate versions that it brings, with TOOL-26 unchanged. Recorded in Sections 3.2 and 3.3 the binary target `windowed-renderer` and `winit` in `[workspace.dependencies]`.

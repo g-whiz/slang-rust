@@ -108,7 +108,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         } else if arg == "--frames" {
             let count = args.next().ok_or("--frames needs a number")?;
             let count = count.to_str().and_then(|count| count.parse::<u64>().ok());
-            frames = Some(count.ok_or("--frames needs a whole number")?);
+            let count = count.ok_or("--frames needs a whole number")?;
+            if count == 0 {
+                return Err("--frames needs a number above zero".into());
+            }
+            frames = Some(count);
         } else if file.is_none() {
             file = Some(PathBuf::from(arg));
         } else {

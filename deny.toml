@@ -4,6 +4,10 @@ all-features = true
 [advisories]
 ignore = [
     { id = "RUSTSEC-2026-0441", reason = "pin-utils 0.1.1 is unmaintained with no upgrade available, and only spin_on 0.1.1 of slint-macros 1.18 of Slint needs it, at build time in a procedural macro, with no vulnerability reported" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 5.15 is unmaintained as a standalone crate with no upgrade available, and only zbus 5.19 needs it, which i-slint-backend-winit 1.18 of Slint requires unconditionally on Linux and the other targets that are neither Windows, Apple, Android, nor wasm, in the unpublished examples package only, with no vulnerability reported" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.3 is unmaintained as a standalone crate with no upgrade available, and only zbus 5.19 and its zbus_macros need it, which i-slint-backend-winit 1.18 of Slint requires unconditionally on Linux and the other targets that are neither Windows, Apple, Android, nor wasm, in the unpublished examples package only, with no vulnerability reported" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.15 is unmaintained as a standalone crate with no upgrade available, and only zvariant 5.15 of zbus 5.19 needs it, at build time in a procedural macro, which i-slint-backend-winit 1.18 of Slint requires unconditionally on Linux and the other targets that are neither Windows, Apple, Android, nor wasm, in the unpublished examples package only, with no vulnerability reported" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25 is unmaintained with no upgrade available, and only owned_ttf_parser of ab_glyph of sctk-adwaita 0.10 needs it, the Wayland window decorations of winit 0.30 that the feature wayland of i-slint-backend-winit 1.18 of Slint turns on, in the unpublished examples package only, with no vulnerability reported" },
 ]
 unused-ignored-advisory = "deny"
 
@@ -11,6 +15,9 @@ unused-ignored-advisory = "deny"
 allow = [
     "GPL-3.0-or-later",
     "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
     "GPL-3.0-only",
     "ISC",
     "MIT",
@@ -29,23 +36,31 @@ skip = [
     { crate = "block2@0.5.1", reason = "objc2-foundation 0.2 and the macOS backend of winit 0.30 of the examples package need it, while wgpu-hal 30 needs block2 0.6" },
     { crate = "foldhash@0.1.5", reason = "hashbrown 0.15 of petgraph 0.8, which naga 30 of wgpu requires, needs it, while hashbrown 0.16 needs foldhash 0.2" },
     { crate = "getrandom@0.3.4", reason = "ahash 0.8, which the Wayland backend of winit 0.30 of the examples package requires, needs it, while jobserver needs getrandom 0.4" },
+    { crate = "glow@0.17.0", reason = "wgpu-hal 30 needs it, while femtovg 0.27 and i-slint-renderer-femtovg 1.18 of Slint in the examples package need glow 0.18" },
     { crate = "hashbrown@0.14.5", reason = "rowan 0.17, which i-slint-compiler 1.18 of slint-macros of Slint requires, needs it, while fontique of Slint and indexmap 2 need hashbrown 0.17" },
     { crate = "hashbrown@0.15.5", reason = "petgraph 0.8, which naga 30 of wgpu requires, needs it, while gpu-allocator 0.28 of wgpu-hal needs 0.16 and indexmap 2 needs 0.17" },
     { crate = "hashbrown@0.16.1", reason = "gpu-allocator 0.28, which wgpu-hal 30 requires, needs it, while indexmap 2 of naga needs 0.17" },
+    { crate = "itertools@0.13.0", reason = "bindgen 0.72, a build dependency of skia-bindings of i-slint-renderer-skia 1.18 of Slint, which i-slint-backend-winit of the examples package uses only on Apple targets other than macOS, needs it, while femtovg 0.27 and i-slint-compiler 1.18 need itertools 0.15" },
     { crate = "jni-sys@0.3.1", reason = "ndk-sys 0.6 of wgpu-hal and ndk 0.9 of winit 0.30 of the examples package need it, and it is a shim over jni-sys 0.4, which jni 0.22 of android-activity in the Android backend of winit needs" },
     { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38, which winit 0.30 of the examples package and its Wayland backend require, needs it, while rustix 1 needs linux-raw-sys 0.12" },
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18 of image 0.25, which i-slint-core 1.18 of Slint requires, needs it directly, while its compression dependency needs miniz_oxide 0.9" },
+    { crate = "nom@7.1.3", reason = "cexpr 0.6 of bindgen 0.72, a build dependency of skia-bindings of i-slint-renderer-skia 1.18 of Slint in the examples package, needs it, while tree_magic_mini 3.2 of wl-clipboard-rs of arboard of i-slint-backend-winit needs nom 8" },
     { crate = "objc2@0.5.3", reason = "the macOS backend of winit 0.30 of the examples package and its objc2-app-kit and objc2-foundation 0.2 need it, while wgpu-hal 30 needs objc2 0.6" },
     { crate = "objc2-app-kit@0.2.2", reason = "the macOS backend of winit 0.30 of the examples package needs it, while i-slint-core 1.18 of Slint needs objc2-app-kit 0.3 on macOS" },
     { crate = "objc2-foundation@0.2.2", reason = "the macOS backend of winit 0.30 of the examples package needs it, while objc2-metal 0.3 of wgpu-hal 30 needs objc2-foundation 0.3" },
+    { crate = "objc2-ui-kit@0.2.2", reason = "the iOS backend of winit 0.30 of the examples package needs it, while i-slint-backend-winit 1.18 of Slint needs objc2-ui-kit 0.3" },
     { crate = "r-efi@5.3.0", reason = "getrandom 0.3, which ahash 0.8 of winit 0.30 of the examples package requires, needs it, while getrandom 0.4 needs r-efi 6" },
     { crate = "redox_syscall@0.4.1", reason = "the Redox backend of winit 0.30 of the examples package needs it, while parking_lot_core of wgpu needs 0.5 and libredox of orbclient in the same backend needs 0.9" },
     { crate = "redox_syscall@0.5.18", reason = "parking_lot_core 0.9, which wgpu 30 requires, needs it, while libredox 0.1 of orbclient in the Redox backend of winit 0.30 of the examples package needs 0.9" },
+    { crate = "rustc-hash@1.1.0", reason = "naga 30, naga-types 30, and wgpu-core 30 of wgpu, and rowan 0.17 of i-slint-compiler 1.18 of Slint need it, while bindgen 0.72, a build dependency of skia-bindings of Slint in the examples package, needs rustc-hash 2" },
     { crate = "rustix@0.38.44", reason = "winit 0.30 of the examples package, calloop 0.13, and smithay-client-toolkit 0.19 need it, while wayland-backend, x11rb, and polling in the same tree need rustix 1" },
+    { crate = "shlex@1.3.0", reason = "bindgen 0.72, a build dependency of skia-bindings of i-slint-renderer-skia 1.18 of Slint in the examples package, needs it, while cc needs shlex 2" },
     { crate = "smol_str@0.2.2", reason = "winit 0.30 of the examples package needs it, while i-slint-compiler 1.18 of slint-macros of Slint needs smol_str 0.3" },
     { crate = "syn@2.0.119", reason = "jni-sys-macros, windows-implement, windows-interface, and zerocopy-derive in the tree of wgpu 30 need syn 2, while bytemuck_derive, thiserror-impl, and wasm-bindgen-macro-support need syn 3" },
     { crate = "thiserror@1.0.69", reason = "calloop 0.13, ndk 0.9, and smithay-client-toolkit 0.19 in the tree of winit 0.30 of the examples package need it, while wgpu 30 needs thiserror 2" },
     { crate = "thiserror-impl@1.0.69", reason = "thiserror 1, which calloop, ndk, and smithay-client-toolkit in the tree of winit 0.30 of the examples package need, needs it, while thiserror 2 needs thiserror-impl 2" },
+    { crate = "tiny-skia@0.11.4", reason = "sctk-adwaita 0.10, the Wayland window decorations of winit 0.30 that the feature wayland of i-slint-backend-winit 1.18 of Slint turns on in the examples package, needs it, while resvg 0.48 of i-slint-common needs tiny-skia 0.12" },
+    { crate = "tiny-skia-path@0.11.4", reason = "tiny-skia 0.11 of sctk-adwaita 0.10 in the examples package needs it, while tiny-skia 0.12 and usvg 0.48 of Slint need tiny-skia-path 0.12" },
     { crate = "windows-sys@0.52.0", reason = "the Windows backend of winit 0.30 of the examples package needs it, while rustix 1, polling, and errno need windows-sys 0.61" },
     { crate = "windows-sys@0.59.0", reason = "rustix 0.38, which winit 0.30 of the examples package requires, needs it, while rustix 1, polling, and errno need windows-sys 0.61" },
 ]

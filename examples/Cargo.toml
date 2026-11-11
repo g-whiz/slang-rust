@@ -13,7 +13,15 @@ readme.workspace = true
 [dependencies]
 pollster.workspace = true
 slang-compiler.workspace = true
+slang-slint.workspace = true
 slango.workspace = true
+slint = { workspace = true, features = [
+    "backend-winit",
+    "compat-1-18",
+    "renderer-femtovg-wgpu",
+    "std",
+    "unstable-wgpu-30",
+] }
 wgpu.workspace = true
 winit.workspace = true
 

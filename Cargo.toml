@@ -24,6 +24,7 @@ insta = { version = "1.49.0", default-features = false }
 pollster = "0.4.0"
 slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
+slang-slint = { path = "crates/slang-slint", version = "0.1.0" }
 slango = { path = "crates/slango", version = "0.1.0" }
 slint = { version = "~1.18", default-features = false }
 wgpu = { version = "30.0.1", features = ["spirv"] }
