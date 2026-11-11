@@ -4,6 +4,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::Device;
+use crate::device::scoped;
 use crate::error::{Error, ErrorKind, Result};
 use crate::layout::{Access, CompiledKernel, KernelLayout, Resource, Usage};
 
@@ -145,20 +146,6 @@ impl fmt::Debug for Kernel {
             .field("thread_group_size", &self.thread_group_size())
             .finish_non_exhaustive()
     }
-}
-
-/// Runs `create` inside error scopes for every filter of wgpu and returns the
-/// first error that it raised, so that no error reaches wgpu's handler of
-/// uncaptured errors, which panics by default.
-fn scoped<T>(device: &::wgpu::Device, create: impl FnOnce() -> T) -> (T, Option<::wgpu::Error>) {
-    let validation = device.push_error_scope(::wgpu::ErrorFilter::Validation);
-    let internal = device.push_error_scope(::wgpu::ErrorFilter::Internal);
-    let out_of_memory = device.push_error_scope(::wgpu::ErrorFilter::OutOfMemory);
-    let value = create();
-    let out_of_memory = pollster::block_on(out_of_memory.pop());
-    let internal = pollster::block_on(internal.pop());
-    let validation = pollster::block_on(validation.pop());
-    (value, validation.or(internal).or(out_of_memory))
 }
 
 /// Returns the kind of the error of a load when wgpu raises `error` while it

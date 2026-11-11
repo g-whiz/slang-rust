@@ -34,7 +34,7 @@ This document designs nothing beyond M3. These belong to later milestones: kerne
 
 ### 1.6. Current State
 
-Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. Its first tests of the `gpu` tier create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with unit tests that Miri runs and `ffi` unit tests that call Slang (Section 13.1). Until step 3, only its tests called it. Step 3 is done, on 2026-11-11. `Device::load_module` loads a Slang file and `Device::load_module_from_source` loads source text, each into a `Module` with one `Kernel` for each compute entry point, and the load creates the compute pipeline of each kernel (Sections 7.1 and 7.3). `Module::kernel` looks a kernel up by name, and `Kernel::name` and `Kernel::thread_group_size` return its name and the size of its thread group. Steps 4 to 6 do not exist yet, so a program can create a device and load a module but cannot run a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
+Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. Its first tests of the `gpu` tier create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with unit tests that Miri runs and `ffi` unit tests that call Slang (Section 13.1). Until step 3, only its tests called it. Step 3 is done, on 2026-11-11. `Device::load_module` loads a Slang file and `Device::load_module_from_source` loads source text, each into a `Module` with one `Kernel` for each compute entry point, and the load creates the compute pipeline of each kernel (Sections 7.1 and 7.3). `Module::kernel` looks a kernel up by name, and `Kernel::name` and `Kernel::thread_group_size` return its name and the size of its thread group. Step 4 is done, on 2026-11-11. `Buffer::from_slice` and `Buffer::zeroed` create a `Buffer<T>` on a device, `Buffer::read` copies its elements back, and `Buffer::len` and `Buffer::is_empty` return its length (Section 8). The sealed traits `Element` and `Value` list the element types of a buffer and the Rust types of plain values (Sections 8 and 9.2). Until step 5, `Value` has no public consumer and `Element` has none besides `Buffer`. Steps 5 and 6 do not exist yet, so a program can create a device, load a module, look up kernels, and create and read back buffers, but cannot call a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -75,13 +75,13 @@ This section is non-normative. It states each fact that a later section relies o
 
 Each fact carries one of these marks:
 
-- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux. In a fact that names step 3, it means verified on 2026-11-11 by the work of step 3 of Section 14, in CI run 42952435667 or, where the fact says so, locally on the two Vulkan adapters of the development machine and not in CI.
+- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux. In a fact that names step 3, it means verified on 2026-11-11 by the work of step 3 of Section 14, in CI run 42952435667 or, where the fact says so, locally on the two Vulkan adapters of the development machine and not in CI. In a fact that names step 4, it means verified on 2026-11-11 by the work of step 4 of Section 14 on x86_64 Linux: a fact about layout through Slang's reflection and the SPIR-V decorations that the `slangc` of the pinned Vulkan SDK printed, and not on a GPU, and a fact about wgpu by creating devices on the development machine.
 - (read): Read in a source on 2026-11-11, which the fact names.
 - (inferred): Concluded from other facts and not verified. Every inferred fact that the design depends on is also a row of Section 15.
 
 ### 3.2. What Ran
 
-Slang compiled three kernels to SPIR-V with `slang-compiler`, the scratch program built every bind group layout and pipeline from reflection alone, dispatched each kernel, read the results back, and every value matched (run). The kernels covered a read-write structured buffer with a global `uniform`, a read-only and a read-write structured buffer with a `ConstantBuffer`, a `ParameterBlock` holding a buffer, and two entry-point `uniform` parameters, and a kernel with an unused buffer and an unused uniform (run). Through the validated path, naga also accepted control flow of every kind, generics with interface constraints, `[Differentiable]` functions with `bwd_diff` and `fwd_diff`, atomics, matrices, uniform arrays, `static const` tables, `inout` and `out` parameters, `bool` fields, `cbuffer`, and nested parameter blocks (run). No unsafe code was needed (run). The passthrough path also ran every kernel on both adapters, and it needs unsafe code and `Features::PASSTHROUGH_SHADERS` (run). wgpu 30's `Device`, `Queue`, `Buffer`, `ComputePipeline`, and `BindGroup` are `Send` and `Sync` (run), and all wgpu types are `Clone` through internal reference counting since wgpu 24 [WGPU-CHANGELOG] (read).
+Slang compiled three kernels to SPIR-V with `slang-compiler`, the scratch program built every bind group layout and pipeline from reflection alone, dispatched each kernel, read the results back, and every value matched (run). The kernels covered a read-write structured buffer with a global `uniform`, a read-only and a read-write structured buffer with a `ConstantBuffer`, a `ParameterBlock` holding a buffer, and two entry-point `uniform` parameters, and a kernel with an unused buffer and an unused uniform (run). Through the validated path, naga also accepted control flow of every kind, generics with interface constraints, `[Differentiable]` functions with `bwd_diff` and `fwd_diff`, atomics, matrices, uniform arrays, `static const` tables, `inout` and `out` parameters, `bool` fields, `cbuffer`, and nested parameter blocks (run). No unsafe code was needed (run). The passthrough path also ran every kernel on both adapters, and it needs unsafe code and `Features::PASSTHROUGH_SHADERS` (run). wgpu 30's `Device`, `Queue`, `Buffer`, `ComputePipeline`, and `BindGroup` are `Send` and `Sync` (run), and all wgpu types are `Clone` through internal reference counting since wgpu 24 [WGPU-CHANGELOG] (read). In wgpu 30.0.1, two devices from two device requests compared equal with `==` (run on the development machine on 2026-11-11, step 4, with no test in the repository).
 
 By default, Slang renames every SPIR-V entry point to `main`, and with `vulkan_use_entry_point_name(Toggle::On)` the SPIR-V entry point keeps the Slang name (run). Slang's documentation states the same default [SLANG-SPIRV] (read).
 
@@ -103,9 +103,13 @@ This table is the core of the crate. "DTS" is `ParameterCategory::DescriptorTabl
 | A parameter that the code never uses | Still listed with its binding | The SPIR-V drops it. The layout is accepted with or without its entry |
 | `Texture2D`, `SamplerState`, `RWTexture2D` | Binding types `Texture`, `Sampler`, `MutableTexture` | Not built. The walk rejects them (Section 7.1) |
 
+For each element type of `Buffer<T>`, the reflected stride of a structured buffer of the matching Slang type equals the stride that `slango` uses for `T`, so the size of every buffer, its length times that stride, is a multiple of the stride (run, step 4).
+
 ### 3.4. Layout of Plain Values
 
 Slang's default layout puts the fields of `struct Params { float scale; float3 offset; uint count; float2 pair; }` in a constant buffer at offsets 0, 16, 28, and 32, with size 48 (run). `float c[5]` in a constant buffer takes 80 bytes, with a stride of 16 (run). `float4x4`, `float3x3`, `float2x3`, and `float3` in sequence take offsets 0, 64, 112, and 144, with size 160 (run). A `bool` takes 4 bytes (run). As `uniform` parameters of an entry point, `float`, `float3`, `float4x4`, a structure of a `float` and a `uint`, and `bool` take offsets 0, 16, 32, 96, 100, and 104 in the immediates. The last value ends at 108, and the block has size 112, because std430 rounds the size of the block up to its alignment of 16 (run, step 2). These offsets differ from the layout of any Rust struct with the same fields, so `slango` writes every plain value at its reflected offset and never relies on the layout of a Rust struct (SLO-13).
+
+Slang's default matrix layout is row-major, which `defaultMatrixLayoutMode` in `slang.h` states, and `slango` sets no matrix layout (run, step 4). In that layout, a matrix of R rows and C columns is R rows, each starting at a multiple of the matrix stride. Row r starts at the value's offset plus r times its extent divided by R, and column c of a row follows at 4 bytes times c (run, step 4). The extent is the reflected size of the value, or the array stride for a matrix inside an array. It is R times 16 bytes in a uniform buffer and R times 8 or 16 bytes in the immediates, for every R and C from 2 to 4 (run, step 4). The `slangc` command line defaults to the other layout, so an experiment with it must pass `-matrix-layout-row-major` to match what `slango` compiles (run, step 4). No GPU has checked this rule yet, and the dispatch tests of step 5 will.
 
 ### 3.5. Known Limits of the Validated Path
 
@@ -254,7 +258,7 @@ The design left these choices open, and step 2 settled them:
 - A parameter of the entry point has a path without a prefix, so `uniform float factor` has the path `factor`, as a global has.
 - The unnamed uniform buffer of the global plain values has the empty path.
 - The usage of a binding comes from the metadata of the entry point, through `Metadata::is_parameter_location_used` with its set and binding. A plain value has the usage of the uniform buffer that holds it. The immediates carry no usage flag, so step 5 treats them as used.
-- The walk does not record the matrix layout mode. Step 4 settles whether marshalling needs it.
+- The walk does not record the matrix layout mode. Step 4 settled that marshalling needs none, because the session keeps Slang's default row-major layout, whose rows the extent of a matrix places (Section 3.4).
 
 The walk supports these parameters and rejects every other with `ErrorKind::UnsupportedParameter`, whose text names the parameter and the kernel:
 
@@ -290,9 +294,23 @@ The bind group layouts leave out every binding that the code does not use, which
 
 SLO-10. `Buffer<T>` MUST accept as `T` only the types of a sealed trait whose byte representation equals the std430 layout of the matching Slang element type without padding. Each such type MUST have a test that checks its size against the stride that reflection reports, because a Rust type with another layout would place every element after the first at a wrong offset (Section 3.4).
 
-The trait is implemented at least for `f32`, `i32`, and `u32` and for `[f32; 4]`, `[i32; 4]`, and `[u32; 4]`, whose strides are verified (Section 3.3). The implementation adds further types only with the test of SLO-10. A buffer is created from a slice or with a length, and is usable as a storage buffer, as the source of a copy, and as the destination of a copy.
+The sealed trait is `Element`. Step 4 implemented it for exactly these types, whose strides the test of SLO-10 checks against reflection (Section 3.3):
 
-SLO-11. `Buffer::read` MUST block until every dispatch submitted before it has finished and MUST return the elements as a `Vec<T>`, because a caller must not observe a partial result. A blocking read is the only synchronization that M3 offers. It copies the buffer to a staging buffer, maps it, and waits on the device.
+| Rust type | Slang type | Stride in bytes |
+| --- | --- | --- |
+| `f32`, `i32`, `u32` | `float`, `int`, `uint` | 4 |
+| `[f32; 4]`, `[i32; 4]`, `[u32; 4]` | `float4`, `int4`, `uint4` | 16 |
+
+The implementation adds further types only with the test of SLO-10. The size of a buffer is its length times the stride. Elements and the scalars of plain values (Section 9.2) are written little-endian, and elements are read the same way.
+
+These rules settle the creation of a buffer and its contents:
+
+- `Buffer::from_slice` creates a buffer that holds a copy of a slice, and `Buffer::zeroed` creates one of a given length whose bytes are zero.
+- A buffer has the usages `STORAGE`, `COPY_SRC`, and `COPY_DST`.
+- A buffer of length zero is allowed, and `read` returns it as an empty vector without work on the GPU. Step 5 decides what binding one means.
+- No method writes new contents into an existing buffer.
+
+SLO-11. `Buffer::read` MUST block until every dispatch submitted before it has finished and MUST return the elements as a `Vec<T>`, because a caller must not observe a partial result. A blocking read is the only synchronization that M3 offers. It copies the buffer to a staging buffer, maps it, and blocks the calling thread until the device has finished.
 
 ## 9. The Call
 
@@ -306,11 +324,18 @@ SLO-12. The trait through which `set` takes a value MUST be sealed (API-8). It M
 
 SLO-13. `slango` MUST write every plain value at its reflected offset, element by element for vectors, matrices, and arrays, and MUST NOT copy the bytes of a Rust struct as a whole, because the reflected layout differs from every Rust layout (Section 3.4).
 
-The trait covers in M3 `bool`, `f32`, `i32`, `u32`, and arrays of them as vectors, matrices, and arrays, as the implementation's tests against reflected offsets show. Global plain values and plain values in constant buffers and parameter blocks go into uniform buffers that the call owns, and plain values of the entry point go into the immediates of the dispatch.
+The sealed trait is `Value`. Step 4 implemented it for `bool`, `i32`, `u32`, and `f32`, which stand for `bool`, `int`, `uint`, and `float`, and for arrays `[T; N]` of a value type, nested to any depth. A Rust array stands for any Slang structure of the same nesting:
+
+- `[f32; 3]` stands for a vector `float3` or an array `float[3]`.
+- `[[f32; 3]; 2]` stands for a matrix `float2x3`, whose first index is the row, an array of vectors `float3[2]`, or an array of arrays `float[2][3]`.
+
+A value matches its parameter when the scalar types are equal and the lengths of the nesting are equal, from the outermost to the innermost, and the reflected size enters only when the value is written. A value that does not match gives `ErrorKind::InvalidArgument`, whose message names the parameter path, the Slang type, and the Rust type, and no byte is written. Each scalar is written at its reflected offset, and a `bool` as a 32-bit 0 or 1. A matrix is written row by row, as Section 3.4 states. Global plain values and plain values in constant buffers and parameter blocks go into uniform buffers that the call owns, and plain values of the entry point go into the immediates of the dispatch.
 
 ### 9.3. Validation Before Dispatch
 
 SLO-14. The dispatch MUST check, before it submits any work, that every parameter path names a parameter of the kernel and that every used parameter is set. It MUST check that every value matches its parameter (SLO-12) and that the element stride of every bound buffer equals the reflected stride. It MUST check that every buffer belongs to the kernel's device and that every workgroup count is within the device's limit. It MUST return `ErrorKind::InvalidArgument` naming the parameter when a check fails, because wgpu reports these mistakes late, with less context, or not at all.
+
+Each `Device` carries an identity that its clones share, and a buffer belongs to the device whose identity it holds. Two `Device` values built separately from the same wgpu device therefore count as different devices.
 
 SLO-15. The dispatch MUST open an error scope around the work it records and submits, and MUST return each validation error that remains as `ErrorKind::Backend`, because an error that reaches wgpu's uncaptured-error handler is lost to the caller.
 
@@ -330,8 +355,8 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 | `UnsupportedShader` | The backend rejected a kernel at load, as the list below states. The source error carries the backend's text |
 | `UnsupportedParameter` | A kernel has a parameter that the walk rejects (Section 7.1) |
 | `MissingFeature` | A kernel needs a device feature that the device lacks |
-| `InvalidArgument` | A check of Section 9.3, an unknown kernel name, or a file that cannot be read as text |
-| `Backend` | wgpu reported a validation or out-of-memory error in an error scope at load, as the list below states, or a validation error at dispatch (SLO-15) |
+| `InvalidArgument` | A check of Section 9.3, including a value that does not match its parameter (Section 9.2), an unknown kernel name, a file that cannot be read as text, or a buffer larger than the device's limit or whose size overflows |
+| `Backend` | wgpu reported a validation or out-of-memory error in an error scope at load, as the list below states, any error while a buffer is created or read, or a validation error at dispatch (SLO-15) |
 
 The load creates every shader module, bind group layout, pipeline layout, and compute pipeline inside error scopes for validation, internal, and out-of-memory errors, so that no error reaches wgpu's uncaptured-error handler. It maps each error that a scope returns to a kind:
 
@@ -376,7 +401,7 @@ Each step leaves `just check` passing.
 1. Add the crate skeleton, `Device` with `DeviceOptions`, adapter selection, the features of Section 12, `Error` and `ErrorKind`, the changes of Section 4.2, and the installation of lavapipe in the `check` job. Tests: the `Send` and `Sync` assertions of SLO-17, the `Display` text of each error kind, and a `gpu` test that creates a device and checks that it has immediates when the adapter offers them. Done on 2026-11-11, with lavapipe also installed in the `coverage` job, and all six CI jobs passed with it (Section 3.8).
 2. Add the layout snapshot and the walk of Section 3.3. Tests: `ffi` snapshot tests for global plain values, constant buffers, parameter blocks, nested parameter blocks, parameters of the entry point, system values, unused parameters, and a texture that the walk reports as unsupported. Done on 2026-11-11, with the `ffi` tests as unit tests (Section 13.1) and the snapshot as Section 7.1 describes.
 3. Add `Module`, `Kernel`, and `load_module` with the SPIR-V of each entry point, the error scope of SLO-9, and the layouts and pipelines. Tests: `gpu` tests that load the kernels of Section 3.2, a module that naga rejects, which returns `UnsupportedShader` with naga's text (TEST-6), and a kernel with uniforms of its entry point on a device without immediates, which returns `MissingFeature`. Done on 2026-11-11, with the choices of Sections 7.1 and 7.3 and the mapping of errors of Section 10. The rejected module calls `frexp`, because a 16-bit integer loads on a device with the matching feature (Section 3.5), and the tests passed on all three CI runners (Section 3.8).
-4. Add `Buffer<T>` with upload and `read`, and the marshalling of plain values. Tests: the stride test of SLO-10, pure tests that write the values of Section 3.4 at their reflected offsets, and a `gpu` round trip of a buffer.
+4. Add `Buffer<T>` with upload and `read`, and the marshalling of plain values. Tests: the stride test of SLO-10, pure tests that write the values of Section 3.4 at their reflected offsets, and a `gpu` round trip of a buffer. Done on 2026-11-11, with the element and value types and the rules of Sections 8 and 9.2, the identity of a device of Section 9.3, and the matrix rule of Section 3.4. The `gpu` tests passed on all three CI runners, and the writing of plain values is tested against reflected offsets only, until step 5 dispatches.
 5. Add the call builder, the checks of Section 9.3, and the dispatch. Tests: one test of each check of SLO-14, pure tests of the workgroup counts, and `gpu` tests that dispatch the kernels of Section 3.2 and assert every value.
 6. Add the example of Section 13.3 with its test and the crate documentation, and update the documents that M3 makes false. Tests: the example's `gpu` test.
 
@@ -388,8 +413,6 @@ Each row is a statement that this design relies on and that the spike did not es
 | --- | --- | --- | --- |
 | SOA-2 | SPIR-V through naga, with immediates, dispatches on Direct3D 12 with WARP on the Windows runner and on Metal on the macOS runner | Section 13.2, architecture A-17, A-18, and Q-21 | Step 5 of Section 14, by the first CI run that dispatches |
 | SOA-3 | On the validated path, wgpu adds bounds checks to every buffer access of a kernel | Section 17 | Step 5 of Section 14, by reading the bounds-check policy of the shader translation of wgpu 30 in its source |
-| SOA-4 | The size of a storage buffer must be a multiple of its element stride, which every `Buffer<T>` meets | Section 8 | Step 4 of Section 14, by the stride test of SLO-10 |
-
 Of the assumptions of the architecture design that name this document, Section 3.3 to Section 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. Section 3.7 confirms A-10 in part, which covers the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". It did not cover typed shader interfaces generated from reflection, so A-10 stays for that pattern. A-9 holds as far as SlangPy's documentation was read (Section 3.7), and M3 does not depend on it. SOA-2 carries what stays open of A-17 and A-18, which is dispatch only, because WARP and Metal each create a device with immediates and load modules (Section 3.8).
 
 ## 16. Open Questions
@@ -434,7 +457,8 @@ The crate runs on x86_64 Linux with Vulkan, which the spike verified on a softwa
 | A kernel has a parameter that the walk rejects (Section 7.1) | `UnsupportedParameter` | Wait for the milestone that supports it |
 | A kernel needs a feature the device lacks | `MissingFeature` | Create the wgpu device with the feature and pass it to `slango::wgpu::from_device_and_queue` (Section 12), or use another adapter |
 | A call has a wrong name, value, or buffer | `InvalidArgument`, naming the parameter | Fix the call |
-| wgpu reports a validation or out-of-memory error (Section 10) | `Backend` | Report a validation error as a defect of `slango` |
+| A buffer would be larger than the device allows | `InvalidArgument` | Create a smaller buffer |
+| wgpu reports a validation or out-of-memory error (Section 10), or an error while a buffer is created or read | `Backend` | Report a validation error as a defect of `slango` |
 
 ### 18.4. Costs
 
@@ -485,6 +509,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 4 of Section 14, which added `Buffer<T>` and the marshalling of plain values, in Sections 1.6 and 14, with the element types and the rules of buffers in Section 8, the value types and their check in Section 9.2, the identity of a device in Section 9.3, and the errors of buffers and values in Sections 10 and 18.3. Recorded in Section 3.4 the row-major matrix layout and the offsets of its rows, settled in Section 7.1 that marshalling needs no matrix layout mode, recorded in Section 3.2 that wgpu 30.0.1 compares devices of two requests as equal, confirmed SOA-4 in Section 3.3 and removed its row from Section 15, and defined the mark (run) for step 4 in Section 3.1.
 - 2026-11-11: Recorded step 3 of Section 14, which added `Module`, `Kernel`, and the load of a module from a file or from source text with a compute pipeline for each kernel, in Sections 1.6, 7.1, 7.3, 13.1, and 14, with the choices that the design left open in Sections 7.1 and 7.3 and the mapping of wgpu's errors at load in Sections 10 and 18.3. Recorded in Section 3.8 that modules load on all three CI runners, narrowed SOA-2 to dispatch in Sections 13.2, 15, 16, and 18.2, moved 16-bit integers in Section 3.5 to the constructs that need a device feature, and defined the mark (run) for step 3 in Section 3.1.
 - 2026-11-11: Recorded step 2 of Section 14, which added the private layout snapshot and its walk, in Sections 1.6, 7.1, 13.1, and 14, with the choices that the design left open and the supported and rejected parameters in Section 7.1. Recorded in Sections 3.3 and 3.4 that a system value has a uniform size of 0 and that the immediates round their size up to their alignment, and defined the mark (run) for step 2 in Section 3.1. Made the rows of Sections 10 and 18.3 for `UnsupportedParameter` cite Section 7.1.
 - 2026-11-11: Recorded step 1 of Section 14, which added `Device`, `DeviceOptions`, `AdapterSelection`, the error type, and the module `slango::wgpu`, in Sections 1.6, 5.1, 13.1, and 14, added Section 3.8 with the adapters of the CI runners, recorded the licence changes in Section 4.2, corrected in Sections 12 and 18.3 how a caller requests another device feature, updated Sections 13.2 and 18.2 for the `gpu` tier in CI, narrowed SOA-2 to loading and dispatch, and answered SOQ-2 through `pollster` in SLO-1 and Appendix A.

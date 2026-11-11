@@ -132,11 +132,12 @@ pub enum ErrorKind {
     /// the feature, or use another adapter.
     MissingFeature,
     /// An argument was invalid, such as an unknown kernel name, a parameter
-    /// that a call names but the kernel lacks, or a file that cannot be read
-    /// as text. Correct the call.
+    /// that a call names but the kernel lacks, a file that cannot be read as
+    /// text, or a buffer larger than the device allows. Correct the call.
     InvalidArgument,
-    /// wgpu reported a validation error for work that this crate submitted.
-    /// Report it as a defect of this crate.
+    /// wgpu reported a validation error, or a lack of memory, for work that
+    /// this crate submitted. Report a validation error as a defect of this
+    /// crate.
     Backend,
 }
 

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 
 use crate::error::{Error, ErrorKind, Result};
 
@@ -18,8 +19,9 @@ use crate::error::{Error, ErrorKind, Result};
 /// See the example of [`Device::new`].
 #[derive(Clone)]
 pub struct Device {
-    device: ::wgpu::Device,
+    handle: ::wgpu::Device,
     queue: ::wgpu::Queue,
+    identity: Arc<()>,
 }
 
 impl Device {
@@ -72,15 +74,28 @@ impl Device {
     /// See the example of [`Device::new`].
     #[must_use]
     pub fn adapter_name(&self) -> String {
-        self.device.adapter_info().name
+        self.handle.adapter_info().name
     }
 
     pub(crate) fn from_wgpu(device: ::wgpu::Device, queue: ::wgpu::Queue) -> Self {
-        Self { device, queue }
+        Self {
+            handle: device,
+            queue,
+            identity: Arc::new(()),
+        }
+    }
+
+    /// Returns whether `other` is this device or a clone of it.
+    ///
+    /// wgpu 30 compares two devices by an identifier that counts within one
+    /// wgpu instance only, so two devices of two instances can compare
+    /// equal, and this compares the allocation that the clones share instead.
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
     }
 
     pub(crate) fn wgpu_device(&self) -> &::wgpu::Device {
-        &self.device
+        &self.handle
     }
 
     pub(crate) fn wgpu_queue(&self) -> &::wgpu::Queue {
@@ -157,6 +172,23 @@ pub enum AdapterSelection {
     /// the case of each letter. The name is what [`Device::adapter_name`]
     /// returns.
     Name(String),
+}
+
+/// Runs `create` inside error scopes for every filter of wgpu and returns the
+/// first error that it raised, so that no error reaches wgpu's handler of
+/// uncaptured errors, which panics by default.
+pub(crate) fn scoped<T>(
+    device: &::wgpu::Device,
+    create: impl FnOnce() -> T,
+) -> (T, Option<::wgpu::Error>) {
+    let validation = device.push_error_scope(::wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(::wgpu::ErrorFilter::Internal);
+    let out_of_memory = device.push_error_scope(::wgpu::ErrorFilter::OutOfMemory);
+    let value = create();
+    let out_of_memory = pollster::block_on(out_of_memory.pop());
+    let internal = pollster::block_on(internal.pop());
+    let validation = pollster::block_on(validation.pop());
+    (value, validation.or(internal).or(out_of_memory))
 }
 
 const FIND_ADAPTER: &str = "find a GPU adapter";
