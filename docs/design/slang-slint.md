@@ -34,7 +34,7 @@ M5 covers the minimal view only. These are not part of M5: a custom Slint elemen
 
 ### 1.6. Current State
 
-Steps 1 and 2 of Section 11 are done, on 2026-11-11. Step 1 added the crate `crates/slang-slint` with `wgpu_configuration` (SLS-6), `device` (SLS-7), and the error type of Section 7 with all four kinds, and their tests (Section 9). Step 2 added `View` (Section 6) and its `gpu` tests, which ran locally only (Section 9). The crate's API documentation is the detailed record, and its crate-level documentation already states the licence consequence of SLS-5. Step 3 added example 4, `shader-playground`, with its tests (Section 10), and the licences, duplicate versions, and advisories that its Slint backend and renderer bring into `deny.toml` (Section 3.6). Step 4 is the next change.
+All four steps of Section 11 are done, on 2026-11-11, and M5 is complete. Step 1 added the crate `crates/slang-slint` with `wgpu_configuration` (SLS-6), `device` (SLS-7), and the error type of Section 7 with all four kinds, and their tests (Section 9). Step 2 added `View` (Section 6) and its `gpu` tests, which ran locally only (Section 9). Step 3 added example 4, `shader-playground`, with its tests (Section 10), and the licences, duplicate versions, and advisories that its Slint backend and renderer bring into `deny.toml` (Section 3.6). Step 4 completed the crate-level documentation with an example of a view in a Slint window, the guidance of Section 5.3, the threading of Section 8, and the licence statement of SLS-5, and added the statement of SLS-5 to `README.md`. The crate's API documentation is the detailed record.
 
 The spike of M5 ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it and step 1 established. Section 11 gives the order of the changes that implement M5.
 
@@ -332,7 +332,7 @@ These steps implement M5. Each step leaves `just check` passing and adds its tes
 1. Done on 2026-11-11. Add `crates/slang-slint` with its manifest and dependencies (Section 4.1), `slint` in `[workspace.dependencies]`, the changes of `deny.toml` and of the CI workflow that Sections 8.1 and 9 of `docs/design/tooling.md` record, the error type (Section 7), `wgpu_configuration`, and `device` (Section 5). Settle the smallest feature set, which was assumption SLSA-1, and record it in Section 4.1. Tests: the pure tests of Section 9. Check: `check-deny` passes, and all CI jobs pass on the three platforms.
 2. Done on 2026-11-11. Add `View` (Section 6). Settle SLSA-2, which held (Section 3.4). Tests: the `gpu` tests of Section 9.
 3. Done on 2026-11-11. Add example 4 (Section 10) with its tests. Check: `check-clippy` builds it, and it runs locally with `--frames` on lavapipe and on a hardware adapter.
-4. Complete the crate-level documentation, including the licence statement of SLS-5 and the guidance of Section 5.3, add the statement of SLS-5 to `README.md`, and update the documents that M5 makes false. With this step, M5 is complete.
+4. Done on 2026-11-11. Complete the crate-level documentation, including the licence statement of SLS-5 and the guidance of Section 5.3, add the statement of SLS-5 to `README.md`, and update the documents that M5 makes false. With this step, M5 is complete.
 
 ## 12. Assumptions to Confirm
 
@@ -422,6 +422,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 4 of Section 11, the completed crate-level documentation and the statement of SLS-5 in `README.md`, as done in Sections 1.6 and 11, and M5 as complete.
 - 2026-11-11: Recorded step 3 of Section 11, example 4, as done in Sections 1.6, 3.1, 11, and 15.2, described the example as built with its tests and its runs with a window in Section 10, including its Slint features, recorded the licences, duplicates, and four advisories of its Slint backend in Sections 3.6, 4.2, and 14, and the cost in Section 15.5.
 - 2026-11-11: Recorded step 2 of Section 11, the view, as done in Sections 1.6, 6.3, 9, 11, and 15.2, recorded the confirmation of SLSA-2 in Sections 3.4 and 12 and removed its row, and cited the shader constraints of example 4 in Section 10.
 - 2026-11-11: Recorded step 1 of Section 11 as done. Corrected the feature set of SLS-1, removed SLSA-1, and recorded what the library alone brings and costs (Sections 3.2, 3.6, 4.2, and 15.5), what Section 9 tests, and the advisory exception (Section 14). Answered SLSQ-1 by inference and added SLSA-4 to confirm it.
