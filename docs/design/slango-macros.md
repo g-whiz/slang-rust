@@ -41,7 +41,7 @@ These are not part of M6:
 
 ### 1.6. Current State
 
-This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. Step 2 is done, on 2026-11-11. It added the hidden module `slango::__private` of Section 5.2, with `precompile_file`, the interface description, the encoding of Section 5.3 with `ENCODING_VERSION`, `load_precompiled`, and the trait `StructElement` of Section 5.4, and split the load of `slango` into a compile and a load, as Section 7.1 of `docs/design/slango.md` describes with the behaviour changes. Where the implementation settled or corrected this design, Section 5 states it. Step 3 is done, on 2026-11-11. It added the crates `slango-codegen` at `crates/slango-codegen/` and `slango-macros` at `crates/slango-macros/`, for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with the path resolution, the rebuild tracking, the build script, and the docs.rs stub of Section 6. Where it settled or corrected this design, Sections 3.10, 4.2, 6.3, 6.4, 7.4, 7.5, 8, and 10 state it. A structure as a buffer element or as a value is reported as unsupported until step 4. The next change is step 4 of Section 11.
+This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. Step 2 is done, on 2026-11-11. It added the hidden module `slango::__private` of Section 5.2, with `precompile_file`, the interface description, the encoding of Section 5.3 with `ENCODING_VERSION`, `load_precompiled`, and the trait `StructElement` of Section 5.4, and split the load of `slango` into a compile and a load, as Section 7.1 of `docs/design/slango.md` describes with the behaviour changes. Where the implementation settled or corrected this design, Section 5 states it. Step 3 is done, on 2026-11-11. It added the crates `slango-codegen` at `crates/slango-codegen/` and `slango-macros` at `crates/slango-macros/`, for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with the path resolution, the rebuild tracking, the build script, and the docs.rs stub of Section 6. Where it settled or corrected this design, Sections 3.10, 4.2, 6.3, 6.4, 7.4, 7.5, 8, and 10 state it. Its CI run confirmed SLMA-6 on Windows and showed that the macro works on the macOS runner, which narrows SLMA-5 and does not confirm it (Section 3.3). Step 4 is done, on 2026-11-11. It added the generated structs of Section 7.3 for Slang structures, as the elements of structured buffers and as plain values, nested structures included, and confirmed SLMA-7 (Section 3.9). Where it settled or corrected this design, Sections 3.9, 7.3, 7.4, 7.5, and 10 state it. The next change is step 5 of Section 11.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -88,6 +88,15 @@ Three mechanisms were compared: a function-like procedural macro that compiles d
 
 The macro library links `libslang-compiler.so.0.2026.17` dynamically and has no rpath (run). Without `$VULKAN_SDK/lib` on the library path of rustc, `cargo build`, `cargo check`, and `cargo doc` all fail with `error[E0463]: can't find crate for 'slango_macros'`, and nothing names the missing library (run). A doctest goes through rustdoc, which loads the macro the same way (inferred). With `cargo::rustc-link-arg=-Wl,-rpath,$VULKAN_SDK/lib` printed by the build script of the macro crate, the library gets that directory as its `RUNPATH`, and all three commands pass with `LD_LIBRARY_PATH` unset (run). A link argument of `slang-compiler-sys` would not reach the macro, because `rustc-link-arg` applies only to the targets of the package that prints it (read, the Cargo reference). Cargo removes library paths outside `target/` from every process it starts (read, the Cargo reference). rust-analyzer loads macro libraries in its own process (read), so it needs the rpath or an environment of its own (inferred). On Windows the macro library needs `slang-compiler.dll` on `PATH`, and an rpath does not exist there (inferred).
 
+Step 3 of Section 11 confirmed SLMA-6 and narrowed SLMA-5 on 2026-11-11, in run 43114721942 of the CI workflow, for the commit of step 3 that made the path text of the tests the same on Windows. All six jobs succeeded. On `macos-latest`, the macro library loaded in a job that sets both the rpath of SLM-12 and `DYLD_LIBRARY_PATH`, so the run does not show that the rpath alone suffices there. On `windows-latest`, the macro library found `slang-compiler.dll` through the `PATH` that the CI job sets, and no rpath exists there. On both runners, every test of `slango-macros` ran and passed:
+
+- The test of the path resolution of SLM-10.
+- The tests of the build script.
+- The trybuild test, with its passing case and its compile-fail cases, including the case of a Slang error, whose expected text holds Slang's line with the path.
+- Both `gpu` tests of saxpy through the generated bindings, on hosted Metal and on WARP.
+
+The Windows job ran 802 tests, and all of them passed.
+
 ### 3.4. Paths and Rebuilds
 
 A path resolved from `CARGO_MANIFEST_DIR` failed under trybuild, which compiles each case in a package of its own (run). A path resolved relative to the invoking file, through `proc_macro::Span::call_site().local_file()`, stable since Rust 1.88.0 (read, the documentation of `proc_macro`), worked in the workspace and under trybuild, once the result, which is relative to the working directory of rustc, was made absolute against that directory (run). The documentation of `local_file` says that its result should not be embedded in the output of a macro, and vulkano-shaders and include-wgsl-oil embed such paths anyway (read).
@@ -114,9 +123,15 @@ With `DOCS_RS` set and no SDK, `cargo doc` failed with `E0463`, because the macr
 
 ### 3.9. Generated Code
 
-For `struct Particle { float3 position; float mass; float2 velocity; }` in a `RWStructuredBuffer`, Slang reported offsets 0, 12, and 16 and a stride of 32, and the generated `#[repr(C)]` struct with a private tail padding of 8 bytes, a `const fn new`, and `size_of` and `offset_of!` assertions matched it and read back correctly (run). Private padding fields rule out a struct literal in user code (run). The spike did not generate arrays inside structures whose stride exceeds the element size, matrices or `bool` in structures, or nested structures, whose code path is untested. A structure in a uniform buffer is flattened into one plain value for each leaf with a dotted path such as `params.scale` (read, Section 7.1 of `docs/design/slango.md`). A unit test of the tokens generated from a hand-made interface description, formatted with `prettyplease`, passed natively and under Miri (run). Every insta snapshot test of the repository sits in a module that Miri skips (read).
+For `struct Particle { float3 position; float mass; float2 velocity; }` in a `RWStructuredBuffer`, Slang reported offsets 0, 12, and 16 and a stride of 32, and the generated `#[repr(C)]` struct with a private tail padding of 8 bytes, a `const fn new`, and `size_of` and `offset_of!` assertions matched it and read back correctly (run). Private padding fields rule out a struct literal in user code (run). The spike did not generate nested structures, matrices or `bool` in structures, or arrays in structures, and step 4 of Section 11 settled them (Sections 7.3 and 7.5). A structure in a uniform buffer is flattened into one plain value for each leaf with a dotted path such as `params.scale` (read, Section 7.1 of `docs/design/slango.md`). A unit test of the tokens generated from a hand-made interface description, formatted with `prettyplease`, passed natively and under Miri (run). Every insta snapshot test of the repository sits in a module that Miri skips (read).
 
 Step 2 of Section 11 confirmed SLMA-4 on 2026-11-11. The walk records the Slang name of each structure among the plain values with its parameter path. The `ffi` test `layout::tests::ffi::each_structure_among_the_plain_values_is_recorded_with_its_path_and_slang_name` of `slango` recorded `params` with `Params`, `params.inner` with `Inner`, `settings.inner` with `Inner`, `run` with `Run`, and `run.inner` with `Inner`. These cover a global `uniform` structure, a structure nested in it, a structure inside a `ConstantBuffer<Params>`, and a `uniform` structure of the entry point. The walk also recorded `Particle` above as a structure element of 32 bytes with its fields at the offsets 0, 12, and 16.
+
+Step 4 of Section 11 confirmed SLMA-7 on 2026-11-11: a nested structure as a field generates a correct layout. Slang reports the size of a nested structure rounded up to its alignment, and the offsets of the outer structure follow that size. The evidence is:
+
+- In the `insta` snapshot of `nested.slang` of `slango-codegen`, `Motion { float2 velocity; float drag; }` has a size of 16 bytes, with its fields at 0 and 8 and 4 bytes of tail padding, and `Body { float3 position; Motion motion; uint id; }` has its fields at 0, 16, and 32 and a size of 48 bytes.
+- The `ffi` test of `slango-macros` that compares generated structs with Slang's reflection passed for a structure that holds two nested structures (Section 10).
+- The `gpu` test of `slango-macros` ran a kernel over `Particle { float3 position; float mass; Motion motion; uint id; }`, whose stride is 48 bytes, with `motion` at 16 and `id` at 32, and gave exactly the results computed on the CPU, on the NVIDIA GPU of the development container and on lavapipe.
 
 This confirms A-10 of the architecture design: vulkano generates typed shader interfaces from reflection.
 
@@ -126,7 +141,7 @@ One expansion took 141 to 159 ms when idle and up to 236 ms under load, the cost
 
 `syn`, `quote`, `proc-macro2`, `prettyplease`, `trybuild`, and `target-tuple`, which trybuild brings, are `MIT OR Apache-2.0`, which the allow-list admits, and each declares a `rust-version` of 1.88 or less (run). `cargo deny` reported no advisory and one new duplicate, `prettyplease` 0.2.37, which `bindgen` of Slint's iOS-only renderer brings, beside the 0.3.0 of the spike (run). `syn` 2 and `syn` 3 are both in the lock file already, with a skip for `syn` 2 (read, `deny.toml`). `proc-macro-error` and `proc-macro-error2` are unmaintained (read, RUSTSEC-2024-0370 and RUSTSEC-2026-0173).
 
-Step 3 of Section 11 measured the cost in the workspace on 2026-11-11. `Cargo.lock` went from 524 to 528 packages: `slango-codegen`, `slango-macros`, `trybuild` 1.0.122, and `target-tuple` 1.0.2. A clean debug build of the workspace with all targets, `cargo build --workspace --all-targets` in a fresh target directory, took 58.8 s, against 45.2 s before the step.
+Step 3 of Section 11 measured the cost in the workspace on 2026-11-11. `Cargo.lock` went from 524 to 528 packages: `slango-codegen`, `slango-macros`, `trybuild` 1.0.122, and `target-tuple` 1.0.2. A clean debug build of the workspace with all targets, `cargo build --workspace --all-targets` in a fresh target directory, took 58.8 s, against 45.2 s before the step. On the Windows runner of run 43114721942, the trybuild test took 198 s of a test run of 250 s, because trybuild builds the macro and its dependencies in a package of its own.
 
 ## 4. Crate Structure and Dependencies
 
@@ -241,7 +256,7 @@ The generated code therefore contains absolute paths of the build machine. When 
 
 SLM-12. The build script of `slango-macros` MUST print `cargo::rustc-link-arg=-Wl,-rpath,<VULKAN_SDK>/lib` when `VULKAN_SDK` is set and not empty and the macro is built for Linux or macOS, `cargo::rerun-if-env-changed` for `VULKAN_SDK` and `DOCS_RS`, and the `cfg` of SLM-13 with its `cargo::rustc-check-cfg` declaration, and nothing else. Without the rpath, every build of a crate that uses the macro fails with a misleading `E0463` unless the user puts the library on the path of rustc (Section 3.3).
 
-The build script reads two variables and prints Cargo instructions. It writes no file, downloads nothing, and installs nothing, so it meets Hard Rule 7 of `AGENTS.md` and SYS-5 of the coding standard. The rpath is the build machine's own directory, stored in the macro library, which only the compiler on that machine loads. On the static route, `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (SLMA-6). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
+The build script reads two variables and prints Cargo instructions. It writes no file, downloads nothing, and installs nothing, so it meets Hard Rule 7 of `AGENTS.md` and SYS-5 of the coding standard. The rpath is the build machine's own directory, stored in the macro library, which only the compiler on that machine loads. On the static route, `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (Section 3.3). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
 
 Step 3 of Section 11 settled these details. The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run under Miri (SYS-8 of the coding standard). On Linux and macOS, a `VULKAN_SDK` that is not valid UTF-8, or that contains a comma, which the linker would read as the end of the `-Wl` argument, stops the build of `slango-macros` with a message that says to install the SDK in another directory. The rpath and the `cfg` of SLM-13 are independent of each other.
 
@@ -289,6 +304,20 @@ SLM-18. For a Slang structure that is the element of a structured buffer, the ge
 
 A field is `f32`, `i32`, `u32`, a vector of these, an array of these whose size is its length times the element size, or another generated struct. For a structure that appears only as a uniform value, the generator emits a struct with public fields, `new`, and no padding or assertions, because `slango` writes each leaf at its reflected offset (SLO-13 of `docs/design/slango.md`). Every generated struct derives `Clone`, `Copy`, `Debug`, and `PartialEq`. A structure is emitted once, under its Slang name, however many parameters use it. When a structure is both an element and a uniform value, the element form serves both.
 
+Step 4 of Section 11 built the element form as follows:
+
+- The struct is `#[repr(C)]`, with its public fields in the order of their offsets. A private array of `u8` fills each gap and the tail, named `_padding0`, `_padding1`, and so on in the order of the offsets.
+- `new` is a `const fn` marked `#[must_use]`. It takes the public fields in their order and sets every byte of padding to zero.
+- A `const` block asserts that `size_of` equals the stride that Slang gives the structure and that `offset_of!` of each field equals its reflected offset. Each assertion has a message that names the struct, and the field for an offset.
+- The implementation of `StructElement` gives the Slang name and the stride. `write_bytes` appends each scalar as little-endian bytes in the order of the offsets, and zero for each padding. `read_bytes` returns `None` for bytes of another length, and otherwise reads each scalar at its offset with checked slicing, so it cannot panic.
+- A nested structure of an element is an element struct of its own, emitted before the struct that holds it. The outer struct holds it as a field at its reflected offset, and writes and reads it through its own implementation of `StructElement`.
+
+The uniform form is a plain struct with public fields, `new`, and the same derives, and with no `#[repr(C)]`, padding, or assertions. Its fields are the leaves and the nested structures whose path is the path of the structure followed by one name, in the order of their first leaf among the parameters. A leaf may be any plain value of SLM-17, such as a `bool`, a matrix, or an array. The arguments struct has one field for each outermost uniform structure, at the place of its first leaf, and the dispatch sets every leaf by its dotted path, such as `params.light.colour`. A structure inside a named constant buffer gets the field of its whole path, such as `settings_light` for `settings.light`. A uniform structure with no leaves still gets its field, after the other parameters.
+
+A structure that is both an element and a uniform value is emitted once in the element form, whichever use comes first. Every use of one structure name must give the same field names and Rust types, and two uses as an element must also give the same layout. Otherwise the generator reports a name conflict (Section 7.4).
+
+A generated `new` with more than seven arguments carries `#[expect(clippy::too_many_arguments, reason = "...")]`, whose reason says that `new` takes one argument for each field of the Slang structure. Without it, Clippy's default limit of seven arguments fires in the crate that calls the macro. The cost is that a crate that raises `too-many-arguments-threshold` in its Clippy configuration sees `unfulfilled_lint_expectations` from Clippy for a generated `new` whose argument count is above seven and within that threshold. `#[allow]` is ruled out by Hard Rule 6 of `AGENTS.md`. Section 4.4 of the coding standard lists this exception.
+
 ### 7.4. Names
 
 SLM-19. The generator MUST derive each Rust name from its Slang name by fixed rules and MUST report a compile error that names both Slang names when two generated items or fields get the same Rust name, because a silent rename would make the generated API depend on the order of declarations.
@@ -303,12 +332,19 @@ Step 3 of Section 11 settled these details:
 - The name of each arguments struct takes part in the search for conflicts, so a kernel `scale` beside a kernel `scaleArgs` is a conflict.
 - The generated code names every item of `core` and `slango` by its full path, such as `::core::result::Result::Ok`, so an item of the user's module cannot shadow it.
 
+Step 4 of Section 11 settled the names of structures:
+
+- The Rust name of a field of a generated struct is the Slang field name in snake case, not its path. A keyword becomes a raw identifier, in the struct and in the dotted access of the dispatch, such as `args.filter.r#type`.
+- The padding fields take their names after the public fields, so a Slang field named `_padding0` conflicts with the padding.
+- A struct takes its Slang name in the same scope as `Shader`, the kernel structs, and the arguments structs, so a structure named like any of them conflicts, such as a structure `Step` beside a kernel `step`.
+- Two different structures with one Slang name conflict, such as `Item` in two namespaces, and so does a structure name that is not a Rust identifier, such as `Pair<float>`.
+
 ### 7.5. Not Supported in M6
 
 The macro reports each of these as a compile error that names the kernel, the parameter, the field when there is one, and the reason:
 
 - A structured buffer whose element is a plain type without a built-in `Element`, such as `float3` or `bool`.
-- A field of an element structure that is a `bool`, a matrix, or an array whose stride exceeds its element size, such as `float3 a[2]`.
+- A field of an element structure that is a `bool`, a matrix, or an array whose stride differs from its element size, such as `float3 a[2]`.
 - A parameter of any other kind, such as a byte address buffer.
 - 16-bit and 64-bit scalars.
 
@@ -317,11 +353,23 @@ A module with render entry points compiles, and the generated code offers nothin
 Step 3 of Section 11 reports these cases, each as an error of the kind `Unsupported` (SLM-20):
 
 - A structured buffer whose element is not `i32`, `u32`, `f32`, or an array of four of them, which are the built-in `Element` types: a vector of 2 or 3 components such as `float3`, `bool`, another plain type such as `half` or `vector<double,2>`, and a matrix, an array, or another composite type.
-- A structured buffer of a structure, and a value of a structure, such as a `uniform` structure. The message says that this version generates no struct for the structure. Step 4 lifts both.
 - A parameter that `precompile_file` of `slango` rejects with `UnsupportedParameter`, such as a 64-bit or 16-bit scalar value. The error of `slango` is the source.
 - The path of a file that Slang read that is not valid UTF-8, which the tracking of SLM-11 cannot write.
 
-In the first two cases, the message names the parameter by its path and the kernel, and gives the reason.
+In the first case, the message names the parameter by its path and the kernel, and gives the reason. Step 3 also reported a structured buffer of a structure and a value of a structure, which step 4 lifted.
+
+Step 4 of Section 11 reports these cases of structures, each as an error of the kind `Unsupported`:
+
+- A field of an element structure, at any depth of nesting, that is a `bool`, a vector or an array of `bool`, a matrix, an array whose stride differs from the size of its element, such as `float3 a[2]`, a scalar of another type than `int`, `uint`, and `float`, such as `half` or `double`, or an array of structures.
+- A structured buffer of a structure of 0 bytes, because `StructElement` needs a stride above zero.
+- An element structure with a field that starts inside the field before it, with a size that ends before its last field, or with an offset or array size that overflows the computation of its layout. These checks do not guard against Slang. The interface description is public and can be built by hand, and the generator computes the padding from it with checked arithmetic.
+- A resource inside a uniform structure, such as a texture.
+
+The message of an unsupported field names the parameter, the kernel, the field, and the structure that holds the field, which is the nested structure for a field of one. Its form is this, and the macro puts `cannot generate the bindings: ` before it:
+
+```text
+the parameter `cells` of the kernel `grow` is not supported, because the field `alive` of the structure `Cell` is a `bool`, which a generated struct does not support
+```
 
 ### 7.6. Usage Illustration
 
@@ -373,11 +421,19 @@ An arguments struct holds references to buffers, textures, and samplers, which a
 
 The example `typed-kernel` of the examples package runs `examples/shaders/saxpy.slang` through the macro and checks its results, and a `gpu` test of the examples runs it, so a crate that uses the macro builds in CI and `check-doc-without-slang` documents it without Slang (SLM-13).
 
-Step 3 of Section 11 added these tests, and the structures and their tests follow in step 4:
+Step 3 of Section 11 added these tests:
 
 - `slango-codegen`: the pure unit tests in `src/emit/tests.rs` and in the modules `names` and `error`, which Miri runs. They cover each row of SLM-17 that step 3 supports, the documentation of read and read-write buffers, a kernel with no parameters, the tracking of every file read, a path that is not UTF-8, raw keywords, each unsupported case of Section 7.5, and each kind of name conflict.
-- `slango-codegen`, module `ffi` of `tests/codegen/`: two `insta` snapshots, of saxpy and of a shader with a named constant buffer, a texture, a sampler, a uniform array, a `bool`, `int4` and `float4` buffers, a matrix, and two kernels. Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`, so the snapshots do not depend on the machine, the checkout, or the SPIR-V of the pin. Further tests check the absolute paths and the embedded encoding that `generate` emits, the files read for a shader with an `import`, a Slang error with Slang's message among the causes, a missing file, a `float3` buffer, a buffer of a structure, and a `double` uniform.
+- `slango-codegen`, module `ffi` of `tests/codegen/`: two `insta` snapshots, of saxpy and of a shader with a named constant buffer, a texture, a sampler, a uniform array, a `bool`, `int4` and `float4` buffers, a matrix, and two kernels. Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`, so the snapshots do not depend on the machine, the checkout, or the SPIR-V of the pin. Further tests check the absolute paths and the embedded encoding that `generate` emits, the files read for a shader with an `import`, a Slang error with Slang's message among the causes, a missing file, a `float3` buffer, and a `double` uniform.
 - `slango-macros`, `tests/macros/`: the module `bindings`, which Miri runs, asserts SLM-21 and resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10). The module `build_script` tests the logic of the build script under Miri (Section 6.3). The module `ffi` runs the trybuild cases listed above. A missing file is no trybuild case, because its expected text would hold an error message of the operating system that differs on Windows, and the `ffi` test of `slango-codegen` covers it. The module `gpu` runs saxpy through `dispatch` over 1000 elements, and through `dispatch_groups` with a count of 130 on 3 groups, against values computed on the CPU.
+
+Step 4 of Section 11 added these tests:
+
+- `slango-codegen`: the pure unit tests in `src/emit/structs/tests.rs`, which Miri runs. They check the element form with its padding, assertions, and `new`, the exact code of `write_bytes` and `read_bytes`, a gap between fields, an array read at its stride, a nested structure, a structure emitted once for two kernels and a nested use, the uniform form with its leaves set by path, inside a constant buffer, and without leaves, an element that is also a uniform value in either order, each unsupported case of Section 7.5, each conflict of Section 7.4, and the lint exception of a `new` with more than seven arguments.
+- `slango-codegen`, module `ffi`: three `insta` snapshots, of a structure element with padding, of a nested structure that two kernels use, and of a uniform structure beside an element that also serves as a uniform value. Further tests compile a shader with a field of each kind of Section 7.5 that a shader can declare, `bool`, a matrix, `float3 a[2]`, `half`, and `double`, and check each message, and compile two structures of one name in two namespaces and check the conflict.
+- `slango-macros`, module `structs`, which sits in no `ffi` module, so Miri runs it although it calls the macro: the round trip of `write_bytes` and `read_bytes` for six generated structs over 32 seeds, the rejection of bytes of another length, and a check that `write_bytes` puts each scalar at the `offset_of!` of its field, nested fields included, and zero in the padding.
+- `slango-macros`, module `ffi`: the trybuild case of a `bool` field, and a test that compares the size, stride, and field offsets of six generated structs with what `precompile_file` reflects. The six cover tail padding, a gap between fields, arrays, nested structures, and a `new` of eight arguments. The test compares with the description of `slango`, so a wrong description that is consistent with itself passes it. The `gpu` test is the independent check of the stride, through the stride check of `bind`.
+- `slango-macros`, module `gpu`: a kernel over a buffer of 100 particles with a nested structure, a uniform structure `Step` that nests the structure `Wind`, and a uniform `Motion` that the element form of `Motion` serves. It runs with a count of 90, so one thread writes each of the first 90 elements, and compares the whole buffer exactly with values computed on the CPU. The inputs are dyadic rationals, so an adapter with or without fused multiply-add gives the same bits.
 
 No automated test covers the rebuild after a change of an imported file, because it needs a nested Cargo build. On 2026-11-11 it was verified by hand on a crate outside the repository that called the macro on a shader that imports another file: after an edit of the imported file, Cargo reported the file as changed and recompiled the crate, and the next build was fresh. The crate-level example of `slango-macros` is a `text` block, because a doctest has no invoking file and the macro fails there by SLM-10, as Section 7.5 of `docs/writing-documentation.md` permits. The example `typed-kernel` of step 5 is its compiled form.
 
@@ -389,8 +445,8 @@ These steps implement M6. Each step leaves `just check` passing and adds its tes
 
 1. In `slango`, record the element type of each structured buffer in the snapshot and check it in `Call::bind` and `Draw::bind` (SLM-5). Update `docs/design/slango.md` with the behaviour change. Tests: the unit and `gpu` tests of SLM-5. Done on 2026-11-11 (Section 5.1).
 2. In `slango`, split loading into compile and load, and add `__private` with `precompile_file`, the interface description, the encoding, `load_precompiled`, `ENCODING_VERSION`, and `StructElement` with its blanket implementations (Section 5). Confirm SLMA-4. Tests: the round trip under Miri and the `gpu` tests of the precompiled load. Done on 2026-11-11 (Section 5).
-3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy. Done on 2026-11-11 (Section 1.6), with SLMA-1 confirmed and SLMA-5 and SLMA-6 waiting for its CI run (Section 12).
-4. Add generated structs (Section 7.3) with their tests, including the `gpu` test of a structure element. Confirm SLMA-7.
+3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy. Done on 2026-11-11 (Section 1.6), with SLMA-1 confirmed (Sections 3.10 and 4.2), SLMA-6 confirmed by its CI run, and SLMA-5 narrowed and not confirmed, because the macro works on the macOS runner but the job also sets `DYLD_LIBRARY_PATH` (Section 3.3).
+4. Add generated structs (Section 7.3) with their tests, including the `gpu` test of a structure element. Confirm SLMA-7. Done on 2026-11-11 (Section 1.6), with SLMA-7 confirmed (Section 3.9).
 5. Add the example `typed-kernel` with its `gpu` test, and record it in Section 10 of `docs/design/architecture.md`. Confirm SLMA-2 with `check-doc-without-slang`. Check: CI runs the example's test on lavapipe, WARP, and hosted Metal.
 6. Complete the crate-level documentation of both crates, with the need for Slang at build time and the limits of Section 15.6, and update the documents that M6 makes false. With this step, M6 is complete.
 
@@ -398,15 +454,13 @@ These steps implement M6. Each step leaves `just check` passing and adds its tes
 
 Each row is a statement that this design relies on and that the spike did not establish. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row. An identifier is never reused.
 
-Step 3 confirmed SLMA-1 on 2026-11-11, and the row is removed: the generator compiles against `syn` 2 and `prettyplease` 0.2 (Sections 3.10 and 4.2). SLMA-5 and SLMA-6 wait for a CI run of step 3 on macOS and Windows.
+Step 3 confirmed SLMA-1 on 2026-11-11, and the row is removed: the generator compiles against `syn` 2 and `prettyplease` 0.2 (Sections 3.10 and 4.2). Step 3 confirmed SLMA-6 in CI on 2026-11-11, and its row is removed: on Windows the macro library finds `slang-compiler.dll` through the `PATH` of the CI job (Section 3.3). The same run narrowed SLMA-5 and did not confirm it, so its row stays: the macro library loads and works on the macOS runner, but the job also sets `DYLD_LIBRARY_PATH`. Step 4 confirmed SLMA-7 on 2026-11-11, and the row is removed: a nested structure as a field generates a correct layout (Section 3.9).
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SLMA-2 | A crate whose public signatures name only `Shader` of the generated items builds its documentation without Slang | Section 6.4 | Step 5 |
 | SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M7 |
-| SLMA-5 | `-Wl,-rpath` makes the macro library load on macOS with no library path set | SLM-12 | Step 3, in CI |
-| SLMA-6 | On Windows, the macro library finds `slang-compiler.dll` through the `PATH` that the CI job sets | Section 6.3 | Step 3, in CI |
-| SLMA-7 | A nested structure as a field generates a correct layout | SLM-18 | Step 4 |
+| SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run today |
 | SLMA-8 | The crates.io name `slango-codegen` is available | SLM-1 | The first release, in M7 |
 
 ## 13. Open Questions
@@ -435,7 +489,7 @@ Neither crate has Cargo features. The build script of `slango-macros` reads `VUL
 
 ### 15.2. Platforms and Minimum Supported Rust Version
 
-The spike ran on x86_64 Linux only (Section 3.1). CI builds and tests both crates on Windows and macOS, but no run of step 3 has happened yet (Section 12). `Span::local_file` needs Rust 1.88.0, and every new dependency declares 1.88 or less, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The spike ran on x86_64 Linux only (Section 3.1). CI builds and tests both crates on Windows and macOS, and the run of step 3 passed on both, on macOS in a job that also sets `DYLD_LIBRARY_PATH` (Section 3.3). `Span::local_file` needs Rust 1.88.0, and every new dependency declares 1.88 or less, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 15.3. Failure Modes
 
@@ -467,7 +521,7 @@ These are properties of the design, recorded and not guarded against:
 - A new file that changes how an `import` resolves does not trigger a rebuild (Section 3.4).
 - The generated items are absent from the documentation on docs.rs (Section 6.4).
 
-These were not determined: the macro on macOS and Windows, in rust-analyzer, and in a cross build that links, and the behaviour of cargo-semver-checks on hidden items.
+These were not determined: the macro in rust-analyzer and in a cross build that links, the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5), and the behaviour of cargo-semver-checks on hidden items.
 
 ## 16. References
 
@@ -507,6 +561,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 4 of Section 11, the generated structs for Slang structures, as done in Sections 1.6 and 11, recorded the element form, the uniform form, the sharing of one structure name, and the lint exception of a generated `new` as built in Section 7.3, the names of structures and their fields in Section 7.4, the unsupported cases of structures with the form of their message in Section 7.5, and the tests as built in Section 10, corrected the array case of Section 7.5 to a stride that differs from the element size, confirmed SLMA-7 in Section 3.9, confirmed SLMA-6 of step 3 from its CI run in Section 3.3 and narrowed SLMA-5 without confirming it, because the macOS job also sets `DYLD_LIBRARY_PATH`, with the time of the trybuild test on Windows in Section 3.10 and the matching updates in Sections 1.6, 11, 12, 15.2, and 15.6, and removed the rows of SLMA-6 and SLMA-7 from Section 12 and kept the narrowed row of SLMA-5.
 - 2026-11-11: Recorded step 3 of Section 11, the crates `slango-codegen` and `slango-macros`, as done in Sections 1.6 and 11, recorded its costs in Section 3.10, the generator's functions, the dependencies of both crates, and the exception to DEP-2 for the exact requirement on `slango` in Section 4.2, the checks of `VULKAN_SDK` in Section 6.3, the stub without a path check in Section 6.4, the settled naming rules in Section 7.4, the unsupported cases as built in Section 7.5, the error kinds as built in Section 8, and the tests as built with the manual check of the rebuild in Section 10, confirmed SLMA-1 and removed its row from Section 12, and added the evidence for SLMA-3 to Section 4.2.
 - 2026-11-11: Recorded step 2 of Section 11, the hidden module `slango::__private`, as done in Sections 1.6 and 11, corrected Sections 5.1 and 5.4 to the element types and the rejection of a vertex buffer that the implementation has, recorded how step 2 settled the interface description in Section 5.2 and the encoding with its tests in Section 5.3, closed the gap of Section 3.5, named the test that pins the bytes of the encoding in Section 10, and confirmed SLMA-4 in Section 3.9 and removed its row from Section 12.
 - 2026-11-11: Recorded step 1 of Section 11, the check of the element type of a bound buffer in `slango`, as done in Sections 1.6, 5.1, and 11, put the problem of the stride-only check in the past in Section 1.1, and narrowed SLMA-4 to the Slang name of a uniform structure in Section 12.

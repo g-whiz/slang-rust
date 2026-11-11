@@ -107,13 +107,18 @@ fn a_buffer_of_float3_is_unsupported() {
 }
 
 #[test]
-fn a_buffer_of_a_structure_is_unsupported() {
-    let (kind, text, _) = failure("particles.slang");
-    assert_eq!(kind, ErrorKind::Unsupported);
-    assert_eq!(
-        text,
-        "cannot generate the bindings: the parameter `particles` of the kernel `step` is not supported, because it is a structured buffer of the structure `Particle`, for which this version generates no struct"
-    );
+fn a_structure_element_with_padding_gives_a_struct_with_its_layout() {
+    insta::assert_snapshot!(bindings("particles.slang"));
+}
+
+#[test]
+fn a_nested_structure_and_two_kernels_of_one_structure_give_each_struct_once() {
+    insta::assert_snapshot!(bindings("nested.slang"));
+}
+
+#[test]
+fn a_uniform_structure_is_set_field_by_field_and_an_element_serves_as_both() {
+    insta::assert_snapshot!(bindings("uniform.slang"));
 }
 
 #[test]
@@ -124,5 +129,41 @@ fn a_64_bit_scalar_is_unsupported() {
     assert!(
         causes.iter().any(|cause| cause.contains("factor")),
         "{causes:?}"
+    );
+}
+
+#[test]
+fn each_field_kind_that_a_generated_struct_does_not_support_is_unsupported() {
+    let shaders = [
+        ("field_bool.slang", "a `bool`"),
+        ("field_matrix.slang", "a matrix"),
+        (
+            "field_array.slang",
+            "an array whose stride of 16 bytes differs from the 12 bytes of its element",
+        ),
+        ("field_half.slang", "of the type `half`"),
+        ("field_double.slang", "of the type `double`"),
+    ];
+    for (name, what) in shaders {
+        let (kind, text, causes) = failure(name);
+        assert_eq!(kind, ErrorKind::Unsupported, "{name}");
+        assert_eq!(
+            text,
+            format!(
+                "cannot generate the bindings: the parameter `cells` of the kernel `grow` is not supported, because the field `extra` of the structure `Cell` is {what}, which a generated struct does not support"
+            ),
+            "{name}"
+        );
+        assert_eq!(causes, Vec::<String>::new(), "{name}");
+    }
+}
+
+#[test]
+fn two_structures_of_one_name_in_two_namespaces_conflict() {
+    let (kind, text, _) = failure("same_name.slang");
+    assert_eq!(kind, ErrorKind::NameConflict);
+    assert_eq!(
+        text,
+        "cannot name an item of the bindings: the structure `Item` of the parameter `weights` of the kernel `tally` and the structure `Item` of the parameter `counts` of the kernel `tally` are different structures that both become the Rust name `Item`"
     );
 }

@@ -1,0 +1,5 @@
+error: cannot generate the bindings: the parameter `cells` of the kernel `grow` is not supported, because the field `alive` of the structure `Cell` is a `bool`, which a generated struct does not support
+ --> tests/macros/ui/unsupported_field.rs:1:24
+  |
+1 | slango_macros::shader!("bool_field.slang");
+  |                        ^^^^^^^^^^^^^^^^^^

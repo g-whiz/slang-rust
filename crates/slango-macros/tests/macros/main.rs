@@ -5,3 +5,4 @@ mod bindings;
 mod build_script;
 mod ffi;
 mod gpu;
+mod structs;

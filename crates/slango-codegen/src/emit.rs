@@ -2,11 +2,13 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use slango::__private::{
     Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    Shape, ValueType,
+    Shape, UniformStructure, ValueType,
 };
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::names::{Scope, snake_case, upper_camel_case};
+use crate::names::{Scope, ident, snake_case, upper_camel_case};
+
+mod structs;
 
 const GENERATE: &str = "generate the bindings";
 
@@ -35,6 +37,7 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
     let version = Literal::u32_unsuffixed(slango::__private::ENCODING_VERSION);
     let encoded = Literal::byte_string(encoded);
 
+    let structures = structs::Structures::collect(kernels)?;
     let mut types = Scope::reserving(&["Shader"], "the struct `Shader`");
     let mut shader_fields = Scope::reserving(&SHADER_ITEMS, "an item of `Shader`");
     let mut items = Vec::with_capacity(kernels.len());
@@ -60,6 +63,7 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
             #field: #type_name { kernel: module.kernel(#slang_name)?.clone() },
         });
     }
+    let structure_items = structures.items(&mut types)?;
 
     Ok(quote! {
         #(#tracking)*
@@ -68,6 +72,8 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
             ::slango::__private::ENCODING_VERSION == #version,
             "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
         );
+
+        #structure_items
 
         #(#items)*
 
@@ -112,13 +118,11 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
     })
 }
 
-/// A field of the arguments of a kernel, with the call that gives it.
+/// A field of the arguments of a kernel.
 struct Argument {
     name: Ident,
     ty: TokenStream,
     doc: String,
-    method: Ident,
-    path: String,
     borrows: bool,
 }
 
@@ -133,21 +137,53 @@ fn kernel_items(
         parameters,
         structures,
     } = kernel;
-    if let Some(structure) = structures.first() {
-        return Err(unsupported(
-            name,
-            &structure.path,
-            &format!(
-                "it is a value of the structure `{}`, for which this version generates no struct",
-                structure.name
-            ),
-        ));
-    }
-    let mut scope = Scope::default();
-    let arguments = parameters
+    let outermost: Vec<&UniformStructure> = structures
         .iter()
-        .map(|parameter| argument(name, parameter, &mut scope))
-        .collect::<Result<Vec<_>>>()?;
+        .filter(|structure| {
+            !structures
+                .iter()
+                .any(|outer| inside(&structure.path, &outer.path).is_some())
+        })
+        .collect();
+    let mut placed: Vec<Option<Ident>> = vec![None; outermost.len()];
+    let mut scope = Scope::default();
+    let mut arguments = Vec::with_capacity(parameters.len());
+    let mut calls = Vec::with_capacity(parameters.len());
+    for parameter in parameters {
+        let path = &parameter.path;
+        let Some((index, structure, rest)) =
+            outermost.iter().enumerate().find_map(|(index, structure)| {
+                inside(path, &structure.path).map(|rest| (index, *structure, rest))
+            })
+        else {
+            let argument = argument(name, parameter, &mut scope)?;
+            let field = &argument.name;
+            let method = format_ident!("{}", call_method(&parameter.kind));
+            calls.push(quote!(.#method(#path, args.#field)));
+            arguments.push(argument);
+            continue;
+        };
+        let field = if let Some(field) = &placed[index] {
+            field.clone()
+        } else {
+            let argument = structure_argument(name, structure, &mut scope)?;
+            let field = argument.name.clone();
+            placed[index] = Some(field.clone());
+            arguments.push(argument);
+            field
+        };
+        let what = format!("the parameter `{path}` of the kernel `{name}`");
+        let access = rest
+            .split('.')
+            .map(|part| ident(&snake_case(part), &what))
+            .collect::<Result<Vec<_>>>()?;
+        calls.push(quote!(.set(#path, args.#field #(.#access)*)));
+    }
+    for (structure, field) in outermost.iter().zip(&placed) {
+        if field.is_none() {
+            arguments.push(structure_argument(name, structure, &mut scope)?);
+        }
+    }
 
     let lifetime = arguments
         .iter()
@@ -160,12 +196,6 @@ fn kernel_items(
             #[doc = #doc]
             pub #name: #ty,
         }
-    });
-    let calls = arguments.iter().map(|argument| {
-        let Argument {
-            name, method, path, ..
-        } = argument;
-        quote!(.#method(#path, args.#name))
     });
     let calls = quote!(#(#calls)*);
     let use_args = arguments
@@ -240,16 +270,14 @@ fn kernel_items(
 
 fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Argument> {
     let Parameter { path, kind } = parameter;
-    let (ty, doc, method, borrows) = match kind {
+    let (ty, doc, borrows) = match kind {
         ParameterKind::Value(value) => (
             value_type(value),
             format!(" The value of the parameter `{path}`."),
-            "set",
             false,
         ),
         ParameterKind::Buffer { access, element } => {
-            let element =
-                element_type(element).map_err(|reason| unsupported(kernel, path, &reason))?;
+            let element = element_type(kernel, path, element)?;
             let access = match access {
                 Access::ReadOnly => "reads",
                 Access::ReadWrite => "reads and writes",
@@ -257,14 +285,12 @@ fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Ar
             (
                 quote!(&'a ::slango::Buffer<#element>),
                 format!(" The buffer bound to the parameter `{path}`, which the kernel {access}."),
-                "bind",
                 true,
             )
         }
         ParameterKind::Texture => (
             quote!(&'a ::slango::Texture),
             format!(" The texture bound to the parameter `{path}`, which the kernel samples."),
-            "texture",
             true,
         ),
         ParameterKind::Sampler => (
@@ -272,7 +298,6 @@ fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Ar
             format!(
                 " The sampler bound to the parameter `{path}`, which states how the kernel reads a texture."
             ),
-            "sampler",
             true,
         ),
     };
@@ -283,10 +308,45 @@ fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Ar
         )?,
         ty,
         doc,
-        method: format_ident!("{method}"),
-        path: path.clone(),
         borrows,
     })
+}
+
+/// Returns the method of `slango::Call` that gives a parameter of `kind`.
+fn call_method(kind: &ParameterKind) -> &'static str {
+    match kind {
+        ParameterKind::Value(_) => "set",
+        ParameterKind::Buffer { .. } => "bind",
+        ParameterKind::Texture => "texture",
+        ParameterKind::Sampler => "sampler",
+    }
+}
+
+/// Returns the field of the arguments of a kernel for a structure among its
+/// plain values that no other structure holds.
+fn structure_argument(
+    kernel: &str,
+    structure: &UniformStructure,
+    scope: &mut Scope,
+) -> Result<Argument> {
+    let UniformStructure { path, name } = structure;
+    Ok(Argument {
+        name: scope.take(
+            snake_case(path),
+            format!("the parameter `{path}` of the kernel `{kernel}`"),
+        )?,
+        ty: structs::struct_type(name)?,
+        doc: format!(
+            " The value of the parameter `{path}`, whose fields the call sets one by one."
+        ),
+        borrows: false,
+    })
+}
+
+/// Returns the path of a field inside the value at `outer` relative to
+/// `outer`, or `None` when `path` is not inside it.
+fn inside<'a>(path: &'a str, outer: &str) -> Option<&'a str> {
+    path.strip_prefix(outer)?.strip_prefix('.')
 }
 
 fn scalar_type(scalar: Scalar) -> TokenStream {
@@ -333,18 +393,19 @@ fn shape_type(scalar: &TokenStream, shape: &Shape) -> TokenStream {
     }
 }
 
-/// Returns the Rust type of the elements of a structured buffer, or the
-/// reason why no built-in element type of `slango` matches them.
-fn element_type(element: &ElementType) -> std::result::Result<TokenStream, String> {
-    match element {
+/// Returns the Rust type of the elements of the structured buffer at `path`,
+/// or an error when no element type of `slango` and no generated struct
+/// matches them.
+fn element_type(kernel: &str, path: &str, element: &ElementType) -> Result<TokenStream> {
+    let reason = match element {
         ElementType::Plain { scalar, components } => {
             let rust = match scalar {
                 Scalar::Int32 | Scalar::Uint32 | Scalar::Float32 => Some(scalar_type(*scalar)),
                 Scalar::Bool => None,
             };
             match (rust, components) {
-                (Some(rust), 1) => Ok(rust),
-                (Some(rust), 4) => Ok(quote!([#rust; 4])),
+                (Some(rust), 1) => return Ok(rust),
+                (Some(rust), 4) => return Ok(quote!([#rust; 4])),
                 _ => {
                     let name = scalar_name(*scalar);
                     let name = if *components == 1 {
@@ -352,20 +413,18 @@ fn element_type(element: &ElementType) -> std::result::Result<TokenStream, Strin
                     } else {
                         format!("{name}{components}")
                     };
-                    Err(no_element(&name))
+                    no_element(&name)
                 }
             }
         }
-        ElementType::OtherPlain { name } => Err(no_element(name)),
-        ElementType::Structure(structure) => Err(format!(
-            "it is a structured buffer of the structure `{}`, for which this version generates no struct",
-            structure.name
-        )),
-        ElementType::Composite => Err(
+        ElementType::OtherPlain { name } => no_element(name),
+        ElementType::Structure(structure) => return structs::struct_type(&structure.name),
+        ElementType::Composite => {
             "it is a structured buffer of a matrix, an array, or another composite type, which has no built-in element type in slango"
-                .to_owned(),
-        ),
-    }
+                .to_owned()
+        }
+    };
+    Err(unsupported(kernel, path, &reason))
 }
 
 fn no_element(name: &str) -> String {

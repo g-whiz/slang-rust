@@ -1,0 +1,236 @@
+---
+source: crates/slango-codegen/tests/codegen/ffi.rs
+expression: "bindings(\"uniform.slang\")"
+---
+const _: &[u8] = ::core::include_bytes!("<shaders>/uniform.slang");
+const _: () = ::core::assert!(
+    ::slango::__private::ENCODING_VERSION == 1,
+    "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+);
+/// The Slang structure `Light`, with the layout that Slang gives it in a structured buffer.
+///
+/// Each public field holds the field of the same name at the
+/// offset that Slang gives it, and private fields hold the
+/// padding, so a value is created with `new`. A `slango::Buffer`
+/// of the struct binds to a structured buffer of the structure.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Light {
+    /// The field `colour` of the Slang structure.
+    pub colour: [f32; 3],
+    /// The field `intensity` of the Slang structure.
+    pub intensity: f32,
+}
+impl Light {
+    /// Returns the structure with the given fields and zero in
+    /// every byte of padding.
+    #[must_use]
+    pub const fn new(colour: [f32; 3], intensity: f32) -> Self {
+        Self { colour, intensity }
+    }
+}
+const _: () = {
+    ::core::assert!(
+        ::core::mem::size_of:: < Light > () == 16,
+        "the size of the struct `Light` differs from the stride that Slang gives the structure"
+    );
+    ::core::assert!(
+        ::core::mem::offset_of!(Light, colour) == 0,
+        "the offset of the field `colour` of the struct `Light` differs from the offset that Slang gives it"
+    );
+    ::core::assert!(
+        ::core::mem::offset_of!(Light, intensity) == 12,
+        "the offset of the field `intensity` of the struct `Light` differs from the offset that Slang gives it"
+    );
+};
+impl ::slango::__private::StructElement for Light {
+    const SLANG_NAME: &'static str = "Light";
+    const STRIDE: usize = 16;
+    fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+        for item0 in self.colour {
+            out.extend_from_slice(&item0.to_le_bytes());
+        }
+        out.extend_from_slice(&self.intensity.to_le_bytes());
+    }
+    fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+        if bytes.len() != 16 {
+            return ::core::option::Option::None;
+        }
+        ::core::option::Option::Some(Self {
+            colour: [
+                f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+            ],
+            intensity: f32::from_le_bytes(*bytes.get(12..)?.first_chunk()?),
+        })
+    }
+}
+/// The Slang structure `Params`, which a kernel takes as a plain value.
+///
+/// A dispatch sets each field of the value by its path, so the
+/// struct has no padding.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Params {
+    /// The field `scale` of the Slang structure.
+    pub scale: f32,
+    /// The field `light` of the Slang structure.
+    pub light: Light,
+    /// The field `enabled` of the Slang structure.
+    pub enabled: bool,
+    /// The field `rotation` of the Slang structure.
+    pub rotation: [[f32; 2]; 2],
+    /// The field `weights` of the Slang structure.
+    pub weights: [i32; 3],
+}
+impl Params {
+    /// Returns the structure with the given fields.
+    #[must_use]
+    pub const fn new(
+        scale: f32,
+        light: Light,
+        enabled: bool,
+        rotation: [[f32; 2]; 2],
+        weights: [i32; 3],
+    ) -> Self {
+        Self {
+            scale,
+            light,
+            enabled,
+            rotation,
+            weights,
+        }
+    }
+}
+/// The arguments of the kernel `shade`, one field for each parameter.
+///
+/// Each field holds the value or the resource that the call gives the
+/// parameter of the same name. A parameter that the compiled kernel
+/// does not use has a field too, so the fields do not change when the
+/// compiler drops a parameter.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadeArgs<'a> {
+    /// The value of the parameter `params`, whose fields the call sets one by one.
+    pub params: Params,
+    /// The value of the parameter `extra`, whose fields the call sets one by one.
+    pub extra: Light,
+    /// The buffer bound to the parameter `lights`, which the kernel reads.
+    pub lights: &'a ::slango::Buffer<Light>,
+    /// The buffer bound to the parameter `output`, which the kernel reads and writes.
+    pub output: &'a ::slango::Buffer<[f32; 4]>,
+}
+/// The kernel `shade` of the module, which [`ShadeArgs`] gives its arguments.
+///
+/// A kernel is a function of the module that runs on many threads of
+/// the GPU at once, in groups of [`Self::THREAD_GROUP_SIZE`] threads.
+#[derive(Clone, Debug)]
+pub struct Shade {
+    kernel: ::slango::Kernel,
+}
+impl Shade {
+    /// The number of threads in each thread group, along x, y, and
+    /// z, which the `[numthreads]` attribute of the kernel sets.
+    pub const THREAD_GROUP_SIZE: [u32; 3] = [64, 1, 1];
+    /// Runs the kernel with `args` on at least `elements` threads
+    /// along x, y, and z, in as many thread groups as that needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`slango::Error`] for the reasons that
+    /// [`slango::Call::dispatch`] gives, such as a buffer of another
+    /// device.
+    pub fn dispatch(
+        &self,
+        args: &ShadeArgs<'_>,
+        elements: [u32; 3],
+    ) -> ::slango::Result<()> {
+        self.kernel
+            .call()
+            .set("params.scale", args.params.scale)
+            .set("params.light.colour", args.params.light.colour)
+            .set("params.light.intensity", args.params.light.intensity)
+            .set("params.enabled", args.params.enabled)
+            .set("params.rotation", args.params.rotation)
+            .set("params.weights", args.params.weights)
+            .set("extra.colour", args.extra.colour)
+            .set("extra.intensity", args.extra.intensity)
+            .bind("lights", args.lights)
+            .bind("output", args.output)
+            .dispatch(elements)
+    }
+    /// Runs the kernel with `args` on `groups` thread groups along x,
+    /// y, and z.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`slango::Error`] for the reasons that
+    /// [`slango::Call::dispatch_groups`] gives, such as a buffer of
+    /// another device.
+    pub fn dispatch_groups(
+        &self,
+        args: &ShadeArgs<'_>,
+        groups: [u32; 3],
+    ) -> ::slango::Result<()> {
+        self.kernel
+            .call()
+            .set("params.scale", args.params.scale)
+            .set("params.light.colour", args.params.light.colour)
+            .set("params.light.intensity", args.params.light.intensity)
+            .set("params.enabled", args.params.enabled)
+            .set("params.rotation", args.params.rotation)
+            .set("params.weights", args.params.weights)
+            .set("extra.colour", args.extra.colour)
+            .set("extra.intensity", args.extra.intensity)
+            .bind("lights", args.lights)
+            .bind("output", args.output)
+            .dispatch_groups(groups)
+    }
+    /// Returns the kernel, for a call that sets its parameters by
+    /// name.
+    #[must_use]
+    pub fn kernel(&self) -> &::slango::Kernel {
+        &self.kernel
+    }
+}
+/// The Slang module of the bindings, compiled when the crate was
+/// built, with a typed kernel for each of its compute entry points.
+///
+/// A kernel is a function of the module that runs on many threads of
+/// the GPU at once. [`Shader::load`] creates the module on a device,
+/// and each field of the module runs one kernel with typed arguments.
+#[derive(Clone, Debug)]
+pub struct Shader {
+    /// The kernel `shade`.
+    pub shade: Shade,
+    module: ::slango::Module,
+}
+impl Shader {
+    /// Loads the module on `device` from the code that was compiled
+    /// when the crate was built, with no call into Slang, and looks up
+    /// each of its kernels.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`slango::Error`] when `slango` cannot load the
+    /// module on the device, for the reasons that
+    /// [`slango::Device::load_module`] gives, or when the version of
+    /// `slango` differs from the one that generated the bindings.
+    pub fn load(device: &::slango::Device) -> ::slango::Result<Self> {
+        let module = ::slango::__private::load_precompiled(
+            device,
+            b"<encoded snapshot>",
+        )?;
+        ::core::result::Result::Ok(Self {
+            shade: Shade {
+                kernel: module.kernel("shade")?.clone(),
+            },
+            module,
+        })
+    }
+    /// Returns the module, for what the typed kernels do not offer,
+    /// such as its render pipelines.
+    #[must_use]
+    pub fn module(&self) -> &::slango::Module {
+        &self.module
+    }
+}

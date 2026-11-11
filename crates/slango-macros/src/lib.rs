@@ -85,7 +85,18 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 ///   `bool`, `i32`, `u32`, or `f32`, an array of them for a vector, a matrix,
 ///   or an array, a `&slango::Buffer` of `i32`, `u32`, `f32`, or an array of
 ///   four of them for a structured buffer, a `&slango::Texture`, or a
-///   `&slango::Sampler`.
+///   `&slango::Sampler`. A structure among the values or the elements of a
+///   structured buffer has the generated struct of that structure as its
+///   type.
+/// - For each Slang structure that a kernel takes, a struct of the same name
+///   with one public field for each field of the structure and a `const fn
+///   new` that takes them all. A structure that is the element of a
+///   structured buffer gets the layout that Slang gives it there: the struct
+///   is `#[repr(C)]`, holds private padding wherever the layout has a gap,
+///   asserts its size and the offset of each field at compile time, and
+///   binds as the element of a `slango::Buffer`. A structure that is only a
+///   value has no padding, because a dispatch sets each of its fields by its
+///   path. Each structure is generated once, however many kernels take it.
 ///
 /// A dispatch sets each parameter through the runtime API of `slango` by
 /// its path, so every check of `slango` still runs. The crate builds again
@@ -94,8 +105,10 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 /// The macro reports each failure as a compile error at the path: a Slang
 /// file that cannot be read or compiled, with the messages of Slang, a
 /// parameter for which the macro has no Rust type, such as a structured
-/// buffer of `float3`, a structure, or a 64-bit scalar, and two Slang names
-/// that give the same Rust name.
+/// buffer of `float3` or a 64-bit scalar, a field of a structure in a
+/// structured buffer that a Rust struct cannot lay out as Slang does, such as
+/// a `bool`, a matrix, or a `float3[2]`, and two Slang names that give the
+/// same Rust name, such as two different structures of one name.
 ///
 /// # Examples
 ///

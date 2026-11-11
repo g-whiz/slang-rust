@@ -8,7 +8,9 @@
 //! `slango::Device::load_module` does, and returns the Rust code of the
 //! bindings: a struct `Shader`, which loads the compiled module, and for each
 //! compute entry point, or kernel, a struct that runs it with an arguments
-//! struct that has one typed field for each parameter. The generated code
+//! struct that has one typed field for each parameter, and for each Slang
+//! structure that a kernel takes, a struct of the same name. The generated
+//! code
 //! embeds the compiled module and calls `slango` at run time, so a crate
 //! that contains it depends on `slango` of exactly the version that this
 //! crate requires.

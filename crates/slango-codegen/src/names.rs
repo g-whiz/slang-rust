@@ -2,7 +2,7 @@ use proc_macro2::{Ident, Span};
 
 use crate::error::{Error, ErrorKind, Result};
 
-const NAME: &str = "name an item of the bindings";
+pub(crate) const NAME: &str = "name an item of the bindings";
 
 const KEYWORDS: [&str; 52] = [
     "Self", "abstract", "as", "async", "await", "become", "box", "break", "const", "continue",

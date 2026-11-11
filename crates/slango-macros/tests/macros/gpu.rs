@@ -1,11 +1,21 @@
 use slango::{Buffer, Device, DeviceOptions};
 
+use particles::{Motion, Particle, Step, Wind};
+
 #[expect(
     clippy::partial_pub_fields,
     reason = "the generated `Shader` has a public field for each kernel and keeps its module private behind `Shader::module` (SLM-15)"
 )]
 mod saxpy {
     slango_macros::shader!("shaders/saxpy.slang");
+}
+
+#[expect(
+    clippy::partial_pub_fields,
+    reason = "the generated `Shader` keeps its module private behind `Shader::module` (SLM-15), and each structure keeps its padding private (SLM-18)"
+)]
+mod particles {
+    slango_macros::shader!("shaders/particles.slang");
 }
 
 fn inputs(count: u16) -> (Vec<f32>, Vec<f32>) {
@@ -61,5 +71,69 @@ fn saxpy_on_thread_groups_stops_at_the_count() -> slango::Result<()> {
     assert_eq!(result.read()?, expected);
     assert_eq!(shader.saxpy.kernel().name(), "saxpy");
     assert!(shader.module().kernel("saxpy").is_ok());
+    Ok(())
+}
+
+fn particle(index: u16) -> Particle {
+    let at = f32::from(index);
+    Particle::new(
+        [at, -at, 0.5 * at],
+        1.0 + f32::from(index % 3),
+        Motion::new(
+            [0.125 * f32::from(index % 8), -0.25],
+            0.25 * f32::from(index % 4),
+        ),
+        u32::from(index),
+    )
+}
+
+/// Advances a particle as the kernel `advance` does, with values that every
+/// adapter computes exactly, with or without fused multiply-adds.
+fn advanced_on_the_cpu(particle: Particle, index: u32, step: &Step, boost: &Motion) -> Particle {
+    let Particle {
+        position: [x, y, z],
+        mass,
+        motion,
+        id,
+        ..
+    } = particle;
+    let factor = 1.0 - motion.drag * boost.drag;
+    let [vx, vy] = [0, 1].map(|axis| {
+        (motion.velocity[axis] + (step.wind.force[axis] + boost.velocity[axis]) * step.dt) * factor
+    });
+    Particle::new(
+        [x + vx * step.dt, y + vy * step.dt, z + mass],
+        mass * 2.0,
+        Motion::new([vx, vy], motion.drag),
+        id * 3 + index,
+    )
+}
+
+#[test]
+fn a_kernel_over_a_buffer_of_a_generated_struct_gives_the_results_computed_on_the_cpu()
+-> slango::Result<()> {
+    let device = Device::new(&DeviceOptions::default())?;
+    let shader = particles::Shader::load(&device)?;
+    let initial: Vec<Particle> = (0..100).map(particle).collect();
+    let buffer = Buffer::from_slice(&device, &initial)?;
+    let args = particles::AdvanceArgs {
+        particles: &buffer,
+        step: Step::new(0.5, Wind::new([0.25, -0.5])),
+        boost: Motion::new([1.0, 0.5], 0.5),
+        count: 90,
+    };
+    shader.advance.dispatch(&args, [100, 1, 1])?;
+    let expected: Vec<Particle> = initial
+        .iter()
+        .zip(0..)
+        .map(|(particle, index)| {
+            if index < 90 {
+                advanced_on_the_cpu(*particle, index, &args.step, &args.boost)
+            } else {
+                *particle
+            }
+        })
+        .collect();
+    assert_eq!(buffer.read()?, expected);
     Ok(())
 }

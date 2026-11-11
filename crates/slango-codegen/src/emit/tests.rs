@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use slango::__private::{
     Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    Shape, Structure, UniformStructure, ValueType,
+    Shape, ValueType,
 };
 
 use crate::{ErrorKind, generate_precompiled};
@@ -367,14 +367,6 @@ fn a_buffer_without_a_built_in_element_type_is_unsupported() {
             "it is a structured buffer of `vector<double,2>`, which has no built-in element type in slango",
         ),
         (
-            ElementType::Structure(Structure {
-                name: "Particle".to_owned(),
-                size: 32,
-                fields: Vec::new(),
-            }),
-            "it is a structured buffer of the structure `Particle`, for which this version generates no struct",
-        ),
-        (
             ElementType::Composite,
             "it is a structured buffer of a matrix, an array, or another composite type, which has no built-in element type in slango",
         ),
@@ -400,25 +392,6 @@ fn a_buffer_without_a_built_in_element_type_is_unsupported() {
             )
         );
     }
-}
-
-#[test]
-fn a_value_of_a_structure_is_unsupported() {
-    let mut main = kernel(
-        "main",
-        vec![parameter("params.offset", scalar(Scalar::Float32))],
-    );
-    main.structures = vec![UniformStructure {
-        path: "params".to_owned(),
-        name: "Params".to_owned(),
-    }];
-    assert_eq!(
-        error(&precompiled(vec![main])),
-        (
-            ErrorKind::Unsupported,
-            "cannot generate the bindings: the parameter `params` of the kernel `main` is not supported, because it is a value of the structure `Params`, for which this version generates no struct".to_owned()
-        )
-    );
 }
 
 #[test]
