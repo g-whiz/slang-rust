@@ -18,7 +18,8 @@ usage() {
         "one installer application. Exits 2 on a usage error, a malformed VERSION or" \
         "SHA256, an unset or empty RUNNER_TEMP, GITHUB_ENV, or GITHUB_PATH, or an" \
         "unsupported platform. When any other command fails, such as the download, the" \
-        "unpacking, or the installer, exits with the status of that command."
+        "unpacking, or the installer, exits with the status of that command. A failure" \
+        "to remove the download after the installation prints a warning and still exits 0."
 }
 
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
@@ -140,4 +141,7 @@ case "${platform}" in
 esac
 printf 'Installed in %s seconds, VULKAN_SDK=%s\n' "${SECONDS}" "${sdk}"
 du -sh "${root}"
-rm -rf -- "${work}"
+if ! rm -rf -- "${work}"; then
+    printf "install-vulkan-sdk: could not remove the downloaded %s, so it stays in the runner's temporary directory at %s\n" \
+        "${file}" "${work}" >&2
+fi
