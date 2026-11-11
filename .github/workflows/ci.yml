@@ -86,6 +86,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
+      - &install-fontconfig
+        name: Install the development files of fontconfig, which Slint links
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libfontconfig-dev
       - name: Run just check
         run: just check
 
@@ -136,6 +141,7 @@ jobs:
       - *read-pin
       - *install-vulkan-sdk
       - *check-vulkan-sdk
+      - *install-fontconfig
       - name: Run the recipe
         env:
           RECIPE: ${{ matrix.recipe }}
@@ -159,6 +165,7 @@ jobs:
       - *check-vulkan-sdk
       - *install-libclang
       - *install-lavapipe
+      - *install-fontconfig
       - name: Write the coverage report
         run: just coverage
       - name: Keep the coverage report

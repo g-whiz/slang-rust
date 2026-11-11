@@ -34,7 +34,9 @@ M5 covers the minimal view only. These are not part of M5: a custom Slint elemen
 
 ### 1.6. Current State
 
-No code of `slang-slint` or of example 4 exists. The spike of M5 ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 11 gives the order of the changes that implement M5.
+Step 1 of Section 11 is done, on 2026-11-11. It added the crate `crates/slang-slint` with `wgpu_configuration` (SLS-6), `device` (SLS-7), and the error type of Section 7 with all four kinds, and their tests (Section 9). The crate's API documentation is the detailed record, and its crate-level documentation already states the licence consequence of SLS-5. `View` (Section 6) and example 4 (Section 10) do not exist yet, and step 2 is the next change.
+
+The spike of M5 ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it and step 1 established. Section 11 gives the order of the changes that implement M5.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -67,16 +69,19 @@ This section is non-normative. It states each fact that a later section relies o
 Each fact carries one of these marks:
 
 - (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux with Rust 1.99.1, Slint 1.18.1, wgpu 30.0.1, and `slango` of the repository at commit `e8982ca`, in debug and release builds. It ran on lavapipe under a nested Wayland compositor and on an NVIDIA GeForce RTX 4070 Laptop GPU on the development container's own Wayland socket, with the same results on both unless the fact says otherwise. A fact about dependencies means a run of `cargo deny` or `cargo tree` on a copy of the repository with a member `crates/slang-slint` added.
-- (read): Read on 2026-11-11 in the source of the named crate of Slint 1.18.1.
+- (step 1): Verified on 2026-11-11 by step 1 of Section 11, which built and tested the crate `slang-slint` in the repository, in the development container on x86_64 Linux and in CI on Linux, Windows, and macOS.
+- (read): Read on 2026-11-11 in the source of the named crate of Slint 1.18.1, or in the named source.
 - (inferred): Concluded from other facts and not verified. Section 12 lists the assumptions on which a requirement depends.
 
 Nothing ran on Windows or macOS.
 
 ### 3.2. Building
 
-Slint 1.18.1 depends on wgpu 30 with its default features off and re-exports it as `slint::wgpu_30::wgpu` (read, `slint` and `i-slint-core`). With Slint's default features off and the features `std`, `compat-1-2`, `backend-winit`, `renderer-femtovg-wgpu`, and `unstable-wgpu-30`, the build graph holds one wgpu 30.0.1, and a device and a queue from Slint go into `slango::wgpu::from_device_and_queue` with no conversion (run). Slint names the features of its wgpu API `unstable-wgpu-29` and `unstable-wgpu-30` (read). Slint's default renderer is FemtoVG on OpenGL, and with the defaults plus `unstable-wgpu-30`, `run()` fails with `WGPU 30.x rendering is not supported with an OpenGL renderer` (run). The winit backend picks Skia for wgpu when Skia is compiled in, and otherwise FemtoVG on wgpu (read, `i-slint-backend-winit`). Skia was not built, and whether `compat-1-18` can replace `compat-1-2` was not tried.
+Slint 1.18.1 depends on wgpu 30 with its default features off and re-exports it as `slint::wgpu_30::wgpu` (read, `slint` and `i-slint-core`). With Slint's default features off and the features `std`, `compat-1-2`, `backend-winit`, `renderer-femtovg-wgpu`, and `unstable-wgpu-30`, the build graph holds one wgpu 30.0.1, and a device and a queue from Slint go into `slango::wgpu::from_device_and_queue` with no conversion (run). Slint names the features of its wgpu API `unstable-wgpu-29` and `unstable-wgpu-30` (read). Slint's default renderer is FemtoVG on OpenGL, and with the defaults plus `unstable-wgpu-30`, `run()` fails with `WGPU 30.x rendering is not supported with an OpenGL renderer` (run). The winit backend picks Skia for wgpu when Skia is compiled in, and otherwise FemtoVG on wgpu (read, `i-slint-backend-winit`). Skia was not built.
 
-A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` of `fontique`, found through pkg-config, so it needs the development files of fontconfig (run). The UI of the spike used the macro `slint::slint!`, so it needed no build script (run). Slint 1.18.1 declares `rust-version = "1.92"` (read).
+A library that enables no windowing backend and no renderer needs the features `compat-1-18`, `std`, and `unstable-wgpu-30`, and reaches `slint::wgpu_30`, `GraphicsAPI::WGPU30`, and `BackendSelector::require_wgpu_30` with them (step 1). Every build of `slint` 1.18.1 stops with a `compile_error!` that demands `compat-1-18`, an empty feature, and `i-slint-core` 1.18.1 stops with one that demands `std` or `unsafe-single-threaded` (read, `slint` and `i-slint-core`). `compat-1-2`, which the spike used, adds only features of the linuxkms backend to `compat-1-18` (read). `unsafe-single-threaded` was not tried, because its name says that it gives up thread safety, which a library cannot impose on an application (inferred).
+
+A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` 6.0.1 of `fontique` 0.11.1 of `i-slint-common`, found through pkg-config, so it needs the development files of fontconfig (run). This holds for the library alone, without a renderer, and the hosted Linux runner of CI lacks them (step 1). The build script of `yeslogic-fontconfig-sys` also runs when `DOCS_RS` is set, so a documentation build without fontconfig fails (step 1). The build environment of docs.rs, the repository `rust-lang/crates-build-env`, lists `libfontconfig1`, `libfontconfig1-dev`, and `pkg-config` in `linux/packages.txt` on its default branch (read, with the GitHub API), so docs.rs is expected to build the documentation of `slang-slint` (inferred, SLSA-4). The UI of the spike used the macro `slint::slint!`, so it needed no build script (run). Slint 1.18.1 declares `rust-version = "1.92"` (read).
 
 In a debug build, the Vulkan validation layer reports `VUID-vkCmdDraw-None-07839` from draws of Slint's FemtoVG renderer on wgpu, also when `slango` draws only once (run). That it comes from Slint and not from `slango` is inferred from that and from `slango`'s stencil state.
 
@@ -104,19 +109,21 @@ Slint renders only when something requests a frame (run). Two ways of driving fr
 
 ### 3.6. Dependencies
 
-With the allow-list and the skips of `deny.toml` unchanged, `cargo deny` rejected the ten crates of Slint 1.18.1, whose licence expression is `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0`, and eight more crate versions under `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`. It also reported twelve crates with duplicate versions (run). Section 9 of `docs/design/tooling.md` lists the crates and the planned changes. The lock file grew from 262 to 542 packages, and the build graph on x86_64 Linux gained 273 crates (run).
+In the spike, with Slint's winit backend and FemtoVG on wgpu enabled and the allow-list and the skips of `deny.toml` unchanged, `cargo deny` rejected the ten crates of Slint 1.18.1, whose licence expression is `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0`, and eight more crate versions under `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`. It also reported twelve crates with duplicate versions. The lock file grew from 262 to 542 packages, and the build graph on x86_64 Linux gained 273 crates (run). The spike checked licences and bans only.
+
+The library alone, with the features of Section 3.2, brings seven of the crates of Slint, no crate under a BSD or BSL licence, four duplicate versions, and the advisory RUSTSEC-2026-0441 for the unmaintained `pin-utils` (step 1). The rest arrives with the backend and the renderer of the examples package in step 3 of Section 11. Section 9 of `docs/design/tooling.md` records each change of `deny.toml` with its reason. The lock file grew from 262 to 508 packages, including optional dependencies of Slint that are not built, because Cargo resolves the lock file with every feature of every package. A clean debug build of the workspace compiles 236 crates instead of 128 (step 1).
 
 ## 4. Crate Structure and Dependencies
 
 ### 4.1. Package and Dependencies
 
-SLS-1. `slang-slint` MUST depend on `slango` and on `slint` with the version requirement `~1.18`, default features off, and the feature `unstable-wgpu-30`, and on no other crate. Slint marks this API unstable (Section 3.2), so a wider range lets a minor release of Slint break the builds of users (ARCH-20). This answers Q-25 of the architecture design.
+SLS-1. `slang-slint` MUST depend on `slango` and on `slint` with the version requirement `~1.18`, default features off, and the features `compat-1-18`, `std`, and `unstable-wgpu-30`, and on no other crate. Slint marks this API unstable (Section 3.2), so a wider range lets a minor release of Slint break the builds of users (ARCH-20). Slint 1.18 does not compile without the first two features (Section 3.2). This answers Q-25 of the architecture design.
 
 The crate reaches wgpu's types through `slint::wgpu_30::wgpu`, which is the wgpu 30 that `slango` uses (Section 3.2), so it needs no direct dependency on wgpu. `slint` joins `[workspace.dependencies]` with its default features off, and each member adds the features it needs (DEP-2).
 
 SLS-2. An agent that admits a newer minor version of Slint MUST run every test of `slang-slint` and of example 4. It MUST also check ARCH-19 for the wgpu version of `slango`, because the unstable API and the wgpu versions that Slint supports can change in that release.
 
-SLS-3. `slang-slint` SHOULD NOT enable a windowing backend or a renderer of Slint. Cargo features are additive, so an application could not remove a backend or renderer that the library enables. Step 1 of Section 11 establishes the smallest set of features with which the crate compiles (SLSA-1).
+SLS-3. `slang-slint` SHOULD NOT enable a windowing backend or a renderer of Slint. Cargo features are additive, so an application could not remove a backend or renderer that the library enables. The features of SLS-1 are the smallest set with which the crate compiles, and they enable neither (Section 3.2).
 
 The application chooses the windowing backend and a renderer on wgpu, as example 4 does (Section 10). A renderer on OpenGL fails at `run()` (Section 3.2).
 
@@ -130,7 +137,7 @@ This design decides on 2026-11-11 that `slang-slint` takes Slint's crates, whose
 
 SLS-5. The crate-level documentation of `slang-slint` and `README.md` MUST state this consequence, because a user who distributes a program built with the crate must know the licence of the result first.
 
-Step 1 of Section 11 implements the allow-list changes for `GPL-3.0-only`, `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` under TOOL-24, and a `skip` entry for each new duplicate version under TOOL-26. It verifies them, and records the evidence of compatibility that TOOL-24 requires. Section 9 of `docs/design/tooling.md` records the planned changes.
+Step 1 of Section 11 admitted `GPL-3.0-only` under TOOL-24, with the evidence of compatibility that TOOL-24 requires, and added a `skip` entry under TOOL-26 for each duplicate version that the library brings. `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`, which this design had planned for step 1, are needed only with a backend and a renderer, so step 3 admits those that the examples package then needs. Section 9 of `docs/design/tooling.md` records the changes, the evidence, and the owner's exception for one advisory.
 
 ## 5. The Device
 
@@ -264,11 +271,11 @@ The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (S
 
 ## 9. Tests
 
-`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). The pure tests check the fields of the configuration of SLS-6, the `Display` text of each error kind, and the assertions of SLS-14. The tests in its module `gpu` create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. They draw into a view and read its texture back through `slango`, resize it and draw again, check `InvalidSize` for a zero size, and check that a pipeline of another colour format fails at the draw (TEST-6). When SLSA-2 holds, a `gpu` test also calls `View::to_image` and checks the size of the image.
+`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). Its module `configuration` checks the fields of the configuration of SLS-6, and its module `device` checks the error path of `device`. The unit tests in `src/error.rs` check the `Display` text of each error kind, `source`, and the assertions of SLS-14 for `Error` and `ErrorKind`, because only the crate can construct an error of each kind, as in `slango`. These nine tests are pure, and Miri runs them all (step 1). The tests of its module `gpu`, which step 2 adds, create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. They draw into a view and read its texture back through `slango`, resize it and draw again, check `InvalidSize` for a zero size, and check that a pipeline of another colour format fails at the draw (TEST-6). When SLSA-2 holds, a `gpu` test also calls `View::to_image` and checks the size of the image.
 
 SLS-15. A test of `slang-slint` or of example 4 MUST NOT open a window or need a display, because the Linux CI runner has none, so such a test fails in CI (ARCH-21).
 
-`device` has no automated test, because only Slint creates a value of the non-exhaustive variant `GraphicsAPI::WGPU30` (Section 3.3). Example 4 calls it whenever it runs.
+The error path of `device` is tested with `GraphicsAPI::NativeOpenGL` and `GraphicsAPI::WebGL`, which are not non-exhaustive variants, so a test can build them. Its success path has no automated test, because only Slint creates a value of the non-exhaustive variant `GraphicsAPI::WGPU30` (Section 3.3), and a struct expression for it outside Slint fails to compile with E0639 (step 1). Example 4 calls it whenever it runs.
 
 These tests answer Q-24 of the architecture design for `slang-slint`: the view is checked headless on the three CI runners. The window of example 4, like that of example 3, is not checked headless.
 
@@ -292,7 +299,7 @@ SLINT_WGPU_CPU=1 cargo run -p slang-rust-examples --bin shader-playground -- exa
 
 These steps implement M5. Each step leaves `just check` passing and adds its tests.
 
-1. Add `crates/slang-slint` with its manifest and dependencies (Section 4.1), `slint` in `[workspace.dependencies]`, the changes of `deny.toml` and of the CI workflow that Section 9 of `docs/design/tooling.md` plans, the error type (Section 7), `wgpu_configuration`, and `device` (Section 5). Settle SLSA-1 and record the feature set in Section 4.1. Tests: the pure tests of Section 9. Check: `check-deny` passes, and all CI jobs pass on the three platforms.
+1. Done on 2026-11-11. Add `crates/slang-slint` with its manifest and dependencies (Section 4.1), `slint` in `[workspace.dependencies]`, the changes of `deny.toml` and of the CI workflow that Sections 8.1 and 9 of `docs/design/tooling.md` record, the error type (Section 7), `wgpu_configuration`, and `device` (Section 5). Settle the smallest feature set, which was assumption SLSA-1, and record it in Section 4.1. Tests: the pure tests of Section 9. Check: `check-deny` passes, and all CI jobs pass on the three platforms.
 2. Add `View` (Section 6). Settle SLSA-2. Tests: the `gpu` tests of Section 9.
 3. Add example 4 (Section 10) with its tests. Check: `check-clippy` builds it in CI, and it runs locally with `--frames` on lavapipe and on a hardware adapter.
 4. Complete the crate-level documentation, including the licence statement of SLS-5 and the guidance of Section 5.3, add the statement of SLS-5 to `README.md`, and update the documents that M5 makes false. With this step, M5 is complete.
@@ -303,22 +310,19 @@ Each row is a statement that this design relies on and that the spike did not es
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLSA-1 | `slang-slint` compiles with Slint's feature `unstable-wgpu-30`, and perhaps `std`, and with no windowing backend or renderer | SLS-3 | Step 1 of Section 11 |
 | SLSA-2 | `slint::Image::try_from` accepts a wgpu texture with no Slint backend selected, no window, and no event loop | Section 9 | Step 2 of Section 11. If it fails, no test calls `View::to_image`, and example 4 covers it locally (SLS-15) |
 | SLSA-3 | With the configuration of SLS-6, Slint's device request fails on an adapter without immediates or with a smaller immediate size | Section 5.1 | Deferred until such an adapter is used. Every adapter tested offers 128 bytes or more |
+| SLSA-4 | docs.rs builds the documentation of `slang-slint`, because its build environment provides fontconfig and pkg-config | Section 3.2 | The first release, in M7 |
 
 Section 3.3 confirms A-14 of the architecture design in part: external GPU content enters Slint through its rendering notifier and its import of wgpu textures, and Slint names the features of that API unstable. The spike read no evidence about a public Vulkan hook in Slint, and none about whether the API changes in a minor release. SLS-1 does not depend on either.
 
 ## 13. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row.
+No question is open. SLSQ-1 asked whether docs.rs builds the documentation of `slang-slint`, whose dependency `yeslogic-fontconfig-sys` looks for fontconfig through pkg-config. Step 1 of Section 11 answered it with yes, by inference from the build environment of docs.rs (Section 3.2), and SLSA-4 tracks its confirmation.
 
-| Identifier | Question | Owner | Milestone |
-| --- | --- | --- | --- |
-| SLSQ-1 | Does docs.rs build the documentation of `slang-slint`, whose dependency `yeslogic-fontconfig-sys` looks for fontconfig through pkg-config? | This document | M7 |
 ## 14. Security Considerations
 
-The threat model treats the shader source, the file paths, and the sizes that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. `slang-slint` has no unsafe code (SLS-4) and no build script. Its memory safety rests on the safe APIs of Slint, wgpu, and `slango`, and the safety of the GPU's accesses rests on `slango` (Section 17 of `docs/design/slango.md`). Slint adds many crates to the build graph (Section 3.6) and links fontconfig, FreeType, and the libraries that they use. `Cargo.lock` fixes their versions, and `cargo-deny` checks their advisories, licences, and sources (Section 4.2).
+The threat model treats the shader source, the file paths, and the sizes that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. `slang-slint` has no unsafe code (SLS-4) and no build script. Its memory safety rests on the safe APIs of Slint, wgpu, and `slango`, and the safety of the GPU's accesses rests on `slango` (Section 17 of `docs/design/slango.md`). Slint adds many crates to the build graph (Section 3.6) and links fontconfig and the libraries that it uses. `Cargo.lock` fixes their versions, and `cargo-deny` checks their advisories, licences, and sources (Section 4.2). By the owner's decision, it ignores one advisory, for `pin-utils` (Sections 3.6 and 4.2).
 
 These attacks are out of scope, because a program that runs them has chosen to: a malicious shader, and a shader or a file that reaches a defect of Slang, naga, wgpu, Slint, or a driver (Section 1.7).
 
@@ -332,7 +336,7 @@ The residual risk is a defect in Slint, in its native libraries, which read the 
 
 ### 15.2. Platforms and Minimum Supported Rust Version
 
-The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 11 builds the crate on Windows and macOS in CI, and step 2 runs its `gpu` tests on WARP and hosted Metal. Example 4 has not run with a window on Windows or macOS. Slint 1.18.1 declares `rust-version` 1.92, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 11 built the crate on Windows and macOS in CI, and step 2 runs its `gpu` tests on WARP and hosted Metal. Example 4 has not run with a window on Windows or macOS. The `rust-version` of Slint (Section 3.2) is below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 15.3. Failure Modes
 
@@ -353,7 +357,7 @@ The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 
 
 ### 15.5. Costs
 
-Slint grows the lock file and the build graph (Section 3.6). A clean debug build of the spike, with `slang-compiler` and `slango`, took 42 s on 16 cores (run).
+Slint grows the lock file and the build graph (Section 3.6). A clean debug build of the spike, with `slang-compiler` and `slango` and with Slint's winit backend and FemtoVG on wgpu, took 42 s on 16 cores (run). A clean debug build of the whole workspace with all targets took 29 s on 16 cores with the library of step 1, and 22 s before it (step 1). The backend and the renderer that the examples package enables in step 3 of Section 11 add to both.
 
 ## 16. References
 
@@ -368,7 +372,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| SLS-1 | 4.1 | Depend on `slango` and on `slint` `~1.18` with `unstable-wgpu-30` and default features off, and on nothing else. |
+| SLS-1 | 4.1 | Depend on `slango` and on `slint` `~1.18` with `compat-1-18`, `std`, and `unstable-wgpu-30` and default features off, and on nothing else. |
 | SLS-2 | 4.1 | A new minor version of Slint is admitted only after all tests run again and ARCH-19 is checked. |
 | SLS-3 | 4.1 | The library enables no windowing backend or renderer of Slint. |
 | SLS-4 | 4.1 | No unsafe code and no logs. |
@@ -387,4 +391,5 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 1 of Section 11 as done. Corrected the feature set of SLS-1, removed SLSA-1, and recorded what the library alone brings and costs (Sections 3.2, 3.6, 4.2, and 15.5), what Section 9 tests, and the advisory exception (Section 14). Answered SLSQ-1 by inference and added SLSA-4 to confirm it.
 - 2026-11-11: First draft, written after the spike of M5 as the first task of M5.

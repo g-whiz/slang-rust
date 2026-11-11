@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
+    "crates/slang-slint",
     "crates/slango",
     "examples",
     "tools/bindings-generator",
@@ -24,6 +25,7 @@ pollster = "0.4.0"
 slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
 slango = { path = "crates/slango", version = "0.1.0" }
+slint = { version = "~1.18", default-features = false }
 wgpu = { version = "30.0.1", features = ["spirv"] }
 winit = { version = "0.30.13", default-features = false, features = [
     "rwh_06",

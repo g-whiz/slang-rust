@@ -1,0 +1,31 @@
+[package]
+name = "slang-slint"
+description = "Show what a Slang render pipeline of slango draws inside a Slint user interface."
+keywords = ["slang", "shader", "slint", "wgpu", "gui"]
+categories = ["graphics", "gui", "rendering"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[package.metadata.docs.rs]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+[dependencies]
+slango.workspace = true
+slint = { workspace = true, features = [
+    "compat-1-18",
+    "std",
+    "unstable-wgpu-30",
+] }
+
+[lints]
+workspace = true
