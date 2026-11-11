@@ -25,6 +25,27 @@
 //! back. Every failure is an [`Error`], whose [`Error::kind`] says what went
 //! wrong.
 //!
+//! A kernel is a function of the module marked `[shader("compute")]`, and
+//! the crate supports these parameters of a kernel:
+//!
+//! - `StructuredBuffer<T>` and `RWStructuredBuffer<T>`, to which a call binds
+//!   a [`Buffer`] of the matching element type.
+//! - Plain values of the types `bool`, `int`, `uint`, and `float`, as
+//!   scalars, vectors, matrices, arrays of fixed length, and structures of
+//!   them, declared as `uniform` globals, as `uniform` parameters of the
+//!   entry point, or as fields of a `ConstantBuffer`, a `cbuffer`, or a
+//!   `ParameterBlock`, which a call sets.
+//! - System values such as `SV_DispatchThreadID`, which the GPU provides.
+//!
+//! A load fails with [`ErrorKind::UnsupportedParameter`] when a kernel has
+//! any other parameter, such as a texture, a sampler, a `ByteAddressBuffer`,
+//! a `double`, or an array of structures. It fails with
+//! [`ErrorKind::UnsupportedShader`] when wgpu rejects a construct of the
+//! compiled kernel, and with [`ErrorKind::MissingFeature`] when a kernel has
+//! `uniform` parameters of its entry point and the device cannot receive
+//! them. The crate loads every kernel through wgpu's validated path and
+//! contains no unsafe code.
+//!
 //! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
 //! [`Module`], a [`Kernel`], and a [`Buffer`] are cheap to clone.
 //!
@@ -71,6 +92,11 @@
 //! }
 //! ```
 //!
+//! The example `compute-kernel` of the package `slang-rust-examples` in the
+//! repository of this crate is a complete program of the same flow. It runs
+//! a kernel with two input buffers, an output buffer, and two `uniform`
+//! values, and checks its results against the same computation on the CPU.
+//!
 //! # Features
 //!
 //! This crate has no Cargo features.
@@ -81,9 +107,11 @@
 //! x86-64, Windows on x86-64, and macOS on Apple silicon and on x86-64. It
 //! searches the adapters of whichever of Vulkan, Direct3D 12, and Metal wgpu
 //! offers on the platform. It creates devices and runs kernels on Vulkan on
-//! Linux, on Direct3D 12 on Windows, and on Metal on macOS. On macOS, Metal
-//! offers no software adapter, so [`AdapterSelection::Software`] finds none
-//! there.
+//! Linux, on Direct3D 12 on Windows, and on Metal on macOS, and its tests run
+//! in continuous integration on lavapipe on Linux, on the Windows Advanced
+//! Rasterization Platform (WARP) on Windows, and on Metal on macOS. On macOS,
+//! Metal offers no software adapter, so [`AdapterSelection::Software`] finds
+//! none there.
 //!
 //! # Finding the Slang library
 //!

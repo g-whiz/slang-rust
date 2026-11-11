@@ -12,6 +12,7 @@ readme.workspace = true
 
 [dependencies]
 slang-compiler.workspace = true
+slango.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

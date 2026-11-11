@@ -2,3 +2,5 @@
 
 #[cfg(test)]
 mod ffi;
+#[cfg(test)]
+mod gpu;

@@ -121,12 +121,14 @@ pub enum ErrorKind {
     /// The adapter refused the device that the options request. The source
     /// error is the error of wgpu.
     DeviceRequest,
-    /// naga, the shader translator inside wgpu, rejected the SPIR-V of a
-    /// kernel, the compiled form of the shader. The error carries naga's text,
-    /// which names the construct to avoid.
+    /// naga, the shader translator inside wgpu, or the backend of wgpu
+    /// rejected the SPIR-V of a kernel, the compiled form of the shader. The
+    /// source error carries the rejecting text, which names the construct to
+    /// avoid.
     UnsupportedShader,
     /// A kernel has a parameter of a kind that this version does not
-    /// support, such as a texture or a sampler.
+    /// support, such as a texture or a sampler, or, at a call, the layout
+    /// that Slang reports for a plain value cannot hold the value.
     UnsupportedParameter,
     /// A kernel needs a feature of the device that the device lacks. Request
     /// the feature, or use another adapter.

@@ -1,0 +1,9 @@
+---
+source: examples/tests/examples/gpu.rs
+expression: stdout
+---
+kernel saxpy with a = 2.5 over 8 elements
+x      = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+y      = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+result = [8.0, 9.5, 11.0, 12.5, 14.0, 15.5, 17.0, 18.5]
+every result equals a * x + y as the CPU computes it
