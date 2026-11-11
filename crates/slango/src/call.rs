@@ -8,7 +8,7 @@ use crate::device::{Device, scoped};
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
 use crate::layout::{Binding, KernelLayout, PlainValue, Resource, UniformBlock, Usage};
-use crate::marshal::{self, Element, Marshalled, Value};
+use crate::marshal::{self, Element, Marshalled, Value, ValueType};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
 
@@ -70,6 +70,8 @@ pub(crate) enum Argument<B, V, S> {
 pub(crate) struct Bound<B> {
     pub(crate) handle: B,
     pub(crate) stride: usize,
+    /// The Rust type of the elements of the buffer.
+    pub(crate) element: ValueType,
     pub(crate) len: usize,
     pub(crate) on_device: bool,
 }
@@ -190,7 +192,12 @@ impl<'a> Call<'a> {
     ///
     /// The dispatch checks that the buffer belongs to the device of the
     /// kernel, is not empty, and has elements of the size of the elements of
-    /// the parameter.
+    /// the parameter. When the elements of the parameter are scalars or
+    /// vectors, it also checks that the elements of the buffer have their
+    /// scalar type and number of components, such as `f32` for `float` or
+    /// `[u32; 4]` for `uint4`. A buffer of any element type of the right size
+    /// binds to a parameter whose elements are structures, matrices, or
+    /// arrays.
     ///
     /// # Examples
     ///
@@ -289,10 +296,12 @@ impl<'a> Call<'a> {
     ///   does not match the Slang type of its parameter, an argument of one
     ///   kind is given for a parameter of another, such as a value for a
     ///   buffer parameter or a sampler for a texture, a buffer, texture, or
-    ///   sampler belongs to another device, a buffer is empty or has elements
-    ///   of another size than the parameter, a texture has the depth format
-    ///   or cannot be sampled, or the number of thread groups along an axis
-    ///   exceeds the limit of the device.
+    ///   sampler belongs to another device, a buffer is empty, has elements
+    ///   of another size than the parameter, or has elements of another
+    ///   scalar type or number of components than the scalars or vectors of
+    ///   the parameter, a texture has the depth format or cannot be sampled,
+    ///   or the number of thread groups along an axis exceeds the limit of
+    ///   the device.
     /// - [`ErrorKind::UnsupportedParameter`] when the reflected layout of a
     ///   plain value does not hold the value.
     /// - [`ErrorKind::Backend`] when wgpu reports an error while it prepares
@@ -412,6 +421,7 @@ pub(crate) fn buffer_argument<'a, T: Element>(
     Argument::Buffer(Bound {
         handle: buffer.wgpu_buffer(),
         stride: T::STRIDE,
+        element: T::value_type(),
         len: buffer.len(),
         on_device: buffer.is_on(device),
     })
@@ -687,9 +697,10 @@ pub(crate) fn plan<B, V, S>(
 /// It fails with [`ErrorKind::InvalidArgument`] on the first argument whose
 /// path names no parameter, whose kind differs from that of its parameter,
 /// whose value does not match, whose buffer, texture, or sampler belongs to
-/// another device, whose buffer is empty or has another stride, or whose
-/// texture cannot be sampled. An argument for a parameter that is not used
-/// gets the same checks.
+/// another device, whose buffer is empty, has another stride, or has
+/// elements of another scalar or vector type, or whose texture cannot be
+/// sampled. An argument for a parameter that is not used gets the same
+/// checks.
 pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
     parameters: Parameters<'_, P>,
     arguments: &[(&'p str, Argument<B, V, S>)],
@@ -905,7 +916,9 @@ fn check_buffer<P: AsRef<Binding>, B>(
     bound: &Bound<B>,
 ) -> Result<()> {
     let subject = parameters.subject;
-    let Some(Resource::StorageBuffer { stride, .. }) = parameters
+    let Some(Resource::StorageBuffer {
+        stride, element, ..
+    }) = parameters
         .bindings
         .get(binding)
         .map(|binding| &binding.as_ref().resource)
@@ -922,6 +935,12 @@ fn check_buffer<P: AsRef<Binding>, B>(
         return Err(subject.invalid(format!(
             "the parameter `{path}` of {subject} has elements of {stride} bytes, and the bound buffer has elements of {} bytes",
             bound.stride
+        )));
+    }
+    if let Some(name) = marshal::element_mismatch(&bound.element, element) {
+        return Err(subject.invalid(format!(
+            "the parameter `{path}` of {subject} has elements of the Slang type `{name}`, and the bound buffer has elements of the Rust type `{}`",
+            marshal::rust_type_name(&bound.element)
         )));
     }
     Ok(())

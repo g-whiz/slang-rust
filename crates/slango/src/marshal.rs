@@ -1,5 +1,5 @@
 use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{PlainValue, Scalar, Shape};
+use crate::layout::{ElementType, PlainValue, Scalar, Shape};
 
 const SET: &str = "set a plain value";
 
@@ -471,6 +471,32 @@ fn outside(path: &str, what: &str) -> Error {
     ))
 }
 
+/// Returns `None` when a buffer whose elements have the Rust type `ty` may
+/// be bound to a structured buffer whose elements have the type `element`,
+/// and otherwise the Slang name of `element`, such as `float4`.
+///
+/// A scalar or a vector matches only the Rust type of the same scalar type
+/// and number of components, and any other element type matches every Rust
+/// type, because the check of the stride alone covers it (SLM-5 of
+/// `docs/design/slango-macros.md`).
+pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<String> {
+    match element {
+        ElementType::Plain { scalar, components } => {
+            let shape = if *components == 1 {
+                Shape::Scalar
+            } else {
+                Shape::Vector {
+                    length: *components,
+                }
+            };
+            let same = ty.scalar == *scalar && shape_matches(&shape, &ty.dims);
+            (!same).then(|| slang_type_name(*scalar, &shape))
+        }
+        ElementType::OtherPlain { name } => Some(name.clone()),
+        ElementType::Composite => None,
+    }
+}
+
 fn shape_matches(shape: &Shape, dims: &[usize]) -> bool {
     let same = |length: u64, dim: usize| u64::try_from(dim).is_ok_and(|dim| dim == length);
     match shape {
@@ -569,7 +595,7 @@ fn slang_type_name(scalar: Scalar, shape: &Shape) -> String {
 }
 
 /// Returns the Rust name of a value type, such as `[[f32; 3]; 2]`.
-fn rust_type_name(ty: &ValueType) -> String {
+pub(crate) fn rust_type_name(ty: &ValueType) -> String {
     ty.dims
         .iter()
         .rev()

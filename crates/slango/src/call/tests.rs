@@ -6,9 +6,10 @@ use super::{
 };
 use crate::error::{ErrorKind, Result};
 use crate::layout::{
-    Access, Binding, KernelLayout, PlainValue, Resource, Scalar, Shape, UniformBlock, Usage,
+    Access, Binding, ElementType, KernelLayout, PlainValue, Resource, Scalar, Shape, UniformBlock,
+    Usage,
 };
-use crate::marshal::{Value, marshal};
+use crate::marshal::{Element, Value, marshal};
 use crate::texture::TextureFormat;
 
 fn plain(path: &str, offset: u64, size: u64, scalar: Scalar, shape: Shape) -> PlainValue {
@@ -21,7 +22,14 @@ fn plain(path: &str, offset: u64, size: u64, scalar: Scalar, shape: Shape) -> Pl
     }
 }
 
-fn storage(path: &str, set: u32, index: u32, usage: Usage, stride: u64) -> Binding {
+fn storage(
+    path: &str,
+    set: u32,
+    index: u32,
+    usage: Usage,
+    stride: u64,
+    element: ElementType,
+) -> Binding {
     Binding {
         path: path.to_owned(),
         set,
@@ -30,8 +38,13 @@ fn storage(path: &str, set: u32, index: u32, usage: Usage, stride: u64) -> Bindi
         resource: Resource::StorageBuffer {
             access: Access::ReadWrite,
             stride,
+            element,
         },
     }
+}
+
+fn plain_element(scalar: Scalar, components: u32) -> ElementType {
+    ElementType::Plain { scalar, components }
 }
 
 fn uniform(path: &str, set: u32, index: u32, usage: Usage, block: UniformBlock) -> Binding {
@@ -65,9 +78,30 @@ fn layout() -> KernelLayout {
                     ],
                 },
             ),
-            storage("data", 0, 1, Usage::Used, 4),
-            storage("spare", 0, 2, Usage::Unused, 4),
-            storage("extra.points", 2, 0, Usage::Used, 16),
+            storage(
+                "data",
+                0,
+                1,
+                Usage::Used,
+                4,
+                plain_element(Scalar::Float32, 1),
+            ),
+            storage(
+                "spare",
+                0,
+                2,
+                Usage::Unused,
+                4,
+                plain_element(Scalar::Float32, 1),
+            ),
+            storage(
+                "extra.points",
+                2,
+                0,
+                Usage::Used,
+                16,
+                plain_element(Scalar::Float32, 4),
+            ),
         ],
         immediates: Some(UniformBlock {
             size: 16,
@@ -82,10 +116,11 @@ fn value<V: Value>(value: V) -> Arg {
     Argument::Value(marshal(&value))
 }
 
-fn buffer(stride: usize, len: usize) -> Arg {
+fn buffer<T: Element>(len: usize) -> Arg {
     Argument::Buffer(Bound {
         handle: (),
-        stride,
+        stride: T::STRIDE,
+        element: T::value_type(),
         len,
         on_device: true,
     })
@@ -95,8 +130,8 @@ fn complete() -> Vec<(&'static str, Arg)> {
     vec![
         ("factor", value(2.0_f32)),
         ("count", value(4_u32)),
-        ("data", buffer(4, 4)),
-        ("extra.points", buffer(16, 2)),
+        ("data", buffer::<f32>(4)),
+        ("extra.points", buffer::<[f32; 4]>(2)),
         ("offset", value(-3_i32)),
     ]
 }
@@ -164,17 +199,17 @@ fn without(path: &str) -> Vec<(&'static str, Arg)> {
 fn a_later_argument_for_a_path_replaces_the_earlier_one_whatever_its_kind() {
     let mut arguments = Vec::new();
     insert(&mut arguments, "factor", value(1.0_f32));
-    insert(&mut arguments, "data", buffer(4, 4));
+    insert(&mut arguments, "data", buffer::<f32>(4));
     insert(&mut arguments, "factor", value(2.0_f32));
     assert_eq!(
         arguments,
-        vec![("factor", value(2.0_f32)), ("data", buffer(4, 4))]
+        vec![("factor", value(2.0_f32)), ("data", buffer::<f32>(4))]
     );
     insert(&mut arguments, "data", value(3_u32));
-    insert(&mut arguments, "factor", buffer(16, 2));
+    insert(&mut arguments, "factor", buffer::<[f32; 4]>(2));
     assert_eq!(
         arguments,
-        vec![("factor", buffer(16, 2)), ("data", value(3_u32))]
+        vec![("factor", buffer::<[f32; 4]>(2)), ("data", value(3_u32))]
     );
 }
 
@@ -235,11 +270,11 @@ fn a_missing_buffer_is_an_invalid_argument() {
 fn an_unused_buffer_may_be_omitted_and_a_given_one_is_checked_and_ignored() {
     let plan_without = plan(&layout(), &complete()).expect("the unused buffer may be omitted");
     let mut arguments = complete();
-    arguments.push(("spare", buffer(4, 1)));
+    arguments.push(("spare", buffer::<f32>(1)));
     let plan_with = plan(&layout(), &arguments).expect("the unused buffer is accepted");
     assert_eq!(plan_with, plan_without);
     let mut arguments = complete();
-    arguments.push(("spare", buffer(16, 1)));
+    arguments.push(("spare", buffer::<[f32; 4]>(1)));
     assert_eq!(rejected(&arguments).0, ErrorKind::InvalidArgument);
 }
 
@@ -293,7 +328,7 @@ fn a_value_for_a_buffer_is_an_invalid_argument() {
 #[test]
 fn a_buffer_for_a_value_is_an_invalid_argument() {
     assert_eq!(
-        rejected(&replaced("offset", &buffer(4, 1))),
+        rejected(&replaced("offset", &buffer::<f32>(1))),
         (
             ErrorKind::InvalidArgument,
             "cannot call a kernel: the parameter `offset` of the kernel `scale` is a plain value, and the call binds a buffer to it"
@@ -305,7 +340,7 @@ fn a_buffer_for_a_value_is_an_invalid_argument() {
 #[test]
 fn a_buffer_of_another_stride_is_an_invalid_argument() {
     assert_eq!(
-        rejected(&replaced("extra.points", &buffer(4, 8))),
+        rejected(&replaced("extra.points", &buffer::<f32>(8))),
         (
             ErrorKind::InvalidArgument,
             "cannot call a kernel: the parameter `extra.points` of the kernel `scale` has elements of 16 bytes, and the bound buffer has elements of 4 bytes"
@@ -315,9 +350,66 @@ fn a_buffer_of_another_stride_is_an_invalid_argument() {
 }
 
 #[test]
+fn a_buffer_of_another_scalar_type_is_an_invalid_argument_with_both_types() {
+    assert_eq!(
+        rejected(&replaced("data", &buffer::<u32>(4))),
+        (
+            ErrorKind::InvalidArgument,
+            "cannot call a kernel: the parameter `data` of the kernel `scale` has elements of the Slang type `float`, and the bound buffer has elements of the Rust type `u32`"
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        rejected(&replaced("extra.points", &buffer::<[i32; 4]>(2))),
+        (
+            ErrorKind::InvalidArgument,
+            "cannot call a kernel: the parameter `extra.points` of the kernel `scale` has elements of the Slang type `float4`, and the bound buffer has elements of the Rust type `[i32; 4]`"
+                .to_owned()
+        )
+    );
+}
+
+#[test]
+fn a_buffer_of_another_stride_is_reported_by_its_stride_before_its_element_type() {
+    assert!(
+        rejected(&replaced("extra.points", &buffer::<u32>(8)))
+            .1
+            .contains("has elements of 16 bytes, and the bound buffer has elements of 4 bytes")
+    );
+}
+
+#[test]
+fn a_composite_element_takes_any_buffer_of_its_stride() {
+    let mut layout = layout();
+    if let Some(Resource::StorageBuffer { element, .. }) = layout
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.path == "extra.points")
+        .map(|binding| &mut binding.resource)
+    {
+        *element = ElementType::Composite;
+    }
+    for points in [
+        buffer::<[f32; 4]>(2),
+        buffer::<[i32; 4]>(2),
+        buffer::<[u32; 4]>(2),
+    ] {
+        let mut arguments = complete();
+        insert(&mut arguments, "extra.points", points);
+        assert!(plan(&layout, &arguments).is_ok());
+    }
+    let mut arguments = complete();
+    insert(&mut arguments, "extra.points", buffer::<f32>(8));
+    assert_eq!(
+        plan(&layout, &arguments).map_err(|error| error.kind()),
+        Err(ErrorKind::InvalidArgument)
+    );
+}
+
+#[test]
 fn an_empty_buffer_is_an_invalid_argument() {
     assert_eq!(
-        rejected(&replaced("data", &buffer(4, 0))),
+        rejected(&replaced("data", &buffer::<f32>(0))),
         (
             ErrorKind::InvalidArgument,
             "cannot call a kernel: the buffer bound to the parameter `data` of the kernel `scale` is empty"
@@ -331,6 +423,7 @@ fn a_buffer_of_another_device_is_an_invalid_argument() {
     let other = Argument::Buffer(Bound {
         handle: (),
         stride: 4,
+        element: marshal(&0.0_f32).ty,
         len: 4,
         on_device: false,
     });
@@ -431,7 +524,14 @@ fn textured() -> KernelLayout {
         bindings: vec![
             resource("image", 0, Usage::Used, Resource::SampledTexture),
             resource("nearest", 1, Usage::Used, Resource::Sampler),
-            storage("output", 0, 2, Usage::Used, 16),
+            storage(
+                "output",
+                0,
+                2,
+                Usage::Used,
+                16,
+                plain_element(Scalar::Float32, 4),
+            ),
             resource("spare", 3, Usage::Unused, Resource::SampledTexture),
             resource("spareSampler", 4, Usage::Unused, Resource::Sampler),
         ],
@@ -457,7 +557,7 @@ fn sampler() -> Arg {
 
 fn textured_call() -> Vec<(&'static str, Arg)> {
     vec![
-        ("output", buffer(16, 4)),
+        ("output", buffer::<[f32; 4]>(4)),
         ("nearest", sampler()),
         ("image", texture(TextureFormat::Rgba8Unorm)),
     ]
@@ -576,7 +676,7 @@ fn an_argument_of_another_kind_than_its_parameter_is_an_invalid_argument() {
         ),
         (
             "image",
-            buffer(16, 1),
+            buffer::<[f32; 4]>(1),
             "is a texture, and the call binds a buffer to it",
         ),
         (
@@ -591,7 +691,7 @@ fn an_argument_of_another_kind_than_its_parameter_is_an_invalid_argument() {
         ),
         (
             "nearest",
-            buffer(16, 1),
+            buffer::<[f32; 4]>(1),
             "is a sampler, and the call binds a buffer to it",
         ),
         (

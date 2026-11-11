@@ -2,9 +2,9 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use super::super::{
-    Access, Attribute, Binding, Compiled, CompiledKernel, CompiledRender, KernelLayout, PlainValue,
-    Rejection, RenderLayout, RenderStage, Resource, Scalar, Shape, Source, UniformBlock,
-    UsableRender, Usage,
+    Access, Attribute, Binding, Compiled, CompiledKernel, CompiledRender, ElementType,
+    KernelLayout, PlainValue, Rejection, RenderLayout, RenderStage, Resource, Scalar, Shape,
+    Source, UniformBlock, UsableRender, Usage,
 };
 use crate::{ErrorKind, Result};
 
@@ -49,6 +49,14 @@ fn shape(shape: &Shape) -> String {
     }
 }
 
+fn element_type(element: &ElementType) -> String {
+    match element {
+        ElementType::Plain { scalar, components } => format!("{scalar:?} x{components}"),
+        ElementType::OtherPlain { name } => format!("other `{name}`"),
+        ElementType::Composite => "composite".to_owned(),
+    }
+}
+
 fn render_block(out: &mut String, block: &UniformBlock) {
     let UniformBlock { size, values } = block;
     writeln!(out, "    size {size}").expect("writing to a string");
@@ -79,9 +87,14 @@ fn render_bindings(out: &mut String, bindings: &[Binding], immediates: Option<&U
             resource,
         } = binding;
         match resource {
-            Resource::StorageBuffer { access, stride } => writeln!(
+            Resource::StorageBuffer {
+                access,
+                stride,
+                element,
+            } => writeln!(
                 out,
-                "  set {set} binding {index} `{path}` {usage:?}: storage buffer {access:?}, stride {stride}"
+                "  set {set} binding {index} `{path}` {usage:?}: storage buffer {access:?}, stride {stride}, element {}",
+                element_type(element)
             )
             .expect("writing to a string"),
             Resource::UniformBuffer(block) => {
@@ -244,6 +257,43 @@ fn uniform_parameters_of_the_entry_point_become_immediates_with_std430_offsets()
     insta::assert_snapshot!("immediates", render(&[kernel]));
 }
 
+const ELEMENTS: &str = r#"
+struct Particle { float3 position; float mass; };
+RWStructuredBuffer<float> floats;
+RWStructuredBuffer<int> ints;
+RWStructuredBuffer<uint4> uints;
+RWStructuredBuffer<bool> flags;
+RWStructuredBuffer<half2> halves;
+RWStructuredBuffer<Particle> particles;
+RWStructuredBuffer<float2x2> matrices;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run()
+{
+    floats[0] = float(ints[0]) + float(uints[0].x) + (flags[0] ? 1.0 : 0.0)
+        + float(halves[0].x) + particles[0].mass + matrices[0][0][0];
+}
+"#;
+
+#[test]
+fn the_element_type_of_each_structured_buffer_is_recorded_by_its_kind() {
+    let kernel = kernel(ELEMENTS);
+    let element = |path: &str| match &binding(&kernel, path).resource {
+        Resource::StorageBuffer { element, .. } => element.clone(),
+        other => panic!("`{path}` is not a storage buffer: {other:?}"),
+    };
+    let plain = |scalar, components| ElementType::Plain { scalar, components };
+    assert_eq!(element("floats"), plain(Scalar::Float32, 1));
+    assert_eq!(element("ints"), plain(Scalar::Int32, 1));
+    assert_eq!(element("uints"), plain(Scalar::Uint32, 4));
+    assert_eq!(element("flags"), plain(Scalar::Bool, 1));
+    assert!(matches!(element("halves"), ElementType::OtherPlain { .. }));
+    assert_eq!(element("particles"), ElementType::Composite);
+    assert_eq!(element("matrices"), ElementType::Composite);
+    insta::assert_snapshot!("elements", render(&[kernel]));
+}
+
 const GLOBALS: &str = r#"
 struct Params { float scale; float3 offset; uint count; float2 pair; };
 StructuredBuffer<float4> input;
@@ -280,7 +330,11 @@ fn global_plain_values_take_set_0_binding_0_and_shift_the_other_bindings() {
             1,
             &Resource::StorageBuffer {
                 access: Access::ReadOnly,
-                stride: 16
+                stride: 16,
+                element: ElementType::Plain {
+                    scalar: Scalar::Float32,
+                    components: 4
+                }
             }
         )
     );
@@ -292,7 +346,11 @@ fn global_plain_values_take_set_0_binding_0_and_shift_the_other_bindings() {
             2,
             &Resource::StorageBuffer {
                 access: Access::ReadWrite,
-                stride: 4
+                stride: 4,
+                element: ElementType::Plain {
+                    scalar: Scalar::Float32,
+                    components: 1
+                }
             }
         )
     );
@@ -1003,7 +1061,11 @@ fn a_float_texture_and_a_sampler_are_bindings_of_render_entry_points_and_kernels
                 3,
                 &Resource::StorageBuffer {
                     access: Access::ReadWrite,
-                    stride: 16
+                    stride: 16,
+                    element: ElementType::Plain {
+                        scalar: Scalar::Float32,
+                        components: 4
+                    }
                 },
                 Usage::Used
             ),

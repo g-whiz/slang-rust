@@ -1,6 +1,5 @@
 ---
 source: crates/slango/src/layout/tests/ffi.rs
-assertion_line: 273
 expression: "render(&[kernel])"
 ---
 kernel `run` thread group [1, 1, 1]
@@ -13,4 +12,4 @@ kernel `run` thread group [1, 1, 1]
     +64 48 bytes `Matrices.m3`: Float32 matrix 3x3
     +112 32 bytes `Matrices.m23`: Float32 matrix 2x3
     +144 12 bytes `Matrices.v3`: Float32 vector 3
-  set 0 binding 2 `output` Used: storage buffer ReadWrite, stride 4
+  set 0 binding 2 `output` Used: storage buffer ReadWrite, stride 4, element Float32 x1

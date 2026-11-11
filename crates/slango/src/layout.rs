@@ -58,6 +58,7 @@ pub(crate) enum Resource {
     StorageBuffer {
         access: Access,
         stride: u64,
+        element: ElementType,
     },
     UniformBuffer(UniformBlock),
     /// A `Texture2D` whose result type has the scalar type `float`.
@@ -70,6 +71,23 @@ pub(crate) enum Resource {
 pub(crate) enum Access {
     ReadOnly,
     ReadWrite,
+}
+
+/// The element type of a structured buffer, which the check of a bound
+/// buffer compares with the element type of the buffer (SLM-5 of
+/// `docs/design/slango-macros.md`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ElementType {
+    /// A scalar or a vector of `bool`, `int`, `uint`, or `float`, with its
+    /// number of components, 1 for a scalar.
+    Plain { scalar: Scalar, components: u32 },
+    /// A scalar or a vector of another scalar type, such as `half2`, which
+    /// no Rust element type has, with the name that Slang gives it.
+    OtherPlain { name: String },
+    /// A structure, a matrix, an array, or another type that is neither a
+    /// scalar nor a vector, whose bound buffer is checked by its stride
+    /// alone.
+    Composite,
 }
 
 /// A block of plain values, a uniform buffer or the immediates, with its
@@ -597,7 +615,44 @@ impl Walk<'_> {
             return Err(self.unsupported(path, "Slang reports no layout for its elements"));
         };
         let stride = self.finite(element.stride(ParameterCategory::Uniform), path)?;
-        self.push_binding(path, here, Resource::StorageBuffer { access, stride })
+        let element = self.element_type(element, path)?;
+        self.push_binding(
+            path,
+            here,
+            Resource::StorageBuffer {
+                access,
+                stride,
+                element,
+            },
+        )
+    }
+
+    /// Returns the element type of a structured buffer whose elements have
+    /// the layout `element`.
+    fn element_type(&self, element: TypeLayout<'_>, path: &str) -> Result<ElementType> {
+        let kind = element.kind().map_err(Error::compile)?;
+        if !matches!(kind, TypeKind::Scalar | TypeKind::Vector) {
+            return Ok(ElementType::Composite);
+        }
+        let Some(ty) = element.ty() else {
+            return Err(self.unsupported(path, "Slang reports no type for its elements"));
+        };
+        let components = if kind == TypeKind::Vector {
+            self.length(ty.element_count(), path)?
+        } else {
+            1
+        };
+        let scalar = match ty.scalar_type().map_err(Error::compile)? {
+            ScalarType::Bool => Scalar::Bool,
+            ScalarType::Int32 => Scalar::Int32,
+            ScalarType::Uint32 => Scalar::Uint32,
+            ScalarType::Float32 => Scalar::Float32,
+            _ => {
+                let name = ty.full_name().map_err(Error::compile)?;
+                return Ok(ElementType::OtherPlain { name });
+            }
+        };
+        Ok(ElementType::Plain { scalar, components })
     }
 
     /// Records a `Texture2D` with a `float` result, the one texture of the

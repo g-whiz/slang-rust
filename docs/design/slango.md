@@ -44,6 +44,8 @@ Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with
 
 The design of M4, rendering, exists as a draft dated 2026-11-11, in the sections that Section 1.4 lists. A second spike, for rendering, ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3.9 records what it established. Steps 7 to 12 of Section 14 give the order of the changes of M4. Step 7 is done, on 2026-11-11. The private layout snapshot records each vertex and fragment entry point with its SPIR-V, its bindings, and, for a vertex entry point, its vertex attributes, and the walk accepts textures and samplers (Sections 7.4 and 8.1). No public item changed, and a load shows one difference, in the parameter that its error may name (Section 7.4). Step 8 is done, on 2026-11-11. It added `Texture` with `TextureFormat`, `Sampler` with `SamplerOptions`, `FilterMode`, and `AddressMode`, the sealed trait `VertexElement`, the functions `texture` and `texture_from_view` of `slango::wgpu`, and the setters `Call::texture` and `Call::sampler` (Sections 8.1, 8.2, and 9.1). A user can create textures and samplers, read a texture back, and pass both to a compute kernel. Step 9 is done, on 2026-11-11. It added `Module::render_pipeline`, `RenderPipeline`, `RenderPipelineOptions`, `Blend`, and `CullMode` (Section 7.5). A user can create a render pipeline from a vertex and a fragment entry point of a module. Step 10 is done, on 2026-11-11. It added `RenderPipeline::draw` and the builder `Draw`, with the checks and the submission of Section 9.5. A user can bind vertex buffers, uniforms, textures, and samplers by name and draw into a texture, on Vulkan, Direct3D 12, and Metal. Step 11 is done, on 2026-11-11. It added the example `windowed-renderer` of Section 13.5 with its tests, and winit as a dependency of the examples package only. A user can draw into a window that the program owns and reload the shader while it runs. Step 12 is done, on 2026-11-11. It completed the manifest description and the crate-level documentation, with no change of behaviour. Every step of Section 14 is done, so M4 is complete on 2026-11-11. A user can run compute kernels, and draw with the vertex and fragment entry points of a module into a texture or into the surface of a window that the program owns. The crate-level documentation of `slango` is the detailed record.
 
+Milestone M6 changes `slango` in the order of Section 11 of `docs/design/slango-macros.md`. Its step 1 is done, on 2026-11-11. The layout snapshot records the element type of each storage buffer (Section 7.1), and a dispatch or a draw rejects a bound buffer whose element type differs from a scalar or vector element of its parameter (Section 9.3). This changes the behaviour of `Call::bind` and `Draw::bind` for every user, as Section 9.3 states. No public item was added.
+
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
 `slango` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slang-compiler.md`, and applies the same stance to naga and wgpu. Shader source and file paths are trusted input. When naga rejects a module, `slango` reports naga's own text and does not screen modules for the constructs of Sections 3.5 and 3.9 in advance. The checks of the arguments of a call stay, because a safe interface needs them (Section 9.3). A defect of Slang that M3 finds is recorded in Section 3.12 of `docs/design/slang-compiler.md`, not here.
@@ -405,15 +407,23 @@ Step 3 settled these choices, which the design left open:
 - `Device::load_module_from_source` takes the module name and the source text and sets no search path, so an `import` finds only what Slang finds by default.
 - A path that is not valid UTF-8, which Slang needs, gives `ErrorKind::InvalidArgument`. So does a file that cannot be read as text, with the I/O error as the source error.
 
-SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `slango`. The data is the thread group size, the immediate size, and for each parameter its parameter path, its kind, its set and binding, whether the code uses it, and either its element stride or the scalar type, shape, offset, and size of each plain value. The snapshot is the backend-neutral boundary of Section 6, and a public snapshot would freeze its shape. The walk MUST follow the rules of Section 3.3, including the shift of global bindings for global plain values and the sum of `SubElementRegisterSpace` offsets for parameter blocks.
+SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `slango`. The data is the thread group size, the immediate size, and for each parameter its parameter path, its kind, its set and binding, whether the code uses it, and either its element stride and element type or the scalar type, shape, offset, and size of each plain value. The snapshot is the backend-neutral boundary of Section 6, and a public snapshot would freeze its shape. The walk MUST follow the rules of Section 3.3, including the shift of global bindings for global plain values and the sum of `SubElementRegisterSpace` offsets for parameter blocks.
 
 This answers Q-31 of the architecture design, and CQ-4 of `docs/design/slang-compiler.md`, for M3. It also makes Q-30 of the architecture design, and CQ-1 of `docs/design/slang-compiler.md`, unnecessary for M3, because no Slang object leaves `load_module`.
 
 Step 2 built the snapshot as one record for each compute entry point, and step 7 added the records of vertex and fragment entry points (Section 7.4). The record of a kernel holds:
 
 - The name of the entry point and its thread group size.
-- Its bindings, sorted by set and binding, each with its parameter path and a usage flag. A binding is either a storage buffer with its access, read-only or read-write, and its element stride, or a uniform buffer with its size and its plain values.
+- Its bindings, sorted by set and binding, each with its parameter path and a usage flag. A binding is either a storage buffer with its access, read-only or read-write, its element stride, and its element type, or a uniform buffer with its size and its plain values.
 - An optional block of immediates with its size and its plain values.
+
+Step 1 of M6 added the element type of a storage buffer, which the check of Section 9.3 reads (SLM-5 of `docs/design/slango-macros.md`). The walk reads it from the element type layout from which it reads the stride. An element type is one of these:
+
+- A scalar or a vector of `bool`, `int`, `uint`, or `float`, with its number of components, 1 for a scalar.
+- A scalar or a vector of another scalar type, such as `half2`, `double`, or `uint8_t4`, with the name that Slang gives it, such as `vector<half,2>`.
+- A composite, which is a structure, a matrix, an array, or any other type that is neither a scalar nor a vector. The snapshot records no name, size, or fields for it.
+
+When Slang reports no type for the elements of a scalar or vector element, the load gives `ErrorKind::UnsupportedParameter`, as the walk's other checks for a missing answer of Slang do.
 
 Each plain value has its parameter path, offset, size, scalar type, and shape. A shape is a scalar, a vector with its length, a matrix with its rows and columns, or an array with its length, stride, and element shape. The walk flattens a structure into one plain value for each leaf, with a dotted path such as `params.scale`. A constant buffer or parameter block without plain values gets no uniform buffer.
 
@@ -524,7 +534,7 @@ The sealed trait is `Element`. Step 4 implemented it for exactly these types, wh
 | `f32`, `i32`, `u32` | `float`, `int`, `uint` | 4 |
 | `[f32; 4]`, `[i32; 4]`, `[u32; 4]` | `float4`, `int4`, `uint4` | 16 |
 
-The implementation adds further types only with the test of SLO-10. The size of a buffer is its length times the stride. Elements and the scalars of plain values (Section 9.2) are written little-endian, and elements are read the same way.
+The implementation adds further types only with the test of SLO-10. A call or a draw compares `T` with the element of its parameter as Section 9.3 states. The size of a buffer is its length times the stride. Elements and the scalars of plain values (Section 9.2) are written little-endian, and elements are read the same way.
 
 These rules settle the creation of a buffer and its contents:
 
@@ -596,7 +606,7 @@ A value matches its parameter when the scalar types are equal and the lengths of
 
 ### 9.3. Validation Before Dispatch
 
-SLO-14. The dispatch MUST check, before it submits any work, that every parameter path names a parameter of the kernel and that every used parameter is set. It MUST check that every value matches its parameter (SLO-12) and that the element stride of every bound buffer equals the reflected stride. It MUST check that every buffer belongs to the kernel's device and that every workgroup count is within the device's limit. It MUST return `ErrorKind::InvalidArgument` naming the parameter when a check fails, because wgpu reports these mistakes late, with less context, or not at all.
+SLO-14. The dispatch MUST check, before it submits any work, that every parameter path names a parameter of the kernel and that every used parameter is set. It MUST check that every value matches its parameter (SLO-12) and that the element stride of every bound buffer equals the reflected stride. It MUST run the check of the element type of every bound buffer that SLM-5 of `docs/design/slango-macros.md` requires. It MUST check that every buffer belongs to the kernel's device and that every workgroup count is within the device's limit. It MUST return `ErrorKind::InvalidArgument` naming the parameter when a check fails, because wgpu reports these mistakes late, with less context, or not at all.
 
 Each `Device` carries an identity that its clones share, and a buffer belongs to the device whose identity it holds. Two `Device` values built separately from the same wgpu device therefore count as different devices.
 
@@ -613,9 +623,17 @@ Step 8 extended these rules to textures and samplers:
 - A bound texture must have a colour format and the usage `TEXTURE_BINDING`. Of the colour textures, only one from `slango::wgpu::texture_from_view` can lack that usage.
 - Every texture and sampler that the kernel uses must be given.
 
+Step 1 of M6 added the check of the element type of a bound buffer (SLM-5 of `docs/design/slango-macros.md`), with these rules, which read the element type that Section 7.1 records:
+
+- When the element of the parameter is a scalar or a vector of `bool`, `int`, `uint`, or `float`, the Rust element type of the buffer must have the same scalar type and number of components, such as `f32` for `float` or `[u32; 4]` for `uint4`. Otherwise the error names the parameter, the Slang type, such as `float`, and the Rust type, such as `u32`.
+- When the element of the parameter is a scalar or a vector of another scalar type, no Rust element type matches it, and the error names it with the name that Slang gives it.
+- When the element of the parameter is a structure, a matrix, or an array, the stride alone is checked, so a `Buffer<[f32; 4]>` binds to a `StructuredBuffer<float2x2>` and to a buffer of a structure of 16 bytes.
+
+The owner decided on 2026-11-11 that a scalar or vector element matches exactly and a structure by its stride alone. The implementation of step 1 made two further choices. First, it applies the exact check to a scalar or a vector of `bool` and of every scalar type that no `Element` has, such as `half`, `double`, and the 8-bit and 16-bit integers, because SLM-5 covers every scalar and vector and the exact check is the sounder choice. No `Buffer<T>` can therefore be bound to such a parameter, although some were bound by their stride before, such as a `Buffer<u32>` to a `StructuredBuffer<bool>`. Second, it keeps the check of the stride alone for matrices and arrays, as for structures, because SLM-5 requires the exact check only for scalars and vectors.
+
 The dispatch runs the checks in this order and returns the first failure, all before any call of wgpu:
 
-1. Each given argument, in the order given: its path, the kind of its parameter, and its value, its buffer, or its texture or sampler. A texture is checked for its device, then its format, then its usage.
+1. Each given argument, in the order given: its path, the kind of its parameter, and its value, its buffer, or its texture or sampler. A buffer is checked for its device, then that it is not empty, then its stride, then its element type, so a buffer of another stride gets the error about its stride. A texture is checked for its device, then its format, then its usage.
 2. Each used parameter that no argument gives, in the order of the bindings, followed by the immediates.
 3. The workgroup count along each axis against the device's limit.
 
@@ -887,7 +905,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLO-11 | 8 | `Buffer::read` blocks until earlier dispatches finish and returns the elements. |
 | SLO-12 | 9.2 | The value trait is sealed and checks each value against its reflected type before writing. |
 | SLO-13 | 9.2 | Plain values are written at reflected offsets, never as Rust struct bytes. |
-| SLO-14 | 9.3 | Names, presence, values, strides, devices, and workgroup limits are checked before dispatch. |
+| SLO-14 | 9.3 | Names, presence, values, the strides and element types of buffers, devices, and workgroup limits are checked before dispatch. |
 | SLO-15 | 9.3 | Remaining wgpu validation errors are caught in an error scope and returned as `Backend`. |
 | SLO-16 | 10 | One `Error` type with the eight kinds of Section 10. |
 | SLO-17 | 11 | Every public type is `Send` and `Sync` without a manual implementation, asserted in a test. |
@@ -903,6 +921,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 1 of M6, the check of the element type of a bound buffer of SLM-5 of `docs/design/slango-macros.md`, in Section 1.6, with the element type in the snapshot in SLO-6 and Section 7.1, the comparison in Section 8, the rule, its decisions, its behaviour change, and the order of the checks of a buffer in SLO-14, Section 9.3, and Appendix A.
 - 2026-11-11: Added to Section 13.5 a recorded run of the example `windowed-renderer` with a window, whose frames showed the expected picture and the three outcomes of a reload.
 - 2026-11-11: Recorded step 12 of Section 14, which completed the manifest description and the crate-level documentation, and M4 as complete, in Sections 1.6 and 14.
 - 2026-11-11: Recorded step 11 of Section 14, which added the example `windowed-renderer` with winit, in Sections 1.6 and 14, and described the example as built in Section 13.5, with its option `--frames`, the choice of the surface format, the presentation, the reload, the offscreen `gpu` tests of its scene, and the runs with a window on the development machine. Recorded in Section 3.8 that winit builds and the scene's tests pass on all three CI runners, defined the mark (run) for step 11 in Section 3.1, and confirmed SOA-7 and removed its row in Section 15.

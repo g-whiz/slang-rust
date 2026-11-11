@@ -9,6 +9,7 @@ use crate::common::{device_with, load, shader};
 
 mod conventions;
 mod draw;
+mod elements;
 mod inputs;
 mod rejections;
 mod sharing;

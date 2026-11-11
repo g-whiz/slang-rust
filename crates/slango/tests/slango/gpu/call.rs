@@ -5,6 +5,7 @@ use slango::{AdapterSelection, Buffer, Device, Element};
 
 use crate::common::{device_with, kernel, load, shader};
 
+mod elements;
 mod validation;
 
 fn device() -> Device {

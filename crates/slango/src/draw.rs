@@ -236,7 +236,10 @@ impl<'a> Draw<'a> {
     ///
     /// The draw checks that the buffer belongs to the device of the
     /// pipeline, is not empty, and has elements of the size of the elements
-    /// of the parameter.
+    /// of the parameter. When the elements of the parameter are scalars or
+    /// vectors, it also checks that the elements of the buffer have their
+    /// scalar type and number of components, as [`Call::bind`](crate::Call::bind)
+    /// states.
     ///
     /// # Examples
     ///

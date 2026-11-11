@@ -6,7 +6,8 @@ use super::{
 use crate::call::{Argument, Bound, BoundSampler, BoundTexture, Entry, Plan, Source};
 use crate::error::ErrorKind;
 use crate::layout::{
-    Access, Attribute, Binding, PlainValue, Resource, Scalar, Shape, UniformBlock, Usage,
+    Access, Attribute, Binding, ElementType, PlainValue, Resource, Scalar, Shape, UniformBlock,
+    Usage,
 };
 use crate::marshal::{Value, VertexElement, marshal};
 use crate::render::{
@@ -115,6 +116,10 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                 Resource::StorageBuffer {
                     access: Access::ReadOnly,
                     stride: 4,
+                    element: ElementType::Plain {
+                        scalar: Scalar::Float32,
+                        components: 1,
+                    },
                 },
             ),
         ],
@@ -349,6 +354,7 @@ fn a_parameter_that_neither_stage_uses_may_be_omitted_and_a_given_one_is_checked
         Argument::Buffer(Bound {
             handle: (),
             stride: 4,
+            element: marshal(&0.0_f32).ty,
             len: 1,
             on_device: true,
         }),
@@ -360,6 +366,7 @@ fn a_parameter_that_neither_stage_uses_may_be_omitted_and_a_given_one_is_checked
         Argument::Buffer(Bound {
             handle: (),
             stride: 16,
+            element: marshal(&[0.0_f32; 4]).ty,
             len: 1,
             on_device: true,
         }),
@@ -368,6 +375,27 @@ fn a_parameter_that_neither_stage_uses_may_be_omitted_and_a_given_one_is_checked
         case.rejected(),
         invalid(
             "the parameter `unused` of the render pipeline of `vsMain` and `fsMain` has elements of 4 bytes, and the bound buffer has elements of 16 bytes"
+        )
+    );
+}
+
+#[test]
+fn a_buffer_of_another_scalar_type_is_rejected_as_a_call_rejects_it() {
+    let mut case = Case::new();
+    case.arguments.push((
+        "unused",
+        Argument::Buffer(Bound {
+            handle: (),
+            stride: 4,
+            element: marshal(&0_u32).ty,
+            len: 1,
+            on_device: true,
+        }),
+    ));
+    assert_eq!(
+        case.rejected(),
+        invalid(
+            "the parameter `unused` of the render pipeline of `vsMain` and `fsMain` has elements of the Slang type `float`, and the bound buffer has elements of the Rust type `u32`"
         )
     );
 }

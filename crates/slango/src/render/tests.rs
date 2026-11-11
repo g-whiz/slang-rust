@@ -8,8 +8,8 @@ use super::{
 };
 use crate::error::{Error, ErrorKind};
 use crate::layout::{
-    Access, Attribute, Binding, CompiledRender, Rejection, RenderLayout, RenderStage, Resource,
-    Scalar, UniformBlock, UsableRender, Usage,
+    Access, Attribute, Binding, CompiledRender, ElementType, Rejection, RenderLayout, RenderStage,
+    Resource, Scalar, UniformBlock, UsableRender, Usage,
 };
 use crate::texture::TextureFormat;
 
@@ -324,6 +324,7 @@ fn a_binding_is_visible_to_exactly_the_stages_that_use_it() {
     let storage = Resource::StorageBuffer {
         access: Access::ReadOnly,
         stride: 16,
+        element: ElementType::Composite,
     };
     let vertex = [
         binding(0, 0, Usage::Used, uniform(64)),

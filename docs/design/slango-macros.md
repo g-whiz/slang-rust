@@ -14,7 +14,7 @@ This document specifies milestone M6: the crate `slango-macros`, whose procedura
 
 ### 1.1. Problem
 
-The runtime API of `slango` sets every parameter by name and checks it at the dispatch (Section 9 of `docs/design/slango.md`). A misspelled name, a value of the wrong type, or a buffer of the wrong element type fails only when the program runs. A user also writes by hand every Rust struct that mirrors a Slang structure in a buffer, with its padding, and nothing checks it against Slang's layout. `slango` checks only the stride of a bound buffer, so a `Buffer<u32>` binds to a `StructuredBuffer<float>` without an error.
+The runtime API of `slango` sets every parameter by name and checks it at the dispatch (Section 9 of `docs/design/slango.md`). A misspelled name, a value of the wrong type, or a buffer of the wrong element type fails only when the program runs. A user also writes by hand every Rust struct that mirrors a Slang structure in a buffer, with its padding, and nothing checks it against Slang's layout. Until step 1 of Section 11, `slango` checked only the stride of a bound buffer, so a `Buffer<u32>` bound to a `StructuredBuffer<float>` without an error.
 
 ### 1.2. Purpose
 
@@ -41,7 +41,7 @@ These are not part of M6:
 
 ### 1.6. Current State
 
-This document exists as a draft dated 2026-11-11. No code of `slango-macros`, `slango-codegen`, or the hidden module of `slango` exists, and none of the steps of Section 11 is done. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. The first change is step 1 of Section 11, which changes `slango` itself.
+This document exists as a draft dated 2026-11-11. The spike of M6 ran on 2026-11-11 on a copy of the repository that the repository does not keep, and Section 3 records what it established. Step 1 of Section 11 is done, on 2026-11-11. It added the check of the element type of a bound buffer of SLM-5 to `slango`, which Section 9.3 of `docs/design/slango.md` describes with its behaviour change. No code of `slango-macros`, `slango-codegen`, or the hidden module of `slango` exists, and the next change is step 2 of Section 11.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -170,7 +170,9 @@ This section changes the behaviour of `slango` for every user, macro or not.
 
 SLM-5. The layout snapshot MUST record the element type of each structured buffer in its storage buffer record. When the recorded element is a scalar or a vector, `Call::bind` and `Draw::bind` MUST report `ErrorKind::InvalidArgument` naming the parameter unless the Rust element type has the same scalar and component count. When the recorded element is a structure, they MUST keep the check of the stride alone. A check of the stride alone lets a `Buffer<u32>` bind to a `StructuredBuffer<float>` and read wrong values without an error (Section 1.1), while a buffer of structures must stay usable without the macro.
 
-An element type is a scalar with its component count, or a structure with its Slang name, size, and fields. The check runs at the dispatch or the draw with the other checks of SLO-14 and SLO-26 of `docs/design/slango.md`. A buffer of a built-in `Element`, such as `[f32; 4]`, still binds to a structured buffer of a structure of the same stride, so a user of the runtime API alone keeps today's behaviour for structures. Generated bindings are exact in both cases, because the element type that the generator emits for a structure is that structure's own struct (Section 7.3). The generator also reads the recorded element type to choose the Rust type of each buffer field (Section 7.2). Step 1 of Section 11 updates `docs/design/slango.md` with this change.
+The full element type is a scalar with its component count, or a structure with its Slang name, size, and fields. The check runs at the dispatch or the draw with the other checks of SLO-14 and SLO-26 of `docs/design/slango.md`. A buffer of a built-in `Element`, such as `[f32; 4]`, still binds to a structured buffer of a structure of the same stride, so a user of the runtime API alone keeps today's behaviour for structures. Generated bindings are exact in both cases, because the element type that the generator emits for a structure is that structure's own struct (Section 7.3). The generator also reads the recorded element type to choose the Rust type of each buffer field (Section 7.2).
+
+Step 1 of Section 11 implemented SLM-5 and confirmed the part of SLMA-4 on structured buffers: the walk records the element type of each structured buffer (Section 7.1 of `docs/design/slango.md`). It records a structure, a matrix, or an array only as a composite, with no Slang name, size, or fields, because the check does not need them. Step 2 adds what the generator needs of a structure (Section 5.2). Section 9.3 of `docs/design/slango.md` states the rules of the check, the choices of the implementation for `bool`, other scalar types, matrices, and arrays, and the behaviour change.
 
 ### 5.2. The Hidden Module
 
@@ -334,7 +336,7 @@ SLM-22. An agent that changes the pin MUST run the compile-fail tests and update
 
 These steps implement M6. Each step leaves `just check` passing and adds its tests.
 
-1. In `slango`, record the element type of each structured buffer in the snapshot and check it in `Call::bind` and `Draw::bind` (SLM-5). Update `docs/design/slango.md` with the behaviour change. Tests: the unit and `gpu` tests of SLM-5.
+1. In `slango`, record the element type of each structured buffer in the snapshot and check it in `Call::bind` and `Draw::bind` (SLM-5). Update `docs/design/slango.md` with the behaviour change. Tests: the unit and `gpu` tests of SLM-5. Done on 2026-11-11 (Section 5.1).
 2. In `slango`, split loading into compile and load, and add `__private` with `precompile_file`, the interface description, the encoding, `load_precompiled`, `ENCODING_VERSION`, and `StructElement` with its blanket implementations (Section 5). Confirm SLMA-4. Tests: the round trip under Miri and the `gpu` tests of the precompiled load.
 3. Add `crates/slango-codegen` and `crates/slango-macros` for compute kernels with plain values, buffers of built-in elements, textures, and samplers, with path resolution, tracking, the build script, and the docs.rs stub (Sections 6, 7.1, 7.2, 7.4, 7.5, 8, and 9), the dependencies in `[workspace.dependencies]`, and any change to `deny.toml` that Section 4.2 allows. Record both crates as existing in Section 1.6 of `docs/design/architecture.md`. Confirm SLMA-1, SLMA-5, and SLMA-6 in CI. Tests: the pure tests, the snapshots, trybuild with the rule SLM-22, and the `gpu` test of saxpy.
 4. Add generated structs (Section 7.3) with their tests, including the `gpu` test of a structure element. Confirm SLMA-7.
@@ -350,7 +352,7 @@ Each row is a statement that this design relies on and that the spike did not es
 | SLMA-1 | The generator compiles against `syn` 2 and `prettyplease` 0.2 as it did against `syn` 3 and `prettyplease` 0.3 | SLM-3 | Step 3 |
 | SLMA-2 | A crate whose public signatures name only `Shader` of the generated items builds its documentation without Slang | Section 6.4 | Step 5 |
 | SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M7 |
-| SLMA-4 | The reflection walk can record the Slang name of a uniform structure and the element type of each structured buffer | SLM-5, Section 5.2 | Steps 1 and 2 |
+| SLMA-4 | The reflection walk can record the Slang name of a uniform structure. Step 1 confirmed the element type of each structured buffer (Section 5.1) | Section 5.2 | Step 2 |
 | SLMA-5 | `-Wl,-rpath` makes the macro library load on macOS with no library path set | SLM-12 | Step 3, in CI |
 | SLMA-6 | On Windows, the macro library finds `slang-compiler.dll` through the `PATH` that the CI job sets | Section 6.3 | Step 3, in CI |
 | SLMA-7 | A nested structure as a field generates a correct layout | SLM-18 | Step 4 |
@@ -454,4 +456,5 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 1 of Section 11, the check of the element type of a bound buffer in `slango`, as done in Sections 1.6, 5.1, and 11, put the problem of the stride-only check in the past in Section 1.1, and narrowed SLMA-4 to the Slang name of a uniform structure in Section 12.
 - 2026-11-11: First draft, written after the spike of M6 as the first task of M6.

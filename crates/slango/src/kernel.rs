@@ -225,7 +225,7 @@ fn binding_type(resource: &Resource) -> ::wgpu::BindingType {
         min_binding_size: NonZeroU64::new(size),
     };
     match resource {
-        Resource::StorageBuffer { access, stride } => buffer(
+        Resource::StorageBuffer { access, stride, .. } => buffer(
             ::wgpu::BufferBindingType::Storage {
                 read_only: *access == Access::ReadOnly,
             },

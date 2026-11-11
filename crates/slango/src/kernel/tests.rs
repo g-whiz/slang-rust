@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use super::{Kernel, bind_group_layout_entries, checked_immediate_size, pipeline_error_kind};
 use crate::Module;
 use crate::error::ErrorKind;
-use crate::layout::{Access, Binding, KernelLayout, Resource, UniformBlock, Usage};
+use crate::layout::{Access, Binding, ElementType, KernelLayout, Resource, UniformBlock, Usage};
 
 fn storage(set: u32, index: u32, usage: Usage, access: Access, stride: u64) -> Binding {
     Binding {
@@ -11,7 +11,11 @@ fn storage(set: u32, index: u32, usage: Usage, access: Access, stride: u64) -> B
         set,
         index,
         usage,
-        resource: Resource::StorageBuffer { access, stride },
+        resource: Resource::StorageBuffer {
+            access,
+            stride,
+            element: ElementType::Composite,
+        },
     }
 }
 

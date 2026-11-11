@@ -1,7 +1,9 @@
 use super::sealed::{SealedValue, SealedVertexElement};
-use super::{Marshalled, Value, ValueType, VertexElement, check, marshal, write};
+use super::{
+    Element, Marshalled, Value, ValueType, VertexElement, check, element_mismatch, marshal, write,
+};
 use crate::error::ErrorKind;
-use crate::layout::{PlainValue, Scalar, Shape};
+use crate::layout::{ElementType, PlainValue, Scalar, Shape};
 
 mod ffi;
 
@@ -539,4 +541,70 @@ fn write_rejects_a_matrix_without_rows() {
     let error = write("empty", &marshal(&[[0.0_f32; 2]; 0]), &empty, &mut block)
         .expect_err("a matrix of zero rows has no row stride");
     assert_eq!(error.kind(), ErrorKind::UnsupportedParameter);
+}
+
+fn element(scalar: Scalar, components: u32) -> ElementType {
+    ElementType::Plain { scalar, components }
+}
+
+fn bound_to<T: Element>(element: &ElementType) -> Option<String> {
+    element_mismatch(&T::value_type(), element)
+}
+
+#[test]
+fn each_element_type_matches_the_scalar_or_vector_of_its_scalar_type_and_count() {
+    assert_eq!(bound_to::<f32>(&element(Scalar::Float32, 1)), None);
+    assert_eq!(bound_to::<i32>(&element(Scalar::Int32, 1)), None);
+    assert_eq!(bound_to::<u32>(&element(Scalar::Uint32, 1)), None);
+    assert_eq!(bound_to::<[f32; 4]>(&element(Scalar::Float32, 4)), None);
+    assert_eq!(bound_to::<[i32; 4]>(&element(Scalar::Int32, 4)), None);
+    assert_eq!(bound_to::<[u32; 4]>(&element(Scalar::Uint32, 4)), None);
+}
+
+#[test]
+fn an_element_type_of_another_scalar_type_or_count_is_a_mismatch_with_the_slang_name() {
+    let cases = [
+        (bound_to::<u32>(&element(Scalar::Float32, 1)), "float"),
+        (bound_to::<f32>(&element(Scalar::Int32, 1)), "int"),
+        (bound_to::<i32>(&element(Scalar::Uint32, 1)), "uint"),
+        (bound_to::<u32>(&element(Scalar::Bool, 1)), "bool"),
+        (bound_to::<[u32; 4]>(&element(Scalar::Float32, 4)), "float4"),
+        (bound_to::<[f32; 4]>(&element(Scalar::Int32, 4)), "int4"),
+        (bound_to::<[i32; 4]>(&element(Scalar::Uint32, 4)), "uint4"),
+        (bound_to::<[u32; 4]>(&element(Scalar::Bool, 4)), "bool4"),
+        (bound_to::<f32>(&element(Scalar::Float32, 4)), "float4"),
+        (bound_to::<[f32; 4]>(&element(Scalar::Float32, 1)), "float"),
+        (bound_to::<[f32; 4]>(&element(Scalar::Float32, 3)), "float3"),
+    ];
+    for (outcome, name) in cases {
+        assert_eq!(outcome.as_deref(), Some(name));
+    }
+}
+
+#[test]
+fn a_scalar_or_vector_of_another_scalar_type_matches_no_element_type() {
+    let half2 = ElementType::OtherPlain {
+        name: "vector<half,2>".to_owned(),
+    };
+    for outcome in [
+        bound_to::<f32>(&half2),
+        bound_to::<i32>(&half2),
+        bound_to::<u32>(&half2),
+        bound_to::<[f32; 4]>(&half2),
+        bound_to::<[i32; 4]>(&half2),
+        bound_to::<[u32; 4]>(&half2),
+    ] {
+        assert_eq!(outcome.as_deref(), Some("vector<half,2>"));
+    }
+}
+
+#[test]
+fn a_composite_element_matches_every_element_type() {
+    let composite = ElementType::Composite;
+    assert_eq!(bound_to::<f32>(&composite), None);
+    assert_eq!(bound_to::<i32>(&composite), None);
+    assert_eq!(bound_to::<u32>(&composite), None);
+    assert_eq!(bound_to::<[f32; 4]>(&composite), None);
+    assert_eq!(bound_to::<[i32; 4]>(&composite), None);
+    assert_eq!(bound_to::<[u32; 4]>(&composite), None);
 }

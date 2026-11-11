@@ -1,10 +1,9 @@
 ---
 source: crates/slango/src/layout/tests/ffi.rs
-assertion_line: 167
 expression: "render(&[kernel])"
 ---
 kernel `run` thread group [64, 1, 1]
-  set 0 binding 0 `output` Used: storage buffer ReadWrite, stride 4
+  set 0 binding 0 `output` Used: storage buffer ReadWrite, stride 4, element Float32 x1
   immediates
     size 112
     +0 4 bytes `scale`: Float32 scalar

@@ -1,15 +1,14 @@
 ---
 source: crates/slango/src/layout/tests/ffi.rs
-assertion_line: 327
 expression: "render(&[kernel])"
 ---
 kernel `run` thread group [64, 1, 1]
-  set 0 binding 0 `data` Used: storage buffer ReadWrite, stride 4
+  set 0 binding 0 `data` Used: storage buffer ReadWrite, stride 4, element Float32 x1
   set 1 binding 0 `extra` Used: uniform buffer
     size 16
     +0 4 bytes `extra.bias`: Float32 scalar
-  set 1 binding 1 `extra.values` Used: storage buffer ReadWrite, stride 4
+  set 1 binding 1 `extra.values` Used: storage buffer ReadWrite, stride 4, element Float32 x1
   set 2 binding 0 `outer` Used: uniform buffer
     size 16
     +0 4 bytes `outer.weight`: Float32 scalar
-  set 3 binding 0 `outer.inner.deep` Used: storage buffer ReadWrite, stride 4
+  set 3 binding 0 `outer.inner.deep` Used: storage buffer ReadWrite, stride 4, element Float32 x1

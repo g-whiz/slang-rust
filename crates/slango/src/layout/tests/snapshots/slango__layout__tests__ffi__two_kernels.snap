@@ -1,17 +1,16 @@
 ---
 source: crates/slango/src/layout/tests/ffi.rs
-assertion_line: 368
 expression: render(&kernels)
 ---
 kernel `fill` thread group [64, 1, 1]
-  set 0 binding 0 `first` Used: storage buffer ReadWrite, stride 4
-  set 0 binding 1 `second` Unused: storage buffer ReadWrite, stride 4
+  set 0 binding 0 `first` Used: storage buffer ReadWrite, stride 4, element Float32 x1
+  set 0 binding 1 `second` Unused: storage buffer ReadWrite, stride 4, element Uint32 x1
   immediates
     size 4
     +0 4 bytes `value`: Float32 scalar
 kernel `add` thread group [8, 8, 1]
-  set 0 binding 0 `first` Unused: storage buffer ReadWrite, stride 4
-  set 0 binding 1 `second` Used: storage buffer ReadWrite, stride 4
+  set 0 binding 0 `first` Unused: storage buffer ReadWrite, stride 4, element Float32 x1
+  set 0 binding 1 `second` Used: storage buffer ReadWrite, stride 4, element Uint32 x1
   immediates
     size 8
     +0 4 bytes `left`: Uint32 scalar
