@@ -719,6 +719,11 @@ wgpu also brings four duplicate versions that no change to the workspace can rem
 | `hashbrown@0.16.1` | `gpu-allocator` 0.28 of `wgpu-hal` 30 | 0.17.1, of `indexmap` 2 of naga |
 | `syn@2.0.119` | `jni-sys-macros`, `windows-implement`, `windows-interface`, and `zerocopy-derive` | 3.0.10, of `bytemuck_derive`, `thiserror-impl`, and `wasm-bindgen-macro-support` |
 
+Planned, and not done yet: step 11 of Section 14 of `docs/design/slango.md` adds winit 0.30 to `[workspace.dependencies]` as a dependency of the examples package only, for the windowed renderer example. winit 0.30 is the version that the examples of wgpu 30.0.1 pin, and it is under `Apache-2.0`. A scratch package with the dependencies of the workspace and winit 0.30.13, checked with cargo-deny 0.20.2 against `deny.toml` on 2026-11-11, gave these results, which the step settles:
+
+- Licences: the default feature `wayland-csd-adwaita` brings `arrayref` under `BSD-2-Clause`, and `tiny-skia` and `tiny-skia-path` under `BSD-3-Clause`, which the allow-list does not hold. The step turns off winit's default features and enables `rwh_06`, `x11`, `wayland`, and `wayland-dlopen`, which passed the licence check, instead of widening the allow-list under TOOL-24.
+- Duplicates: winit adds duplicate versions of 13 crates, which are `bitflags`, `block2`, `objc2`, `objc2-foundation`, `getrandom`, `r-efi`, `jni-sys`, `linux-raw-sys`, `rustix`, `redox_syscall`, `thiserror`, `thiserror-impl`, and `windows-sys`. TOOL-26 permits an exception only for one duplicate, so a single exception for the subtree of winit would need TOOL-26 amended in that step. The step decides between that amendment and thirteen single `skip` entries, and records its choice here.
+
 `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
 
 ## 10. Publishing Readiness
@@ -975,6 +980,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded in Section 9, as planned, the dependency winit 0.30 that the design of M4 in `docs/design/slango.md` adds to the examples package, with the licence and duplicate-version findings that its step 11 settles.
 - 2026-11-11: Recorded in Sections 3.2 and 3.3 that step 6 of `docs/design/slango.md` added the binary target `compute-kernel` and `slango` in `[workspace.dependencies]`.
 - 2026-11-11: Recorded in Section 8.1 that `slango` dispatches kernels on WARP and hosted Metal, and removed the fallback to `just test` that a negative answer would have needed.
 - 2026-11-11: Recorded in Section 8.1 that `slango` loads modules on WARP and hosted Metal, so only dispatch stays open on Windows and macOS.
