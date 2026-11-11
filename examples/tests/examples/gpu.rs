@@ -1,3 +1,5 @@
+mod windowed_renderer;
+
 use std::process::{Command, Output};
 
 fn compute_kernel(file: &str) -> Output {

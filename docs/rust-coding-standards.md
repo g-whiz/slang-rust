@@ -937,7 +937,7 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 ## 14. Testing
 
-**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked. [IR-17] [IR-10] [IR-63]
+**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute, when that module holds logic that needs a test, such as the scene of the windowed renderer (Section 13.5 of `docs/design/slango.md`). Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked. A library target in the examples package would add public items that exist only for a test, so the shared module makes the test check the code that the binary runs, as SYS-8 does for a build script, and no source in the reference list covers it, so this part of the rule is project-defined. [IR-17] [IR-10] [IR-63]
 
 **TEST-2.** Cover text and structured output, such as diagnostic messages and reflection data, with `insta` snapshot tests, review their changes with `cargo insta review`, commit the snapshot files, and make the output under test deterministic. Reason: a snapshot shows a reviewer the exact change in output, and output that depends on hash order or timing makes the test flaky. [IR-17] [IR-1]
 
@@ -1175,7 +1175,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | CONC-5 | Atomic orderings match their purpose, and `SeqCst` prompts a review. |
 | CONC-6 | A blocking core, async only for external waits, no `Send + 'static` bounds unless spawning or on a trait whose objects a foreign library keeps and calls. |
 | CONC-7 | Every public `async fn` documents its cancel safety and holds nothing across `.await`. |
-| TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names. |
+| TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names, and a module of an example binary that the examples' test binary includes with `#[path]` when the module needs a test. |
 | TEST-2 | Snapshot tests with `insta` for text and structured output, with deterministic output. |
 | TEST-3 | Tests that need the native library or a GPU are tagged so they can be filtered. |
 | TEST-4 | Every bug fix comes with a regression test. |
@@ -1196,6 +1196,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-11: Extended TEST-1 and its row in Appendix A so that a binary of the examples package may share a module with the integration-test binary through a `#[path]` attribute, as the windowed renderer example does.
 - 2026-11-11: Recorded in Section 4.4 that no item of `slango` carries the exception for an item that only unit tests use after step 10 of its design.
 - 2026-11-11: Recorded in Section 4.4 that no item of `slango` carries the exception for an item that only unit tests use, because step 9 of its design added the caller of `layout::CompiledRender` and `layout::UsableRender`.
 - 2026-11-11: Recorded in Section 4.4 that the supertrait `SealedVertexElement` of `slango` carries the exception for `unnameable_types`, after step 8 of its design.

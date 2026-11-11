@@ -1,3 +1,5 @@
+mod windowed_renderer;
+
 use std::process::{Command, Output};
 
 fn compile_and_reflect(file: &str) -> Output {

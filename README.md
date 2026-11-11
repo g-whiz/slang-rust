@@ -24,7 +24,7 @@ No crate in this table is published. Each crate gets a link to its documentation
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
 | `slang-slint` | Planned | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
 
-The repository also holds the binding generator, which writes the raw bindings, and the examples, which also serve as integration tests. The first example, `compile-and-reflect`, compiles a Slang file and prints its entry points and parameters. The second, `compute-kernel`, runs a compute kernel on the GPU with `slango` and checks its results. Neither the generator nor the examples are published.
+The repository also holds the binding generator, which writes the raw bindings, and the examples, which also serve as integration tests. The first example, `compile-and-reflect`, compiles a Slang file and prints its entry points and parameters. The second, `compute-kernel`, runs a compute kernel on the GPU with `slango` and checks its results. The third, `windowed-renderer`, draws a rotating, textured quad in a window and reloads its shader whenever the file changes. Neither the generator nor the examples are published.
 
 ## Obtaining Slang
 
@@ -54,11 +54,12 @@ This command runs every check, as is required before every merge:
 just check
 ```
 
-These commands, run from the workspace root with the Slang library of the Vulkan SDK on the library path, run the two examples on their sample shaders. The second also needs a GPU driver or a software driver, such as lavapipe on Linux:
+These commands, run from the workspace root with the Slang library of the Vulkan SDK on the library path, run the three examples on their sample shaders. The second and the third also need a GPU driver or a software driver, such as lavapipe on Linux, and the third needs a display:
 
 ```sh
 cargo run -p slang-rust-examples --bin compile-and-reflect -- examples/shaders/scale.slang
 cargo run -p slang-rust-examples --bin compute-kernel -- examples/shaders/saxpy.slang
+cargo run -p slang-rust-examples --bin windowed-renderer -- examples/shaders/textured-quad.slang
 ```
 
 [`AGENTS.md`](https://github.com/g-whiz/slang-rust/blob/main/AGENTS.md) holds the rules for working in the repository, the project status, and the recipe to run for each kind of change. These documents are under `docs/`:

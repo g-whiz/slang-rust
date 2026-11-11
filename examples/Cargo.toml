@@ -11,8 +11,11 @@ repository.workspace = true
 readme.workspace = true
 
 [dependencies]
+pollster.workspace = true
 slang-compiler.workspace = true
 slango.workspace = true
+wgpu.workspace = true
+winit.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
