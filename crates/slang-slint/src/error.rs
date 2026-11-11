@@ -59,6 +59,11 @@ impl Error {
         self
     }
 
+    pub(crate) fn with_source(mut self, source: impl StdError + Send + Sync + 'static) -> Self {
+        self.source = Some(Box::new(source));
+        self
+    }
+
     /// Returns the kind of the failure, which says what went wrong and how a
     /// caller can recover.
     ///
@@ -152,10 +157,8 @@ mod tests {
 
     #[test]
     fn source_returns_the_error_that_caused_the_failure() {
-        let error = Error {
-            source: Some(Box::new(io::Error::other("the device is lost"))),
-            ..Error::new(ErrorKind::Slango, "create a texture")
-        };
+        let error = Error::new(ErrorKind::Slango, "create a texture")
+            .with_source(io::Error::other("the device is lost"));
         assert_eq!(error.to_string(), "cannot create a texture");
         let source = error.source().map(ToString::to_string);
         assert_eq!(source.as_deref(), Some("the device is lost"));

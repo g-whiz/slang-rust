@@ -34,7 +34,7 @@ M5 covers the minimal view only. These are not part of M5: a custom Slint elemen
 
 ### 1.6. Current State
 
-Step 1 of Section 11 is done, on 2026-11-11. It added the crate `crates/slang-slint` with `wgpu_configuration` (SLS-6), `device` (SLS-7), and the error type of Section 7 with all four kinds, and their tests (Section 9). The crate's API documentation is the detailed record, and its crate-level documentation already states the licence consequence of SLS-5. `View` (Section 6) and example 4 (Section 10) do not exist yet, and step 2 is the next change.
+Steps 1 and 2 of Section 11 are done, on 2026-11-11. Step 1 added the crate `crates/slang-slint` with `wgpu_configuration` (SLS-6), `device` (SLS-7), and the error type of Section 7 with all four kinds, and their tests (Section 9). Step 2 added `View` (Section 6) and its `gpu` tests, which ran locally only (Section 9). The crate's API documentation is the detailed record, and its crate-level documentation already states the licence consequence of SLS-5. Example 4 does not exist yet, and step 3 is the next change.
 
 The spike of M5 ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it and step 1 established. Section 11 gives the order of the changes that implement M5.
 
@@ -70,6 +70,7 @@ Each fact carries one of these marks:
 
 - (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux with Rust 1.99.1, Slint 1.18.1, wgpu 30.0.1, and `slango` of the repository at commit `e8982ca`, in debug and release builds. It ran on lavapipe under a nested Wayland compositor and on an NVIDIA GeForce RTX 4070 Laptop GPU on the development container's own Wayland socket, with the same results on both unless the fact says otherwise. A fact about dependencies means a run of `cargo deny` or `cargo tree` on a copy of the repository with a member `crates/slang-slint` added.
 - (step 1): Verified on 2026-11-11 by step 1 of Section 11, which built and tested the crate `slang-slint` in the repository, in the development container on x86_64 Linux and in CI on Linux, Windows, and macOS.
+- (step 2): Verified on 2026-11-11 by the `gpu` tests of step 2 of Section 11, in the development container on x86_64 Linux, on the NVIDIA GeForce RTX 4070 Laptop GPU and on lavapipe.
 - (read): Read on 2026-11-11 in the source of the named crate of Slint 1.18.1, or in the named source.
 - (inferred): Concluded from other facts and not verified. Section 12 lists the assumptions on which a requirement depends.
 
@@ -97,7 +98,7 @@ With `Automatic`, Slint's selection refuses a CPU adapter unless `SLINT_WGPU_CPU
 
 ### 3.4. The Texture Import
 
-`slint::Image` implements `TryFrom<wgpu::Texture>`, which takes the texture by value and returns a non-exhaustive `TextureImportError` with the variants `InvalidFormat` and `InvalidUsage` (read, `i-slint-core`). It accepts a texture of `Rgba8Unorm` or `Rgba8UnormSrgb` with both usages `TEXTURE_BINDING` and `RENDER_ATTACHMENT`, and rejects every other format and usage (read, and run for both formats of `slango` and for `Bgra8Unorm`, `Bgra8UnormSrgb`, and `Rgba16Float`). Every colour texture of `slango` has both usages (Section 8.1 of `docs/design/slango.md`).
+`slint::Image` implements `TryFrom<wgpu::Texture>`, which takes the texture by value and returns a non-exhaustive `TextureImportError` with the variants `InvalidFormat` and `InvalidUsage` (read, `i-slint-core`). It accepts a texture of `Rgba8Unorm` or `Rgba8UnormSrgb` with both usages `TEXTURE_BINDING` and `RENDER_ATTACHMENT`, and rejects every other format and usage (read, and run for both formats of `slango` and for `Bgra8Unorm`, `Bgra8UnormSrgb`, and `Rgba16Float`). Every colour texture of `slango` has both usages (Section 8.1 of `docs/design/slango.md`). The import needs no Slint backend, window, or event loop: `Image::try_from` accepted the texture of a view in a plain test process, and `Image::to_wgpu_30_texture` returned the same wgpu texture, which wgpu compares by identity (step 2).
 
 An image made from a clone of the wgpu texture of a `slango::Texture` shares the GPU texture with it. Draws into that texture appeared on the next frame that Slint rendered, without a new image, when a redraw was requested (run). In Slint's own snapshot of the window, an `Rgba8Unorm` texture appeared byte for byte as an image of the same bytes made on the CPU, and an `Rgba8UnormSrgb` texture was decoded when sampled (run). The pixels on the physical screen were not measured.
 
@@ -191,7 +192,7 @@ An equal size returns `false` and creates nothing. A width or a height of zero g
 
 ### 6.3. Usage Illustration
 
-This illustration shows the form of the API of M5, which does not exist yet, and has not been compiled. It unwraps every error for brevity, and a line marked `// ...` is elided. The program passes the configuration to Slint, creates the view in `RenderingSetup`, and resizes and draws it before each frame with one value set by name:
+This illustration shows the form of the API of M5 and has not been compiled. It unwraps every error for brevity, and a line marked `// ...` is elided. The program passes the configuration to Slint, creates the view in `RenderingSetup`, and resizes and draws it before each frame with one value set by name:
 
 ```rust
 use std::{cell::RefCell, rc::Rc};
@@ -271,17 +272,29 @@ The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (S
 
 ## 9. Tests
 
-`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). Its module `configuration` checks the fields of the configuration of SLS-6, and its module `device` checks the error path of `device`. The unit tests in `src/error.rs` check the `Display` text of each error kind, `source`, and the assertions of SLS-14 for `Error` and `ErrorKind`, because only the crate can construct an error of each kind, as in `slango`. These nine tests are pure, and Miri runs them all (step 1). The tests of its module `gpu`, which step 2 adds, create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. They draw into a view and read its texture back through `slango`, resize it and draw again, check `InvalidSize` for a zero size, and check that a pipeline of another colour format fails at the draw (TEST-6). When SLSA-2 holds, a `gpu` test also calls `View::to_image` and checks the size of the image.
+`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). Its module `configuration` checks the fields of the configuration of SLS-6, its module `device` checks the error path of `device`, and its module `view` asserts SLS-14 for `View`. The unit tests in `src/error.rs` check the `Display` text of each error kind, `source`, and the assertions of SLS-14 for `Error` and `ErrorKind`, because only the crate can construct an error of each kind, as in `slango`. These ten tests are pure, and Miri runs them all.
+
+The nine tests of the module `gpu`, with their helpers in the module `common`, create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. Their shader draws one triangle that covers the texture, with no vertex buffer. They check:
+
+- The size and the format of a new view (SLS-9).
+- A draw that fills the view's texture, read back through `slango` (SLS-10).
+- A resize that draws into a new texture of the new size, and a resize to the current size that keeps the texture and its pixels (SLS-12).
+- `InvalidSize` for a zero size, for `View::new` and `View::resize`, with the texture and its pixels kept on the error (TEST-6).
+- `Slango` with `slango`'s `InvalidArgument` as the source for a size over the device's limit, for `View::new` and `View::resize`, with the texture and its pixels kept on the error.
+- A pipeline of another colour format that fails at the draw.
+- An image of `View::to_image` that has the view's size and shares its texture, before and after a resize (SLS-11).
+
+On 2026-11-11, these tests passed in the development container on the NVIDIA GeForce RTX 4070 Laptop GPU and on lavapipe.
 
 SLS-15. A test of `slang-slint` or of example 4 MUST NOT open a window or need a display, because the Linux CI runner has none, so such a test fails in CI (ARCH-21).
 
 The error path of `device` is tested with `GraphicsAPI::NativeOpenGL` and `GraphicsAPI::WebGL`, which are not non-exhaustive variants, so a test can build them. Its success path has no automated test, because only Slint creates a value of the non-exhaustive variant `GraphicsAPI::WGPU30` (Section 3.3), and a struct expression for it outside Slint fails to compile with E0639 (step 1). Example 4 calls it whenever it runs.
 
-These tests answer Q-24 of the architecture design for `slang-slint`: the view is checked headless on the three CI runners. The window of example 4, like that of example 3, is not checked headless.
+These tests answer Q-24 of the architecture design for `slang-slint`: the view is checked headless. The window of example 4, like that of example 3, is not checked headless.
 
 ## 10. The Slint Example
 
-Example 4 of the architecture design is the binary target `shader-playground` of the package `slang-rust-examples`. Its source is the directory `examples/src/bin/shader-playground/`, with `main.rs`, which holds the Slint window and the rendering notifier, and `scene.rs`, which holds the view, the reload, and the draw, and which the examples' test binary also compiles (TEST-1). Its shader is `examples/shaders/playground.slang`, which draws a full-screen triangle with no vertex buffer and colours it from the global uniforms `time`, `brightness`, and `scale`.
+Example 4 of the architecture design is the binary target `shader-playground` of the package `slang-rust-examples`. Its source is the directory `examples/src/bin/shader-playground/`, with `main.rs`, which holds the Slint window and the rendering notifier, and `scene.rs`, which holds the view, the reload, and the draw, and which the examples' test binary also compiles (TEST-1). Its shader is `examples/shaders/playground.slang`, which draws a full-screen triangle with no vertex buffer and colours it from the global uniforms `time`, `brightness`, and `scale`. The vertex entry point numbers the vertices with `SV_VulkanVertexID`, because naga rejects `SV_VertexID` (Section 3.9 of `docs/design/slango.md`), and the parameters are global uniforms, because `slango` rejects `uniform` parameters of a render entry point (SLO-23). The shader of the `gpu` tests of Section 9 draws its triangle in the same way.
 
 The window has an `Image` element that shows the view, and two sliders whose values the example passes as `brightness` and `scale` by name in each draw. The example selects the backend with `slang_slint::wgpu_configuration`, creates the view in `RenderingSetup`, and drives frames from the notifier as Section 5.3 describes. It declares its UI with `slint::slint!`, so the examples package needs no build script. The examples package enables the Slint features that the spike used (Section 3.2).
 
@@ -300,7 +313,7 @@ SLINT_WGPU_CPU=1 cargo run -p slang-rust-examples --bin shader-playground -- exa
 These steps implement M5. Each step leaves `just check` passing and adds its tests.
 
 1. Done on 2026-11-11. Add `crates/slang-slint` with its manifest and dependencies (Section 4.1), `slint` in `[workspace.dependencies]`, the changes of `deny.toml` and of the CI workflow that Sections 8.1 and 9 of `docs/design/tooling.md` record, the error type (Section 7), `wgpu_configuration`, and `device` (Section 5). Settle the smallest feature set, which was assumption SLSA-1, and record it in Section 4.1. Tests: the pure tests of Section 9. Check: `check-deny` passes, and all CI jobs pass on the three platforms.
-2. Add `View` (Section 6). Settle SLSA-2. Tests: the `gpu` tests of Section 9.
+2. Done on 2026-11-11. Add `View` (Section 6). Settle SLSA-2, which held (Section 3.4). Tests: the `gpu` tests of Section 9.
 3. Add example 4 (Section 10) with its tests. Check: `check-clippy` builds it in CI, and it runs locally with `--frames` on lavapipe and on a hardware adapter.
 4. Complete the crate-level documentation, including the licence statement of SLS-5 and the guidance of Section 5.3, add the statement of SLS-5 to `README.md`, and update the documents that M5 makes false. With this step, M5 is complete.
 
@@ -310,9 +323,10 @@ Each row is a statement that this design relies on and that the spike did not es
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLSA-2 | `slint::Image::try_from` accepts a wgpu texture with no Slint backend selected, no window, and no event loop | Section 9 | Step 2 of Section 11. If it fails, no test calls `View::to_image`, and example 4 covers it locally (SLS-15) |
 | SLSA-3 | With the configuration of SLS-6, Slint's device request fails on an adapter without immediates or with a smaller immediate size | Section 5.1 | Deferred until such an adapter is used. Every adapter tested offers 128 bytes or more |
 | SLSA-4 | docs.rs builds the documentation of `slang-slint`, because its build environment provides fontconfig and pkg-config | Section 3.2 | The first release, in M7 |
+
+Step 2 of Section 11 confirmed SLSA-2, that Slint imports a wgpu texture with no backend, window, or event loop, and Section 3.4 records the result.
 
 Section 3.3 confirms A-14 of the architecture design in part: external GPU content enters Slint through its rendering notifier and its import of wgpu textures, and Slint names the features of that API unstable. The spike read no evidence about a public Vulkan hook in Slint, and none about whether the API changes in a minor release. SLS-1 does not depend on either.
 
@@ -336,7 +350,7 @@ The residual risk is a defect in Slint, in its native libraries, which read the 
 
 ### 15.2. Platforms and Minimum Supported Rust Version
 
-The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 11 built the crate on Windows and macOS in CI, and step 2 runs its `gpu` tests on WARP and hosted Metal. Example 4 has not run with a window on Windows or macOS. The `rust-version` of Slint (Section 3.2) is below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 11 built the crate on Windows and macOS in CI. The `gpu` tests of step 2 ran locally on x86_64 Linux only (Section 9). Example 4 has not run with a window on Windows or macOS. The `rust-version` of Slint (Section 3.2) is below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 15.3. Failure Modes
 
@@ -391,5 +405,6 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 2 of Section 11, the view, as done in Sections 1.6, 6.3, 9, 11, and 15.2, recorded the confirmation of SLSA-2 in Sections 3.4 and 12 and removed its row, and cited the shader constraints of example 4 in Section 10.
 - 2026-11-11: Recorded step 1 of Section 11 as done. Corrected the feature set of SLS-1, removed SLSA-1, and recorded what the library alone brings and costs (Sections 3.2, 3.6, 4.2, and 15.5), what Section 9 tests, and the advisory exception (Section 14). Answered SLSQ-1 by inference and added SLSA-4 to confirm it.
 - 2026-11-11: First draft, written after the spike of M5 as the first task of M5.

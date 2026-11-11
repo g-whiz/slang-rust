@@ -5,16 +5,15 @@
 //! and [`slango`] is the high-level library of this repository, which runs
 //! Slang compute kernels and draws with Slang render pipelines through wgpu.
 //! Use this crate when a Slint program draws part of its window with Slang,
-//! and `slango` alone when the program has no Slint user interface. This
-//! version provides the device that both share. A view that shows what a
-//! render pipeline draws as an image of Slint is not part of it yet.
+//! and `slango` alone when the program has no Slint user interface.
 //!
 //! [`wgpu_configuration`] returns the configuration that the program passes
 //! to Slint's backend selector, so that Slint creates a wgpu device on which
 //! every kernel and render pipeline of `slango` can run. [`device`] turns the
 //! wgpu device and queue that Slint passes to the rendering notifier of a
-//! window into a [`slango::Device`]. Every failure is an [`Error`], whose
-//! [`Error::kind`] says what went wrong.
+//! window into a [`slango::Device`]. A [`View`] draws with a render pipeline
+//! of `slango` into a texture that Slint shows as an image. Every failure is
+//! an [`Error`], whose [`Error::kind`] says what went wrong.
 //!
 //! The crate enables no windowing backend and no renderer of Slint. The
 //! program enables a windowing backend, such as Slint's feature
@@ -77,6 +76,8 @@
 
 mod device;
 mod error;
+mod view;
 
 pub use device::{device, wgpu_configuration};
 pub use error::{Error, ErrorKind, Result};
+pub use view::View;
