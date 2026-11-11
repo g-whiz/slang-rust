@@ -1,0 +1,16 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+assertion_line: 273
+expression: "render(&[kernel])"
+---
+kernel `run` thread group [1, 1, 1]
+  set 0 binding 0 `Arrays` Used: uniform buffer
+    size 80
+    +0 80 bytes `Arrays.c`: Float32 array 5 stride 16 of scalar
+  set 0 binding 1 `Matrices` Used: uniform buffer
+    size 160
+    +0 64 bytes `Matrices.m4`: Float32 matrix 4x4
+    +64 48 bytes `Matrices.m3`: Float32 matrix 3x3
+    +112 32 bytes `Matrices.m23`: Float32 matrix 2x3
+    +144 12 bytes `Matrices.v3`: Float32 vector 3
+  set 0 binding 2 `output` Used: storage buffer ReadWrite, stride 4

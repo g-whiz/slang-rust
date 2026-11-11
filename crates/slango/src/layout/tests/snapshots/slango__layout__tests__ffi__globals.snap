@@ -1,0 +1,18 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+assertion_line: 236
+expression: "render(&[kernel])"
+---
+kernel `run` thread group [8, 4, 1]
+  set 0 binding 0 `` Used: uniform buffer
+    size 16
+    +0 4 bytes `factor`: Float32 scalar
+    +4 4 bytes `count`: Uint32 scalar
+  set 0 binding 1 `input` Used: storage buffer ReadOnly, stride 16
+  set 0 binding 2 `output` Used: storage buffer ReadWrite, stride 4
+  set 0 binding 3 `params` Used: uniform buffer
+    size 48
+    +0 4 bytes `params.scale`: Float32 scalar
+    +16 12 bytes `params.offset`: Float32 vector 3
+    +28 4 bytes `params.count`: Uint32 scalar
+    +32 8 bytes `params.pair`: Float32 vector 2

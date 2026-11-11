@@ -871,6 +871,7 @@ dependencies = [
 name = "slango"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "pollster",
  "slang-compiler",
  "wgpu",

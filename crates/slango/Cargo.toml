@@ -24,5 +24,8 @@ pollster.workspace = true
 slang-compiler.workspace = true
 wgpu.workspace = true
 
+[dev-dependencies]
+insta.workspace = true
+
 [lints]
 workspace = true

@@ -1,0 +1,531 @@
+use std::error::Error as _;
+use std::fmt::Write as _;
+
+use super::super::{
+    Access, Binding, KernelLayout, PlainValue, Resource, Scalar, Shape, UniformBlock, Usage,
+    compile,
+};
+use crate::ErrorKind;
+
+fn kernels(source: &str) -> Vec<KernelLayout> {
+    compile("kernels", source).expect("the source compiles and every parameter is supported")
+}
+
+fn kernel(source: &str) -> KernelLayout {
+    let mut kernels = kernels(source);
+    assert_eq!(kernels.len(), 1, "one kernel in {kernels:#?}");
+    kernels.remove(0)
+}
+
+fn shape(shape: &Shape) -> String {
+    match shape {
+        Shape::Scalar => "scalar".to_owned(),
+        Shape::Vector { length } => format!("vector {length}"),
+        Shape::Matrix { rows, columns } => format!("matrix {rows}x{columns}"),
+        Shape::Array {
+            length,
+            stride,
+            element,
+        } => format!("array {length} stride {stride} of {}", self::shape(element)),
+    }
+}
+
+fn render_block(out: &mut String, block: &UniformBlock) {
+    let UniformBlock { size, values } = block;
+    writeln!(out, "    size {size}").expect("writing to a string");
+    for value in values {
+        let PlainValue {
+            path,
+            offset,
+            size,
+            scalar,
+            shape: value_shape,
+        } = value;
+        writeln!(
+            out,
+            "    +{offset} {size} bytes `{path}`: {scalar:?} {}",
+            shape(value_shape)
+        )
+        .expect("writing to a string");
+    }
+}
+
+fn render(kernels: &[KernelLayout]) -> String {
+    let mut out = String::new();
+    for kernel in kernels {
+        let KernelLayout {
+            name,
+            thread_group_size,
+            bindings,
+            immediates,
+        } = kernel;
+        writeln!(out, "kernel `{name}` thread group {thread_group_size:?}")
+            .expect("writing to a string");
+        for binding in bindings {
+            let Binding {
+                path,
+                set,
+                index,
+                usage,
+                resource,
+            } = binding;
+            match resource {
+                Resource::StorageBuffer { access, stride } => writeln!(
+                    out,
+                    "  set {set} binding {index} `{path}` {usage:?}: storage buffer {access:?}, stride {stride}"
+                )
+                .expect("writing to a string"),
+                Resource::UniformBuffer(block) => {
+                    writeln!(
+                        out,
+                        "  set {set} binding {index} `{path}` {usage:?}: uniform buffer"
+                    )
+                    .expect("writing to a string");
+                    render_block(&mut out, block);
+                }
+            }
+        }
+        if let Some(block) = immediates {
+            writeln!(out, "  immediates").expect("writing to a string");
+            render_block(&mut out, block);
+        }
+    }
+    out
+}
+
+fn value<'a>(block: &'a UniformBlock, path: &str) -> &'a PlainValue {
+    block
+        .values
+        .iter()
+        .find(|value| value.path == path)
+        .unwrap_or_else(|| panic!("a plain value `{path}` in {block:#?}"))
+}
+
+fn offsets_and_size(block: &UniformBlock, paths: &[&str]) -> (Vec<u64>, u64) {
+    let offsets = paths.iter().map(|path| value(block, path).offset).collect();
+    (offsets, block.size)
+}
+
+fn uniform_buffer<'a>(kernel: &'a KernelLayout, path: &str) -> (&'a Binding, &'a UniformBlock) {
+    for binding in &kernel.bindings {
+        if let Resource::UniformBuffer(block) = &binding.resource
+            && binding.path == path
+        {
+            return (binding, block);
+        }
+    }
+    panic!("a uniform buffer `{path}` in {kernel:#?}");
+}
+
+fn binding<'a>(kernel: &'a KernelLayout, path: &str) -> &'a Binding {
+    kernel
+        .bindings
+        .iter()
+        .find(|binding| binding.path == path)
+        .unwrap_or_else(|| panic!("a binding `{path}` in {kernel:#?}"))
+}
+
+const IMMEDIATES: &str = r#"
+struct Pair { float first; uint second; };
+RWStructuredBuffer<float> output;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void run(
+    uint3 id : SV_DispatchThreadID,
+    uniform float scale,
+    uniform float3 offset,
+    uniform float4x4 transform,
+    uniform Pair pair,
+    uniform bool enabled)
+{
+    if (enabled) {
+        output[id.x] = scale * offset.x * transform[0][0] * pair.first + float(pair.second);
+    }
+}
+"#;
+
+#[test]
+fn uniform_parameters_of_the_entry_point_become_immediates_with_std430_offsets() {
+    let kernel = kernel(IMMEDIATES);
+    let immediates = kernel.immediates.as_ref().expect("immediates");
+    assert_eq!(
+        offsets_and_size(
+            immediates,
+            &[
+                "scale",
+                "offset",
+                "transform",
+                "pair.first",
+                "pair.second",
+                "enabled"
+            ]
+        ),
+        (vec![0, 16, 32, 96, 100, 104], 112)
+    );
+    let output = binding(&kernel, "output");
+    assert_eq!((output.set, output.index), (0, 0));
+    insta::assert_snapshot!("immediates", render(&[kernel]));
+}
+
+const GLOBALS: &str = r#"
+struct Params { float scale; float3 offset; uint count; float2 pair; };
+StructuredBuffer<float4> input;
+RWStructuredBuffer<float> output;
+ConstantBuffer<Params> params;
+uniform float factor;
+uniform uint count;
+
+[shader("compute")]
+[numthreads(8, 4, 1)]
+void run(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < count) {
+        output[id.x] = input[id.x].x * factor * params.scale + params.offset.y
+            + float(params.count) + params.pair.x;
+    }
+}
+"#;
+
+#[test]
+fn global_plain_values_take_set_0_binding_0_and_shift_the_other_bindings() {
+    let kernel = kernel(GLOBALS);
+    let (globals, block) = uniform_buffer(&kernel, "");
+    assert_eq!((globals.set, globals.index), (0, 0));
+    assert_eq!(
+        offsets_and_size(block, &["factor", "count"]),
+        (vec![0, 4], 16)
+    );
+    let input = binding(&kernel, "input");
+    assert_eq!(
+        (input.set, input.index, &input.resource),
+        (
+            0,
+            1,
+            &Resource::StorageBuffer {
+                access: Access::ReadOnly,
+                stride: 16
+            }
+        )
+    );
+    let output = binding(&kernel, "output");
+    assert_eq!(
+        (output.set, output.index, &output.resource),
+        (
+            0,
+            2,
+            &Resource::StorageBuffer {
+                access: Access::ReadWrite,
+                stride: 4
+            }
+        )
+    );
+    let (params, block) = uniform_buffer(&kernel, "params");
+    assert_eq!((params.set, params.index), (0, 3));
+    assert_eq!(
+        offsets_and_size(
+            block,
+            &[
+                "params.scale",
+                "params.offset",
+                "params.count",
+                "params.pair"
+            ]
+        ),
+        (vec![0, 16, 28, 32], 48)
+    );
+    insta::assert_snapshot!("globals", render(&[kernel]));
+}
+
+const PLAIN_VALUES: &str = r#"
+cbuffer Arrays { float c[5]; };
+cbuffer Matrices { float4x4 m4; float3x3 m3; float2x3 m23; float3 v3; };
+RWStructuredBuffer<float> output;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run()
+{
+    output[0] = c[4] + m4[0][0] + m3[0][0] + m23[0][0] + v3.x;
+}
+"#;
+
+#[test]
+fn plain_values_in_constant_buffers_take_the_offsets_of_slangs_default_layout() {
+    let kernel = kernel(PLAIN_VALUES);
+    let (_, arrays) = uniform_buffer(&kernel, "Arrays");
+    assert_eq!(arrays.size, 80);
+    assert_eq!(
+        value(arrays, "Arrays.c").shape,
+        Shape::Array {
+            length: 5,
+            stride: 16,
+            element: Box::new(Shape::Scalar)
+        }
+    );
+    let (_, matrices) = uniform_buffer(&kernel, "Matrices");
+    assert_eq!(
+        offsets_and_size(
+            matrices,
+            &["Matrices.m4", "Matrices.m3", "Matrices.m23", "Matrices.v3"]
+        ),
+        (vec![0, 64, 112, 144], 160)
+    );
+    insta::assert_snapshot!("plain_values", render(&[kernel]));
+}
+
+const NESTED_VALUES: &str = r#"
+cbuffer Values { float3 points[4]; float2x2 mats[2]; float grid[2][3]; int count; int2 pair; };
+RWStructuredBuffer<float> output;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void run(
+    uniform float3 corners[4],
+    uniform float2x2 rotations[2],
+    uniform float cells[2][3],
+    uniform int total,
+    uniform int2 size)
+{
+    output[0] = points[3].z + mats[1][1][1] + grid[1][2] + float(count) + float(pair.y)
+        + corners[3].z + rotations[1][1][1] + cells[1][2] + float(total) + float(size.y);
+}
+"#;
+
+fn array(length: u64, stride: u64, element: Shape) -> Shape {
+    Shape::Array {
+        length,
+        stride,
+        element: Box::new(element),
+    }
+}
+
+fn layout_of(value: &PlainValue) -> (u64, u64, Scalar, Shape) {
+    (value.offset, value.size, value.scalar, value.shape.clone())
+}
+
+#[test]
+fn arrays_of_vectors_matrices_and_arrays_and_ints_take_std140_and_std430_strides() {
+    let kernel = kernel(NESTED_VALUES);
+    let matrix = Shape::Matrix {
+        rows: 2,
+        columns: 2,
+    };
+    let (_, values) = uniform_buffer(&kernel, "Values");
+    assert_eq!(values.size, 240);
+    let std140: Vec<_> = values.values.iter().map(layout_of).collect();
+    assert_eq!(
+        std140,
+        [
+            (
+                0,
+                64,
+                Scalar::Float32,
+                array(4, 16, Shape::Vector { length: 3 })
+            ),
+            (64, 64, Scalar::Float32, array(2, 32, matrix.clone())),
+            (
+                128,
+                96,
+                Scalar::Float32,
+                array(2, 48, array(3, 16, Shape::Scalar))
+            ),
+            (224, 4, Scalar::Int32, Shape::Scalar),
+            (232, 8, Scalar::Int32, Shape::Vector { length: 2 }),
+        ]
+    );
+    let immediates = kernel.immediates.as_ref().expect("immediates");
+    assert_eq!(immediates.size, 144);
+    let std430: Vec<_> = immediates.values.iter().map(layout_of).collect();
+    assert_eq!(
+        std430,
+        [
+            (
+                0,
+                64,
+                Scalar::Float32,
+                array(4, 16, Shape::Vector { length: 3 })
+            ),
+            (64, 32, Scalar::Float32, array(2, 16, matrix)),
+            (
+                96,
+                24,
+                Scalar::Float32,
+                array(2, 12, array(3, 4, Shape::Scalar))
+            ),
+            (120, 4, Scalar::Int32, Shape::Scalar),
+            (128, 8, Scalar::Int32, Shape::Vector { length: 2 }),
+        ]
+    );
+    insta::assert_snapshot!("nested_values", render(&[kernel]));
+}
+
+const PARAMETER_BLOCKS: &str = r#"
+struct Inner { RWStructuredBuffer<float> deep; };
+struct Outer { float weight; ParameterBlock<Inner> inner; };
+struct Extra { float bias; RWStructuredBuffer<float> values; };
+RWStructuredBuffer<float> data;
+ParameterBlock<Extra> extra;
+ParameterBlock<Outer> outer;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void run(uint3 id : SV_DispatchThreadID)
+{
+    data[id.x] = extra.values[id.x] + extra.bias + outer.weight * outer.inner.deep[id.x];
+}
+"#;
+
+#[test]
+fn a_parameter_block_takes_its_own_set_and_a_nested_one_the_next() {
+    let kernel = kernel(PARAMETER_BLOCKS);
+    let data = binding(&kernel, "data");
+    assert_eq!((data.set, data.index), (0, 0));
+    let (extra, block) = uniform_buffer(&kernel, "extra");
+    assert_eq!((extra.set, extra.index), (1, 0));
+    assert_eq!(offsets_and_size(block, &["extra.bias"]), (vec![0], 16));
+    let values = binding(&kernel, "extra.values");
+    assert_eq!((values.set, values.index), (1, 1));
+    let (outer, _) = uniform_buffer(&kernel, "outer");
+    assert_eq!((outer.set, outer.index), (2, 0));
+    let deep = binding(&kernel, "outer.inner.deep");
+    assert_eq!((deep.set, deep.index), (3, 0));
+    assert!(
+        kernel
+            .bindings
+            .iter()
+            .all(|binding| binding.usage == Usage::Used)
+    );
+    insta::assert_snapshot!("parameter_blocks", render(&[kernel]));
+}
+
+const TWO_KERNELS: &str = r#"
+RWStructuredBuffer<float> first;
+RWStructuredBuffer<uint> second;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void fill(uint3 id : SV_DispatchThreadID, uniform float value)
+{
+    first[id.x] = value;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void add(uint3 id : SV_DispatchThreadID, uniform uint left, uniform uint right)
+{
+    second[id.x + id.y * 64] = left + right;
+}
+"#;
+
+#[test]
+fn each_kernel_of_a_module_has_its_own_immediates_and_usage() {
+    let kernels = kernels(TWO_KERNELS);
+    let [fill, add] = kernels.as_slice() else {
+        panic!("two kernels in {kernels:#?}");
+    };
+    assert_eq!(fill.name, "fill");
+    assert_eq!(fill.thread_group_size, [64, 1, 1]);
+    assert_eq!(binding(fill, "first").usage, Usage::Used);
+    assert_eq!(binding(fill, "second").usage, Usage::Unused);
+    assert_eq!(add.name, "add");
+    assert_eq!(add.thread_group_size, [8, 8, 1]);
+    assert_eq!(binding(add, "first").usage, Usage::Unused);
+    assert_eq!(binding(add, "second").usage, Usage::Used);
+    let immediates = add.immediates.as_ref().expect("immediates");
+    assert_eq!(
+        offsets_and_size(immediates, &["left", "right"]),
+        (vec![0, 4], 8)
+    );
+    insta::assert_snapshot!("two_kernels", render(&kernels));
+}
+
+#[test]
+fn a_kernel_with_a_texture_sampler_or_other_resource_is_unsupported() {
+    let cases = [
+        (
+            "Texture2D<float4> image;",
+            "image.Load(int3(0, 0, 0)).x",
+            "image",
+        ),
+        (
+            "SamplerState linear; Texture2D<float4> image;",
+            "image.SampleLevel(linear, float2(0, 0), 0).x",
+            "linear",
+        ),
+        (
+            "[format(\"rgba32f\")] RWTexture2D<float4> target;",
+            "target[uint2(0, 0)].x",
+            "target",
+        ),
+        ("ByteAddressBuffer raw;", "asfloat(raw.Load(0))", "raw"),
+        ("uniform double precise;", "float(precise)", "precise"),
+        (
+            "Texture2D<float4> images[2];",
+            "images[1].Load(int3(0, 0, 0)).x",
+            "images",
+        ),
+        (
+            "SamplerState samplers[2]; Texture2D<float4> image;",
+            "image.SampleLevel(samplers[1], float2(0, 0), 0).x",
+            "samplers",
+        ),
+        (
+            "StructuredBuffer<float> inputs[2];",
+            "inputs[1][0]",
+            "inputs",
+        ),
+        (
+            "struct Pair { float first; float second; }; cbuffer Pairs { Pair pairs[2]; };",
+            "pairs[1].second",
+            "Pairs.pairs",
+        ),
+    ];
+    for (declaration, read, parameter) in cases {
+        let source = format!(
+            "{declaration}\nRWStructuredBuffer<float> output;\n\
+             [shader(\"compute\")] [numthreads(1, 1, 1)] void run() {{ output[0] = {read}; }}"
+        );
+        let error = compile("unsupported", &source).expect_err("an unsupported parameter");
+        assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
+        let text = error.to_string();
+        assert!(
+            text.contains(&format!("`{parameter}`")) && text.contains("`run`"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn an_entry_point_of_another_stage_is_not_a_kernel() {
+    let kernels = kernels(
+        r#"
+RWStructuredBuffer<float> output;
+
+[shader("fragment")]
+float4 shade() : SV_Target { return float4(1, 0, 0, 1); }
+
+[shader("compute")]
+[numthreads(4, 1, 1)]
+void run(uint3 id : SV_DispatchThreadID) { output[id.x] = 1.0; }
+"#,
+    );
+    let names: Vec<&str> = kernels.iter().map(|kernel| kernel.name.as_str()).collect();
+    assert_eq!(names, ["run"]);
+}
+
+#[test]
+fn source_that_does_not_compile_is_a_compile_error_with_slangs_diagnostics() {
+    let error = compile("broken", "void run() { undefined_name = 1; }")
+        .expect_err("the source does not compile");
+    assert_eq!(error.kind(), ErrorKind::Compile);
+    let source = error
+        .source()
+        .and_then(|source| source.downcast_ref::<slang_compiler::Error>())
+        .expect("the error of slang-compiler as the source");
+    assert!(
+        source.diagnostics().as_str().contains("undefined_name"),
+        "{}",
+        source.diagnostics()
+    );
+}

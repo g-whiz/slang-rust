@@ -34,7 +34,7 @@ This document designs nothing beyond M3. These belong to later milestones: kerne
 
 ### 1.6. Current State
 
-Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. It has 11 unit tests and the first 6 tests of the `gpu` tier, which create devices on every CI runner (Sections 3.8 and 13). Steps 2 to 6 do not exist yet, so a program can create a device but cannot load a module or run a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
+Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. It has 11 unit tests and the first 6 tests of the `gpu` tier, which create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with 5 unit tests that Miri runs and 9 `ffi` unit tests that call Slang (Section 13.1). Only its tests call it until step 3, so the public API did not change. Steps 3 to 6 do not exist yet, so a program can create a device but cannot load a module or run a kernel. The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
@@ -75,7 +75,7 @@ This section is non-normative. It states each fact that a later section relies o
 
 Each fact carries one of these marks:
 
-- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners.
+- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux.
 - (read): Read in a source on 2026-11-11, which the fact names.
 - (inferred): Concluded from other facts and not verified. Every inferred fact that the design depends on is also a row of Section 15.
 
@@ -98,14 +98,14 @@ This table is the core of the crate. "DTS" is `ParameterCategory::DescriptorTabl
 | `uniform` parameter of the entry point | `TypeKind::ConstantBuffer` with category `PushConstantBuffer` and binding type `PushConstant`, std430 offsets | No binding. The pipeline layout's immediate size, then the immediates of the compute pass. Needs `Features::IMMEDIATES` (Section 12) |
 | `ParameterBlock<S>` | `TypeKind::ParameterBlock`, category `SubElementRegisterSpace`. Its set is the sum of `offset(SubElementRegisterSpace)` along the path, including each element variable. Bindings restart at 0, with an implicit uniform buffer first when `S` has plain values. The parent's `descriptor_sets()` leaves the block's set out | One more bind group layout at that set |
 | `ParameterBlock` inside a `ParameterBlock` | The inner set is the outer set plus 1, by the same sum | Two bind group layouts |
-| System values such as `SV_DispatchThreadID` | Category `VaryingInput`, size 0 | Nothing. The walk skips them |
+| System values such as `SV_DispatchThreadID` | The type layout of `uint3 id : SV_DispatchThreadID` has a uniform size of 0 (run, step 2) | Nothing. The walk skips every plain value of uniform size 0 |
 | `[numthreads(x, y, z)]` | `compute_thread_group_size()` returns `[x, y, z]` | Workgroup counts derived from element counts (Section 9.4) |
 | A parameter that the code never uses | Still listed with its binding | The SPIR-V drops it. The layout is accepted with or without its entry |
-| `Texture2D`, `SamplerState`, `RWTexture2D` | Binding types `Texture`, `Sampler`, `MutableTexture` | Not built in the spike |
+| `Texture2D`, `SamplerState`, `RWTexture2D` | Binding types `Texture`, `Sampler`, `MutableTexture` | Not built. The walk rejects them (Section 7.1) |
 
 ### 3.4. Layout of Plain Values
 
-Slang's default layout puts the fields of `struct Params { float scale; float3 offset; uint count; float2 pair; }` in a constant buffer at offsets 0, 16, 28, and 32, with size 48 (run). `float c[5]` in a constant buffer takes 80 bytes, with a stride of 16 (run). `float4x4`, `float3x3`, `float2x3`, and `float3` in sequence take offsets 0, 64, 112, and 144, with size 160 (run). A `bool` takes 4 bytes (run). These offsets differ from the layout of any Rust struct with the same fields, so `slango` writes every plain value at its reflected offset and never relies on the layout of a Rust struct (SLO-13).
+Slang's default layout puts the fields of `struct Params { float scale; float3 offset; uint count; float2 pair; }` in a constant buffer at offsets 0, 16, 28, and 32, with size 48 (run). `float c[5]` in a constant buffer takes 80 bytes, with a stride of 16 (run). `float4x4`, `float3x3`, `float2x3`, and `float3` in sequence take offsets 0, 64, 112, and 144, with size 160 (run). A `bool` takes 4 bytes (run). As `uniform` parameters of an entry point, `float`, `float3`, `float4x4`, a structure of a `float` and a `uint`, and `bool` take offsets 0, 16, 32, 96, 100, and 104 in the immediates. The last value ends at 108, and the block has size 112, because std430 rounds the size of the block up to its alignment of 16 (run, step 2). These offsets differ from the layout of any Rust struct with the same fields, so `slango` writes every plain value at its reflected offset and never relies on the layout of a Rust struct (SLO-13).
 
 ### 3.5. Known Limits of the Validated Path
 
@@ -235,6 +235,36 @@ SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `sla
 
 This answers Q-31 of the architecture design, and CQ-4 of `docs/design/slang-compiler.md`, for M3. It also makes Q-30 of the architecture design, and CQ-1 of `docs/design/slang-compiler.md`, unnecessary for M3, because no Slang object leaves `load_module`.
 
+Step 2 built the snapshot as one record for each compute entry point, and the walk ignores entry points of other stages. Each record holds:
+
+- The name of the entry point and its thread group size.
+- Its bindings, sorted by set and binding, each with its parameter path and a usage flag. A binding is either a storage buffer with its access, read-only or read-write, and its element stride, or a uniform buffer with its size and its plain values.
+- An optional block of immediates with its size and its plain values.
+
+Each plain value has its parameter path, offset, size, scalar type, and shape. A shape is a scalar, a vector with its length, a matrix with its rows and columns, or an array with its length, stride, and element shape. The walk flattens a structure into one plain value for each leaf, with a dotted path such as `params.scale`. A constant buffer or parameter block without plain values gets no uniform buffer.
+
+The design left these choices open, and step 2 settled them:
+
+- A field of a named `cbuffer` gets the path `Name.field`, such as `Arrays.c` for `cbuffer Arrays { float c[5]; }`, although the shader reads it as `c`.
+- A parameter of the entry point has a path without a prefix, so `uniform float factor` has the path `factor`, as a global has.
+- The unnamed uniform buffer of the global plain values has the empty path.
+- The usage of a binding comes from the metadata of the entry point, through `Metadata::is_parameter_location_used` with its set and binding. A plain value has the usage of the uniform buffer that holds it. The immediates carry no usage flag, so step 5 treats them as used.
+- The walk does not record the matrix layout mode. Step 4 settles whether marshalling needs it.
+
+The walk supports these parameters and rejects every other with `ErrorKind::UnsupportedParameter`, whose text names the parameter and the kernel:
+
+| Parameter | Snapshot |
+| --- | --- |
+| `StructuredBuffer<T>`, `RWStructuredBuffer<T>` | A read-only or read-write storage buffer |
+| `ConstantBuffer<S>`, `cbuffer`, global `uniform` plain values | A uniform buffer |
+| `ParameterBlock<S>`, nested to any depth | Its bindings in its own set |
+| `uniform` parameters of the entry point | The immediates |
+| `bool`, `int`, `uint`, and `float` as scalars, vectors, matrices, and arrays of fixed length, including arrays of arrays | Plain values |
+| A structure of supported values | One plain value for each leaf |
+| A system value | Nothing (Section 3.3) |
+
+Among the rejected parameters are every resource other than a structured buffer, such as a texture, a storage texture, or `ByteAddressBuffer`, a sampler, a plain value of another scalar type, such as `double`, an array of structures or of resources, and an array without a fixed length. A failure of Slang to compile, link, or reflect the module is `ErrorKind::Compile`.
+
 ### 7.2. The Global Session for Each Load
 
 SLO-7. `Device::load_module` MUST create its own global session and release it before it returns. `slango` MUST keep no global session in a `static`, a `thread_local!`, or any hidden state, because CONC-4 forbids hidden library state. The simplest form also has no state to invalidate or to clean up at thread exit.
@@ -247,7 +277,7 @@ SLO-8. `Device::load_module` MUST create the shader module, the bind group layou
 
 SLO-9. `slango` MUST create each shader module inside an error scope and MUST return a rejection by naga as `ErrorKind::UnsupportedShader` with naga's text unchanged, because the text names the construct that the user must change (Section 3.5). An error that wgpu reports to its uncaptured-error handler is lost to the caller.
 
-The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A parameter of a kind that M3 does not support, such as a texture or a sampler, fails the load with `ErrorKind::UnsupportedParameter`. `Module::kernel` looks a kernel up by its Slang name and returns `ErrorKind::InvalidArgument` for a name that is no compute entry point of the module.
+The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A parameter that the walk rejects fails the load with `ErrorKind::UnsupportedParameter` (Section 7.1). `Module::kernel` looks a kernel up by its Slang name and returns `ErrorKind::InvalidArgument` for a name that is no compute entry point of the module.
 
 ## 8. Buffers
 
@@ -291,7 +321,7 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 | `NoAdapter` | wgpu found no adapter that matches the options |
 | `DeviceRequest` | The adapter refused the device that the options request |
 | `UnsupportedShader` | naga rejected the SPIR-V of a kernel. The error carries naga's text |
-| `UnsupportedParameter` | A kernel has a parameter of a kind that M3 does not support |
+| `UnsupportedParameter` | A kernel has a parameter that the walk rejects (Section 7.1) |
 | `MissingFeature` | A kernel needs a device feature that the device lacks |
 | `InvalidArgument` | A check of Section 9.3, an unknown kernel name, or a file that cannot be read as text |
 | `Backend` | wgpu reported a validation error in an error scope |
@@ -314,7 +344,7 @@ The default immediate size of wgpu is 0. The adapters of the spike and of the CI
 
 ### 13.1. Tests
 
-`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23). The tests of the reflection walk call Slang and need no adapter, so they sit in modules named `ffi` in the default tier and check their snapshots with `insta`. The tests of marshalling and of the workgroup counts are pure and run under Miri. The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
+`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23). The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API. The tests of marshalling and of the workgroup counts are pure and run under Miri. The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
 
 ### 13.2. Continuous Integration
 
@@ -329,7 +359,7 @@ The example is a headless program in `examples/` that loads one Slang file with 
 Each step leaves `just check` passing.
 
 1. Add the crate skeleton, `Device` with `DeviceOptions`, adapter selection, the features of Section 12, `Error` and `ErrorKind`, the changes of Section 4.2, and the installation of lavapipe in the `check` job. Tests: the `Send` and `Sync` assertions of SLO-17, the `Display` text of each error kind, and a `gpu` test that creates a device and checks that it has immediates when the adapter offers them. Done on 2026-11-11, with lavapipe also installed in the `coverage` job, and all six CI jobs passed with it (Section 3.8).
-2. Add the layout snapshot and the walk of Section 3.3. Tests: `ffi` snapshot tests for global plain values, constant buffers, parameter blocks, nested parameter blocks, parameters of the entry point, system values, unused parameters, and a texture that the walk reports as unsupported.
+2. Add the layout snapshot and the walk of Section 3.3. Tests: `ffi` snapshot tests for global plain values, constant buffers, parameter blocks, nested parameter blocks, parameters of the entry point, system values, unused parameters, and a texture that the walk reports as unsupported. Done on 2026-11-11, with the `ffi` tests as unit tests (Section 13.1) and the snapshot as Section 7.1 describes.
 3. Add `Module`, `Kernel`, and `load_module` with the SPIR-V of each entry point, the error scope of SLO-9, and the layouts and pipelines. Tests: `gpu` tests that load the kernels of Section 3.2, a module that naga rejects, which returns `UnsupportedShader` with naga's text (TEST-6), and a kernel with uniforms of its entry point on a device without immediates, which returns `MissingFeature`.
 4. Add `Buffer<T>` with upload and `read`, and the marshalling of plain values. Tests: the stride test of SLO-10, pure tests that write the values of Section 3.4 at their reflected offsets, and a `gpu` round trip of a buffer.
 5. Add the call builder, the checks of Section 9.3, and the dispatch. Tests: one test of each check of SLO-14, pure tests of the workgroup counts, and `gpu` tests that dispatch the kernels of Section 3.2 and assert every value.
@@ -388,7 +418,7 @@ The crate runs on x86_64 Linux with Vulkan, which the spike verified on a softwa
 | The Slang shared library is not on the library path | The program stops before `main`, as `slang-compiler-sys` describes | Run through the recipes, or set the library path |
 | The module does not compile | `Compile`, with Slang's diagnostics | Fix the shader |
 | naga rejects a kernel | `UnsupportedShader`, with naga's text | Avoid the construct (Section 3.5) |
-| A kernel has a texture or sampler parameter | `UnsupportedParameter` | Wait for the milestone that adds them |
+| A kernel has a parameter that the walk rejects (Section 7.1) | `UnsupportedParameter` | Wait for the milestone that supports it |
 | A kernel needs a feature the device lacks | `MissingFeature` | Create the wgpu device with the feature and pass it to `slango::wgpu::from_device_and_queue` (Section 12), or use another adapter |
 | A call has a wrong name, value, or buffer | `InvalidArgument`, naming the parameter | Fix the call |
 | wgpu reports a validation error | `Backend` | Report it as a defect of `slango` |
@@ -442,5 +472,6 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 2 of Section 14, which added the private layout snapshot and its walk, in Sections 1.6, 7.1, 13.1, and 14, with the choices that the design left open and the supported and rejected parameters in Section 7.1. Recorded in Sections 3.3 and 3.4 that a system value has a uniform size of 0 and that the immediates round their size up to their alignment, and defined the mark (run) for step 2 in Section 3.1. Made the rows of Sections 10 and 18.3 for `UnsupportedParameter` cite Section 7.1.
 - 2026-11-11: Recorded step 1 of Section 14, which added `Device`, `DeviceOptions`, `AdapterSelection`, the error type, and the module `slango::wgpu`, in Sections 1.6, 5.1, 13.1, and 14, added Section 3.8 with the adapters of the CI runners, recorded the licence changes in Section 4.2, corrected in Sections 12 and 18.3 how a caller requests another device feature, updated Sections 13.2 and 18.2 for the `gpu` tier in CI, narrowed SOA-2 to loading and dispatch, and answered SOQ-2 through `pollster` in SLO-1 and Appendix A.
 - 2026-11-11: First draft, written after the spike of ARCH-18 as the first task of M3.

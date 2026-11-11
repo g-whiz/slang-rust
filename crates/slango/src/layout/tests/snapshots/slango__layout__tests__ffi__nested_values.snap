@@ -1,0 +1,21 @@
+---
+source: crates/slango/src/layout/tests/ffi.rs
+assertion_line: 360
+expression: "render(&[kernel])"
+---
+kernel `run` thread group [1, 1, 1]
+  set 0 binding 0 `Values` Used: uniform buffer
+    size 240
+    +0 64 bytes `Values.points`: Float32 array 4 stride 16 of vector 3
+    +64 64 bytes `Values.mats`: Float32 array 2 stride 32 of matrix 2x2
+    +128 96 bytes `Values.grid`: Float32 array 2 stride 48 of array 3 stride 16 of scalar
+    +224 4 bytes `Values.count`: Int32 scalar
+    +232 8 bytes `Values.pair`: Int32 vector 2
+  set 0 binding 1 `output` Used: storage buffer ReadWrite, stride 4
+  immediates
+    size 144
+    +0 64 bytes `corners`: Float32 array 4 stride 16 of vector 3
+    +64 32 bytes `rotations`: Float32 array 2 stride 16 of matrix 2x2
+    +96 24 bytes `cells`: Float32 array 2 stride 12 of array 3 stride 4 of scalar
+    +120 4 bytes `total`: Int32 scalar
+    +128 8 bytes `size`: Int32 vector 2

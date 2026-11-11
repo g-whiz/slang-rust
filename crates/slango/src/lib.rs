@@ -58,6 +58,14 @@
 
 mod device;
 mod error;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "step 3 of Section 14 of docs/design/slango.md adds the load of a module that calls it, and until then only the unit tests use the layout snapshot"
+    )
+)]
+mod layout;
 pub mod wgpu;
 
 pub use device::{AdapterSelection, Device, DeviceOptions};
