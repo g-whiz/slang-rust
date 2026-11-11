@@ -192,3 +192,41 @@ fn a_validation_or_memory_error_of_the_pipeline_is_a_backend_error() {
     let out_of_memory = wgpu::Error::OutOfMemory { source: source() };
     assert_eq!(pipeline_error_kind(&out_of_memory), ErrorKind::Backend);
 }
+
+#[test]
+fn a_texture_and_a_sampler_become_filterable_float_and_filtering_entries() {
+    let binding = |index, resource| Binding {
+        path: format!("resource_{index}"),
+        set: 0,
+        index,
+        usage: Usage::Used,
+        resource,
+    };
+    let layout = kernel(vec![
+        binding(0, Resource::SampledTexture),
+        binding(1, Resource::Sampler),
+    ]);
+    let visible = |binding, ty| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty,
+        count: None,
+    };
+    assert_eq!(
+        bind_group_layout_entries(&layout),
+        [vec![
+            visible(
+                0,
+                wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                }
+            ),
+            visible(
+                1,
+                wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
+            ),
+        ]]
+    );
+}

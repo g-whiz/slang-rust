@@ -5,6 +5,8 @@ use crate::common::{assert_immediates_follow_the_adapter, device_with, instance}
 mod buffer;
 mod call;
 mod load;
+mod sample;
+mod texture;
 
 #[test]
 fn default_device_reports_its_adapter() {

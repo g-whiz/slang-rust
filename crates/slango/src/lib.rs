@@ -17,19 +17,28 @@
 //! to wgpu code of your own. [`Device::load_module`] compiles a Slang module
 //! and prepares each of its compute entry points as a [`Kernel`] of the
 //! device, which [`Module::kernel`] looks up by name. A [`Buffer`] holds
-//! elements of a type that [`Element`] lists on the GPU. [`Kernel::call`]
+//! elements of a type that [`VertexElement`] lists on the GPU, and a kernel
+//! binds a buffer of a type that [`Element`] lists. A [`Texture`] holds an
+//! image in a [`TextureFormat`], and a [`Sampler`], created from
+//! [`SamplerOptions`], states how a kernel reads a texture. [`Kernel::call`]
 //! starts a [`Call`], which sets the plain values of the kernel by name,
-//! from the Rust types that [`Value`] lists, binds buffers by name, checks
-//! every argument against the parameters of the kernel, and runs the kernel
-//! on the GPU. [`Buffer::read`] waits for the kernel and copies the results
-//! back. Every failure is an [`Error`], whose [`Error::kind`] says what went
-//! wrong.
+//! from the Rust types that [`Value`] lists, binds buffers, textures, and
+//! samplers by name, checks every argument against the parameters of the
+//! kernel, and runs the kernel on the GPU. [`Buffer::read`] waits for the
+//! kernel and copies the results back, and [`Texture::read`] copies the
+//! pixels of a texture back. Every failure is an [`Error`], whose
+//! [`Error::kind`] says what went wrong.
 //!
 //! A kernel is a function of the module marked `[shader("compute")]`, and
 //! the crate supports these parameters of a kernel:
 //!
 //! - `StructuredBuffer<T>` and `RWStructuredBuffer<T>`, to which a call binds
 //!   a [`Buffer`] of the matching element type.
+//! - `Texture2D` with a `float` result, such as `Texture2D<float4>`, to which
+//!   a call binds a [`Texture`], and `SamplerState`, to which a call binds a
+//!   [`Sampler`]. A kernel has no derivatives, so it samples a texture with
+//!   an explicit level of detail, such as `image.SampleLevel(sampler, uv,
+//!   0)`, or reads a pixel with `image.Load`.
 //! - Plain values of the types `bool`, `int`, `uint`, and `float`, as
 //!   scalars, vectors, matrices, arrays of fixed length, and structures of
 //!   them, declared as `uniform` globals, as `uniform` parameters of the
@@ -38,16 +47,23 @@
 //! - System values such as `SV_DispatchThreadID`, which the GPU provides.
 //!
 //! A load fails with [`ErrorKind::UnsupportedParameter`] when a kernel has
-//! any other parameter, such as a texture, a sampler, a `ByteAddressBuffer`,
-//! a `double`, or an array of structures. It fails with
+//! any other parameter, such as a storage texture, a `Sampler2D`, a
+//! `SamplerComparisonState`, a `ByteAddressBuffer`, a `double`, or an array
+//! of structures. It fails with
 //! [`ErrorKind::UnsupportedShader`] when wgpu rejects a construct of the
 //! compiled kernel, and with [`ErrorKind::MissingFeature`] when a kernel has
 //! `uniform` parameters of its entry point and the device cannot receive
 //! them. The crate loads every kernel through wgpu's validated path and
 //! contains no unsafe code.
 //!
+//! A module may also declare vertex and fragment entry points, which a load
+//! accepts and this version does not run, because the crate does not draw
+//! yet. A [`Buffer`] of a [`VertexElement`] and a [`Texture`] of each format
+//! already have the uses that drawing needs.
+//!
 //! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
-//! [`Module`], a [`Kernel`], and a [`Buffer`] are cheap to clone.
+//! [`Module`], a [`Kernel`], a [`Buffer`], a [`Texture`], and a [`Sampler`]
+//! are cheap to clone.
 //!
 //! # Examples
 //!
@@ -128,6 +144,8 @@ mod kernel;
 mod layout;
 mod marshal;
 mod module;
+mod sampler;
+mod texture;
 pub mod wgpu;
 
 pub use buffer::Buffer;
@@ -135,5 +153,7 @@ pub use call::Call;
 pub use device::{AdapterSelection, Device, DeviceOptions};
 pub use error::{Error, ErrorKind, Result};
 pub use kernel::Kernel;
-pub use marshal::{Element, Value};
+pub use marshal::{Element, Value, VertexElement};
 pub use module::Module;
+pub use sampler::{AddressMode, FilterMode, Sampler, SamplerOptions};
+pub use texture::{Texture, TextureFormat};

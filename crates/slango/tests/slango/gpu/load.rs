@@ -243,49 +243,6 @@ void split()
 }
 
 #[test]
-fn a_kernel_with_a_texture_is_an_unsupported_parameter() {
-    let error = device()
-        .load_module_from_source(
-            "textured",
-            r#"
-Texture2D<float4> image;
-RWStructuredBuffer<float4> output;
-
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void sample() { output[0] = image.Load(int3(0, 0, 0)); }
-"#,
-        )
-        .expect_err("the walk rejects textures");
-    assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
-    assert!(error.to_string().contains("`image`"), "{error}");
-}
-
-#[test]
-fn a_kernel_with_a_sampler_is_an_unsupported_parameter() {
-    let error = device()
-        .load_module_from_source(
-            "sampled",
-            r#"
-SamplerState linear;
-Texture2D<float4> image;
-RWStructuredBuffer<float4> output;
-
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void sample() { output[0] = image.SampleLevel(linear, float2(0.5, 0.5), 0); }
-"#,
-        )
-        .expect_err("the load refuses textures and samplers");
-    assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
-    let message = error.to_string();
-    assert!(
-        message.contains("`linear`") && message.contains("is a sampler"),
-        "{error}"
-    );
-}
-
-#[test]
 fn a_kernel_loads_and_runs_beside_vertex_and_fragment_entry_points() -> slango::Result<()> {
     let device = device();
     let module = device.load_module_from_source(

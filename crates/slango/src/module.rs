@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::Device;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{self, CompiledRender, KernelLayout, Resource, Source};
+use crate::layout::{self, CompiledRender, Source};
 
 const READ: &str = "read a Slang file";
 
@@ -127,7 +127,8 @@ impl Device {
     /// - [`ErrorKind::Compile`] when Slang cannot compile the module. The
     ///   source error is the error of `slang-compiler` with Slang's messages.
     /// - [`ErrorKind::UnsupportedParameter`] when a kernel has a parameter of
-    ///   a kind that this version does not support, such as a texture.
+    ///   a kind that this version does not support, such as a storage
+    ///   texture.
     /// - [`ErrorKind::MissingFeature`] when a kernel has `uniform` parameters
     ///   of its entry point and the device lacks the immediates feature or
     ///   enough immediate data for them.
@@ -197,9 +198,6 @@ impl Device {
 
     fn load(&self, source: &Source<'_>) -> Result<Module> {
         let compiled = layout::compile(source)?;
-        for kernel in &compiled.kernels {
-            refuse_textures_and_samplers(&kernel.layout)?;
-        }
         let kernels = compiled
             .kernels
             .into_iter()
@@ -211,26 +209,4 @@ impl Device {
             render: compiled.render.into(),
         })
     }
-}
-
-/// Fails with [`ErrorKind::UnsupportedParameter`] when the kernel has a
-/// texture or a sampler, which no call can bind until step 8 of Section 14
-/// of `docs/design/slango.md`.
-fn refuse_textures_and_samplers(layout: &KernelLayout) -> Result<()> {
-    for binding in &layout.bindings {
-        let what = match binding.resource {
-            Resource::SampledTexture => "a texture",
-            Resource::Sampler => "a sampler",
-            Resource::StorageBuffer { .. } | Resource::UniformBuffer(_) => continue,
-        };
-        return Err(
-            Error::new(ErrorKind::UnsupportedParameter, "load a Slang module").with_detail(
-                format!(
-                    "the parameter `{}` of the kernel `{}` is {what}, which this version does not support",
-                    binding.path, layout.name
-                ),
-            ),
-        );
-    }
-    Ok(())
 }

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use slango::{AdapterSelection, Buffer, Device, Element};
+use slango::{AdapterSelection, Buffer, Device, VertexElement};
 
 use crate::common::device_with;
 
@@ -8,7 +8,7 @@ fn device() -> Device {
     device_with(AdapterSelection::Default)
 }
 
-fn assert_round_trip<T: Element + PartialEq + Debug>(
+fn assert_round_trip<T: VertexElement + PartialEq + Debug>(
     device: &Device,
     elements: &[T],
 ) -> slango::Result<()> {
@@ -35,6 +35,27 @@ fn a_buffer_from_a_slice_reads_back_its_elements_for_every_element_type() {
         .expect("the buffer round-trips");
     assert_round_trip(&device, &[[1_u32, 2, 3, 4], [u32::MAX, 0, 0, 7]])
         .expect("the buffer round-trips");
+}
+
+#[test]
+fn a_buffer_of_packed_vectors_of_2_and_3_scalars_reads_back_its_elements() {
+    let device = device();
+    assert_round_trip(&device, &[[1.5_f32, -2.0], [0.25, f32::MAX], [0.0, -0.0]])
+        .expect("the buffer round-trips");
+    assert_round_trip(&device, &[[-1_i32, 2], [i32::MIN, i32::MAX]])
+        .expect("the buffer round-trips");
+    assert_round_trip(&device, &[[0_u32, 1], [u32::MAX, 7], [3, 4]])
+        .expect("the buffer round-trips");
+    assert_round_trip(&device, &[[1.0_f32, 2.0, 3.0], [-4.0, 5.5, -6.25]])
+        .expect("the buffer round-trips");
+    assert_round_trip(
+        &device,
+        &[[1_i32, -2, 3], [i32::MIN, 0, i32::MAX], [7, 8, 9]],
+    )
+    .expect("the buffer round-trips");
+    assert_round_trip(&device, &[[1_u32, 2, 3], [u32::MAX, 0, 5]]).expect("the buffer round-trips");
+    let zeroed = Buffer::<[f32; 3]>::zeroed(&device, 3).expect("the buffer is created");
+    assert_eq!(zeroed.read().expect("the buffer reads back"), [[0.0; 3]; 3]);
 }
 
 #[test]

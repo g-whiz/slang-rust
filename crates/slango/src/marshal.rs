@@ -34,15 +34,21 @@ mod sealed {
 
     #[expect(
         unnameable_types,
-        reason = "the supertrait that seals `Element` is private so that no other crate implements it (API-8)"
+        reason = "the supertrait that seals `VertexElement` is private so that no other crate implements it (API-8)"
     )]
-    pub trait SealedElement: Sized {
+    pub trait SealedVertexElement: Sized {
         const STRIDE: usize;
 
         fn write_bytes(&self, out: &mut Vec<u8>);
 
         fn read_bytes(bytes: &[u8]) -> Option<Self>;
     }
+
+    #[expect(
+        unnameable_types,
+        reason = "the supertrait that seals `Element` is private so that no other crate implements it (API-8)"
+    )]
+    pub trait SealedElement {}
 }
 
 pub(crate) use sealed::ValueType;
@@ -70,16 +76,31 @@ pub(crate) use sealed::ValueType;
 pub trait Value: sealed::SealedValue + Copy {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) holds as its element, whose
-/// bytes equal the layout of the matching Slang element type of a structured
-/// buffer.
+/// bytes are the packed little-endian scalars of the matching Slang type.
 ///
 /// The elements are [`f32`], [`i32`], and [`u32`], which stand for `float`,
-/// `int`, and `uint`, and `[f32; 4]`, `[i32; 4]`, and `[u32; 4]`, which
-/// stand for `float4`, `int4`, and `uint4`.
+/// `int`, and `uint`, and arrays of 2, 3, or 4 of them, such as `[f32; 3]`,
+/// which stand for vectors such as `float3`. Every [`Element`] is a vertex
+/// element. The arrays of 2 and 3 scalars are not, so a buffer of them, whose
+/// elements lie packed 8 or 12 bytes apart as a vertex attribute reads them,
+/// cannot be bound to a kernel.
 ///
 /// This trait is sealed: no type outside this crate can implement it. It
 /// serves as a generic bound only, not as a trait object.
-pub trait Element: sealed::SealedElement + Copy + Send + Sync + 'static {}
+pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'static {}
+
+/// A Rust type that a [`Buffer`](crate::Buffer) bound to a kernel holds as
+/// its element, whose bytes equal the layout of the matching Slang element
+/// type of a structured buffer.
+///
+/// The elements are [`f32`], [`i32`], and [`u32`], which stand for `float`,
+/// `int`, and `uint`, and `[f32; 4]`, `[i32; 4]`, and `[u32; 4]`, which
+/// stand for `float4`, `int4`, and `uint4`. Each is also a
+/// [`VertexElement`].
+///
+/// This trait is sealed: no type outside this crate can implement it. It
+/// serves as a generic bound only, not as a trait object.
+pub trait Element: VertexElement + sealed::SealedElement {}
 
 impl sealed::SealedValue for bool {
     fn value_type() -> ValueType {
@@ -150,7 +171,7 @@ impl<T: Value, const N: usize> sealed::SealedValue for [T; N] {
 
 impl<T: Value, const N: usize> Value for [T; N] {}
 
-impl sealed::SealedElement for i32 {
+impl sealed::SealedVertexElement for i32 {
     const STRIDE: usize = 4;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
@@ -161,10 +182,14 @@ impl sealed::SealedElement for i32 {
         Some(Self::from_le_bytes(bytes.try_into().ok()?))
     }
 }
+
+impl VertexElement for i32 {}
+
+impl sealed::SealedElement for i32 {}
 
 impl Element for i32 {}
 
-impl sealed::SealedElement for u32 {
+impl sealed::SealedVertexElement for u32 {
     const STRIDE: usize = 4;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
@@ -175,10 +200,14 @@ impl sealed::SealedElement for u32 {
         Some(Self::from_le_bytes(bytes.try_into().ok()?))
     }
 }
+
+impl VertexElement for u32 {}
+
+impl sealed::SealedElement for u32 {}
 
 impl Element for u32 {}
 
-impl sealed::SealedElement for f32 {
+impl sealed::SealedVertexElement for f32 {
     const STRIDE: usize = 4;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
@@ -190,15 +219,17 @@ impl sealed::SealedElement for f32 {
     }
 }
 
+impl VertexElement for f32 {}
+
+impl sealed::SealedElement for f32 {}
+
 impl Element for f32 {}
 
-impl sealed::SealedElement for [i32; 4] {
-    const STRIDE: usize = 16;
+impl sealed::SealedVertexElement for [f32; 2] {
+    const STRIDE: usize = 8;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
-        for scalar in self {
-            scalar.write_bytes(out);
-        }
+        write_vector(self, out);
     }
 
     fn read_bytes(bytes: &[u8]) -> Option<Self> {
@@ -206,15 +237,13 @@ impl sealed::SealedElement for [i32; 4] {
     }
 }
 
-impl Element for [i32; 4] {}
+impl VertexElement for [f32; 2] {}
 
-impl sealed::SealedElement for [u32; 4] {
-    const STRIDE: usize = 16;
+impl sealed::SealedVertexElement for [i32; 2] {
+    const STRIDE: usize = 8;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
-        for scalar in self {
-            scalar.write_bytes(out);
-        }
+        write_vector(self, out);
     }
 
     fn read_bytes(bytes: &[u8]) -> Option<Self> {
@@ -222,29 +251,134 @@ impl sealed::SealedElement for [u32; 4] {
     }
 }
 
-impl Element for [u32; 4] {}
+impl VertexElement for [i32; 2] {}
 
-impl sealed::SealedElement for [f32; 4] {
-    const STRIDE: usize = 16;
+impl sealed::SealedVertexElement for [u32; 2] {
+    const STRIDE: usize = 8;
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
-        for scalar in self {
-            scalar.write_bytes(out);
-        }
+        write_vector(self, out);
     }
 
     fn read_bytes(bytes: &[u8]) -> Option<Self> {
         read_vector(bytes)
     }
 }
+
+impl VertexElement for [u32; 2] {}
+
+impl sealed::SealedVertexElement for [f32; 3] {
+    const STRIDE: usize = 12;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [f32; 3] {}
+
+impl sealed::SealedVertexElement for [i32; 3] {
+    const STRIDE: usize = 12;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [i32; 3] {}
+
+impl sealed::SealedVertexElement for [u32; 3] {
+    const STRIDE: usize = 12;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [u32; 3] {}
+
+impl sealed::SealedVertexElement for [f32; 4] {
+    const STRIDE: usize = 16;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [f32; 4] {}
+
+impl sealed::SealedElement for [f32; 4] {}
 
 impl Element for [f32; 4] {}
 
-fn read_vector<S: sealed::SealedElement + Copy + Default>(bytes: &[u8]) -> Option<[S; 4]> {
-    if bytes.len() != 4 * S::STRIDE {
+impl sealed::SealedVertexElement for [i32; 4] {
+    const STRIDE: usize = 16;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [i32; 4] {}
+
+impl sealed::SealedElement for [i32; 4] {}
+
+impl Element for [i32; 4] {}
+
+impl sealed::SealedVertexElement for [u32; 4] {
+    const STRIDE: usize = 16;
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        write_vector(self, out);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        read_vector(bytes)
+    }
+}
+
+impl VertexElement for [u32; 4] {}
+
+impl sealed::SealedElement for [u32; 4] {}
+
+impl Element for [u32; 4] {}
+
+fn write_vector<S: sealed::SealedVertexElement, const N: usize>(
+    vector: &[S; N],
+    out: &mut Vec<u8>,
+) {
+    for scalar in vector {
+        scalar.write_bytes(out);
+    }
+}
+
+fn read_vector<S: sealed::SealedVertexElement + Copy + Default, const N: usize>(
+    bytes: &[u8],
+) -> Option<[S; N]> {
+    if bytes.len() != N.checked_mul(S::STRIDE)? {
         return None;
     }
-    let mut vector = [S::default(); 4];
+    let mut vector = [S::default(); N];
     for (slot, chunk) in vector.iter_mut().zip(bytes.chunks_exact(S::STRIDE)) {
         *slot = S::read_bytes(chunk)?;
     }

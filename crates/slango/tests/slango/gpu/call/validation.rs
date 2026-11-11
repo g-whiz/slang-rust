@@ -75,7 +75,7 @@ fn an_unknown_parameter_path_is_rejected() -> slango::Result<()> {
     fixture.assert_rejected(
         &call,
         ErrorKind::InvalidArgument,
-        "cannot call a kernel: the kernel `offset` has no buffer or plain value at the path `biass`",
+        "cannot call a kernel: the kernel `offset` has no parameter at the path `biass`",
     )
 }
 

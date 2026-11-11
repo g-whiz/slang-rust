@@ -131,7 +131,8 @@ pub enum ErrorKind {
     /// avoid.
     UnsupportedShader,
     /// A kernel has a parameter of a kind that this version does not
-    /// support, such as a texture or a sampler, or, at a call, the layout
+    /// support, such as a storage texture or a `ByteAddressBuffer`, or, at a
+    /// call, the layout
     /// that Slang reports for a plain value cannot hold the value.
     UnsupportedParameter,
     /// A kernel needs a feature of the device that the device lacks. Request
@@ -139,7 +140,8 @@ pub enum ErrorKind {
     MissingFeature,
     /// An argument was invalid, such as an unknown kernel name, a parameter
     /// that a call names but the kernel lacks, a file that cannot be read as
-    /// text, or a buffer larger than the device allows. Correct the call.
+    /// text, a buffer larger than the device allows, or a texture of no
+    /// pixels. Correct the call.
     InvalidArgument,
     /// wgpu reported a validation error, or a lack of memory, for work that
     /// this crate submitted. Report a validation error as a defect of this

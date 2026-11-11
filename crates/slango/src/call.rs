@@ -9,6 +9,8 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
 use crate::layout::{KernelLayout, PlainValue, Resource, UniformBlock, Usage};
 use crate::marshal::{self, Element, Marshalled, Value};
+use crate::sampler::Sampler;
+use crate::texture::{Texture, TextureFormat};
 
 const CALL: &str = "call a kernel";
 
@@ -25,14 +27,17 @@ const CALL: &str = "call a kernel";
 ///   `ConstantBuffer`, `cbuffer`, or `ParameterBlock`.
 /// - [`Call::bind`] binds a [`Buffer`] to a `StructuredBuffer` or
 ///   `RWStructuredBuffer`.
+/// - [`Call::texture`] binds a [`Texture`] to a `Texture2D`.
+/// - [`Call::sampler`] binds a [`Sampler`] to a `SamplerState`.
 ///
-/// Both setters always succeed, and a later setter for the same path
+/// Every setter always succeeds, and a later setter for the same path
 /// replaces the earlier one. [`Call::dispatch`] or [`Call::dispatch_groups`]
 /// then checks every argument against the parameters of the kernel before
 /// any work reaches the GPU, and runs the kernel. A call keeps its arguments,
 /// so it can run the kernel again with the same arguments.
 ///
-/// A call borrows its kernel, the paths, and the buffers, and is [`Send`]
+/// A call borrows its kernel, the paths, the buffers, the textures, and the
+/// samplers, and is [`Send`]
 /// and [`Sync`]. Each thread that runs a kernel at the same time as another
 /// uses its own call.
 ///
@@ -41,14 +46,20 @@ const CALL: &str = "call a kernel";
 /// See the example of [`Kernel::call`].
 pub struct Call<'a> {
     kernel: &'a Kernel,
-    arguments: Vec<(&'a str, Argument<&'a ::wgpu::Buffer>)>,
+    arguments: Vec<(&'a str, CallArgument<'a>)>,
 }
 
-/// One argument of a call, with the buffer handle `B` of a bound buffer.
+/// An argument of a [`Call`], with the wgpu objects that it binds.
+type CallArgument<'a> = Argument<&'a ::wgpu::Buffer, &'a ::wgpu::TextureView, &'a ::wgpu::Sampler>;
+
+/// One argument of a call, with the handle `B` of a bound buffer, `V` of a
+/// bound texture, and `S` of a bound sampler.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Argument<B> {
+pub(crate) enum Argument<B, V, S> {
     Value(Marshalled),
     Buffer(Bound<B>),
+    Texture(BoundTexture<V>),
+    Sampler(BoundSampler<S>),
 }
 
 /// A buffer bound to a parameter, with the facts that the checks of a call
@@ -58,6 +69,24 @@ pub(crate) struct Bound<B> {
     pub(crate) handle: B,
     pub(crate) stride: usize,
     pub(crate) len: usize,
+    pub(crate) on_device: bool,
+}
+
+/// A texture bound to a parameter, with the facts that the checks of a call
+/// need.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundTexture<V> {
+    pub(crate) handle: V,
+    pub(crate) format: TextureFormat,
+    pub(crate) sampleable: bool,
+    pub(crate) on_device: bool,
+}
+
+/// A sampler bound to a parameter, with the fact that the checks of a call
+/// need.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundSampler<S> {
+    pub(crate) handle: S,
     pub(crate) on_device: bool,
 }
 
@@ -82,7 +111,7 @@ pub(crate) struct Entry {
 pub(crate) enum Source {
     /// A uniform buffer that the dispatch creates with these bytes.
     Uniform(Vec<u8>),
-    /// The buffer of the argument at this index.
+    /// The buffer, texture, or sampler of the argument at this index.
     Argument(usize),
 }
 
@@ -171,6 +200,76 @@ impl<'a> Call<'a> {
         self
     }
 
+    /// Binds a texture to the `Texture2D` parameter at a parameter path.
+    ///
+    /// The dispatch checks that the texture belongs to the device of the
+    /// kernel and that a kernel can sample it, which a texture of the depth
+    /// format [`TextureFormat::Depth32Float`] cannot.
+    ///
+    /// # Examples
+    ///
+    /// This example samples the pixel of a texture of two by one pixels at
+    /// the coordinates (0.75, 0.5), the centre of its right pixel, and writes
+    /// it to a buffer. It needs a GPU driver or a software driver at run
+    /// time, so it is compiled but not run:
+    ///
+    /// ```no_run
+    /// use slango::{Buffer, Device, DeviceOptions, Sampler, SamplerOptions, Texture};
+    ///
+    /// let device = Device::new(&DeviceOptions::default())?;
+    /// let module = device.load_module_from_source(
+    ///     "pick",
+    ///     r#"
+    ///         Texture2D<float4> image;
+    ///         SamplerState nearest;
+    ///         RWStructuredBuffer<float4> output;
+    ///
+    ///         [shader("compute")]
+    ///         [numthreads(1, 1, 1)]
+    ///         void pick() { output[0] = image.SampleLevel(nearest, float2(0.75, 0.5), 0); }
+    ///     "#,
+    /// )?;
+    /// let image = Texture::from_pixels(&device, [2, 1], &[[0, 0, 0, 255], [255, 0, 0, 255]])?;
+    /// let nearest = Sampler::new(&device, &SamplerOptions::default())?;
+    /// let output = Buffer::<[f32; 4]>::zeroed(&device, 1)?;
+    /// module
+    ///     .kernel("pick")?
+    ///     .call()
+    ///     .texture("image", &image)
+    ///     .sampler("nearest", &nearest)
+    ///     .bind("output", &output)
+    ///     .dispatch([1, 1, 1])?;
+    /// assert_eq!(output.read()?, [[1.0, 0.0, 0.0, 1.0]]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn texture(&mut self, path: &'a str, texture: &'a Texture) -> &mut Self {
+        let bound = BoundTexture {
+            handle: texture.wgpu_view(),
+            format: texture.format(),
+            sampleable: texture.is_sampleable(),
+            on_device: texture.is_on(&self.kernel.device),
+        };
+        self.insert(path, Argument::Texture(bound));
+        self
+    }
+
+    /// Binds a sampler to the `SamplerState` parameter at a parameter path.
+    ///
+    /// The dispatch checks that the sampler belongs to the device of the
+    /// kernel.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Call::texture`].
+    pub fn sampler(&mut self, path: &'a str, sampler: &'a Sampler) -> &mut Self {
+        let bound = BoundSampler {
+            handle: sampler.wgpu_sampler(),
+            on_device: sampler.is_on(&self.kernel.device),
+        };
+        self.insert(path, Argument::Sampler(bound));
+        self
+    }
+
     /// Runs the kernel on at least as many threads as `elements` gives
     /// along each of the three axes.
     ///
@@ -194,11 +293,13 @@ impl<'a> Call<'a> {
     ///
     /// - [`ErrorKind::InvalidArgument`] when a path names no parameter of
     ///   the kernel, a parameter that the kernel uses is not given, a value
-    ///   does not match the Slang type of its parameter, a value is given for
-    ///   a buffer parameter or a buffer for a plain value, a buffer belongs to
-    ///   another device, is empty, or has elements of another size than the
-    ///   parameter, or the number of thread groups along an axis exceeds the
-    ///   limit of the device.
+    ///   does not match the Slang type of its parameter, an argument of one
+    ///   kind is given for a parameter of another, such as a value for a
+    ///   buffer parameter or a sampler for a texture, a buffer, texture, or
+    ///   sampler belongs to another device, a buffer is empty or has elements
+    ///   of another size than the parameter, a texture has the depth format
+    ///   or cannot be sampled, or the number of thread groups along an axis
+    ///   exceeds the limit of the device.
     /// - [`ErrorKind::UnsupportedParameter`] when the reflected layout of a
     ///   plain value does not hold the value.
     /// - [`ErrorKind::Backend`] when wgpu reports an error while it prepares
@@ -270,7 +371,7 @@ impl<'a> Call<'a> {
         }
     }
 
-    fn insert(&mut self, path: &'a str, argument: Argument<&'a ::wgpu::Buffer>) {
+    fn insert(&mut self, path: &'a str, argument: CallArgument<'a>) {
         match self.arguments.iter_mut().find(|(given, _)| *given == path) {
             Some((_, slot)) => *slot = argument,
             None => self.arguments.push((path, argument)),
@@ -310,14 +411,14 @@ impl<'a> Call<'a> {
                     .iter()
                     .zip(uniforms)
                     .filter_map(|(entry, uniform)| {
-                        let buffer = match (&entry.source, uniform) {
-                            (Source::Uniform(_), Some(buffer)) => buffer,
-                            (Source::Argument(index), _) => self.buffer_of(*index)?,
+                        let resource = match (&entry.source, uniform) {
+                            (Source::Uniform(_), Some(buffer)) => buffer.as_entire_binding(),
+                            (Source::Argument(index), _) => self.resource_of(*index)?,
                             (Source::Uniform(_), None) => return None,
                         };
                         Some(::wgpu::BindGroupEntry {
                             binding: entry.index,
-                            resource: buffer.as_entire_binding(),
+                            resource,
                         })
                     })
                     .collect();
@@ -347,9 +448,15 @@ impl<'a> Call<'a> {
         kernel.device.wgpu_queue().submit([encoder.finish()]);
     }
 
-    fn buffer_of(&self, index: usize) -> Option<&'a ::wgpu::Buffer> {
+    fn resource_of(&self, index: usize) -> Option<::wgpu::BindingResource<'a>> {
         match self.arguments.get(index) {
-            Some((_, Argument::Buffer(bound))) => Some(bound.handle),
+            Some((_, Argument::Buffer(bound))) => Some(bound.handle.as_entire_binding()),
+            Some((_, Argument::Texture(bound))) => {
+                Some(::wgpu::BindingResource::TextureView(bound.handle))
+            }
+            Some((_, Argument::Sampler(bound))) => {
+                Some(::wgpu::BindingResource::Sampler(bound.handle))
+            }
             Some((_, Argument::Value(_))) | None => None,
         }
     }
@@ -404,6 +511,10 @@ pub(crate) fn check_workgroups(kernel: &str, groups: [u32; 3], limit: u32) -> Re
 enum Target<'l> {
     /// The storage buffer at this index of the bindings.
     Buffer(usize),
+    /// The texture at this index of the bindings.
+    Texture(usize),
+    /// The sampler at this index of the bindings.
+    Sampler(usize),
     /// A plain value of the uniform buffer at this index of the bindings.
     Uniform(usize, &'l PlainValue),
     /// A plain value of the immediates.
@@ -415,13 +526,17 @@ enum Target<'l> {
 ///
 /// It fails with [`ErrorKind::InvalidArgument`] on the first argument, in
 /// the order of the arguments, whose path names no parameter, whose kind
-/// differs from that of its parameter, whose value does not match, or whose
-/// buffer belongs to another device, is empty, or has another stride. It
-/// then fails on the first parameter, in the order of the bindings and then
-/// the immediates, that the kernel uses and that no argument gives. An
-/// argument for a parameter that the kernel does not use is checked and
-/// then ignored.
-pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) -> Result<Plan> {
+/// differs from that of its parameter, whose value does not match, whose
+/// buffer, texture, or sampler belongs to another device, whose buffer is
+/// empty or has another stride, or whose texture cannot be sampled. It then
+/// fails on the first parameter, in the order of the bindings and then the
+/// immediates, that the kernel uses and that no argument gives. An argument
+/// for a parameter that the kernel does not use is checked and then
+/// ignored.
+pub(crate) fn plan<B, V, S>(
+    layout: &KernelLayout,
+    arguments: &[(&str, Argument<B, V, S>)],
+) -> Result<Plan> {
     let mut blocks: Vec<Option<Vec<u8>>> = layout
         .bindings
         .iter()
@@ -431,68 +546,64 @@ pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) 
         })
         .collect();
     let mut immediates = layout.immediates.as_ref().map(zeroed).unwrap_or_default();
-    let mut buffers: Vec<Option<usize>> = vec![None; layout.bindings.len()];
+    let mut given: Vec<Option<usize>> = vec![None; layout.bindings.len()];
     let mut set: HashSet<&str> = HashSet::new();
     let name = layout.name.as_str();
     for (index, (path, argument)) in arguments.iter().enumerate() {
         let path = *path;
         let target = find(layout, path).ok_or_else(|| {
             invalid(format!(
-                "the kernel `{name}` has no buffer or plain value at the path `{path}`"
+                "the kernel `{name}` has no parameter at the path `{path}`"
             ))
         })?;
-        match (target, argument) {
-            (Target::Buffer(binding), Argument::Buffer(bound)) => {
+        let binding = match target {
+            Target::Buffer(binding) => {
+                let Argument::Buffer(bound) = argument else {
+                    return Err(mismatch(name, path, "a buffer", argument));
+                };
                 check_buffer(layout, binding, path, bound)?;
-                if let Some(slot) = buffers.get_mut(binding) {
-                    *slot = Some(index);
-                }
+                binding
             }
-            (Target::Uniform(binding, plain), Argument::Value(value)) => {
+            Target::Texture(binding) => {
+                let Argument::Texture(bound) = argument else {
+                    return Err(mismatch(name, path, "a texture", argument));
+                };
+                check_texture(name, path, bound)?;
+                binding
+            }
+            Target::Sampler(binding) => {
+                let Argument::Sampler(bound) = argument else {
+                    return Err(mismatch(name, path, "a sampler", argument));
+                };
+                check_on_device(name, path, "sampler", bound.on_device)?;
+                binding
+            }
+            Target::Uniform(binding, plain) => {
+                let Argument::Value(value) = argument else {
+                    return Err(mismatch(name, path, "a plain value", argument));
+                };
                 let block = blocks
                     .get_mut(binding)
                     .and_then(Option::as_mut)
                     .ok_or_else(|| internal(name, path))?;
                 write(name, path, value, plain, block)?;
                 set.insert(path);
+                continue;
             }
-            (Target::Immediate(plain), Argument::Value(value)) => {
+            Target::Immediate(plain) => {
+                let Argument::Value(value) = argument else {
+                    return Err(mismatch(name, path, "a plain value", argument));
+                };
                 write(name, path, value, plain, &mut immediates)?;
                 set.insert(path);
+                continue;
             }
-            (Target::Buffer(_), Argument::Value(_)) => {
-                return Err(invalid(format!(
-                    "the parameter `{path}` of the kernel `{name}` is a buffer, and the call sets a value for it"
-                )));
-            }
-            (Target::Uniform(..) | Target::Immediate(_), Argument::Buffer(_)) => {
-                return Err(invalid(format!(
-                    "the parameter `{path}` of the kernel `{name}` is a plain value, and the call binds a buffer to it"
-                )));
-            }
+        };
+        if let Some(slot) = given.get_mut(binding) {
+            *slot = Some(index);
         }
     }
-    for (binding, buffer) in layout.bindings.iter().zip(&buffers) {
-        if binding.usage == Usage::Unused {
-            continue;
-        }
-        match &binding.resource {
-            Resource::StorageBuffer { .. } if buffer.is_none() => {
-                return Err(invalid(format!(
-                    "no buffer is bound to the parameter `{}` of the kernel `{name}`",
-                    binding.path
-                )));
-            }
-            Resource::StorageBuffer { .. } => {}
-            Resource::UniformBuffer(block) => require_values(name, block, &set)?,
-            Resource::SampledTexture | Resource::Sampler => {
-                return Err(internal(name, &binding.path));
-            }
-        }
-    }
-    if let Some(block) = &layout.immediates {
-        require_values(name, block, &set)?;
-    }
+    require_arguments(layout, &given, &set)?;
     let groups = group_sets(layout)
         .into_iter()
         .map(|indexes| {
@@ -504,7 +615,7 @@ pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) 
                         .get(binding)
                         .map(|binding| binding.index)
                         .ok_or_else(|| internal(name, ""))?;
-                    let source = match buffers.get(binding).copied().flatten() {
+                    let source = match given.get(binding).copied().flatten() {
                         Some(argument) => Source::Argument(argument),
                         None => Source::Uniform(
                             blocks
@@ -519,6 +630,42 @@ pub(crate) fn plan<B>(layout: &KernelLayout, arguments: &[(&str, Argument<B>)]) 
         })
         .collect::<Result<Vec<Vec<Entry>>>>()?;
     Ok(Plan { groups, immediates })
+}
+
+/// Fails with [`ErrorKind::InvalidArgument`] on the first parameter, in the
+/// order of the bindings and then the immediates, that the kernel uses and
+/// that no argument gives, where `given` holds the argument of each binding
+/// and `set` the paths of the plain values that the arguments set.
+fn require_arguments(
+    layout: &KernelLayout,
+    given: &[Option<usize>],
+    set: &HashSet<&str>,
+) -> Result<()> {
+    let name = layout.name.as_str();
+    for (binding, given) in layout.bindings.iter().zip(given) {
+        if binding.usage == Usage::Unused {
+            continue;
+        }
+        let what = match &binding.resource {
+            Resource::StorageBuffer { .. } => "buffer",
+            Resource::SampledTexture => "texture",
+            Resource::Sampler => "sampler",
+            Resource::UniformBuffer(block) => {
+                require_values(name, block, set)?;
+                continue;
+            }
+        };
+        if given.is_none() {
+            return Err(invalid(format!(
+                "no {what} is bound to the parameter `{}` of the kernel `{name}`",
+                binding.path
+            )));
+        }
+    }
+    if let Some(block) = &layout.immediates {
+        require_values(name, block, set)?;
+    }
+    Ok(())
 }
 
 /// Returns the indexes of the used bindings of each set, from set 0 to the
@@ -551,6 +698,12 @@ fn find<'l>(layout: &'l KernelLayout, path: &str) -> Option<Target<'l>> {
             Resource::StorageBuffer { .. } if binding.path == path => {
                 return Some(Target::Buffer(index));
             }
+            Resource::SampledTexture if binding.path == path => {
+                return Some(Target::Texture(index));
+            }
+            Resource::Sampler if binding.path == path => {
+                return Some(Target::Sampler(index));
+            }
             Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => {}
             Resource::UniformBuffer(block) => {
                 if let Some(plain) = block.values.iter().find(|plain| plain.path == path) {
@@ -582,11 +735,7 @@ fn check_buffer<B>(
     else {
         return Err(internal(name, path));
     };
-    if !bound.on_device {
-        return Err(invalid(format!(
-            "the buffer bound to the parameter `{path}` of the kernel `{name}` belongs to another device"
-        )));
-    }
+    check_on_device(name, path, "buffer", bound.on_device)?;
     if bound.len == 0 {
         return Err(invalid(format!(
             "the buffer bound to the parameter `{path}` of the kernel `{name}` is empty"
@@ -599,6 +748,50 @@ fn check_buffer<B>(
         )));
     }
     Ok(())
+}
+
+fn check_texture<V>(name: &str, path: &str, bound: &BoundTexture<V>) -> Result<()> {
+    check_on_device(name, path, "texture", bound.on_device)?;
+    if bound.format.is_depth() {
+        return Err(invalid(format!(
+            "the texture bound to the parameter `{path}` of the kernel `{name}` has the depth format {:?}, which a kernel cannot sample",
+            bound.format
+        )));
+    }
+    if !bound.sampleable {
+        return Err(invalid(format!(
+            "the texture bound to the parameter `{path}` of the kernel `{name}` lacks the usage TEXTURE_BINDING, which a kernel needs to sample it"
+        )));
+    }
+    Ok(())
+}
+
+fn check_on_device(name: &str, path: &str, what: &str, on_device: bool) -> Result<()> {
+    if on_device {
+        return Ok(());
+    }
+    Err(invalid(format!(
+        "the {what} bound to the parameter `{path}` of the kernel `{name}` belongs to another device"
+    )))
+}
+
+/// Returns the error of an argument whose kind differs from that of its
+/// parameter, which is `parameter`, such as "a buffer".
+fn mismatch<B, V, S>(
+    name: &str,
+    path: &str,
+    parameter: &str,
+    argument: &Argument<B, V, S>,
+) -> Error {
+    let given = match argument {
+        Argument::Value(_) => "sets a value for it",
+        Argument::Buffer(_) => "binds a buffer to it",
+        Argument::Texture(_) => "binds a texture to it",
+        Argument::Sampler(_) => "binds a sampler to it",
+    };
+    invalid(format!(
+        "the parameter `{path}` of the kernel `{name}` is {parameter}, and the call {given}"
+    ))
 }
 
 fn require_values(name: &str, block: &UniformBlock, set: &HashSet<&str>) -> Result<()> {

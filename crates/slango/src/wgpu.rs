@@ -3,12 +3,15 @@
 //!
 //! Go to this module to use this crate together with wgpu code of your own:
 //! to create a [`Device`] from a wgpu device that your program already holds,
-//! with [`from_device_and_queue`], or to reach the wgpu objects of a
-//! [`Device`], with [`device`] and [`queue`]. Every public item of this crate
+//! with [`from_device_and_queue`], to reach the wgpu objects of a
+//! [`Device`], with [`device`] and [`queue`], to reach the wgpu texture of a
+//! [`Texture`], with [`texture`], or to use a wgpu texture view of your own as
+//! a [`Texture`], with [`texture_from_view`]. Every public item of this crate
 //! that names a type of wgpu is in this module, so the rest of the crate does
 //! not depend on wgpu's API. The types are those of wgpu 30.
 
-use crate::Device;
+use crate::error::Result;
+use crate::{Device, Texture};
 
 /// Creates a [`Device`] from a wgpu device and its queue.
 ///
@@ -76,4 +79,68 @@ pub fn device(device: &Device) -> &::wgpu::Device {
 #[must_use]
 pub fn queue(device: &Device) -> &::wgpu::Queue {
     device.wgpu_queue()
+}
+
+/// Returns the wgpu texture of a [`Texture`].
+///
+/// Use it to work on the texture with wgpu code of your own, such as to copy
+/// pixels into it with [`wgpu::Queue::write_texture`](::wgpu::Queue::write_texture),
+/// which needs the usage `COPY_DST` that every texture of a colour format
+/// has.
+///
+/// # Examples
+///
+/// This example writes one pixel into the top-left corner of a texture:
+///
+/// ```
+/// fn write_corner(device: &slango::Device, texture: &slango::Texture, pixel: [u8; 4]) {
+///     slango::wgpu::queue(device).write_texture(
+///         slango::wgpu::texture(texture).as_image_copy(),
+///         &pixel,
+///         wgpu::TexelCopyBufferLayout::default(),
+///         wgpu::Extent3d::default(),
+///     );
+/// }
+/// # let _ = write_corner;
+/// ```
+#[must_use]
+pub fn texture(texture: &Texture) -> &::wgpu::Texture {
+    texture.wgpu_texture()
+}
+
+/// Wraps a wgpu texture view of the wgpu device of a [`Device`] as a
+/// [`Texture`] of that device, such as the view of the texture of a window's
+/// surface.
+///
+/// The wgpu texture that the view shows must be a two-dimensional texture
+/// with one mip level, one array layer, and one sample per pixel, so that
+/// the view shows all of it. The texture takes its size and format from that
+/// wgpu texture, and can do what the usages of that wgpu texture allow: a kernel
+/// samples it only with the usage `TEXTURE_BINDING`, and
+/// [`Texture::read`](crate::Texture::read) reads it only with the usage
+/// `COPY_SRC`, which the texture of a surface usually lacks. The view must
+/// belong to the wgpu device of `device`.
+///
+/// # Examples
+///
+/// This example wraps the view of a texture that a program created with
+/// wgpu:
+///
+/// ```
+/// fn wrap(device: &slango::Device, texture: &wgpu::Texture) -> slango::Result<slango::Texture> {
+///     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+///     slango::wgpu::texture_from_view(device, &view)
+/// }
+/// # let _ = wrap;
+/// ```
+///
+/// # Errors
+///
+/// Returns an [`Error`](crate::Error) of kind
+/// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument) when
+/// the wgpu texture has a format that
+/// [`TextureFormat`](crate::TextureFormat) lacks, is not two-dimensional, or
+/// has more than one mip level, array layer, or sample per pixel.
+pub fn texture_from_view(device: &Device, view: &::wgpu::TextureView) -> Result<Texture> {
+    Texture::from_view(device, view)
 }

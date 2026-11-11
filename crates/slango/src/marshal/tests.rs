@@ -1,5 +1,5 @@
-use super::sealed::{SealedElement, SealedValue};
-use super::{Element, Marshalled, Value, ValueType, check, marshal, write};
+use super::sealed::{SealedValue, SealedVertexElement};
+use super::{Marshalled, Value, ValueType, VertexElement, check, marshal, write};
 use crate::error::ErrorKind;
 use crate::layout::{PlainValue, Scalar, Shape};
 
@@ -103,7 +103,7 @@ fn scalars_are_little_endian() {
     assert_eq!(marshal(&0x0102_0304_u32).scalars, [[4, 3, 2, 1]]);
 }
 
-fn round_trip<T: Element + PartialEq + std::fmt::Debug>(element: T, stride: usize) {
+fn round_trip<T: VertexElement + PartialEq + std::fmt::Debug>(element: T, stride: usize) {
     assert_eq!(T::STRIDE, stride);
     let mut bytes = Vec::new();
     element.write_bytes(&mut bytes);
@@ -120,6 +120,19 @@ fn elements_have_their_std430_stride_and_read_back_what_they_write() {
     round_trip([1_i32, -2, 3, -4], 16);
     round_trip([1_u32, 2, 3, 4], 16);
     round_trip([1.0_f32, -2.0, 0.5, 4.0], 16);
+}
+
+#[test]
+fn vertex_elements_of_2_and_3_scalars_are_packed_and_read_back_what_they_write() {
+    round_trip([1.5_f32, -2.0], 8);
+    round_trip([-1_i32, 2], 8);
+    round_trip([1_u32, u32::MAX], 8);
+    round_trip([1.5_f32, -2.0, 0.25], 12);
+    round_trip([i32::MIN, 0, i32::MAX], 12);
+    round_trip([1_u32, 2, 3], 12);
+    let mut bytes = Vec::new();
+    [1_u32, 2, 3].write_bytes(&mut bytes);
+    assert_eq!(bytes, [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
 }
 
 #[test]

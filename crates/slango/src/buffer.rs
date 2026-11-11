@@ -7,7 +7,7 @@ use ::wgpu::util::DeviceExt as _;
 use crate::Device;
 use crate::device::scoped;
 use crate::error::{Error, ErrorKind, Result};
-use crate::marshal::Element;
+use crate::marshal::VertexElement;
 
 const CREATE: &str = "create a buffer";
 const READ: &str = "read a buffer";
@@ -16,7 +16,10 @@ const READ: &str = "read a buffer";
 /// kernels to read and write.
 ///
 /// A kernel reaches it as a `StructuredBuffer` or `RWStructuredBuffer` of
-/// the matching Slang element type, which [`Element`] lists. Create one from
+/// the matching Slang element type, which [`Element`](crate::Element) lists.
+/// A buffer of any [`VertexElement`] can also hold the values of a vertex
+/// attribute, and a `Buffer<u32>` the indices of the vertices of triangles,
+/// for the drawing that a later version adds. Create one from
 /// the elements of a slice with [`Buffer::from_slice`], or filled with zeros
 /// with [`Buffer::zeroed`], and copy its elements back with
 /// [`Buffer::read`]. A buffer keeps its length for its whole life. The
@@ -38,7 +41,7 @@ pub struct Buffer<T> {
     element: PhantomData<fn() -> T>,
 }
 
-impl<T: Element> Buffer<T> {
+impl<T: VertexElement> Buffer<T> {
     /// Creates a buffer on the device that holds a copy of the elements of a
     /// slice.
     ///
@@ -137,8 +140,9 @@ impl<T: Element> Buffer<T> {
     /// Copies the elements of the buffer back from the GPU into a vector.
     ///
     /// The call blocks until every kernel that the device ran or queued
-    /// before it has finished, so the vector holds all their results. It is
-    /// the only way in which a program waits for the GPU.
+    /// before it has finished, so the vector holds all their results. It and
+    /// [`Texture::read`](crate::Texture::read) are the ways in which a
+    /// program waits for the GPU.
     ///
     /// # Examples
     ///
@@ -152,53 +156,11 @@ impl<T: Element> Buffer<T> {
         if self.len == 0 {
             return Ok(Vec::new());
         }
-        let device = self.device.wgpu_device();
         let size = self.inner.size();
-        let (staging, error) = scoped(device, || {
-            let staging = device.create_buffer(&::wgpu::BufferDescriptor {
-                label: Some("slango staging buffer"),
-                size,
-                usage: ::wgpu::BufferUsages::MAP_READ | ::wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let mut encoder =
-                device.create_command_encoder(&::wgpu::CommandEncoderDescriptor::default());
-            encoder.copy_buffer_to_buffer(&self.inner, 0, &staging, 0, size);
-            self.device.wgpu_queue().submit([encoder.finish()]);
-            staging
-        });
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::Backend, READ).with_source(error));
-        }
-        let (sender, receiver) = mpsc::channel();
-        let ((), error) = scoped(device, || {
-            staging.map_async(::wgpu::MapMode::Read, .., move |result| {
-                #[expect(
-                    clippy::let_underscore_must_use,
-                    reason = "a send fails only when `read` has already returned, so no one waits for the result"
-                )]
-                let _ = sender.send(result);
-            });
-        });
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::Backend, READ).with_source(error));
-        }
-        device
-            .poll(::wgpu::PollType::wait_indefinitely())
-            .map_err(|error| Error::new(ErrorKind::Backend, READ).with_source(error))?;
-        match receiver.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => return Err(Error::new(ErrorKind::Backend, READ).with_source(error)),
-            Err(error) => {
-                return Err(Error::new(ErrorKind::Backend, READ)
-                    .with_detail("wgpu finished waiting before it mapped the copy".to_owned())
-                    .with_source(error));
-            }
-        }
-        let view = staging
-            .get_mapped_range(..)
-            .map_err(|error| Error::new(ErrorKind::Backend, READ).with_source(error))?;
-        let elements = view
+        let bytes = read_back(&self.device, READ, size, |encoder, staging| {
+            encoder.copy_buffer_to_buffer(&self.inner, 0, staging, 0, size);
+        })?;
+        let elements = bytes
             .chunks_exact(T::STRIDE)
             .map(T::read_bytes)
             .collect::<Option<Vec<T>>>()
@@ -206,7 +168,7 @@ impl<T: Element> Buffer<T> {
         elements.ok_or_else(|| {
             Error::new(ErrorKind::Backend, READ).with_detail(format!(
                 "wgpu mapped {} bytes, which are not {} elements of {} bytes",
-                view.len(),
+                bytes.len(),
                 self.len,
                 T::STRIDE
             ))
@@ -267,8 +229,74 @@ impl<T> fmt::Debug for Buffer<T> {
     }
 }
 
+/// Copies `size` bytes from the GPU into a vector through a staging buffer
+/// into which `record` records the copy, and blocks until the device has
+/// finished every earlier submission and the copy.
+///
+/// Every error of wgpu is returned with the operation `operation` and the
+/// kind [`ErrorKind::Backend`].
+pub(crate) fn read_back(
+    device: &Device,
+    operation: &'static str,
+    size: u64,
+    record: impl FnOnce(&mut ::wgpu::CommandEncoder, &::wgpu::Buffer),
+) -> Result<Vec<u8>> {
+    let wgpu_device = device.wgpu_device();
+    let (staging, error) = scoped(wgpu_device, || {
+        let staging = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
+            label: Some("slango staging buffer"),
+            size,
+            usage: ::wgpu::BufferUsages::MAP_READ | ::wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder =
+            wgpu_device.create_command_encoder(&::wgpu::CommandEncoderDescriptor::default());
+        record(&mut encoder, &staging);
+        device.wgpu_queue().submit([encoder.finish()]);
+        staging
+    });
+    if let Some(error) = error {
+        return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
+    }
+    let (sender, receiver) = mpsc::channel();
+    let ((), error) = scoped(wgpu_device, || {
+        staging.map_async(::wgpu::MapMode::Read, .., move |result| {
+            #[expect(
+                clippy::let_underscore_must_use,
+                reason = "a send fails only when `read_back` has already returned, so no one waits for the result"
+            )]
+            let _ = sender.send(result);
+        });
+    });
+    if let Some(error) = error {
+        return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
+    }
+    wgpu_device
+        .poll(::wgpu::PollType::wait_indefinitely())
+        .map_err(|error| Error::new(ErrorKind::Backend, operation).with_source(error))?;
+    match receiver.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
+        }
+        Err(error) => {
+            return Err(Error::new(ErrorKind::Backend, operation)
+                .with_detail("wgpu finished waiting before it mapped the copy".to_owned())
+                .with_source(error));
+        }
+    }
+    let view = staging
+        .get_mapped_range(..)
+        .map_err(|error| Error::new(ErrorKind::Backend, operation).with_source(error))?;
+    Ok(view.to_vec())
+}
+
 fn usages() -> ::wgpu::BufferUsages {
-    ::wgpu::BufferUsages::STORAGE | ::wgpu::BufferUsages::COPY_SRC | ::wgpu::BufferUsages::COPY_DST
+    ::wgpu::BufferUsages::STORAGE
+        | ::wgpu::BufferUsages::VERTEX
+        | ::wgpu::BufferUsages::INDEX
+        | ::wgpu::BufferUsages::COPY_SRC
+        | ::wgpu::BufferUsages::COPY_DST
 }
 
 /// Returns the size in bytes of `len` elements of `stride` bytes, and fails
