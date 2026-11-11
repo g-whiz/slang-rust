@@ -81,6 +81,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libclang-dev
+      - &install-lavapipe
+        name: Install lavapipe as the software Vulkan adapter for the tests of the GPU tier
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
       - name: Run just check
         run: just check
 
@@ -153,6 +158,7 @@ jobs:
       - *install-vulkan-sdk
       - *check-vulkan-sdk
       - *install-libclang
+      - *install-lavapipe
       - name: Write the coverage report
         run: just coverage
       - name: Keep the coverage report

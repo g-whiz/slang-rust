@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
+    "crates/slango",
     "examples",
     "tools/bindings-generator",
 ]
@@ -19,8 +20,10 @@ readme = "README.md"
 [workspace.dependencies]
 clang = { version = "2.1.0", features = ["runtime", "clang_10_0"] }
 insta = { version = "1.49.0", default-features = false }
+pollster = "0.4.0"
 slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
+wgpu = { version = "30.0.1", features = ["spirv"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

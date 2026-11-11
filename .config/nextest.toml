@@ -16,3 +16,10 @@ default-filter = "all()"
 # modules named `ffi`, which Miri skips together with the GPU tiers.
 [profile.default-miri]
 default-filter = "not test(/(^|::)(ffi|gpu|hw_gpu)::/)"
+
+# The tests of the GPU tier of slango print the adapter that they ran on, and
+# this keeps that output in the log of every run that selects them, including
+# CI, where it records which adapter each runner provides.
+[[profile.default.overrides]]
+filter = "package(slango) & test(/^gpu::/)"
+success-output = "final"

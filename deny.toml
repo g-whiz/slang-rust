@@ -6,7 +6,7 @@ ignore = []
 unused-ignored-advisory = "deny"
 
 [licenses]
-allow = ["GPL-3.0-or-later", "Apache-2.0", "ISC"]
+allow = ["GPL-3.0-or-later", "Apache-2.0", "ISC", "MIT", "Unicode-3.0", "Zlib"]
 confidence-threshold = 0.8
 unused-allowed-license = "deny"
 
@@ -14,6 +14,12 @@ unused-allowed-license = "deny"
 multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = false
+skip = [
+    { crate = "foldhash@0.1.5", reason = "hashbrown 0.15 of petgraph 0.8, which naga 30 of wgpu requires, needs it, while hashbrown 0.16 needs foldhash 0.2" },
+    { crate = "hashbrown@0.15.5", reason = "petgraph 0.8, which naga 30 of wgpu requires, needs it, while gpu-allocator 0.28 of wgpu-hal needs 0.16 and indexmap 2 needs 0.17" },
+    { crate = "hashbrown@0.16.1", reason = "gpu-allocator 0.28, which wgpu-hal 30 requires, needs it, while indexmap 2 of naga needs 0.17" },
+    { crate = "syn@2.0.119", reason = "jni-sys-macros, windows-implement, windows-interface, and zerocopy-derive in the tree of wgpu 30 need syn 2, while bytemuck_derive, thiserror-impl, and wasm-bindgen-macro-support need syn 3" },
+]
 
 [sources]
 unknown-registry = "deny"

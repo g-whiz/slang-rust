@@ -72,7 +72,7 @@ On `main`, CI failed in the Windows job on 2026-11-10 and 2026-11-11 for three c
 
 On 2026-11-11, the workflow gained a trigger for every push to a branch that matches `feature/**`, because the project opens no pull requests and a branch needs another way to be verified before it merges. A new push cancels the earlier run of the same feature branch or pull request, and no run on `main` is cancelled. No real run has shown the cancellation yet (Section 8.1). Run 42861650459, started by a plain push to a feature branch with no pull request, passed all six jobs. Section 17.7 gives the procedure that verifies and merges a branch.
 
-The design of M3, `docs/design/slango.md`, a draft dated 2026-11-11, plans two changes to tooling for step 1 of its Section 14, and neither exists yet: new licences and duplicate-version exceptions in `deny.toml` (Section 9), and lavapipe in the `check` job (Section 8.1).
+Step 1 of Section 14 of `docs/design/slango.md`, the first code of M3, added the member `crates/slango` with the workspace dependencies `pollster` and `wgpu`, three licences and four duplicate-version exceptions in `deny.toml` (Section 9), a nextest override that keeps the output of the `gpu` tests of `slango` (Section 5), and the installation of lavapipe in the `check` and `coverage` jobs (Section 8.1). It added no recipe, hook, or checker, and the `gpu` tier now runs tests on all three platforms (Section 8.1).
 
 ## 2. Requirements Language
 
@@ -123,11 +123,11 @@ The skeleton contains a manifest and `src/lib.rs`. The manifest has the publicat
 
 TOOL-3. An agent MUST create the examples as one workspace member, the package `slang-rust-examples` at `examples/`, with `publish = false`, in which each example is a binary target, because one package needs one manifest with one `publish = false`, one integration-test binary under TEST-10 of the coding standard, and one place for shared helpers. M2 creates this member together with example 1. Building one example builds the dependencies of every example, which the examples accept, because ARCH-14 of the architecture design limits the dependencies of `slang-compiler` and no rule limits those of the examples.
 
-M2 adds two members. Step 1 of Section 15 of `docs/design/slang-compiler.md` added the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document) on 2026-11-11, with the publication metadata that TOOL-27 requires of a published crate. Step 5 added the package `slang-rust-examples` at `examples/` on 2026-11-11, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document). Each change adds its member to the `members` list of the root `Cargo.toml`.
+M2 adds two members. Step 1 of Section 15 of `docs/design/slang-compiler.md` added the library crate `slang-compiler` at `crates/slang-compiler/` (Section 4.1 of that document) on 2026-11-11, with the publication metadata that TOOL-27 requires of a published crate. Step 5 added the package `slang-rust-examples` at `examples/` on 2026-11-11, as TOOL-3 requires, with `publish = false`, the binary target `compile-and-reflect` at `examples/src/bin/compile-and-reflect.rs`, and one integration-test binary that runs it (Section 13.6 of that document). Each change adds its member to the `members` list of the root `Cargo.toml`. M3 added the library crate `slango` at `crates/slango/` in step 1 of Section 14 of `docs/design/slango.md`, on 2026-11-11.
 
 ### 3.3. Workspace Manifest
 
-The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires. Its `[workspace.dependencies]` table declares each dependency once (DEP-2): `clang` for the binding generator and, since step 1 of Section 15 of `docs/design/slang-compiler.md`, `slang-compiler-sys` by path and version, which `slang-compiler` inherits, and, since step 4 of that document, `insta`, which `slang-compiler` inherits as a development dependency (Section 9), and, since step 5, `slang-compiler`, which the examples package inherits.
+The root `Cargo.toml` keeps resolver 3, edition 2024, the version 0.1.0, and the `authors` field that it has today. It receives the workspace lint table of Section 4.2 of the coding standard, and the root `clippy.toml` receives the configuration of Section 4.3 of the coding standard, as Section 4.1 of the coding standard requires. Its `[workspace.dependencies]` table declares each dependency once (DEP-2): `clang` for the binding generator and, since step 1 of Section 15 of `docs/design/slang-compiler.md`, `slang-compiler-sys` by path and version, which `slang-compiler` inherits, and, since step 4 of that document, `insta`, which `slang-compiler` inherits as a development dependency (Section 9), and, since step 5, `slang-compiler`, which the examples package inherits, and, since step 1 of Section 14 of `docs/design/slango.md`, `pollster` and `wgpu`, which `slango` inherits.
 
 TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence identifier `GPL-3.0-or-later`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`, and every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that cargo-deny checks and with the minimum supported Rust version (MSRV) that Clippy reads.
 
@@ -321,7 +321,13 @@ TOOL-11. A profile MUST NOT retry a failed test, because a retry turns an interm
 
 TOOL-12. The recipes `test`, `test-gpu`, and `test-hw-gpu` MUST pass when their profile selects no test, because the skeleton crate of M0 has no tests and no `gpu` test exists before M3, so a run that fails on an empty selection would fail `check` until then. nextest 0.9.151 fails such a run with the message "error: no tests to run" and exit status 4. Every nextest command of Section 4.8 of the coding standard therefore passes `--no-tests=warn`, with which an empty run passes and nextest still prints that no test ran, and a recipe keeps that option, except in the two departures that TOOL-7 permits.
 
-The first `gpu` tests are planned for step 1 of Section 14 of `docs/design/slango.md`, which also makes the `check` job install lavapipe as their adapter (Section 8.1).
+The first `gpu` tests are those of `slango`, which step 1 of Section 14 of `docs/design/slango.md` added, and lavapipe is their adapter in the Linux jobs of CI (Section 8.1). Each of them prints the adapter that it ran on, and this override in the `default` profile keeps that output in the log, so that the log of a CI run records the adapter of each runner. It changes no filter:
+
+```toml
+[[profile.default.overrides]]
+filter = "package(slango) & test(/^gpu::/)"
+success-output = "final"
+```
 
 nextest does not run doctests, so `check-doctest` runs them, as Section 4.8 of the coding standard states.
 
@@ -531,17 +537,17 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 
 | Job | Name | Runner | Runs | Arrives |
 | --- | --- | --- | --- | --- |
-| `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the planned software adapter, installed from step 1 of Section 14 of `docs/design/slango.md`, when the first `gpu` test exists | `just check` | Exists |
-| `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the planned software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the planned adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` | Exists |
+| `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just check` | Exists |
+| `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` | Exists |
 | `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` | Exists |
 | `semver` | Not yet named | Linux x86_64 | `just check-semver` | M7, with the first release (Section 10) |
-| `coverage` | Measure test coverage on Linux | `ubuntu-latest`, Linux x86_64 | `just coverage`, then the upload of `target/lcov.info` as the artifact `coverage-lcov` | Exists |
+| `coverage` | Measure test coverage on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just coverage`, then the upload of `target/lcov.info` as the artifact `coverage-lcov` | Exists |
 
-The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. It compiles the checked-in bindings of `slang-compiler-sys` there and never regenerates them. Linux runs the GPU tier on lavapipe, and whether Windows and macOS can run it while SPIR-V is the only shader target is open (Section 17, Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. That lavapipe, WARP, and hosted Metal work as adapters on hosted runners is an assumption of the architecture design (Section 16, A-17 and A-18 of the architecture design). No `gpu` test exists yet, so `just test-gpu` has not used an adapter on any runner, and the `check` job does not install lavapipe yet. Step 1 of Section 14 of `docs/design/slango.md` is planned to make it install Mesa's package `mesa-vulkan-drivers`, so that the tests in modules named `gpu` have a software adapter (SOA-1 of that document).
+The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. It compiles the checked-in bindings of `slang-compiler-sys` there and never regenerates them. Linux runs the GPU tier on lavapipe, and Windows and macOS run it on WARP and on the hosted Metal device, on which `slango` creates a device. Whether they can also load and dispatch while SPIR-V is the only shader target is open until step 5 of Section 14 of `docs/design/slango.md` (SOA-2 of that document, and Q-21 of the architecture design). If the answer is that a platform cannot, its entry in the matrix runs `just test` instead of `just test-gpu` until the shader target is configurable. Section 3.8 of `docs/design/slango.md` records the adapter of each runner.
 
 No job runs the `hw_gpu` tests, which run only on a developer's hardware GPU through `just test-hw-gpu`. No job builds the static route, because it compiles several hundred C++ files, and the recipe `test-static` verifies it locally instead (SCS-36 of `docs/design/slang-compiler-sys.md`). On 2026-11-10, its first build took 3 min 50 s on 16 cores in the development container. Whether a scheduled job runs it is SQ-4 of that document.
 
-Every job runs its steps in the same order. It checks out the repository, installs the Rust toolchains, installs its tools through the installer action, reads the pin, installs the Vulkan SDK with `just install-vulkan-sdk`, and checks the SDK with `just check-vulkan-sdk` (Section 8.3). Then it runs its own steps. The `check` job installs actionlint and libclang and runs `just check`. The `test` job runs `just check-clippy`, `just check-doctest`, and `just test-gpu`. The `ci-only` job runs the recipe of its matrix entry. The `coverage` job installs libclang, runs `just coverage`, and uploads the report. The workflow defines the steps that check out the repository, read the pin, install and check the SDK, and install libclang once, with YAML anchors, and reuses them in the other jobs, so each of these steps is the same in every job that runs it.
+Every job runs its steps in the same order. It checks out the repository, installs the Rust toolchains, installs its tools through the installer action, reads the pin, installs the Vulkan SDK with `just install-vulkan-sdk`, and checks the SDK with `just check-vulkan-sdk` (Section 8.3). Then it runs its own steps. The `check` job installs actionlint, libclang, and lavapipe and runs `just check`. The `test` job runs `just check-clippy`, `just check-doctest`, and `just test-gpu`. The `ci-only` job runs the recipe of its matrix entry. The `coverage` job installs libclang and lavapipe, runs `just coverage`, and uploads the report. The workflow defines the steps that check out the repository, read the pin, install and check the SDK, install libclang, and install lavapipe once, with YAML anchors, and reuses them in the other jobs, so each of these steps is the same in every job that runs it.
 
 The `coverage` job runs the tests of the `gpu` profile under cargo llvm-cov and keeps the report. The recipe prints no coverage summary in the log of the job. With the LCOV options, cargo llvm-cov ends its output with the line `Finished report saved to target/lcov.info`, as observed on 2026-11-10, so the uploaded report is the only result of the job. The action `actions/upload-artifact`, pinned by commit SHA (TOOL-20), uploads `target/lcov.info` as the artifact `coverage-lcov`, which GitHub keeps for 14 days. The step sets `if-no-files-found: error`, so the job fails when the recipe wrote no report. The job sets no coverage threshold, so the report informs a reviewer and does not gate a merge. The job arrived in step 2 of Section 15 of `docs/design/slang-compiler-sys.md`, because a crate with code and tests then existed to measure.
 
@@ -551,6 +557,7 @@ CI installs the tools on each runner, because no container image is published fo
 - `just` in every job, cargo-nextest in the `check`, `test`, and `coverage` jobs, shellcheck, typos, taplo, cargo-machete, and cargo-deny in the `check` job, cargo-hack in the `ci-only` job, and cargo-llvm-cov in the `coverage` job, through the action `taiki-e/install-action`, pinned by commit SHA. The action installs prebuilt binaries and verifies the SHA-256 checksum of each one against the manifest of versions and checksums that it carries. The workflow sets `fallback: none`, so the action fails instead of installing a tool by a route that its manifest does not cover.
 - actionlint, in the `check` job, through an inline step. It reads the latest release from GitHub, downloads the release archive for Linux x86_64 and the checksums file of the same release, verifies the archive with `sha256sum --check --strict`, and fails on a mismatch before it extracts the archive.
 - libclang, in the `check` and `coverage` jobs, which the tests of the binding generator load, including the regeneration test of the checked-in bindings (Sections 7.5 and 7.6 of `docs/design/slang-compiler-sys.md`). The step runs `sudo apt-get update` and `sudo apt-get install --yes --no-install-recommends libclang-dev` before `just check` or `just coverage`. It meets TOOL-21 because apt verifies the signature of the distribution's package index and the SHA-256 checksum of each package against that index, and refuses a package that fails either check. The package is the libclang of the runner's distribution, and its version can differ from the one in the development container (Section 7.6 of `docs/design/slang-compiler-sys.md`). The `test` jobs do not install libclang, because the tests that load it compile only for Linux.
+- lavapipe, in the `check` and `coverage` jobs, as Mesa's package `mesa-vulkan-drivers`, which gives the tests in modules named `gpu` a software Vulkan adapter. The step runs `sudo apt-get update` and `sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers`, so it meets TOOL-21 in the same way as the libclang step. The `test` jobs install no adapter.
 - The pinned Vulkan SDK, in every job, through `just install-vulkan-sdk` (Section 8.3).
 
 Each route except the Vulkan SDK installs the latest version that it provides, which matches the policy of the container image, in which no tool version is pinned. The Vulkan SDK is the version of the pin (Section 8.3). A tool in CI can therefore have a different version from the same tool in the development container, and a check can pass in one and fail in the other until both have the same version. The workflow caches nothing, so no file is restored from a cache.
@@ -564,6 +571,8 @@ Since step 3 of Section 15 of `docs/design/slang-compiler-sys.md`, the `check` a
 Since step 4 of Section 15 of `docs/design/slang-compiler-sys.md`, every job compiles `slang-compiler-sys` with its build script, which checks the installed SDK against the pin and links its Slang. The `test` jobs therefore prove more than compilation on Windows and macOS: `just test-gpu` builds the test binary of `slang-compiler-sys`, links it against the Slang of the SDK, and runs it, including the smoke test, which creates a global session and checks the build tag at run time, and the native-symbol test, which fails to link when the library does not export a C function of the bindings. On 2026-11-10, all six jobs passed on a draft pull request with this change, and the workflow did not change. On Windows and on macOS, the tests that run there passed, including both tests, and Section 7.5 of `docs/design/slang-compiler-sys.md` records the test counts. On that run, "Run every check on Linux" took 1 minute 58 seconds, "Measure test coverage on Linux" 1 minute 41 seconds, "Test on macos-latest" 1 minute 26 seconds, "Test on windows-latest" 1 minute 14 seconds, "Run check-msrv on Linux" 39 seconds, and "Run check-features on Linux" 32 seconds. These durations are observations of one run, not limits. The `macos-latest` runner is aarch64, so no job runs the tests on x86_64 macOS (Section 6 of `docs/design/slang-compiler-sys.md`).
 
 On 2026-11-11, the trigger for pushes to feature branches was verified by run 42861650459. The run had the event `push`, ran on the branch `feature/ci-branch-pushes` at commit c0c5876 with no pull request, and concluded `success` with all six jobs succeeding. In its first attempt, GitHub cancelled the macOS job before any step ran, because no hosted macOS runner picked it up, and a rerun of that job succeeded (Section 17.4).
+
+On 2026-11-11, the first `gpu` tests, those of step 1 of Section 14 of `docs/design/slango.md`, ran on every runner. In run 42941845864, the macOS job failed, because Metal offers no software adapter and the test of the software selection found none. The next commit compiled that test out on macOS, and run 42943216478 passed all six jobs, with the `gpu` tier passing on Linux, Windows, and macOS.
 
 ### 8.2. Workflow Security
 
@@ -681,11 +690,34 @@ The first change of M1 added the first dependency, the crate `clang` of the bind
 allow = ["GPL-3.0-or-later", "Apache-2.0", "ISC"]
 ```
 
-`Apache-2.0` is there for `clang` and `clang-sys`, and for `glob`, `libc`, `cfg-if`, and `windows-link`, whose licence `MIT OR Apache-2.0` it satisfies, so MIT is not needed. `ISC` is there for `libloading`. Both are compatible with GPL-3.0-or-later, as TOOL-24 requires, and Section 14 of `docs/design/slang-compiler-sys.md` records the licence of each crate.
+`Apache-2.0` is there for `clang` and `clang-sys`, and for `glob`, `libc`, `cfg-if`, and `windows-link`, whose licence `MIT OR Apache-2.0` it satisfies, so those crates need no `MIT` entry. `ISC` is there for `libloading`. Both are compatible with GPL-3.0-or-later, as TOOL-24 requires, and Section 14 of `docs/design/slang-compiler-sys.md` records the licence of each crate.
 
 Step 4 of Section 15 of `docs/design/slang-compiler.md` added the crate `insta`, declared in `[workspace.dependencies]`, as a development dependency of `slang-compiler` for its snapshot tests, and step 5 uses it in the test of the examples package (Section 13 of that document, TEST-2 of the coding standard). `just check-deny` showed that the allow-list already holds a licence that each of `insta` and its dependencies accepts, so no licence was added under TOOL-24. The development container provides cargo-insta, which reviews snapshot changes.
 
-Step 1 of Section 14 of `docs/design/slango.md` is planned to add wgpu, whose dependency tree needs `MIT`, `Zlib`, and `Unicode-3.0` in the allow-list and one exception with a reason for each duplicate version that it brings, such as those of `hashbrown` (Section 4.2 of that document). This is a change of the licence policy, and that step confirms under TOOL-24 that each licence is compatible with GPL-3.0-or-later. Neither change exists yet.
+Step 1 of Section 14 of `docs/design/slango.md` added wgpu and `pollster`. The dependency tree of wgpu needs three more licences, so the allow-list is now:
+
+```toml
+allow = ["GPL-3.0-or-later", "Apache-2.0", "ISC", "MIT", "Unicode-3.0", "Zlib"]
+```
+
+cargo-deny checks the dependency graph of every target, including WebAssembly, Apple platforms, Android, and Redox, so the list covers crates that a build on Linux does not compile. Each new licence is there for these crates:
+
+| Licence | Crates that need it |
+| --- | --- |
+| `MIT` | The crates under MIT alone, which are `block2`, `cfg_aliases`, `crunchy`, `dlib`, `libm`, `objc2`, `objc2-encode`, `objc2-foundation`, `ordered-float`, `redox_syscall`, `slab`, `tokio`, which only the WebAssembly target reaches, `wayland-sys`, and `xml-rs`. It also satisfies `termcolor` and `winapi-util`, under `Unlicense OR MIT` |
+| `Zlib` | `foldhash` 0.1.5 and 0.2.0, and `slotmap` |
+| `Unicode-3.0` | `unicode-ident`, under `(MIT OR Apache-2.0) AND Unicode-3.0` |
+
+The licence list of the Free Software Foundation (FSF), read on 2026-11-11, lists all three as compatible with the GNU GPL [FSF-LICENSES]. Its entry for the Expat licence, which is the text that SPDX names `MIT`, calls it a lax, permissive licence compatible with the GNU GPL. Its entry for the licence of zlib calls it a free software licence compatible with the GPL. Its entry for the Unicode, Inc. License Agreement for Data Files and Software calls it a lax permissive licence compatible with all versions of the GPL, but it does not name version 3 of that licence. The text that `unicode-ident` ships, headed "UNICODE LICENSE V3", grants permission to deal in the data files or software without restriction, on the one condition that the notice appears with all copies, so it is a permissive grant of the same kind. These are the confirmations that TOOL-24 requires, and the project's licence stays GPL-3.0-or-later. `pollster` is under `Apache-2.0/MIT`, which cargo-deny reads as `Apache-2.0 OR MIT`, so it needed no new licence.
+
+wgpu also brings four duplicate versions that no change to the workspace can remove, because the lock file already resolves each crate to its newest compatible version. Each has a `skip` entry for the older version, with its reason in `deny.toml`, under TOOL-26:
+
+| Skip | Needed by | Other versions in the tree |
+| --- | --- | --- |
+| `foldhash@0.1.5` | `hashbrown` 0.15.5 of `petgraph` 0.8, which naga 30 requires | 0.2.0, of `hashbrown` 0.16.1 |
+| `hashbrown@0.15.5` | `petgraph` 0.8 of naga 30 | 0.16.1 and 0.17.1 |
+| `hashbrown@0.16.1` | `gpu-allocator` 0.28 of `wgpu-hal` 30 | 0.17.1, of `indexmap` 2 of naga |
+| `syn@2.0.119` | `jni-sys-macros`, `windows-implement`, `windows-interface`, and `zerocopy-derive` | 3.0.10, of `bytemuck_derive`, `thiserror-impl`, and `wasm-bindgen-macro-support` |
 
 `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
 
@@ -899,6 +931,10 @@ The agent reads the run itself and never the exit status of a command whose outp
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
+### 18.2. Informative References
+
+- [FSF-LICENSES] Free Software Foundation, "Various Licenses and Comments about Them", <https://www.gnu.org/licenses/license-list.html>, read on 2026-11-11.
+
 ## Appendix A. Requirement Summary
 
 This table lists every labelled requirement of this document with a one-line summary.
@@ -939,6 +975,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded step 1 of Section 14 of `docs/design/slango.md` in Sections 1.6, 3.2, 3.3, 5, 8.1, and 9: the new member `crates/slango` with its workspace dependencies, the nextest override that keeps the output of its `gpu` tests, lavapipe in the `check` and `coverage` jobs, the first runs of the `gpu` tier on all three platforms, and the licences `MIT`, `Unicode-3.0`, and `Zlib` with the evidence of their compatibility and the four duplicate-version exceptions in `deny.toml`. Added Section 18.2 with the licence list of the FSF.
 - 2026-11-11: Recorded as planned for step 1 of Section 14 of `docs/design/slango.md`, in Sections 1.6, 5, 8.1, and 9, the licences `MIT`, `Zlib`, and `Unicode-3.0` and the duplicate-version exceptions that wgpu needs, and lavapipe in the `check` job, and narrowed the open part of Q-21 of the architecture design to Windows and macOS in Section 8.1.
 - 2026-11-11: Recorded in Section 8.3 that `scripts/install-vulkan-sdk` removes its download on a best-effort basis and warns when the removal fails, and in Section 1.6 that M2 is complete.
 - 2026-11-11: Recorded in Sections 1.6, 3.2, and 3.3 that step 5 of `docs/design/slang-compiler.md` added the examples package and `slang-compiler` in `[workspace.dependencies]`, and that no recipe runs the example.
