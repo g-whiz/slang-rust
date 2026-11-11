@@ -10,7 +10,7 @@ The source code and the documents that this README names are in the repository a
 
 ## Status
 
-The project is at a very early stage. No crate is published. The workspace holds three crates. `slang-compiler` is the safe API, and its compile and reflection API exists. It creates a global session, the root object of every Slang compilation, and checks that the loaded Slang library is the pinned version. It creates a session, the context of a compilation, with its output formats, search paths, preprocessor macros, and compiler options. It loads Slang modules, finds their entry points, which are the functions where a shader starts, combines and links them, and generates code for each of its nine output formats, such as SPIR-V, the binary shader format of Vulkan. Its reflection lists the parameters of compiled code with their types, memory layouts, and bindings, the numbered slots through which a shader reaches its resources. Slang is written in C++, and a shader whose types nest more than 128 levels deep can make Slang throw a C++ exception that it does not catch, so `slang-compiler` then stops the program instead of returning an error, and prints a message first unless the program is built with `panic = "abort"`. Section 11.6 of the [design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md) explains why. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the third crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
+The project is at a very early stage. No crate is published. The workspace holds three crates and the examples. `slang-compiler` is the safe API, and its compile and reflection API exists. It creates a global session, the root object of every Slang compilation, and checks that the loaded Slang library is the pinned version. It creates a session, the context of a compilation, with its output formats, search paths, preprocessor macros, and compiler options. It loads Slang modules, finds their entry points, which are the functions where a shader starts, combines and links them, and generates code for each of its nine output formats, such as SPIR-V, the binary shader format of Vulkan. Its reflection lists the parameters of compiled code with their types, memory layouts, and bindings, the numbered slots through which a shader reaches its resources. Slang is written in C++, and a shader whose types nest more than 128 levels deep can make Slang throw a C++ exception that it does not catch, so `slang-compiler` then stops the program instead of returning an error, and prints a message first unless the program is built with `panic = "abort"`. Section 11.6 of the [design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md) explains why. `slang-compiler-sys` holds the raw bindings, which the binding generator writes from the Slang headers, and records the pinned version of Slang. Its build script links the Slang library of an installed Vulkan SDK, after checking that it is the pinned version, or builds Slang from source and links it statically. The binding generator is the third crate, and a test checks that the bindings in the repository equal what it writes. The repository also holds the design documents, the coding and writing standards, and the tooling that checks every change.
 
 ## Planned Crates
 
@@ -19,12 +19,12 @@ No crate in this table is published. Each crate gets a link to its documentation
 | Crate | State | Purpose |
 | --- | --- | --- |
 | `slang-compiler-sys` | Built and not published, with the raw bindings, the pinned Slang version, the linking of the Slang of an installed Vulkan SDK, and the static build of Slang from source | Raw bindings to the native Slang library, generated from the Slang headers |
-| `slang-compiler` | Partly built and not published: it compiles shaders, with sessions, compiler options, modules, linking, and code generation, and reflects their parameters, and the custom file system and the example are still to come | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
+| `slang-compiler` | Partly built and not published: it compiles shaders, with sessions, compiler options, modules, linking, and code generation, and reflects their parameters, and the custom file system is still to come | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency |
 | `slango` | Planned | A high-level library for calling Slang code on the GPU, with wgpu, a Rust graphics library, as its first backend |
 | `slango-macros` | Planned | A build-time macro that generates typed Rust bindings to Slang code |
 | `slang-slint` | Planned | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
 
-The repository also holds the binding generator, which writes the raw bindings, and will hold examples that also serve as integration tests. Neither is published.
+The repository also holds the binding generator, which writes the raw bindings, and the examples, which also serve as integration tests. The first example, `compile-and-reflect`, compiles a Slang file and prints its entry points and parameters. Neither is published.
 
 ## Obtaining Slang
 
@@ -54,12 +54,18 @@ This command runs every check, as is required before every merge:
 just check
 ```
 
+This command, run from the workspace root with the Slang library of the Vulkan SDK on the library path, runs the first example on a sample shader:
+
+```sh
+cargo run -p slang-rust-examples --bin compile-and-reflect -- examples/shaders/scale.slang
+```
+
 [`AGENTS.md`](https://github.com/g-whiz/slang-rust/blob/main/AGENTS.md) holds the rules for working in the repository, the project status, and the recipe to run for each kind of change. These documents are under `docs/`:
 
 - [Architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md): The crates, how Slang is obtained and pinned, and the roadmap.
 - [Tooling design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/tooling.md): The tool configuration, the recipes, the hooks, the custom checkers, and the continuous integration.
 - [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator, the pin, and the build script.
-- [Design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md): The safe compile and reflection API and the compile-and-reflect example, of which the compile and reflection API is implemented and the example is not.
+- [Design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md): The safe compile and reflection API and the compile-and-reflect example, of which the custom file system is not implemented yet.
 - [Rust coding standards](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-coding-standards.md): The rules for Rust code.
 - [Writing guide](https://github.com/g-whiz/slang-rust/blob/main/docs/writing-documentation.md): The rules for documentation.
 - [Reference list](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-references.md): The external sources behind the coding standards.

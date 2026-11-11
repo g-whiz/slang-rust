@@ -1,0 +1,20 @@
+[package]
+name = "slang-rust-examples"
+description = "Runnable examples of the slang-rust crates."
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+slang-compiler.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

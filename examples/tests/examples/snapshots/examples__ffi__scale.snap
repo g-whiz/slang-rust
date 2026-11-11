@@ -1,0 +1,25 @@
+---
+source: examples/tests/examples/ffi.rs
+expression: stdout
+---
+target: spirv
+
+entry point scale (Compute)
+  code: 1432 bytes, 358 words
+  parameters:
+    id: vector<uint,3>
+      semantic SV_DISPATCHTHREADID
+    bias: float
+      uniform data at byte offset 0, 4 bytes
+
+entry point clear (Compute)
+  code: 1068 bytes, 267 words
+  parameters:
+    id: vector<uint,3>
+      semantic SV_DISPATCHTHREADID
+
+global parameters:
+  data: RWStructuredBuffer<float, DefaultDataLayout>
+    DescriptorTableSlot binding 0 in space 0, count 1
+  params: ConstantBuffer<Params, DefaultDataLayout>
+    DescriptorTableSlot binding 1 in space 0, count 1
