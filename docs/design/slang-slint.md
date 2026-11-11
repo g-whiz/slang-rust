@@ -1,0 +1,390 @@
+# `slang-slint` Design
+
+| Field | Value |
+| --- | --- |
+| Status | Draft |
+| Date | 2026-11-11 |
+| Applies to | `crates/slang-slint` and the Slint example |
+
+## Abstract
+
+This document specifies milestone M5: the crate `slang-slint`, which shows what a `slango` render pipeline draws inside a Slint user interface, and the Slint example. It starts from the facts that a spike established about Slint 1.18 with wgpu 30: how Slint and `slango` share one device, which textures Slint imports as images, and how frames are driven. On those facts it defines a minimal view, one type that owns a render pipeline and a texture and hands the texture to Slint as an image, and two functions through which Slint creates a device that `slango` can use. It states the version range of Slint, the licence consequence of depending on Slint, the errors, the threading, the tests, the example, and the order of the changes that implement M5. It ends with the assumptions to confirm and the open questions.
+
+## 1. Introduction
+
+### 1.1. Problem
+
+Slint draws its user interface with its own renderer and gives an application no surface of its own. A program that wants a Slang shader to draw part of a Slint window must create the GPU content on the device that Slint renders with, in a texture format that Slint accepts, hand it to Slint as an image, replace it when the element changes size, and request each frame. Slint's default device lacks what `slango` needs, and a mismatch shows only at run time.
+
+### 1.2. Purpose
+
+`slang-slint` lets a Rust program show what a `slango` render pipeline draws in an ordinary Slint `Image` element, with the shader parameters set by name through the draw of `slango`. This document implements Section 9 and milestone M5 (Section 15.8) of `docs/design/architecture.md`, meets ARCH-19 to ARCH-21, and answers the questions of that design that name this document, as SLS-1, SLS-4, and Section 9 record.
+
+### 1.3. Audience
+
+The primary readers are the coding agents that implement M5 and the reviewers who check their changes. A reader is expected to know Rust and the public API of `slango` (Sections 5.3 and 9.5 of `docs/design/slango.md`). Section 2.1 defines the Slint terms that such a reader needs.
+
+### 1.4. Scope
+
+This document covers the view, the sharing of the device, the dependency on Slint with its licence consequences, errors, threading, tests, continuous integration (CI), and example 4 of Section 10 of the architecture design.
+
+### 1.5. Non-Goals
+
+M5 covers the minimal view only. These are not part of M5: a custom Slint element, a hot-reload API, the binding of Slint properties to shader parameters from reflection, a rendering notifier installed by the library, input handling, helpers for compute kernels, multisampling, and a colour format other than `Rgba8Unorm`. The example reloads its shader as example 3 does, with the existing load (Section 10).
+
+### 1.6. Current State
+
+No code of `slang-slint` or of example 4 exists. The spike of M5 ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 11 gives the order of the changes that implement M5.
+
+### 1.7. Defects of Third-Party Components and Trusted Input
+
+`slang-slint` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slango.md`, and applies the same stance to Slint. It does not guard against the validation message of Section 3.2 or the abort at exit of Section 3.3. Shader source and file paths are trusted input.
+
+## 2. Requirements Language
+
+Best Current Practice (BCP) 14 defines the key words in this section.
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all capitals, as shown here.
+
+### 2.1. Terminology
+
+Section 2.1 of `docs/design/architecture.md` and Section 2.1 of `docs/design/slango.md` define the terms of GPU programming that this document uses, such as adapter, device, render pipeline, texture, colour target, and depth target. This document adds these terms:
+
+- backend selector: Slint's `BackendSelector`, through which an application chooses Slint's windowing backend and renderer and requires a graphics API before it creates a window.
+- event loop: The loop in which Slint processes window events and renders frames, which `run()` starts.
+- physical pixel: A pixel of the window's surface. A length in a `.slint` file is in logical pixels, and a logical pixel is the scale factor of the window times a physical pixel.
+- renderer: The part of Slint that draws the user interface, such as FemtoVG on OpenGL, FemtoVG on wgpu, Skia, or the software renderer.
+- rendering notifier: The callback that an application registers with `Window::set_rendering_notifier`, which Slint calls with a `RenderingState` and a `GraphicsAPI` at fixed points of rendering.
+- UI thread: The thread that runs Slint's event loop.
+- windowing backend: The part of Slint that creates windows and receives their events, such as the backend on winit.
+
+## 3. Facts From the Spike
+
+This section is non-normative. It states each fact that a later section relies on, once, and says how it is known.
+
+### 3.1. Sources and Evidence
+
+Each fact carries one of these marks:
+
+- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux with Rust 1.99.1, Slint 1.18.1, wgpu 30.0.1, and `slango` of the repository at commit `e8982ca`, in debug and release builds. It ran on lavapipe under a nested Wayland compositor and on an NVIDIA GeForce RTX 4070 Laptop GPU on the development container's own Wayland socket, with the same results on both unless the fact says otherwise. A fact about dependencies means a run of `cargo deny` or `cargo tree` on a copy of the repository with a member `crates/slang-slint` added.
+- (read): Read on 2026-11-11 in the source of the named crate of Slint 1.18.1.
+- (inferred): Concluded from other facts and not verified. Section 12 lists the assumptions on which a requirement depends.
+
+Nothing ran on Windows or macOS.
+
+### 3.2. Building
+
+Slint 1.18.1 depends on wgpu 30 with its default features off and re-exports it as `slint::wgpu_30::wgpu` (read, `slint` and `i-slint-core`). With Slint's default features off and the features `std`, `compat-1-2`, `backend-winit`, `renderer-femtovg-wgpu`, and `unstable-wgpu-30`, the build graph holds one wgpu 30.0.1, and a device and a queue from Slint go into `slango::wgpu::from_device_and_queue` with no conversion (run). Slint names the features of its wgpu API `unstable-wgpu-29` and `unstable-wgpu-30` (read). Slint's default renderer is FemtoVG on OpenGL, and with the defaults plus `unstable-wgpu-30`, `run()` fails with `WGPU 30.x rendering is not supported with an OpenGL renderer` (run). The winit backend picks Skia for wgpu when Skia is compiled in, and otherwise FemtoVG on wgpu (read, `i-slint-backend-winit`). Skia was not built, and whether `compat-1-18` can replace `compat-1-2` was not tried.
+
+A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` of `fontique`, found through pkg-config, so it needs the development files of fontconfig (run). The UI of the spike used the macro `slint::slint!`, so it needed no build script (run). Slint 1.18.1 declares `rust-version = "1.92"` (read).
+
+In a debug build, the Vulkan validation layer reports `VUID-vkCmdDraw-None-07839` from draws of Slint's FemtoVG renderer on wgpu, also when `slango` draws only once (run). That it comes from Slint and not from `slango` is inferred from that and from `slango`'s stencil state.
+
+### 3.3. Sharing the Device
+
+An application requires wgpu 30 with `BackendSelector::require_wgpu_30`, which takes a `WGPUConfiguration`, and then calls `select()` (read, `i-slint-backend-selector`). That `slint::BackendSelector` is the public path of the selector is inferred. `WGPUConfiguration` is non-exhaustive. Its variant `Manual` takes an instance, an adapter, a device, and a queue, and its variant `Automatic` takes a non-exhaustive `WGPUSettings` with public fields, from which Slint creates the device (read, `i-slint-core`). The defaults of `WGPUSettings` are `Features::empty()` and `Limits::downlevel_webgl2_defaults()`, and Slint raises only the limits of texture size to the adapter's (read).
+
+A device that Slint creates with these defaults has no features, a `max_immediate_size` of 0, and a `max_storage_buffers_per_shader_stage` of 0 (run). On it, a `slango` kernel with a `uniform` parameter of its entry point fails to load with `MissingFeature`, a kernel with a storage buffer fails with `Backend` and the text `Too many bindings of type StorageBuffers in Stage ShaderStages(COMPUTE), limit is 0, count was 1`, and render pipelines with a texture, a sampler, and a uniform buffer draw (run). With `Automatic`, `Features::IMMEDIATES`, and `Limits { max_immediate_size: 128, ..Limits::default() }`, the kernel with the `uniform` parameter ran and returned correct values on lavapipe (run). With `Manual` and a device created as `slango`'s `Device::new` creates one, Slint rendered with that device and the kernel ran (run). In a debug build in `Manual` mode, the process aborted after the event loop returned, with `fatal runtime error: thread local panicked on drop, aborting`, and the release build exited with status 0 (run). This design draws no conclusion from it.
+
+With `Automatic`, Slint's selection refuses a CPU adapter unless `SLINT_WGPU_CPU=1` is set, with an error that names the variable (run). With `Manual`, Slint makes no such check (run).
+
+`Window::set_rendering_notifier` takes a closure with no `Send` bound and fails with `AlreadySet` when the window has one, so a window has one notifier (read, `i-slint-core`). Slint calls it with a `GraphicsAPI`, a non-exhaustive enumeration whose non-exhaustive variant `WGPU30` holds the instance, the device, and the queue by value, and not the adapter (read). It calls `RenderingSetup` once before the first frame, `BeforeRendering` and `AfterRendering` around each frame, and `RenderingTeardown` once before `run()` returns, all on the main thread, which runs the event loop (run).
+
+### 3.4. The Texture Import
+
+`slint::Image` implements `TryFrom<wgpu::Texture>`, which takes the texture by value and returns a non-exhaustive `TextureImportError` with the variants `InvalidFormat` and `InvalidUsage` (read, `i-slint-core`). It accepts a texture of `Rgba8Unorm` or `Rgba8UnormSrgb` with both usages `TEXTURE_BINDING` and `RENDER_ATTACHMENT`, and rejects every other format and usage (read, and run for both formats of `slango` and for `Bgra8Unorm`, `Bgra8UnormSrgb`, and `Rgba16Float`). Every colour texture of `slango` has both usages (Section 8.1 of `docs/design/slango.md`).
+
+An image made from a clone of the wgpu texture of a `slango::Texture` shares the GPU texture with it. Draws into that texture appeared on the next frame that Slint rendered, without a new image, when a redraw was requested (run). In Slint's own snapshot of the window, an `Rgba8Unorm` texture appeared byte for byte as an image of the same bytes made on the CPU, and an `Rgba8UnormSrgb` texture was decoded when sampled (run). The pixels on the physical screen were not measured.
+
+Nothing in wgpu or in the notifier tells the application the size of an element. The spike read it from `out` properties of the element's width and height, multiplied by the window's scale factor, and rounded, and on a change it created a new texture and set a new image, which drew on (run). The `Image` element filled a `Rectangle` that the layout sized. An `Image` element without a size from its parent takes the size of its image (inferred, not tested), which would let the texture size feed back into the layout.
+
+### 3.5. Frames and Threads
+
+Slint renders only when something requests a frame (run). Two ways of driving frames ran with the same result: drawing in `BeforeRendering` and calling `Window::request_redraw` in `AfterRendering`, and a repeated `slint::Timer` of 16 ms on the UI thread that draws and requests a redraw (run). `slint::Image` is neither `Send` nor `Sync`, and `slango::Device`, `slango::Texture`, and `wgpu::Texture` are `Send` (run, a compile check). Without a D-Bus session, Slint prints one line that starts `Error watching for xdg desktop settings` on standard error (run).
+
+### 3.6. Dependencies
+
+With the allow-list and the skips of `deny.toml` unchanged, `cargo deny` rejected the ten crates of Slint 1.18.1, whose licence expression is `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0`, and eight more crate versions under `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`. It also reported twelve crates with duplicate versions (run). Section 9 of `docs/design/tooling.md` lists the crates and the planned changes. The lock file grew from 262 to 542 packages, and the build graph on x86_64 Linux gained 273 crates (run).
+
+## 4. Crate Structure and Dependencies
+
+### 4.1. Package and Dependencies
+
+SLS-1. `slang-slint` MUST depend on `slango` and on `slint` with the version requirement `~1.18`, default features off, and the feature `unstable-wgpu-30`, and on no other crate. Slint marks this API unstable (Section 3.2), so a wider range lets a minor release of Slint break the builds of users (ARCH-20). This answers Q-25 of the architecture design.
+
+The crate reaches wgpu's types through `slint::wgpu_30::wgpu`, which is the wgpu 30 that `slango` uses (Section 3.2), so it needs no direct dependency on wgpu. `slint` joins `[workspace.dependencies]` with its default features off, and each member adds the features it needs (DEP-2).
+
+SLS-2. An agent that admits a newer minor version of Slint MUST run every test of `slang-slint` and of example 4. It MUST also check ARCH-19 for the wgpu version of `slango`, because the unstable API and the wgpu versions that Slint supports can change in that release.
+
+SLS-3. `slang-slint` SHOULD NOT enable a windowing backend or a renderer of Slint. Cargo features are additive, so an application could not remove a backend or renderer that the library enables. Step 1 of Section 11 establishes the smallest set of features with which the crate compiles (SLSA-1).
+
+The application chooses the windowing backend and a renderer on wgpu, as example 4 does (Section 10). A renderer on OpenGL fails at `run()` (Section 3.2).
+
+SLS-4. `slang-slint` MUST contain no unsafe code and MUST emit no logs. The device, the queue, and the texture pass between Slint and `slango` as safe wgpu 30 values (Sections 3.2 and 3.4), and every failure is returned as an error (Section 7), so neither is needed. This answers Q-19 and Q-16 of the architecture design for `slang-slint`.
+
+The crate inherits the workspace lints and has no Cargo features.
+
+### 4.2. Licences
+
+This design decides on 2026-11-11 that `slang-slint` takes Slint's crates, whose licence expression Section 3.6 gives, under `GPL-3.0-only`. The source of `slang-slint` stays under `GPL-3.0-or-later`. A program that combines it with Slint under this option is distributed under version 3 of the GNU General Public License only. `slang-compiler` and `slango` do not depend on Slint and are not affected.
+
+SLS-5. The crate-level documentation of `slang-slint` and `README.md` MUST state this consequence, because a user who distributes a program built with the crate must know the licence of the result first.
+
+Step 1 of Section 11 implements the allow-list changes for `GPL-3.0-only`, `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` under TOOL-24, and a `skip` entry for each new duplicate version under TOOL-26. It verifies them, and records the evidence of compatibility that TOOL-24 requires. Section 9 of `docs/design/tooling.md` records the planned changes.
+
+## 5. The Device
+
+### 5.1. Configuration for Slint
+
+Slint creates the device, and the application tells Slint what `slango` needs. A device that Slint creates with its defaults has no immediates and no storage buffers, so no `slango` kernel with a buffer loads on it (Section 3.3).
+
+SLS-6. `slang-slint` MUST provide a function `wgpu_configuration` that returns `WGPUConfiguration::Automatic` with `Features::IMMEDIATES`, a `max_immediate_size` of 128 bytes, and `Limits::default()` for every other limit. The application passes it to `BackendSelector::require_wgpu_30` before Slint chooses an adapter, so the device that Slint creates suits `slango` (Section 3.3).
+
+The function cannot ask the adapter for its maximum immediate size, as `slango`'s `Device::new` does (SLO-18), because Slint chooses the adapter after it receives the configuration. Every adapter tested offers at least 128 bytes (Section 3.8 of `docs/design/slango.md`). Every other field of `WGPUSettings` keeps Slint's default. On an adapter without immediates, Slint's device request fails (SLSA-3), and the application then passes a configuration of its own.
+
+An application can also create the wgpu device itself, pass it to Slint with `WGPUConfiguration::Manual`, and wrap it with `slango::wgpu::from_device_and_queue`, which needs nothing from `slang-slint`. This design recommends `wgpu_configuration`, because the application then needs no device code. Section 3.3 records one observation of the other path.
+
+### 5.2. The Device From Slint
+
+SLS-7. `slang-slint` MUST provide a function `device` that takes a `&slint::GraphicsAPI` and returns a `slango::Device` of the device and the queue of its variant `WGPU30`. It MUST return `ErrorKind::UnsupportedGraphicsApi` for every other variant, because only wgpu 30 objects can be shared with `slango`.
+
+The application calls it in `RenderingSetup`. It clones the device and the queue, which wgpu counts by reference (Section 3.2 of `docs/design/slango.md`).
+
+SLS-8. `slang-slint` MUST NOT install a rendering notifier, because a window has one notifier (Section 3.3), so a notifier that the library installed would take it from the application.
+
+### 5.3. Driving Frames
+
+This section is non-normative. It is guidance for applications and defines no API.
+
+Slint renders only on request (Section 3.5). An application draws in `BeforeRendering` and calls `Window::request_redraw` in `AfterRendering`, or draws and requests a redraw from a repeated `slint::Timer` on the UI thread. Before each draw, it reads the element's size in physical pixels from properties of the element, as Section 3.4 describes, and calls `View::resize` (Section 6.2). The `Image` element fills a parent that the layout sizes, so that the texture size does not feed back into the layout. An application that draws only on a change, such as of a slider, requests a redraw only then.
+
+## 6. The View
+
+### 6.1. The Type
+
+`View` is the one public type of the crate. It owns a `slango::Device`, a `slango::RenderPipeline`, and a `slango::Texture`, and holds nothing of Slint.
+
+SLS-9. `View::new` MUST take a `slango::Device`, a `slango::RenderPipeline`, and a size `[u32; 2]` in physical pixels, and create a texture of `TextureFormat::Rgba8Unorm` of that size. Slint imports that format and shows it byte for byte as a CPU image (Section 3.4), so the colours that a shader writes appear unchanged.
+
+`View::new` takes both values by value, because it stores them (OWN-1). A width or a height of zero gives `ErrorKind::InvalidSize` before anything is created. A size over the device's limit reaches `slango::Texture::new`, whose error the view returns as `ErrorKind::Slango` (Section 7). `View::size` returns the size, and `View::texture` returns the texture, such as for a read back.
+
+SLS-10. `View::draw` MUST return the `slango::Draw` of the view's pipeline with the view's texture set as its colour target, and MUST set nothing else. The application then sets values, buffers, textures, samplers, vertex buffers, and a clear colour by name as with `RenderPipeline::draw`, so the view imposes no scene.
+
+`slango`'s draw checks the target against the pipeline, so a pipeline whose colour format is not `Rgba8Unorm`, or that belongs to another device, fails at the draw with `slango::ErrorKind::InvalidArgument` (SLO-26), and `View::new` does not check it. The view offers no depth target. An application with a pipeline that has a depth format passes a `Depth32Float` texture of the view's size to `Draw::depth`, and replaces it whenever `View::resize` returns `true`. This works with no code of the view.
+
+SLS-11. `View::to_image` MUST return a `slint::Image` that shares the view's current texture, from a clone of its wgpu texture, because an image of a copy would not show later draws (Section 3.4).
+
+A `TextureImportError` gives `ErrorKind::TextureImport` with Slint's error as the source. The application sets the image on its `Image` element after `View::new` and after each resize that returns `true`. Every later draw into the same texture shows on the next frame that Slint renders.
+
+### 6.2. Resize
+
+SLS-12. `View::resize` MUST create a new texture and return `true` only when the given size differs from the current size. It MUST keep the current texture when it returns an error, because the image that Slint holds shows that texture until the application sets a new one (Section 3.4).
+
+An equal size returns `false` and creates nothing. A width or a height of zero gives `ErrorKind::InvalidSize`, so an application skips resizing and drawing while its element has no area.
+
+### 6.3. Usage Illustration
+
+This illustration shows the form of the API of M5, which does not exist yet, and has not been compiled. It unwraps every error for brevity, and a line marked `// ...` is elided. The program passes the configuration to Slint, creates the view in `RenderingSetup`, and resizes and draws it before each frame with one value set by name:
+
+```rust
+use std::{cell::RefCell, rc::Rc};
+
+use slang_slint::View;
+use slango::RenderPipelineOptions;
+use slint::{ComponentHandle, RenderingState};
+
+slint::slint! {
+    export component App inherits Window {
+        in property <image> view;
+        in-out property <float> tint: 1.0;
+        out property <length> view-width: area.width;
+        out property <length> view-height: area.height;
+        area := Rectangle { Image { source: view; width: parent.width; height: parent.height; } }
+    }
+}
+
+fn physical_size(app: &App) -> [u32; 2] {
+    // ... view-width and view-height times the scale factor, rounded
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    slint::BackendSelector::new()
+        .require_wgpu_30(slang_slint::wgpu_configuration())
+        .select()?;
+    let app = App::new()?;
+    let weak = app.as_weak();
+    let view: Rc<RefCell<Option<View>>> = Rc::default();
+    app.window().set_rendering_notifier(move |state, api| {
+        let Some(app) = weak.upgrade() else { return };
+        match state {
+            RenderingState::RenderingSetup => {
+                let device = slang_slint::device(api).unwrap();
+                let module = device.load_module("gradient.slang").unwrap();
+                let options = RenderPipelineOptions::default();
+                let pipeline = module.render_pipeline("vsMain", "fsMain", &options).unwrap();
+                let new = View::new(device, pipeline, physical_size(&app)).unwrap();
+                app.set_view(new.to_image().unwrap());
+                *view.borrow_mut() = Some(new);
+            }
+            RenderingState::BeforeRendering => {
+                if let Some(view) = view.borrow_mut().as_mut() {
+                    if view.resize(physical_size(&app)).unwrap() {
+                        app.set_view(view.to_image().unwrap());
+                    }
+                    view.draw().set("tint", app.get_tint()).submit(3, 1).unwrap();
+                }
+            }
+            RenderingState::AfterRendering => app.window().request_redraw(),
+            _ => {}
+        }
+    })?;
+    app.run()?;
+    Ok(())
+}
+```
+
+## 7. Errors
+
+SLS-13. `slang-slint` MUST have one public error type `Error` and the alias `Result`, as ERR-1 defines, in the form of `slango`'s, with these kinds of `ErrorKind`, because callers match on the kind:
+
+| Kind | Meaning |
+| --- | --- |
+| `UnsupportedGraphicsApi` | The `GraphicsAPI` that `device` received is not wgpu 30, such as when the application chose a renderer on OpenGL |
+| `TextureImport` | Slint rejected the texture of `View::to_image`. The source error is Slint's `TextureImportError` |
+| `InvalidSize` | A size given to `View::new` or `View::resize` has a width or a height of zero |
+| `Slango` | `slango` failed, such as when it created a texture. The source error is the error of `slango` |
+
+The error of a dependency is returned only through `source()`, never as a public type of a field or a variant (ERR-2). The `Display` text names the failed operation and does not repeat the source's text (ERR-4). An error of a draw comes from `slango` directly, because `View::draw` returns `slango`'s builder.
+
+## 8. Threading
+
+SLS-14. `View`, `Error`, and `ErrorKind` MUST be `Send` and `Sync`, asserted in a test (CONC-1), and the crate MUST implement neither trait by hand, because the view holds only `slango` types, which are both (SLO-17).
+
+The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (Section 3.5), so the application creates and sets it on the UI thread. In M5, the application draws on the UI thread, in its rendering notifier or in a timer (Section 5.3). `slang-slint` starts no thread (CONC-4).
+
+## 9. Tests
+
+`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). The pure tests check the fields of the configuration of SLS-6, the `Display` text of each error kind, and the assertions of SLS-14. The tests in its module `gpu` create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. They draw into a view and read its texture back through `slango`, resize it and draw again, check `InvalidSize` for a zero size, and check that a pipeline of another colour format fails at the draw (TEST-6). When SLSA-2 holds, a `gpu` test also calls `View::to_image` and checks the size of the image.
+
+SLS-15. A test of `slang-slint` or of example 4 MUST NOT open a window or need a display, because the Linux CI runner has none, so such a test fails in CI (ARCH-21).
+
+`device` has no automated test, because only Slint creates a value of the non-exhaustive variant `GraphicsAPI::WGPU30` (Section 3.3). Example 4 calls it whenever it runs.
+
+These tests answer Q-24 of the architecture design for `slang-slint`: the view is checked headless on the three CI runners. The window of example 4, like that of example 3, is not checked headless.
+
+## 10. The Slint Example
+
+Example 4 of the architecture design is the binary target `shader-playground` of the package `slang-rust-examples`. Its source is the directory `examples/src/bin/shader-playground/`, with `main.rs`, which holds the Slint window and the rendering notifier, and `scene.rs`, which holds the view, the reload, and the draw, and which the examples' test binary also compiles (TEST-1). Its shader is `examples/shaders/playground.slang`, which draws a full-screen triangle with no vertex buffer and colours it from the global uniforms `time`, `brightness`, and `scale`.
+
+The window has an `Image` element that shows the view, and two sliders whose values the example passes as `brightness` and `scale` by name in each draw. The example selects the backend with `slang_slint::wgpu_configuration`, creates the view in `RenderingSetup`, and drives frames from the notifier as Section 5.3 describes. It declares its UI with `slint::slint!`, so the examples package needs no build script. The examples package enables the Slint features that the spike used (Section 3.2).
+
+The example reloads its shader as example 3 does (Section 13.5 of `docs/design/slango.md`). Before each frame, it compares the modification time of the file with that of the last load. When the time changed, it loads the module, creates the pipeline, and creates a new view, whose image it sets. When the load fails, it prints the error and its causes on standard error and keeps drawing with the old view.
+
+SLS-16. Example 4 SHOULD take the option `--frames N`, which closes the window after `N` drawn frames and exits. It SHOULD then fail when it draws no frame for 10 seconds, because without them a run cannot complete without a person, or can wait forever.
+
+The `gpu` tests of the examples draw the scene offscreen on a device that `slango` creates, with the example's own shader. They check pixels for two values of each slider, a failed reload that keeps the old pipeline, and a successful reload. Tests in the default tier start the binary to check `--help` and each argument error, which need no window. CI builds the example on the three platforms, because `check-clippy` compiles every target, and the example runs locally only (ARCH-21). On lavapipe, a run needs `SLINT_WGPU_CPU=1` (Section 3.3), and a user runs it from the workspace root with the Slang library on the library path and a display:
+
+```sh
+SLINT_WGPU_CPU=1 cargo run -p slang-rust-examples --bin shader-playground -- examples/shaders/playground.slang
+```
+
+## 11. Implementation Order for M5
+
+These steps implement M5. Each step leaves `just check` passing and adds its tests.
+
+1. Add `crates/slang-slint` with its manifest and dependencies (Section 4.1), `slint` in `[workspace.dependencies]`, the changes of `deny.toml` and of the CI workflow that Section 9 of `docs/design/tooling.md` plans, the error type (Section 7), `wgpu_configuration`, and `device` (Section 5). Settle SLSA-1 and record the feature set in Section 4.1. Tests: the pure tests of Section 9. Check: `check-deny` passes, and all CI jobs pass on the three platforms.
+2. Add `View` (Section 6). Settle SLSA-2. Tests: the `gpu` tests of Section 9.
+3. Add example 4 (Section 10) with its tests. Check: `check-clippy` builds it in CI, and it runs locally with `--frames` on lavapipe and on a hardware adapter.
+4. Complete the crate-level documentation, including the licence statement of SLS-5 and the guidance of Section 5.3, add the statement of SLS-5 to `README.md`, and update the documents that M5 makes false. With this step, M5 is complete.
+
+## 12. Assumptions to Confirm
+
+Each row is a statement that this design relies on and that the spike did not establish. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row. An identifier is never reused.
+
+| Identifier | Assumption | What depends on it | Where it is confirmed |
+| --- | --- | --- | --- |
+| SLSA-1 | `slang-slint` compiles with Slint's feature `unstable-wgpu-30`, and perhaps `std`, and with no windowing backend or renderer | SLS-3 | Step 1 of Section 11 |
+| SLSA-2 | `slint::Image::try_from` accepts a wgpu texture with no Slint backend selected, no window, and no event loop | Section 9 | Step 2 of Section 11. If it fails, no test calls `View::to_image`, and example 4 covers it locally (SLS-15) |
+| SLSA-3 | With the configuration of SLS-6, Slint's device request fails on an adapter without immediates or with a smaller immediate size | Section 5.1 | Deferred until such an adapter is used. Every adapter tested offers 128 bytes or more |
+
+Section 3.3 confirms A-14 of the architecture design in part: external GPU content enters Slint through its rendering notifier and its import of wgpu textures, and Slint names the features of that API unstable. The spike read no evidence about a public Vulkan hook in Slint, and none about whether the API changes in a minor release. SLS-1 does not depend on either.
+
+## 13. Open Questions
+
+Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row.
+
+| Identifier | Question | Owner | Milestone |
+| --- | --- | --- | --- |
+| SLSQ-1 | Does docs.rs build the documentation of `slang-slint`, whose dependency `yeslogic-fontconfig-sys` looks for fontconfig through pkg-config? | This document | M7 |
+## 14. Security Considerations
+
+The threat model treats the shader source, the file paths, and the sizes that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. `slang-slint` has no unsafe code (SLS-4) and no build script. Its memory safety rests on the safe APIs of Slint, wgpu, and `slango`, and the safety of the GPU's accesses rests on `slango` (Section 17 of `docs/design/slango.md`). Slint adds many crates to the build graph (Section 3.6) and links fontconfig, FreeType, and the libraries that they use. `Cargo.lock` fixes their versions, and `cargo-deny` checks their advisories, licences, and sources (Section 4.2).
+
+These attacks are out of scope, because a program that runs them has chosen to: a malicious shader, and a shader or a file that reaches a defect of Slang, naga, wgpu, Slint, or a driver (Section 1.7).
+
+The residual risk is a defect in Slint, in its native libraries, which read the system's font files, or in wgpu or a driver, that corrupts memory in the application's process.
+
+## 15. Operational Considerations
+
+### 15.1. Cargo Features and Environment Variables
+
+`slang-slint` has no Cargo features and reads no environment variable. Slint reads `SLINT_WGPU_CPU`. When it is unset, Slint's selection with `Automatic` fails on a machine whose only adapter runs on the CPU, such as lavapipe (Section 3.3). The tests of Section 9 do not need it. Building needs `VULKAN_SDK`, as `slango` does, and on Linux the development files of fontconfig (Section 3.2).
+
+### 15.2. Platforms and Minimum Supported Rust Version
+
+The spike ran on x86_64 Linux with Vulkan only (Section 3.1). Step 1 of Section 11 builds the crate on Windows and macOS in CI, and step 2 runs its `gpu` tests on WARP and hosted Metal. Example 4 has not run with a window on Windows or macOS. Slint 1.18.1 declares `rust-version` 1.92, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+
+### 15.3. Failure Modes
+
+| Failure | Reported as | Recovery |
+| --- | --- | --- |
+| The application chose no renderer on wgpu | `run()` of Slint fails with the text of Section 3.2, or `device` returns `UnsupportedGraphicsApi` | Enable a renderer on wgpu, such as `renderer-femtovg-wgpu` |
+| Only a CPU adapter exists and `SLINT_WGPU_CPU` is unset | Slint's `select()` fails with an error that names the variable | Set `SLINT_WGPU_CPU=1` |
+| A kernel fails to load on a device that Slint created with its defaults | `slango`'s `MissingFeature` or `Backend` (Section 3.3) | Pass `wgpu_configuration()` to the backend selector |
+| A size has a width or a height of zero | `InvalidSize` | Skip resizing and drawing until the element has an area |
+| A texture larger than the device allows | `Slango`, with `slango`'s `InvalidArgument` as the source | Use a smaller element or another adapter |
+| The pipeline's colour format is not `Rgba8Unorm` | `slango`'s `InvalidArgument` at the draw | Create the pipeline with the default options |
+| Slint rejects the texture | `TextureImport`, with Slint's error as the source | Report it as a defect of `slang-slint` |
+| A build on Linux without the development files of fontconfig | The build script of `yeslogic-fontconfig-sys` fails | Install them, such as `libfontconfig-dev` |
+
+### 15.4. Logs
+
+`slang-slint` emits no logs (SLS-4). Slint itself prints the line of Section 3.5 without a D-Bus session, and wgpu's validation layer prints the message of Section 3.2 in a debug build.
+
+### 15.5. Costs
+
+Slint grows the lock file and the build graph (Section 3.6). A clean debug build of the spike, with `slang-compiler` and `slango`, took 42 s on 16 cores (run).
+
+## 16. References
+
+### 16.1. Normative References
+
+- [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
+- [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+## Appendix A. Requirement Summary
+
+This table lists every labelled requirement of this document with a one-line summary.
+
+| Label | Section | Summary |
+| --- | --- | --- |
+| SLS-1 | 4.1 | Depend on `slango` and on `slint` `~1.18` with `unstable-wgpu-30` and default features off, and on nothing else. |
+| SLS-2 | 4.1 | A new minor version of Slint is admitted only after all tests run again and ARCH-19 is checked. |
+| SLS-3 | 4.1 | The library enables no windowing backend or renderer of Slint. |
+| SLS-4 | 4.1 | No unsafe code and no logs. |
+| SLS-5 | 4.2 | The crate documentation and `README.md` state that a program with Slint is under GPL-3.0-only. |
+| SLS-6 | 5.1 | `wgpu_configuration` returns `Automatic` with immediates of 128 bytes and wgpu's default limits. |
+| SLS-7 | 5.2 | `device` wraps the wgpu 30 device and queue of a `GraphicsAPI`, and rejects every other variant. |
+| SLS-8 | 5.2 | The library installs no rendering notifier. |
+| SLS-9 | 6.1 | `View::new` takes a device, a pipeline, and a size, and creates an `Rgba8Unorm` texture. |
+| SLS-10 | 6.1 | `View::draw` returns `slango`'s draw with the view's texture as its colour target and nothing else set. |
+| SLS-11 | 6.1 | `View::to_image` returns a `slint::Image` that shares the current texture. |
+| SLS-12 | 6.2 | `View::resize` replaces the texture only on a new size, reports it, and keeps the texture on an error. |
+| SLS-13 | 7 | One `Error` type with the four kinds of Section 7. |
+| SLS-14 | 8 | `View`, `Error`, and `ErrorKind` are `Send` and `Sync` without a manual implementation, asserted in a test. |
+| SLS-15 | 9 | No test opens a window or needs a display. |
+| SLS-16 | 10 | Example 4 offers `--frames N` and fails after 10 seconds without a frame. |
+
+## Change Log
+
+- 2026-11-11: First draft, written after the spike of M5 as the first task of M5.

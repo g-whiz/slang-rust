@@ -69,6 +69,7 @@ cargo run -p slang-rust-examples --bin windowed-renderer -- examples/shaders/tex
 - [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator, the pin, and the build script.
 - [Design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md): The safe compile and reflection API and the compile-and-reflect example, without the deferred custom file system.
 - [Design of `slango`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slango.md): `slango`, which runs the compute entry points of a Slang module on wgpu and draws with its vertex and fragment entry points, and the compute kernel example.
+- [Design of `slang-slint`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-slint.md): The planned view that shows what a `slango` render pipeline draws in a Slint user interface, and the Slint example.
 - [Rust coding standards](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-coding-standards.md): The rules for Rust code.
 - [Writing guide](https://github.com/g-whiz/slang-rust/blob/main/docs/writing-documentation.md): The rules for documentation.
 - [Reference list](https://github.com/g-whiz/slang-rust/blob/main/docs/rust-references.md): The external sources behind the coding standards.

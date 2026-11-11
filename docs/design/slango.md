@@ -746,6 +746,7 @@ With a window, the example ran on the development machine on 2026-11-11 and nowh
 - Under a nested Wayland compositor with the software adapter lavapipe, `--frames 60` drew 60 frames and exited. A reload of a file that did not compile printed the error with its causes while drawing went on, and a reload of the corrected file then replaced the pipeline.
 - On the container's own Wayland socket with the software adapter, `--frames 60` drew 3 frames, drew no further frame, and exited with the error of the 10-second bound, in two runs. The cause was not investigated.
 - On X11, it could not start, because the container has no Xlib library.
+- Recorded for 17.7 seconds in a private nested Wayland compositor with the software adapter, the window showed a rotating quad with the 8 by 8 checkerboard over the clear colour. Of 531 recorded frames, 520 were distinct, and the only repeated frames were three pauses of about a tenth of a second, one at each reload. A shader edited to tint the quad took effect without a restart about 0.2 seconds after it was saved, and a shader that did not compile left the tinted quad rotating while Slang's diagnostic was printed on standard error. Restoring the file restored the picture.
 
 It has not run with a window on Windows or macOS.
 
@@ -902,6 +903,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Added to Section 13.5 a recorded run of the example `windowed-renderer` with a window, whose frames showed the expected picture and the three outcomes of a reload.
 - 2026-11-11: Recorded step 12 of Section 14, which completed the manifest description and the crate-level documentation, and M4 as complete, in Sections 1.6 and 14.
 - 2026-11-11: Recorded step 11 of Section 14, which added the example `windowed-renderer` with winit, in Sections 1.6 and 14, and described the example as built in Section 13.5, with its option `--frames`, the choice of the surface format, the presentation, the reload, the offscreen `gpu` tests of its scene, and the runs with a window on the development machine. Recorded in Section 3.8 that winit builds and the scene's tests pass on all three CI runners, defined the mark (run) for step 11 in Section 3.1, and confirmed SOA-7 and removed its row in Section 15.
 - 2026-11-11: Recorded step 10 of Section 14, which added the draw, in Sections 1.6, 5.4, 13.2, 13.4, and 14, with the namespaces, the order of the checks, and the counts of a draw in Section 9.5, the check of a vertex buffer in Section 8.2, a draw from several threads in Section 11, and a texture both sampled and the target in Section 18.3. Recorded in Section 3.9 the conventions of a draw on the five adapters, integer attributes, and the rejection of a texture both sampled and the target, defined the mark (run) for step 10 in Section 3.1, updated Section 18.2, confirmed SOA-5 and removed its row, and narrowed SOA-6 in Section 15.

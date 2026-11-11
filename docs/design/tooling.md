@@ -743,6 +743,17 @@ winit brings duplicate versions of 13 crates. Each older version has its own `sk
 
 With these entries, `just check-deny` passes.
 
+The design of M5, `docs/design/slang-slint.md`, decided on 2026-11-11 on these changes, which step 1 of its Section 11 implements and verifies. They are not made yet, and the step records here what it made. The step adds `slint` with the version requirement `~1.18` and its default features off to `[workspace.dependencies]`, for `slang-slint` and the examples package (SLS-1 of that design). Its dependency tree needs four more licences, each admitted under TOOL-24:
+
+| Licence | Crates that need it |
+| --- | --- |
+| `GPL-3.0-only` | The ten crates of Slint 1.18.1 under `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0`, which `slang-slint` takes under `GPL-3.0-only`. Section 4.2 of that design states the consequence |
+| `BSD-2-Clause` | `arrayref` 0.3.9, through `sctk-adwaita` of winit |
+| `BSD-3-Clause` | `tiny-skia` and `tiny-skia-path` 0.11.4 and 0.12.0, and `bindgen` 0.72.1, a build dependency of Skia on Apple targets other than macOS |
+| `BSL-1.0` | `clipboard-win` 5.4.3 and `error-code` 3.4.0, through `arboard` on Windows |
+
+The step reads the entries of the Free Software Foundation's licence list for the FreeBSD licence, the modified BSD licence, and the Boost Software License, and the licence text of each crate, and records here whether each is compatible with the GPL, as step 1 of Section 14 of `docs/design/slango.md` did. It adds a `skip` entry with a reason under TOOL-26 for the older version of each of twelve crates: `glow@0.17.0`, `hashbrown@0.14.5`, `itertools@0.13.0`, `miniz_oxide@0.8.9`, `nom@7.1.3`, `objc2-app-kit@0.2.2`, `objc2-ui-kit@0.2.2`, `rustc-hash@1.1.0`, `shlex@1.3.0`, `smol_str@0.2.2`, `tiny-skia@0.11.4`, and `tiny-skia-path@0.11.4`. Every Linux job that compiles the workspace installs `libfontconfig-dev`, in the form of the libclang step, because a Linux build of Slint links fontconfig, and the hosted runner is inferred to lack its development files. The Wayland feature of Slint's winit backend turns on the winit feature `wayland-csd-adwaita`, and the step checks whether Cargo then also turns it on for the examples' winit, and corrects the description of winit's features above if so. Slint declares `rust-version` 1.92, below the workspace's MSRV, and the lock file grows from 262 to about 542 packages (Section 3.6 of that design).
+
 `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
 
 ## 10. Publishing Readiness
@@ -999,6 +1010,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-11: Recorded in Section 9, as planned, the dependency Slint 1.18 that the design of M5 in `docs/design/slang-slint.md` adds, with the licences `GPL-3.0-only`, `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`, twelve `skip` entries, the installation of fontconfig in the Linux jobs, and the correction of the description of winit's features that its step 1 settles.
 - 2026-11-11: Recorded in Section 9 that step 11 of `docs/design/slango.md` added winit 0.30.13 to the examples package with the features that leave out the crates under BSD licences, and fifteen single `skip` entries for the duplicate versions that it brings, with TOOL-26 unchanged. Recorded in Sections 3.2 and 3.3 the binary target `windowed-renderer` and `winit` in `[workspace.dependencies]`.
 - 2026-11-11: Recorded in Section 9, as planned, the dependency winit 0.30 that the design of M4 in `docs/design/slango.md` adds to the examples package, with the licence and duplicate-version findings that its step 11 settles.
 - 2026-11-11: Recorded in Sections 3.2 and 3.3 that step 6 of `docs/design/slango.md` added the binary target `compute-kernel` and `slango` in `[workspace.dependencies]`.
