@@ -524,7 +524,7 @@ impl Parts {
                 self.reads.push(quote!(#field: #read,));
             }
             Content::Structure { size } => {
-                let end = Literal::u64_unsuffixed(placed.offset.saturating_add(*size));
+                let end = Literal::u64_unsuffixed(placed.offset + size);
                 self.writes.push(quote! {
                     ::slango::__private::StructElement::write_bytes(&self.#field, out);
                 });
@@ -543,7 +543,7 @@ fn write_value(value: &TokenStream, packed: &Packed, depth: usize) -> TokenStrea
         Packed::Scalar => quote!(out.extend_from_slice(&#value.to_le_bytes());),
         Packed::Array { element, .. } => {
             let item = format_ident!("item{depth}");
-            let inner = write_value(&quote!(#item), element, depth.saturating_add(1));
+            let inner = write_value(&quote!(#item), element, depth + 1);
             quote! {
                 for #item in #value {
                     #inner
@@ -563,13 +563,8 @@ fn read_value(scalar: &TokenStream, packed: &Packed, offset: u64) -> TokenStream
         }
         Packed::Array { length, element } => {
             let size = packed_size(element);
-            let items = (0..*length).map(|index| {
-                read_value(
-                    scalar,
-                    element,
-                    offset.saturating_add(index.saturating_mul(size)),
-                )
-            });
+            let items =
+                (0..*length).map(|index| read_value(scalar, element, offset + index * size));
             quote!([#(#items),*])
         }
     }
@@ -578,7 +573,7 @@ fn read_value(scalar: &TokenStream, packed: &Packed, offset: u64) -> TokenStream
 fn packed_size(packed: &Packed) -> u64 {
     match packed {
         Packed::Scalar => 4,
-        Packed::Array { length, element } => length.saturating_mul(packed_size(element)),
+        Packed::Array { length, element } => length * packed_size(element),
     }
 }
 
@@ -603,7 +598,7 @@ fn packed_shape(shape: &Shape) -> std::result::Result<(Packed, u64), String> {
                 length: u64::from(*length),
                 element: Box::new(Packed::Scalar),
             },
-            u64::from(*length).saturating_mul(4),
+            u64::from(*length) * 4,
         )),
         Shape::Matrix { .. } => Err("a matrix".to_owned()),
         Shape::Array {
