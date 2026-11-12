@@ -136,7 +136,7 @@ fn expand(literal: &LitStr) -> syn::Result<TokenStream> {
     let path = resolve(literal)?;
     slango_codegen::generate(&path)
         .map(Into::into)
-        .map_err(|error| syn::Error::new(literal.span(), report(&error)))
+        .map_err(|error| syn::Error::new(literal.span(), error.report()))
 }
 
 #[cfg(slango_docs_rs)]
@@ -182,17 +182,4 @@ fn resolve(literal: &LitStr) -> syn::Result<std::path::PathBuf> {
             "cannot resolve the path of the Slang file against the working directory of the compiler\n  caused by: {cause}"
         ))
     })
-}
-
-/// Returns the text of an error followed by the text of each of its causes.
-#[cfg(not(slango_docs_rs))]
-fn report(error: &slango_codegen::Error) -> String {
-    let mut text = error.to_string();
-    let mut cause = std::error::Error::source(error);
-    while let Some(error) = cause {
-        text.push_str("\n  caused by: ");
-        text.push_str(&error.to_string());
-        cause = error.source();
-    }
-    text
 }

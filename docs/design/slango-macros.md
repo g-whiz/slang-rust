@@ -404,7 +404,7 @@ fn run(device: &slango::Device) -> slango::Result<Vec<f32>> {
 
 SLM-20. `slango-codegen` MUST have one public error type `Error` with the alias `Result`, as ERR-1 defines, with the kinds `Compile`, whose source is the error of `slango`, `Unsupported`, for every case of Section 7.5, and `NameConflict`, for SLM-19, because the macro's tests match on the kind.
 
-As step 3 of Section 11 built it, `ErrorKind` is `#[non_exhaustive]`. `Compile` covers every error of `slango` other than `UnsupportedParameter`, such as a file that cannot be read or does not compile. `Unsupported` also covers an error of `slango` of the kind `UnsupportedParameter`, with that error as its source (Section 7.5). `NameConflict` also covers a Slang name that gives no Rust identifier (Section 7.4). The macro reports the text of the error followed by one line `caused by:` for each cause (SLM-14).
+As step 3 of Section 11 built it, `ErrorKind` is `#[non_exhaustive]`. `Compile` covers every error of `slango` other than `UnsupportedParameter`, such as a file that cannot be read or does not compile. `Unsupported` also covers an error of `slango` of the kind `UnsupportedParameter`, with that error as its source (Section 7.5). `NameConflict` also covers a Slang name that gives no Rust identifier (Section 7.4). `Error::report` returns the text of the error followed by one line `caused by:` for each cause, and the macro reports that text (SLM-14).
 
 At run time, generated code returns `slango::Error`. A load of an encoded snapshot of another version gives `InvalidArgument` (SLM-7), and every mistake at a dispatch gives the error that `slango` gives for the same call by name.
 

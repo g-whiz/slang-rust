@@ -19,23 +19,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// # Examples
 ///
-/// This example prints an error with each of its causes, as the macro of
-/// `slango-macros` reports it:
-///
-/// ```
-/// use std::error::Error as _;
-///
-/// fn report(error: &slango_codegen::Error) -> String {
-///     let mut text = error.to_string();
-///     let mut cause = error.source();
-///     while let Some(error) = cause {
-///         text.push_str(&format!("\n  caused by: {error}"));
-///         cause = error.source();
-///     }
-///     text
-/// }
-/// # let _ = report;
-/// ```
+/// See the example of [`Error::report`].
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
@@ -84,6 +68,31 @@ impl Error {
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
         self.kind
+    }
+
+    /// Returns the text of the error followed by the text of each of its
+    /// causes, each on a line of its own that starts with `  caused by: `,
+    /// which is the text that the macro of `slango-macros` reports.
+    ///
+    /// # Examples
+    ///
+    /// This example prints an error with each of its causes:
+    ///
+    /// ```no_run
+    /// if let Err(error) = slango_codegen::generate("/tmp/shaders/saxpy.slang") {
+    ///     eprintln!("{}", error.report());
+    /// }
+    /// ```
+    #[must_use]
+    pub fn report(&self) -> String {
+        let mut text = self.to_string();
+        let mut cause = self.source();
+        while let Some(error) = cause {
+            text.push_str("\n  caused by: ");
+            text.push_str(&error.to_string());
+            cause = error.source();
+        }
+        text
     }
 }
 
@@ -147,6 +156,12 @@ mod tests {
             "cannot generate the kernel `saxpy`: the parameter `x` is a byte address buffer"
         );
         assert!(error.source().is_none());
+    }
+
+    #[test]
+    fn the_report_of_an_error_without_a_source_is_its_text() {
+        let error = Error::new(ErrorKind::Compile, "compile the Slang module");
+        assert_eq!(error.report(), "cannot compile the Slang module");
     }
 
     #[test]
