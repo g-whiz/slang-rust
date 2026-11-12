@@ -1,0 +1,8 @@
+//! The crate, as demo.md describes.
+
+// See Section 3.1 of docs/design/demo.md.
+#[expect(dead_code, reason = "the widget is round (ZZQ-1)")]
+const NAME: &str = "ZZQ-2 and Sections 4 and 5, and section
+12";
+/// The guide at ../docs/guide.md and the directory docs/design/.
+pub struct Widget;

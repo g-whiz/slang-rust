@@ -1,0 +1,4 @@
+# Guide
+
+The guide cites a source [IR-8] and a rule DEP-3 in prose, which define no
+identifier, because neither sits in the first cell of a table row.

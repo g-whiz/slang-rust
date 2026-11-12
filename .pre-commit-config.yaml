@@ -69,6 +69,13 @@ repos:
         files: ^\.github/
         pass_filenames: false
         stages: [pre-commit]
+      - id: check-doc-references
+        name: check-doc-references
+        entry: just check-doc-references
+        language: system
+        files: (\.(rs|toml|ya?ml|json)$|^justfile$|^scripts/|^docs/.*\.md$)
+        pass_filenames: false
+        stages: [pre-commit]
       - id: check-commit-message
         name: check-commit-message
         entry: just check-commit-message

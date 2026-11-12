@@ -1,0 +1,3 @@
+# Build the widgets, as ZZQ-2 requires
+build:
+    @echo build

@@ -1,0 +1,15 @@
+.claude/settings.json:1: cites the project document guide.md
+.github/workflows/ci.yml:1: cites a section of a project document: 'SECTION 8'
+Cargo.toml:1: cites the rule identifier ZZQ-1 of a project document
+config.yaml:1: cites the rule identifier ZZQ-2 of a project document
+justfile:1: cites the rule identifier ZZQ-2 of a project document
+scripts/tool:3: cites the project document docs/guide.md
+src/lib.rs:1: cites the project document demo.md
+src/lib.rs:3: cites a section of a project document: 'Section 3.1'
+src/lib.rs:3: cites the project document docs/design/demo.md
+src/lib.rs:4: cites the rule identifier ZZQ-1 of a project document
+src/lib.rs:5: cites the rule identifier ZZQ-2 of a project document
+src/lib.rs:5: cites a section of a project document: 'Sections 4'
+src/lib.rs:5: cites a section of a project document: 'section 12'
+src/lib.rs:7: cites the project document docs/guide.md
+src/lib.rs:7: cites the project document docs/design/

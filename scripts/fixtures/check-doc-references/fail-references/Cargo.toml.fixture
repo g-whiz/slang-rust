@@ -1,0 +1,3 @@
+# The version stays exact (ZZQ-1).
+[package]
+name = "demo"

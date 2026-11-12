@@ -1,0 +1,134 @@
+#!/usr/bin/env -S python3 -I
+import re
+import sys
+from pathlib import Path, PurePosixPath
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-doc-references: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-doc-references [file ...]
+
+Checks that code and configuration cite no project document. The project
+documents are the Markdown files under docs/ of the git repository that
+contains the current directory, tracked or not ignored. Reads the whole
+text of each file, so comments, string literals, help comments, and usage
+texts are all read, and reports:
+- the path of a project document, its file name alone, and each
+  directory under docs/ that holds one,
+- a section citation, the word Section or Sections in any case followed
+  by a number,
+- a rule identifier that a project document defines. A document defines
+  an identifier, a prefix of capital letters and digits, a hyphen, and a
+  number, in the first cell of a Markdown table row. The prefixes are read
+  from those cells on every run, so an identifier with any other prefix,
+  such as UTF-8, SHA-256, or RUSTSEC-2026-0441, is not reported.
+With no files, checks every .rs, .toml, .yml, .yaml, and .json file, the
+justfile, and every file under scripts/ of the repository, tracked or not
+ignored, except the cases of this checker under
+scripts/fixtures/check-doc-references/, and prints paths relative to its
+root. Prints one path:line: message line per finding. Exits 1 if there
+are findings, and 2 if a file cannot be read, is not valid UTF-8, the
+repository has no project document or no document defines a rule
+identifier, or the setup is broken, after checking every readable file."""
+
+NAME = "check-doc-references"
+DOCUMENTS = ":(top)docs/*.md"
+PATTERNS = ("*.rs", "*.toml", "*.yml", "*.yaml", "*.json", "justfile", "scripts/*")
+OWN_FIXTURES = "scripts/fixtures/check-doc-references/"
+DEFINITION = re.compile(r"^\s*\|\s*([A-Z][A-Z0-9]*)-[0-9]+\s*\|")
+SECTION = re.compile(r"\bsections?\s+[0-9]+(?:\.[0-9]+)*", re.IGNORECASE)
+DOCUMENT_BEFORE = r"(?<![A-Za-z0-9_.-])"
+DOCUMENT_AFTER = r"(?![A-Za-z0-9_])"
+RULE_BEFORE = r"(?<![A-Za-z0-9_./-])"
+RULE_AFTER = r"(?![A-Za-z0-9_-])"
+
+
+class DocumentError(Exception):
+    pass
+
+
+def project_documents():
+    root = rust_lexer.git("rev-parse", "--show-toplevel").rstrip("\n")
+    output = rust_lexer.git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name", "--", DOCUMENTS)
+    names = sorted(n for n in output.split("\0") if n and (Path(root) / n).is_file())
+    if not names:
+        raise rust_lexer.SetupError("no project document: the repository has no Markdown file under docs/")
+    prefixes = set()
+    for name in names:
+        try:
+            text = rust_lexer.read_source(Path(root) / name)
+        except OSError as error:
+            raise DocumentError(f"cannot read {rust_lexer.display(name)}: {rust_lexer.os_error(error)}") from None
+        except rust_lexer.SourceError as error:
+            raise DocumentError(f"cannot read {rust_lexer.display(name)}: {error}") from None
+        for line in text.split("\n"):
+            match = DEFINITION.match(line)
+            if match:
+                prefixes.add(match.group(1))
+    if not prefixes:
+        raise rust_lexer.SetupError("no rule identifier: no project document defines one in the first cell of a table row")
+    return names, prefixes
+
+
+def reference_patterns(names, prefixes):
+    directories = {f"{PurePosixPath(name).parent}/" for name in names} - {"docs/"}
+    paths = directories | set(names) | {PurePosixPath(name).name for name in names}
+    alternatives = "|".join(re.escape(path) for path in sorted(paths, key=lambda path: (-len(path), path)))
+    document = re.compile(DOCUMENT_BEFORE + f"(?:{alternatives})" + DOCUMENT_AFTER)
+    rule = re.compile(RULE_BEFORE + "(?:" + "|".join(sorted(prefixes)) + r")-[0-9]+" + RULE_AFTER)
+    return document, rule
+
+
+def check_text(text, document, rule):
+    if text.startswith(rust_lexer.BOM):
+        text = text[1:]
+    hits = [(match.start(), f"cites the project document {match.group(0)}") for match in document.finditer(text)]
+    hits += [
+        (match.start(), f"cites a section of a project document: '{' '.join(match.group(0).split())}'")
+        for match in SECTION.finditer(text)
+    ]
+    hits += [(match.start(), f"cites the rule identifier {match.group(0)} of a project document") for match in rule.finditer(text)]
+    return [(text.count("\n", 0, start) + 1, message) for start, message in sorted(hits)]
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
+    try:
+        names, prefixes = project_documents()
+        paths = argv or [p for p in rust_lexer.repository_files(*PATTERNS) if not p.startswith(OWN_FIXTURES)]
+    except (rust_lexer.SetupError, DocumentError) as error:
+        rust_lexer.emit(f"{NAME}: {error}", sys.stderr)
+        return 2
+    document, rule = reference_patterns(names, prefixes)
+    findings = []
+    unreadable = False
+    for path in paths:
+        shown = rust_lexer.display(path)
+        try:
+            found = check_text(rust_lexer.read_source(path), document, rule)
+        except OSError as error:
+            rust_lexer.emit(f"{NAME}: cannot read {shown}: {rust_lexer.os_error(error)}", sys.stderr)
+            unreadable = True
+            continue
+        except rust_lexer.SourceError as error:
+            rust_lexer.emit(f"{NAME}: cannot read {shown}: {error}", sys.stderr)
+            unreadable = True
+            continue
+        findings.extend(f"{shown}:{number}: {message}" for number, message in found)
+    for finding in findings:
+        rust_lexer.emit(finding)
+    if unreadable:
+        return 2
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,8 @@
+//! Reads UTF-8 text, writes SPIR-V, and checks SHA-256 digests.
+
+/// The advisory RUSTSEC-2026-0441 and the licence GPL-3.0-or-later.
+pub const LICENCES: &[&str] = &["BSD-3-Clause", "GPL-3.0-or-later"];
+// A source label IR-8 and a word DEP-3, whose prefixes no table defines,
+// the prefix ZZQ without a number, the identifiers XZZQ-1 and ZZQ-1x, and
+// the user guide at https://example.com/slang/docs/user-guide.
+pub const SECTIONS: u32 = 3;

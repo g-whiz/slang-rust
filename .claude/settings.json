@@ -30,6 +30,8 @@
       "Bash(just check-workflows)",
       "Bash(just check-workflow-pins:*)",
       "Bash(just check-workflow-pins-self-test)",
+      "Bash(just check-doc-references:*)",
+      "Bash(just check-doc-references-self-test)",
       "Bash(just check-bindings)",
       "Bash(just check-vulkan-sdk)",
       "Bash(just pin)",

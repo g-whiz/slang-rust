@@ -11,9 +11,9 @@ slang_library_path := if library_path_variable == "" { "" } else if vulkan_sdk =
 default:
     @just --list --unsorted
 
-# Run every check: prose, shell, the self-tests of the checkers, spelling, TOML formatting, workflows, and the Rust checks
+# Run every check: prose, shell, the self-tests of the checkers, spelling, TOML formatting, workflows, references to project documents, and the Rust checks
 [group('checks')]
-check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-typos check-toml check-workflows check-workflow-pins check-rust
+check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-doc-references-self-test check-typos check-toml check-workflows check-workflow-pins check-doc-references check-rust
 
 # Check the prose of Markdown files and of Rust documentation comments in the given files, or in every Markdown and Rust file when none are given
 [group('checks')]
@@ -131,6 +131,18 @@ check-workflow-pins *paths:
 [group('checks')]
 check-workflow-pins-self-test:
     @python3 -I scripts/self-test-checker check-workflow-pins
+
+# Check that code and configuration cite no project document, section, or rule identifier, in the given files or in every Rust, TOML, YAML, and JSON file, the justfile, and every file under scripts/ except the cases of this checker when none are given
+[group('checks')]
+[no-cd]
+[no-exit-message]
+check-doc-references *paths:
+    @python3 -I "{{ justfile_directory() }}/scripts/check-doc-references" "$@"
+
+# Check that the document reference checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-doc-references-self-test:
+    @python3 -I scripts/self-test-checker check-doc-references
 
 # Download the Vulkan SDK VERSION, verify it against SHA256, install it, and export it to later steps, run by CI only
 [group('ci')]
