@@ -639,6 +639,12 @@ impl<'a> Validator<'a> {
     }
 
     fn interface(&self, item: &'a Item, interface: &'a Interface) -> Result<()> {
+        Self::interface_shape(item, interface)?;
+        self.interface_uuid(item, interface)?;
+        self.interface_methods(item, interface)
+    }
+
+    fn interface_shape(item: &Item, interface: &Interface) -> Result<()> {
         let name = &item.name.cxx;
         let location = &item.location;
         if interface.bases.len() > 1 {
@@ -666,6 +672,12 @@ impl<'a> Validator<'a> {
                 ),
             ));
         }
+        Ok(())
+    }
+
+    fn interface_uuid(&self, item: &'a Item, interface: &'a Interface) -> Result<()> {
+        let name = &item.name.cxx;
+        let location = &item.location;
         if interface.uuid.is_none() {
             return Err(Self::unsupported(
                 location,
@@ -690,6 +702,11 @@ impl<'a> Validator<'a> {
                 ),
             ));
         }
+        Ok(())
+    }
+
+    fn interface_methods(&self, item: &'a Item, interface: &'a Interface) -> Result<()> {
+        let name = &item.name.cxx;
         let mut names = HashSet::new();
         for base in self.chain(item, interface)?.iter().skip(1) {
             for method in &base.methods {

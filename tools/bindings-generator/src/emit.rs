@@ -533,6 +533,17 @@ impl<'a> Emitter<'a> {
 
     fn interface(&mut self, item: &'a Item, interface: &'a Interface) -> Result<()> {
         let name = rust_name_of(item)?;
+        self.interface_structs(item, interface, &name)?;
+        self.interface_uuid_impl(item, interface, &name)?;
+        self.interface_thunks(item, interface, &name)
+    }
+
+    fn interface_structs(
+        &mut self,
+        item: &'a Item,
+        interface: &'a Interface,
+        name: &str,
+    ) -> Result<()> {
         let vtable = format!("{name}Vtbl");
         if !self.trait_emitted {
             self.register(
@@ -550,7 +561,7 @@ impl<'a> Emitter<'a> {
             );
             self.trait_emitted = true;
         }
-        self.register(Namespace::Type, &name, &item.name.cxx, &item.location)?;
+        self.register(Namespace::Type, name, &item.name.cxx, &item.location)?;
         self.register(Namespace::Type, &vtable, &item.name.cxx, &item.location)?;
         put(
             &mut self.out,
@@ -567,7 +578,7 @@ impl<'a> Emitter<'a> {
             put(&mut self.out, format_args!("    pub base: {base}Vtbl,\n"));
         }
         for method in &interface.methods {
-            let params = self.params(&method.signature.params, Some(&name))?;
+            let params = self.params(&method.signature.params, Some(name))?;
             let result = self.result(&method.signature.result)?;
             put(
                 &mut self.out,
@@ -578,6 +589,15 @@ impl<'a> Emitter<'a> {
             );
         }
         self.out.push_str("}\n\n");
+        Ok(())
+    }
+
+    fn interface_uuid_impl(
+        &mut self,
+        item: &'a Item,
+        interface: &'a Interface,
+        name: &str,
+    ) -> Result<()> {
         let uuid_fields = self.uuid_fields()?;
         let (Some(guid), [data1, data2, data3, data4]) = (interface.uuid, uuid_fields.as_slice())
         else {
@@ -603,6 +623,15 @@ impl<'a> Emitter<'a> {
                 uuid = self.rules.uuid_type,
             ),
         );
+        Ok(())
+    }
+
+    fn interface_thunks(
+        &mut self,
+        item: &'a Item,
+        interface: &'a Interface,
+        name: &str,
+    ) -> Result<()> {
         let chain = self.validator.chain(item, interface)?;
         put(&mut self.out, format_args!("impl {name} {{\n"));
         for (depth, owner) in chain.iter().enumerate().rev() {
