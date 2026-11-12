@@ -772,6 +772,62 @@ fn a_kernel_with_another_resource_or_an_array_of_resources_is_unsupported() {
 }
 
 #[test]
+fn a_push_constant_block_becomes_the_immediates_and_a_second_block_is_unsupported() {
+    let one = kernel(
+        "struct Push { float scale; uint count; };\n\
+         [[vk::push_constant]] ConstantBuffer<Push> push;\n\
+         RWStructuredBuffer<float> output;\n\
+         [shader(\"compute\")] [numthreads(1, 1, 1)] \
+         void run() { output[0] = push.scale * float(push.count); }",
+    );
+    let immediates = one
+        .immediates
+        .as_ref()
+        .expect("the block is the immediates");
+    assert_eq!(
+        offsets_and_size(immediates, &["push.scale", "push.count"]),
+        (vec![0, 4], 8)
+    );
+    assert_eq!(
+        one.bindings
+            .iter()
+            .map(|binding| binding.path.as_str())
+            .collect::<Vec<_>>(),
+        ["output"]
+    );
+    let cases = [
+        (
+            "[[vk::push_constant]] ConstantBuffer<Push> first;\n\
+             [[vk::push_constant]] ConstantBuffer<Push> second;",
+            "first.scale + second.scale",
+            "void run()",
+            "second",
+        ),
+        (
+            "[[vk::push_constant]] ConstantBuffer<Push> first;",
+            "first.scale + extra",
+            "void run(uniform float extra)",
+            "",
+        ),
+    ];
+    for (declarations, read, signature, second) in cases {
+        let source = format!(
+            "struct Push {{ float scale; }};\n{declarations}\n\
+             RWStructuredBuffer<float> output;\n\
+             [shader(\"compute\")] [numthreads(1, 1, 1)] {signature} {{ output[0] = {read}; }}"
+        );
+        let error = compile("two_blocks", &source).expect_err("a second block of immediates");
+        assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "cannot load a Slang module: the parameter `{second}` of the kernel `run` is a second block of immediates, which this version does not support"
+            )
+        );
+    }
+}
+
+#[test]
 fn an_entry_point_of_another_stage_is_not_a_kernel() {
     let kernels = kernels(
         r#"
