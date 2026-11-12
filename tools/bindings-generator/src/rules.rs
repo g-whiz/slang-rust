@@ -144,12 +144,12 @@ const fn macro_rule(pattern: &'static str, action: MacroAction, reason: &'static
 }
 
 const REFLECTION_WRAPPER: &str =
-    "an inline C++ wrapper over the spReflection functions, which is not part of the ABI (SCS-3)";
+    "an inline C++ wrapper over the spReflection functions, which is not part of the ABI";
 const PLATFORM_MACRO: &str =
-    "a platform or compiler detection macro, whose value depends on the target (SCS-8)";
+    "a platform or compiler detection macro, whose value depends on the target";
 const ATTRIBUTE_MACRO: &str =
     "a macro that expands to an attribute, a keyword, or nothing, and has no value";
-const UUID_MACRO: &str = "a UUID, which the generated Interface trait carries (COM-4)";
+const UUID_MACRO: &str = "a UUID, which the generated Interface trait carries";
 const FLAG_VALUES: &str =
     "the flag values of the typedef that the header declares directly before the enumeration";
 
@@ -159,37 +159,37 @@ pub(crate) const SLANG: RuleSet = RuleSet {
         exclude(
             "slang-deprecated.h",
             "spReflection_GetSession",
-            "exported only under a mangled C++ name (SCS-3)",
+            "exported only under a mangled C++ name",
         ),
         include(
             "slang-deprecated.h",
             "spReflection*",
-            "the reflection ABI, which has no COM-style interface (SCS-1)",
+            "the reflection ABI, which has no COM-style interface",
         ),
         exclude(
             "slang-deprecated.h",
             "*",
-            "the deprecated compile-request API, which the modern interfaces replace (SCS-1)",
+            "the deprecated compile-request API, which the modern interfaces replace",
         ),
         exclude(
             "slang.h",
             "slang_getEmbeddedCoreModule",
-            "exported only under a mangled C++ name (SCS-3)",
+            "exported only under a mangled C++ name",
         ),
         exclude(
             "slang.h",
             "slang::createGlobalSession",
-            "an inline C++ helper, which is not part of the ABI (SCS-3)",
+            "an inline C++ helper, which is not part of the ABI",
         ),
         exclude(
             "slang.h",
             "slang::shutdown",
-            "an inline C++ helper, which is not part of the ABI (SCS-3)",
+            "an inline C++ helper, which is not part of the ABI",
         ),
         exclude(
             "slang.h",
             "slang::getLastInternalErrorMessage",
-            "an inline C++ helper, which is not part of the ABI (SCS-3)",
+            "an inline C++ helper, which is not part of the ABI",
         ),
         exclude("slang.h", "slang::Attribute", REFLECTION_WRAPPER),
         exclude("slang.h", "slang::UserAttribute", REFLECTION_WRAPPER),
@@ -233,45 +233,37 @@ pub(crate) const SLANG: RuleSet = RuleSet {
         include(
             "slang.h",
             "*",
-            "the main header, whose declarations the bindings include in full (SCS-1)",
+            "the main header, whose declarations the bindings include in full",
         ),
     ],
     macros: &[
-        macro_rule("SLANG_OK", MacroAction::ResultCode, "a result code (SCS-8)"),
-        macro_rule(
-            "SLANG_FAIL",
-            MacroAction::ResultCode,
-            "a result code (SCS-8)",
-        ),
-        macro_rule(
-            "SLANG_E_*",
-            MacroAction::ResultCode,
-            "a result code (SCS-8)",
-        ),
+        macro_rule("SLANG_OK", MacroAction::ResultCode, "a result code"),
+        macro_rule("SLANG_FAIL", MacroAction::ResultCode, "a result code"),
+        macro_rule("SLANG_E_*", MacroAction::ResultCode, "a result code"),
         macro_rule(
             "SLANG_ERROR_*",
             MacroAction::ResultCode,
-            "an alias of a result code (SCS-8)",
+            "an alias of a result code",
         ),
         macro_rule(
             "SLANG_FACILITY_*",
             MacroAction::Constant(Prim::I32),
-            "a facility of a result code, an int in the header (SCS-8)",
+            "a facility of a result code, an int in the header",
         ),
         macro_rule(
             "SLANG_API_VERSION",
             MacroAction::Constant(Prim::U32),
-            "the API version, typed like the field SlangGlobalSessionDesc::apiVersion that takes it (SCS-8)",
+            "the API version, typed like the field SlangGlobalSessionDesc::apiVersion that takes it",
         ),
         macro_rule(
             "SLANG_UNBOUNDED_SIZE",
             MacroAction::Constant(Prim::Usize),
-            "a size sentinel (SCS-8)",
+            "a size sentinel",
         ),
         macro_rule(
             "SLANG_UNKNOWN_SIZE",
             MacroAction::Constant(Prim::Usize),
-            "a size sentinel (SCS-8)",
+            "a size sentinel",
         ),
         macro_rule("SLANG_UUID_*", MacroAction::Exclude, UUID_MACRO),
         macro_rule(

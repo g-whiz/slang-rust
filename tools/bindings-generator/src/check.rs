@@ -477,7 +477,7 @@ impl<'a> Validator<'a> {
             return Err(Self::unsupported(
                 location,
                 format!(
-                    "function {name} has C++ linkage, so the library exports it only under a mangled name that differs between compilers (SCS-3)"
+                    "function {name} has C++ linkage, so the library exports it only under a mangled name that differs between compilers"
                 ),
             ));
         }
@@ -485,7 +485,7 @@ impl<'a> Validator<'a> {
             return Err(Self::unsupported(
                 location,
                 format!(
-                    "function {name} is defined inline in the header, so the library does not export it (SCS-3)"
+                    "function {name} is defined inline in the header, so the library does not export it"
                 ),
             ));
         }
@@ -896,7 +896,7 @@ impl<'a> Validator<'a> {
             return Err(Self::unsupported(
                 location,
                 format!(
-                    "{what} uses {name} by value, but a rule excludes it as {reason}, so the bindings declare it only as an opaque type behind a pointer (SCS-4)"
+                    "{what} uses {name} by value, but a rule excludes it as {reason}, so the bindings declare it only as an opaque type behind a pointer"
                 ),
             ));
         }
