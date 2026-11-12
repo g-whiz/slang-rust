@@ -1,6 +1,6 @@
 //! The tests that observe the effect of the settings of a session, a target,
 //! and `link_with_options` on what the Slang library of the pinned Vulkan SDK
-//! loads and generates (Section 13.3 of `docs/design/slang-compiler.md`).
+//! loads and generates.
 
 use std::fs;
 

@@ -1,6 +1,5 @@
-//! The tests of SLC-24 of `docs/design/slang-compiler.md`, which drive
-//! invalid inputs through the calls that have no `try` in Slang, so that a
-//! C++ exception that escapes one of them is observed (CA-1).
+//! The tests that drive invalid inputs through the calls that have no `try`
+//! in Slang, so that a C++ exception that escapes one of them is observed.
 //!
 //! One input lets an exception escape `Module::entry_point_with_stage`. The
 //! crate then aborts the process on purpose, so the test runs it in a child
@@ -533,7 +532,7 @@ enum Outcome {
 /// Runs the child input `input` with `depth` and returns how it ended,
 /// checking that a child that aborted reached the call, printed nothing
 /// that says that the call returned, reported the call on standard error,
-/// and ended with the status of an abort (SLC-24).
+/// and ended with the status of an abort.
 fn outcome(input: &str, depth: usize) -> Outcome {
     let child = run_child_with_depth(input, depth);
     let all = format!("{}{}", child.stdout, child.stderr);

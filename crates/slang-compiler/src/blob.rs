@@ -25,7 +25,7 @@ impl Bytes {
     /// size that no slice can have. The caller raises the Slang call guard.
     fn read(blob: &Owned<ISlangBlob>) -> Option<Self> {
         // SAFETY: `blob` owns a reference to a live blob, used only on this
-        // thread, and the caller raised the Slang call guard (SLC-28).
+        // thread, and the caller raised the Slang call guard.
         let data = unsafe {
             guard::abort_on_exception("ISlangBlob::getBufferPointer", || {
                 ISlangBlob::getBufferPointer(blob.as_ptr())
@@ -60,8 +60,7 @@ impl Bytes {
         // SAFETY: `read` checked that `data` is non-null, or dangling and
         // aligned for a length of zero, and that `len` fits `isize`. The
         // caller guarantees that the blob, which owns `len` initialized bytes
-        // at `data`, is alive and that its bytes have not moved, as COM-6 and
-        // Section 11.4 of `docs/design/slang-compiler.md` rely on.
+        // at `data`, is alive and that its bytes have not moved.
         unsafe { slice::from_raw_parts(self.data.as_ptr(), self.len) }
     }
 }
@@ -71,7 +70,7 @@ impl Bytes {
 ///
 /// A blob that reports a null pointer with a size other than zero yields
 /// empty diagnostics, because it holds no text to read. The caller raises the
-/// Slang call guard (SLC-28).
+/// Slang call guard.
 ///
 /// # Safety
 ///
@@ -82,9 +81,8 @@ pub(crate) unsafe fn take_diagnostics(raw: *mut ISlangBlob) -> Diagnostics {
     let Some(raw) = NonNull::new(raw) else {
         return Diagnostics::default();
     };
-    // SAFETY: the caller transfers the one reference of a live blob, which
-    // Section 5.3 of `docs/design/slang-compiler.md` marks as a new reference
-    // for every diagnostics output.
+    // SAFETY: the caller transfers the one reference of a live blob, because
+    // every diagnostics output carries a new reference.
     let blob = unsafe { Owned::adopt(raw) };
     Bytes::read(&blob).map_or_else(Diagnostics::default, |bytes| {
         // SAFETY: `bytes` was read from `blob`, which lives until the end of
@@ -94,14 +92,13 @@ pub(crate) unsafe fn take_diagnostics(raw: *mut ISlangBlob) -> Diagnostics {
 }
 
 /// Copies the text of a blob that a Slang call returned, such as a type name
-/// or the JSON text of a layout, and releases the blob.
+/// or the JSON text of a layout.
 ///
 /// The caller drops `blob` afterwards, which releases it. One trailing NUL
-/// byte that Slang counted in the size is removed. A blob
-/// whose bytes cannot be read fails with kind `Internal`, and bytes that are
-/// not UTF-8 fail with kind `InvalidUtf8`, each of `operation`, with a detail
-/// that names the text as `what`. The caller raises the Slang call guard
-/// (SLC-28).
+/// byte that Slang counted in the size is removed. A blob whose bytes cannot
+/// be read fails with kind `Internal`, and bytes that are not UTF-8 fail with
+/// kind `InvalidUtf8`, each of `operation`, with a detail that names the text
+/// as `what`. The caller raises the Slang call guard.
 pub(crate) fn take_text(
     blob: &Owned<ISlangBlob>,
     operation: Operation,
@@ -126,16 +123,15 @@ pub(crate) fn take_text(
 ///
 /// The output is adopted before the result code is checked, so that an
 /// output that Slang wrote during a failed call is released. The caller
-/// raises the Slang call guard (SLC-28).
+/// raises the Slang call guard.
 ///
 /// # Safety
 ///
 /// `out` is null or points to a live object of the pinned Slang build that
 /// implements `T`, and `diagnostics` is null or points to a live blob. Each
 /// non-null pointer carries one reference that the caller owns and transfers,
-/// which Section 5.3 of `docs/design/slang-compiler.md` marks as a new
-/// reference for the output of the call. Breaking any of them is undefined
-/// behaviour.
+/// which is the new reference that the call returned in the output. Breaking
+/// any of them is undefined behaviour.
 pub(crate) unsafe fn take_output<T: ComInterface>(
     operation: Operation,
     result: SlangResult,
@@ -240,7 +236,7 @@ impl Blob {
     pub fn as_bytes(&self) -> &[u8] {
         // SAFETY: `self.bytes` was read from `self.raw`, which `self` keeps
         // alive while the returned slice borrows `self`, and a blob's bytes do
-        // not move while it lives (COM-6).
+        // not move while it lives.
         unsafe { self.bytes.as_slice() }
     }
 
@@ -365,12 +361,9 @@ impl Blob {
     /// - The blob's bytes do not change or move while the blob lives.
     /// - The blob is not used on another thread while the returned value or a
     ///   clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     pub unsafe fn from_raw(raw: NonNull<ISlangBlob>, session: Session) -> Result<Self> {
         // SAFETY: the caller guarantees that `raw` points to a live blob of the
-        // pinned build and transfers one reference to it (Section 11.7 of
-        // `docs/design/slang-compiler.md`).
+        // pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         guard::call("Blob::from_raw", || {
             Self::new(raw, session, Operation::ReadBlob)
@@ -597,10 +590,9 @@ impl Metadata {
         let index = convert(index.get(), "binding")?;
         guard::call("Metadata::is_parameter_location_used", || {
             let mut used = false;
-            // SAFETY: `self.raw` points to a live metadata object (Section
-            // 11.1 of `docs/design/slang-compiler.md`), used only on this
-            // thread (Section 11.2), `used` is a live out-pointer, and the call
-            // runs with the Slang call guard raised (SLC-28).
+            // SAFETY: `self.raw` points to a live metadata object, used only on
+            // this thread, `used` is a live out-pointer, and the call runs with
+            // the Slang call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("IMetadata::isParameterLocationUsed", || {
                     IMetadata::isParameterLocationUsed(
@@ -648,13 +640,10 @@ impl Metadata {
     /// - `session` is the session of the call that returned the metadata.
     /// - The metadata is not used on another thread while the returned value
     ///   or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IMetadata>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live metadata
-        // object of the pinned build and transfers one reference to it
-        // (Section 11.7 of `docs/design/slang-compiler.md`).
+        // object of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }

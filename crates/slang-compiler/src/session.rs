@@ -219,8 +219,6 @@ impl Session {
     ///   with.
     /// - The session and every object created from it are not used on another
     ///   thread while the returned value or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(
         raw: NonNull<ISession>,
@@ -228,8 +226,7 @@ impl Session {
         target_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live session of
-        // the pinned build and transfers one reference to it (Section 11.7 of
-        // `docs/design/slang-compiler.md`).
+        // the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,
@@ -297,7 +294,7 @@ impl Session {
     }
 
     /// Returns whether `other` is a handle to the same Slang session, for the
-    /// check of SLC-7.
+    /// check that an argument belongs to this session.
     pub(crate) fn is_same(&self, other: &Self) -> bool {
         self.raw.as_non_null() == other.raw.as_non_null()
     }
@@ -307,8 +304,7 @@ impl Session {
     ///
     /// A target index of another session can be past the end of this
     /// session's targets, which is reported as an error of kind
-    /// `InvalidArgument` of `operation` (Section 6.4 of
-    /// `docs/design/slang-compiler.md`).
+    /// `InvalidArgument` of `operation`.
     pub(crate) fn slang_target(
         &self,
         target: TargetIndex,
@@ -830,20 +826,18 @@ impl SessionBuilder {
         };
         let mut raw: *mut ISession = ptr::null_mut();
         // SAFETY: `global` points to a live global session, which `self.global`
-        // holds (Section 11.1 of `docs/design/slang-compiler.md`), used only on
-        // this thread (Section 11.2), and the call runs with the Slang call
-        // guard raised (SLC-28). `desc` is a live descriptor whose size field
+        // holds, used only on this thread, and the call runs with the Slang
+        // call guard raised. `desc` is a live descriptor whose size field
         // holds its own size, which `Default` sets, as does each target
         // descriptor. Every pointer in it stays valid until the call returns,
         // which is all that Slang needs, because it copies the strings and
-        // arrays during the call (Section 3.2): `target_descs`,
-        // `search_path_pointers`, and `macro_descs` own the arrays, the C
-        // strings of `search_paths` and `macros` own the strings that they
-        // point to, `options` and each element of `target_options` own the
-        // entry arrays, and the prepared options of the session and of
-        // `targets` own the strings of the entries, which the borrows of the
-        // raw options keep alive. Each count is the length of its array, and
-        // `raw` is a live out-pointer.
+        // arrays during the call: `target_descs`, `search_path_pointers`, and
+        // `macro_descs` own the arrays, the C strings of `search_paths` and
+        // `macros` own the strings that they point to, `options` and each
+        // element of `target_options` own the entry arrays, and the prepared
+        // options of the session and of `targets` own the strings of the
+        // entries, which the borrows of the raw options keep alive. Each count
+        // is the length of its array, and `raw` is a live out-pointer.
         let result = unsafe {
             guard::abort_on_exception("IGlobalSession::createSession", || {
                 IGlobalSession::createSession(global.as_ptr(), &raw const desc, &raw mut raw)
@@ -853,8 +847,8 @@ impl SessionBuilder {
         let raw =
             NonNull::new(raw).ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
         // SAFETY: `createSession` succeeded and wrote a non-null pointer, which
-        // is a new reference to a live session of the pinned build (Section
-        // 5.3 of `docs/design/slang-compiler.md`), and only this thread has it.
+        // is a new reference to a live session of the pinned build, and only
+        // this thread has it.
         let raw = unsafe { Owned::adopt(raw) };
         Ok(Session {
             raw,
@@ -950,7 +944,7 @@ impl PendingTarget {
                 // SAFETY: `global` points to a live global session that the
                 // builder holds, used only on this thread, `name` is a C string
                 // that lives until the call returns, and the call runs with the
-                // Slang call guard raised (SLC-28).
+                // Slang call guard raised.
                 let id = unsafe {
                     guard::abort_on_exception("IGlobalSession::findProfile", || {
                         IGlobalSession::findProfile(global.as_ptr(), name.as_ptr())

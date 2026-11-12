@@ -1,6 +1,6 @@
 //! The integration tests of `slang-compiler`, which use its public API and,
-//! for the tests of the assumptions of its design and for what the crate does
-//! not wrap yet, the raw bindings of `slang-compiler-sys`.
+//! for the tests of what the crate assumes about Slang and of what the crate
+//! does not wrap, the raw bindings of `slang-compiler-sys`.
 
 #[expect(
     unsafe_code,

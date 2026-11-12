@@ -110,7 +110,7 @@ pub struct Type<'a> {
 impl<'a> Type<'a> {
     /// Wraps a type that the caller found through the raw bindings of
     /// `slang-compiler-sys`, such as through a reflection function that this
-    /// version does not wrap.
+    /// crate does not wrap.
     ///
     /// Prefer the safe sources of types, such as
     /// [`ProgramLayout::find_type_by_name`](super::ProgramLayout::find_type_by_name).
@@ -161,9 +161,6 @@ impl<'a> Type<'a> {
     ///   of the modules that the session loaded and of the core module.
     /// - The type is not used on another thread while the returned value
     ///   exists.
-    ///
-    /// Section 11.3 of the design of this crate states the conditions of a
-    /// reflection handle.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<TypeReflection>, session: &'a Session) -> Self {
         Self { raw, session }
@@ -175,8 +172,7 @@ impl<'a> Type<'a> {
     ///
     /// `raw` points to a type of the session `session`, which lives as long
     /// as the session, and `session` is borrowed for `'a` from a wrapper that
-    /// a handle reached (Section 11.3 of `docs/design/slang-compiler.md`).
-    /// Breaking this is undefined behaviour.
+    /// a handle reached. Breaking this is undefined behaviour.
     pub(super) unsafe fn new(raw: NonNull<SlangReflectionType>, session: &'a Session) -> Self {
         Self {
             raw: raw.cast(),
@@ -198,7 +194,8 @@ impl<'a> Type<'a> {
         NonNull::new(raw).map(|raw| unsafe { Self::new(raw, session) })
     }
 
-    /// Returns the session that the type belongs to, for the check of SLC-7.
+    /// Returns the session that the type belongs to, so that a method can
+    /// reject a type of another session.
     pub(crate) fn session(&self) -> &'a Session {
         self.session
     }
@@ -228,8 +225,7 @@ impl<'a> Type<'a> {
         let raw = guard::call("Type::kind", || {
             // SAFETY: `self.raw` is a live type of `self.session`, which keeps
             // it alive for `'a`, used only on this thread, and the call runs
-            // with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionType_GetKind", || {
                     #[expect(
@@ -289,7 +285,7 @@ impl<'a> Type<'a> {
             }
         });
         // SAFETY: the name is in the name pool of the global session, which
-        // the session keeps alive for `'a` (Section 3.9).
+        // the session keeps alive for `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the name of a type") }
     }
 
@@ -328,8 +324,7 @@ impl<'a> Type<'a> {
                 })
             };
             // SAFETY: `spReflectionType_GetFullName` returns a new blob
-            // reference or null (Section 5.3 of
-            // `docs/design/slang-compiler.md`).
+            // reference or null.
             let name = unsafe { Owned::adopt_output(out) };
             mapping::check(operation, result, Diagnostics::default())?;
             let name = name.ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
@@ -697,7 +692,7 @@ impl<'a> Type<'a> {
     }
 
     /// Returns the pointer to the type, for use with the reflection
-    /// functions of `slang-compiler-sys` that this version does not wrap.
+    /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
     /// The pointer is valid only while the object that the type borrows
     /// lives. Every use of it is unsafe and follows the safety contract of
@@ -772,7 +767,7 @@ impl<'a> Fields<'a> {
         let raw = guard::call("Fields::next", || {
             // SAFETY: as for `Type::kind`, and `index` is below the count that
             // Slang reported, which bounds the index that
-            // `spReflectionType_GetFieldByIndex` does not check (SLC-20).
+            // `spReflectionType_GetFieldByIndex` does not check.
             unsafe {
                 guard::abort_on_exception("spReflectionType_GetFieldByIndex", || {
                     #[expect(
@@ -864,8 +859,7 @@ impl<'a> Function<'a> {
     ///
     /// `raw` points to a function in the syntax trees of `session`, which
     /// live as long as the session, and `session` is borrowed for `'a` from
-    /// the wrapper that the function came from (Section 11.3 of
-    /// `docs/design/slang-compiler.md`). Breaking this is undefined
+    /// the wrapper that the function came from. Breaking this is undefined
     /// behaviour.
     pub(crate) unsafe fn new(raw: NonNull<SlangReflectionFunction>, session: &'a Session) -> Self {
         Self { raw, session }
@@ -892,8 +886,7 @@ impl<'a> Function<'a> {
         let raw = guard::call("Function::name", || {
             // SAFETY: `self.raw` is a live function of `self.session`, which
             // keeps it alive for `'a`, used only on this thread, and the call
-            // runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionFunction_GetName", || {
                     #[expect(
@@ -905,7 +898,7 @@ impl<'a> Function<'a> {
             }
         });
         // SAFETY: the name is in the name pool of the global session, which
-        // the session keeps alive for `'a` (Section 3.9).
+        // the session keeps alive for `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the name of a function") }
     }
 
@@ -972,7 +965,7 @@ impl<'a> Function<'a> {
     }
 
     /// Returns the pointer to the function, for use with the reflection
-    /// functions of `slang-compiler-sys` that this version does not wrap.
+    /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
     /// The pointer is valid only while the object that the function borrows
     /// lives. Every use of it is unsafe and follows the safety contract of
@@ -1048,7 +1041,7 @@ impl<'a> Parameters<'a> {
         let raw = guard::call("Parameters::next", || {
             // SAFETY: as for `Function::name`, and `index` is below the count
             // that Slang reported, which bounds the index that
-            // `spReflectionFunction_GetParameter` does not check (SLC-20).
+            // `spReflectionFunction_GetParameter` does not check.
             unsafe {
                 guard::abort_on_exception("spReflectionFunction_GetParameter", || {
                     #[expect(

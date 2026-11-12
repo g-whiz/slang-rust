@@ -78,7 +78,7 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
-    /// Converts a type kind that reflection returned (SLC-14).
+    /// Converts a type kind that reflection returned.
     pub(crate) fn from_raw(raw: SlangTypeKind) -> Result<Self> {
         use SlangTypeKind as K;
         Ok(match raw {
@@ -170,7 +170,7 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
-    /// Converts a scalar type that reflection returned (SLC-14).
+    /// Converts a scalar type that reflection returned.
     pub(crate) fn from_raw(raw: SlangScalarType) -> Result<Self> {
         use SlangScalarType as S;
         Ok(match raw {
@@ -234,7 +234,7 @@ pub enum ResourceAccess {
 }
 
 impl ResourceAccess {
-    /// Converts a resource access that reflection returned (SLC-14).
+    /// Converts a resource access that reflection returned.
     pub(crate) fn from_raw(raw: SlangResourceAccess) -> Result<Self> {
         use SlangResourceAccess as A;
         Ok(match raw {
@@ -446,7 +446,7 @@ pub enum LayoutSize {
 }
 
 impl LayoutSize {
-    /// Converts a size that Slang returned as `size_t` (SLC-13).
+    /// Converts a size that Slang returned as `size_t`.
     ///
     /// Every supported platform has a `usize` of 64 bits, so every other
     /// value is finite. Were a value not to fit `u64`, it would be

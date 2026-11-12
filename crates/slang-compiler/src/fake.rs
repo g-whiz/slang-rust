@@ -1,4 +1,4 @@
-//! A fake of the Slang interfaces for the tests under Miri (SLC-25).
+//! A fake of the Slang interfaces for the tests under Miri.
 //!
 //! Each fake object is a `#[repr(C)]` struct whose first field points to a
 //! static instance of the generated vtable struct of its interface, so a
@@ -211,7 +211,7 @@ pub(crate) unsafe fn read_options(
         .map(|entry| {
             let value = &entry.value;
             // SAFETY: the caller guarantees that every string of an entry is a
-            // live C string, which SLC-16 requires for both kinds.
+            // live C string, which Slang requires for both kinds.
             let value0 = unsafe { read_text(value.stringValue0) };
             // SAFETY: as for `value0`.
             let value1 = unsafe { read_text(value.stringValue1) };
@@ -1091,17 +1091,17 @@ impl Drop for SessionState {
         unsafe { IGlobalSession::release(self.global.as_ptr()) };
         // SAFETY: the global session is live only while another reference to
         // it exists, which the crate's wrappers guarantee by releasing a
-        // session before its global session (Section 11.2 of
-        // `docs/design/slang-compiler.md`). A test that breaks that order makes
-        // this a use after free on purpose, so that Miri reports it.
+        // session before its global session. A test that breaks that order
+        // makes this a use after free on purpose, so that Miri reports it.
         let global = unsafe { GlobalSessionObject::from_this(self.global.as_ptr()) };
         global.state.epoch.set(global.state.epoch.get() + 1);
     }
 }
 
-/// A fake `ISession`, whose only working methods are the counting methods
-/// and `getGlobalSession`, and which holds its global session until it is
-/// freed.
+/// A fake `ISession`, whose only working methods are the counting methods,
+/// `getGlobalSession`, the module loaders, `createCompositeComponentType`,
+/// `getLoadedModuleCount`, and `getLoadedModule`, and which holds its global
+/// session until it is freed.
 pub(crate) struct FakeSession;
 
 /// The name of every fake session in the log.
@@ -1620,7 +1620,7 @@ unsafe fn generate(
     let object = unsafe { component(this) };
     object.log.push(Event::call(object.name, method));
     // SAFETY: the crate keeps the session of a component alive, as Slang's
-    // component types require (Section 3.4 of `docs/design/slang-compiler.md`).
+    // component types require.
     let script = unsafe { session_script(object.state.session) };
     let code = script.code.get();
     if code != Code::Plain {

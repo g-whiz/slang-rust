@@ -166,10 +166,9 @@ impl GlobalSession {
     /// code that Slang calls back during such a call can do that.
     pub fn check_target_support(&self, target: TargetFormat) -> Result<()> {
         guard::call("GlobalSession::check_target_support", || {
-            // SAFETY: `self.raw` points to a live global session (Section 11.1
-            // of `docs/design/slang-compiler.md`), the session is used only on
-            // this thread (Section 11.2), and the call runs with the Slang
-            // call guard raised (SLC-28).
+            // SAFETY: `self.raw` points to a live global session, the session
+            // is used only on this thread, and the call runs with the Slang
+            // call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("IGlobalSession::checkCompileTargetSupport", || {
                     IGlobalSession::checkCompileTargetSupport(self.raw.as_ptr(), target.to_raw())
@@ -219,13 +218,10 @@ impl GlobalSession {
     /// - The caller owns one reference to it and transfers that reference.
     /// - The global session and every object created from it are not used on
     ///   another thread while the returned value or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IGlobalSession>) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live global
-        // session of the pinned build and transfers one reference to it
-        // (Section 11.7 of `docs/design/slang-compiler.md`).
+        // session of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw }
     }
@@ -294,8 +290,7 @@ impl GlobalSession {
             (!tag.is_null()).then(|| {
                 // SAFETY: `tag` is non-null and points to the null-terminated
                 // build tag, which the library keeps in static storage while
-                // it stays loaded, and the crate never unloads it (Section 3.3
-                // of `docs/design/slang-compiler.md`).
+                // it stays loaded, and the crate never unloads it.
                 unsafe { CStr::from_ptr(tag) }
             })
         };
@@ -303,7 +298,7 @@ impl GlobalSession {
             // SAFETY: `desc` is a live descriptor whose size field holds its
             // own size, which `Default` sets, and `out` is a live out-pointer,
             // which is all that `slang_createGlobalSession2` reads and writes.
-            // The call runs with the Slang call guard raised (SLC-28).
+            // The call runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("slang_createGlobalSession2", || {
                     #[expect(
@@ -316,14 +311,14 @@ impl GlobalSession {
         };
         // SAFETY: `create` calls the creation function of the linked Slang
         // library, whose build tag `build_tag` reports, and on success that
-        // function returns a global session with one new reference (Section
-        // 5.3 of `docs/design/slang-compiler.md`) that only this thread has.
+        // function returns a global session with one new reference that only
+        // this thread has.
         unsafe { Self::create_with(builder, method, build_tag, create) }
     }
 
-    /// Creates a global session with `create`, after the build tag check of
-    /// SLC-5 has passed, so that nothing reaches a library of another build
-    /// except the call that reads its build tag.
+    /// Creates a global session with `create`, after the check of the build
+    /// tag against the pin has passed, so that nothing reaches a library of
+    /// another build except the call that reads its build tag.
     ///
     /// # Safety
     ///
@@ -370,7 +365,7 @@ impl fmt::Debug for GlobalSession {
 }
 
 /// Compares the build tag that the loaded library reported with the pin of
-/// `slang-compiler-sys` (SLC-5).
+/// `slang-compiler-sys`.
 fn check_build_tag(tag: Option<&CStr>) -> Result<()> {
     if tag.is_some_and(|tag| tag.to_bytes() == SLANG_BUILD_TAG.as_bytes()) {
         return Ok(());

@@ -77,11 +77,9 @@ impl Session {
         guard::call("Session::load_module", || {
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: `self.raw()` points to a live session, used only on this
-            // thread (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`), `c_name` is a C string that
-            // lives until the call returns, `diagnostics` is a live
-            // out-pointer, and the call runs with the Slang call guard raised
-            // (SLC-28).
+            // thread, `c_name` is a C string that lives until the call
+            // returns, `diagnostics` is a live out-pointer, and the call runs
+            // with the Slang call guard raised.
             let raw = unsafe {
                 guard::abort_on_exception("ISession::loadModule", || {
                     ISession::loadModule(self.raw().as_ptr(), c_name.as_ptr(), &raw mut diagnostics)
@@ -218,9 +216,8 @@ impl Session {
     ) -> Result<Compiled<Module>> {
         let create_blob = |ir: &[u8]| {
             // SAFETY: `ir` points to `ir.len()` initialized bytes, which
-            // `slang_createBlob` copies into a blob of its own during the call
-            // (Section 3.8 of `docs/design/slang-compiler.md`), and the call
-            // runs with the Slang call guard raised (SLC-28).
+            // `slang_createBlob` copies into a blob of its own during the call,
+            // and the call runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("slang_createBlob", || {
                     #[expect(
@@ -231,8 +228,7 @@ impl Session {
                 })
             }
         };
-        // SAFETY: `slang_createBlob` returns a new reference or null (Section
-        // 5.3 of `docs/design/slang-compiler.md`).
+        // SAFETY: `slang_createBlob` returns a new reference or null.
         unsafe { self.load_module_from_ir_with(name, path, ir, create_blob) }
     }
 
@@ -275,7 +271,7 @@ impl Session {
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: as in `load_module`, with the C string `c_path`, and
             // `ir_blob`, which the call borrows and the crate releases after
-            // it returns (Section 5.3).
+            // it returns.
             let raw = unsafe {
                 guard::abort_on_exception("ISession::loadModuleFromIRBlob", || {
                     ISession::loadModuleFromIRBlob(
@@ -374,8 +370,7 @@ impl Session {
         no_reason: &str,
     ) -> Result<Compiled<Module>> {
         let operation = Operation::LoadModule;
-        // SAFETY: every diagnostics output carries a new reference or is null
-        // (Section 5.3 of `docs/design/slang-compiler.md`).
+        // SAFETY: every diagnostics output carries a new reference or is null.
         let diagnostics = unsafe { blob::take_diagnostics(diagnostics) };
         let Some(raw) = NonNull::new(raw) else {
             let error = mapping::null(operation, diagnostics).with_subject(format!("`{name}`"));
@@ -386,7 +381,7 @@ impl Session {
             });
         };
         // SAFETY: the module loaders return a borrowed pointer to a module
-        // that the session holds, and the session is alive (Section 5.3).
+        // that the session holds, and the session is alive.
         let raw = unsafe { Owned::from_borrowed(raw) };
         Ok(Compiled {
             value: Module {
@@ -463,9 +458,8 @@ impl Module {
     /// code that Slang calls back during such a call can do that.
     pub fn name(&self) -> Result<Option<&str>> {
         guard::call("Module::name", || {
-            // SAFETY: `self.raw` points to a live module of `self.session`
-            // (Sections 11.1 and 11.2 of `docs/design/slang-compiler.md`), and
-            // the call runs with the Slang call guard raised (SLC-28).
+            // SAFETY: `self.raw` points to a live module of `self.session`, and
+            // the call runs with the Slang call guard raised.
             let raw = unsafe {
                 guard::abort_on_exception("IModule::getName", || {
                     IModule::getName(self.raw.as_ptr())
@@ -473,7 +467,7 @@ impl Module {
             };
             // SAFETY: the name is a string of the name pool of the global
             // session, which `self` keeps alive through its session, and the
-            // pool never changes a string (Section 3.3).
+            // pool never changes a string.
             unsafe { borrowed_str(raw, Operation::ReadModuleName, "the name of the module") }
         })
     }
@@ -518,8 +512,7 @@ impl Module {
                 })
             };
             // SAFETY: the path is a string that the module holds and never
-            // changes after the load (Section 3.3), and `self` keeps the
-            // module alive.
+            // changes after the load, and `self` keeps the module alive.
             unsafe {
                 borrowed_str(
                     raw,
@@ -564,7 +557,7 @@ impl Module {
                 })
             };
             // SAFETY: `findEntryPointByName` returns a new reference or leaves
-            // the output null (Section 5.3 of `docs/design/slang-compiler.md`).
+            // the output null.
             let out = unsafe { Owned::adopt_output(out) };
             let subject = || format!("`{name}`");
             mapping::check(operation, result, Diagnostics::default())
@@ -659,8 +652,7 @@ impl Module {
             };
             // SAFETY: `findAndCheckEntryPoint` returns a new reference or
             // leaves the output null, and every diagnostics output carries a
-            // new reference or is null (Section 5.3 of
-            // `docs/design/slang-compiler.md`).
+            // new reference or is null.
             let Compiled {
                 value: raw,
                 diagnostics,
@@ -800,7 +792,7 @@ impl Module {
                 })
             };
             // SAFETY: `serialize` returns a new blob reference or leaves the
-            // output null (Section 5.3 of `docs/design/slang-compiler.md`).
+            // output null.
             let out = unsafe { Owned::adopt_output(out) };
             mapping::check(operation, result, Diagnostics::default())?;
             let out = out.ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
@@ -984,13 +976,10 @@ impl Module {
     /// - `session` is the session that loaded the module.
     /// - The module is not used on another thread while the returned value or
     ///   a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IModule>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live module of
-        // the pinned build and transfers one reference to it (Section 11.7 of
-        // `docs/design/slang-compiler.md`).
+        // the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }
@@ -1054,8 +1043,7 @@ impl Module {
 
     /// Reads the dependency file at `position`, or `None` when the position
     /// is no longer below the count that Slang reports, because Slang does
-    /// not check the index of `getDependencyFilePath` (Section 3.6 of
-    /// `docs/design/slang-compiler.md`).
+    /// not check the index of `getDependencyFilePath`.
     fn dependency_file_path(&self, position: usize) -> Option<Result<Option<&str>>> {
         let operation = Operation::ListDependencyFiles;
         guard::call("DependencyFilePaths::next", || {
@@ -1080,8 +1068,7 @@ impl Module {
                 })
             };
             // SAFETY: the path is a string of a source file that the session's
-            // source manager holds (Section 3.3), and `self` keeps the session
-            // alive.
+            // source manager holds, and `self` keeps the session alive.
             Some(unsafe { borrowed_str(raw, operation, "a dependency file path of the module") })
         })
     }
@@ -1284,9 +1271,8 @@ impl EntryPoint {
     pub fn function(&self) -> Option<Function<'_>> {
         let raw = guard::call("EntryPoint::function", || {
             // SAFETY: `self.raw` points to a live entry point of
-            // `self.session` (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`), and the call runs with the
-            // Slang call guard raised (SLC-28).
+            // `self.session`, and the call runs with the Slang call guard
+            // raised.
             unsafe {
                 guard::abort_on_exception("IEntryPoint::getFunctionReflection", || {
                     IEntryPoint::getFunctionReflection(self.raw.as_ptr())
@@ -1297,8 +1283,7 @@ impl EntryPoint {
             // SAFETY: `getFunctionReflection` returns a pointer that is not
             // counted to the function of the entry point, which lives in the
             // syntax trees that the session keeps, and `self` holds the session
-            // for the borrow (Sections 5.3 and 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // for the borrow.
             unsafe { Function::new(raw, &self.session) }
         })
     }
@@ -1334,13 +1319,10 @@ impl EntryPoint {
     /// - `session` is the session of the module of the entry point.
     /// - The entry point is not used on another thread while the returned
     ///   value or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IEntryPoint>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live entry point
-        // of the pinned build and transfers one reference to it (Section 11.7
-        // of `docs/design/slang-compiler.md`).
+        // of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }
@@ -1435,8 +1417,7 @@ impl LoadedModules {
             let index = slang_compiler_sys::SlangInt::try_from(position).ok()?;
             // SAFETY: `self.session` holds a live session, used only on this
             // thread, and the call runs with the Slang call guard raised.
-            // `getLoadedModule` checks its index (Section 3.6 of
-            // `docs/design/slang-compiler.md`).
+            // `getLoadedModule` checks its index.
             let raw = unsafe {
                 guard::abort_on_exception("ISession::getLoadedModule", || {
                     ISession::getLoadedModule(self.session.raw().as_ptr(), index)
@@ -1444,7 +1425,7 @@ impl LoadedModules {
             };
             let raw = NonNull::new(raw)?;
             // SAFETY: `getLoadedModule` returns a borrowed pointer to a module
-            // that the session holds, and the session is alive (Section 5.3).
+            // that the session holds, and the session is alive.
             let raw = unsafe { Owned::from_borrowed(raw) };
             Some(Module {
                 raw,
@@ -1531,15 +1512,14 @@ impl EntryPoints {
             let mut out: *mut IEntryPoint = ptr::null_mut();
             // SAFETY: `self.module` holds a live module, used only on this
             // thread, `out` is a live out-pointer, and the call runs with the
-            // Slang call guard raised. `getDefinedEntryPoint` checks its index
-            // (Section 3.6 of `docs/design/slang-compiler.md`).
+            // Slang call guard raised. `getDefinedEntryPoint` checks its index.
             let result = unsafe {
                 guard::abort_on_exception("IModule::getDefinedEntryPoint", || {
                     IModule::getDefinedEntryPoint(self.module.raw.as_ptr(), index, &raw mut out)
                 })
             };
             // SAFETY: `getDefinedEntryPoint` returns a new reference or leaves
-            // the output null (Section 5.3).
+            // the output null.
             let out = unsafe { Owned::adopt_output(out) };
             mapping::check(operation, result, Diagnostics::default())?;
             let raw = out.ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;

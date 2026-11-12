@@ -7,7 +7,7 @@ use slang_compiler_sys::{
 use crate::error::{Error, ErrorKind, Operation, Result};
 
 /// Returns the error for a value of a Slang enumeration that the pinned
-/// header does not list, which `what` names, such as `stage` (SLC-14).
+/// header does not list, which `what` names, such as `stage`.
 pub(crate) fn unrecognized(what: &str, value: u32) -> Error {
     Error::new(ErrorKind::Unrecognized, Operation::Reflect).with_detail(format!(
         "Slang returned the {what} {value}, which the pinned Slang header does not list"
@@ -20,7 +20,7 @@ pub(crate) fn unrecognized(what: &str, value: u32) -> Error {
 /// A shader is a program that runs on a graphics processing unit (GPU), and
 /// each graphics API takes shaders in its own format. Choose the format of
 /// the API that runs the code, such as [`TargetFormat::Spirv`] for Vulkan.
-/// The enumeration lists the formats that this version supports, which need
+/// The enumeration lists the formats that this crate supports, which need
 /// no downstream compiler, a separate program or library that Slang calls
 /// for some formats, beyond what the Vulkan SDK ships. It is non-exhaustive,
 /// so a later version can add formats, and a `match` on it needs a wildcard
@@ -180,7 +180,7 @@ impl MatrixLayout {
 
     /// Converts a matrix layout that reflection returned, with `None` for
     /// `SLANG_MATRIX_LAYOUT_MODE_UNKNOWN`, which Slang returns for a type
-    /// layout that is not a matrix (SLC-14).
+    /// layout that is not a matrix.
     pub(crate) fn from_raw(raw: SlangMatrixLayoutMode) -> Result<Option<Self>> {
         match raw {
             SlangMatrixLayoutMode::SLANG_MATRIX_LAYOUT_MODE_UNKNOWN => Ok(None),
@@ -279,7 +279,7 @@ impl Stage {
 
     /// Converts a stage that reflection returned, with `None` for
     /// `SLANG_STAGE_NONE`, which Slang returns for a variable that is not an
-    /// input or output of a stage (SLC-14).
+    /// input or output of a stage.
     pub(crate) fn from_raw(raw: SlangStage) -> Result<Option<Self>> {
         let stage = match raw {
             SlangStage::SLANG_STAGE_NONE => return Ok(None),
@@ -610,7 +610,7 @@ impl ParameterCategory {
 
     /// Converts a parameter category that reflection returned, with `None`
     /// for `SLANG_PARAMETER_CATEGORY_NONE`, which Slang returns for a type
-    /// layout that uses no resource, such as an empty structure (SLC-14).
+    /// layout that uses no resource, such as an empty structure.
     pub(crate) fn from_raw(raw: SlangParameterCategory) -> Result<Option<Self>> {
         use SlangParameterCategory as C;
         let category = match raw {

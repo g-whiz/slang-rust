@@ -748,8 +748,8 @@ fn blobs_and_metadata_stay_valid_after_every_other_object_is_released() {
     drop(global);
     let _churn = churn_the_heap();
     // SAFETY: `raw_code` carries the reference that `into_raw` gave up, and
-    // this test reads the blob through it on this thread, which is what CA-3
-    // of `docs/design/slang-compiler.md` asserts stays valid.
+    // this test reads the blob through it on this thread, which is what this
+    // test asserts stays valid.
     let data = unsafe { ISlangBlob::getBufferPointer(raw_code.as_ptr()) };
     // SAFETY: as above.
     let size = unsafe { ISlangBlob::getBufferSize(raw_code.as_ptr()) };

@@ -120,8 +120,7 @@ impl<'a> ProgramLayout<'a> {
     ///
     /// `raw` points to the program layout that `getLayout` returned for a
     /// component type of `session` whose wrapper the caller borrows for
-    /// `'a`, which keeps the layout alive (Section 11.3 of
-    /// `docs/design/slang-compiler.md`). Breaking this is undefined
+    /// `'a`, which keeps the layout alive. Breaking this is undefined
     /// behaviour.
     pub(crate) unsafe fn from_slang(raw: NonNull<SlangReflection>, session: &'a Session) -> Self {
         Self { raw, session }
@@ -145,8 +144,7 @@ impl<'a> ProgramLayout<'a> {
         let count = guard::call("ProgramLayout::entry_point_layouts", || {
             // SAFETY: `self.raw` is a live program layout, which the wrapper
             // that `'a` borrows keeps alive, used only on this thread, and the
-            // call runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // call runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflection_getEntryPointCount", || {
                     #[expect(
@@ -199,7 +197,7 @@ impl<'a> ProgramLayout<'a> {
         let name = c_string(name, Operation::Reflect, "the entry point name")?;
         let raw = guard::call("ProgramLayout::find_entry_point_by_name", || {
             // SAFETY: as for `entry_point_layouts`, and `name` is a C string
-            // that lives until the call returns (SLC-15).
+            // that lives until the call returns.
             unsafe {
                 guard::abort_on_exception("spReflection_findEntryPointByName", || {
                     #[expect(
@@ -211,7 +209,7 @@ impl<'a> ProgramLayout<'a> {
             }
         });
         // SAFETY: Slang returned an entry point layout of this program
-        // layout, which lives as long as it (Section 11.3).
+        // layout, which lives as long as it.
         Ok(NonNull::new(raw).map(|raw| unsafe { EntryPointLayout::new(raw, self.session) }))
     }
 
@@ -379,7 +377,7 @@ impl<'a> ProgramLayout<'a> {
             // SAFETY: Slang returned a type of the session of this layout,
             // which lives in the syntax trees of that session, its modules,
             // or the core module, and `self.session` keeps all of them alive
-            // for `'a` (Section 11.3).
+            // for `'a`.
             unsafe { Type::from_raw(raw, self.session) }
         }))
     }
@@ -433,7 +431,7 @@ impl<'a> ProgramLayout<'a> {
         let raw = guard::call("ProgramLayout::type_layout", || {
             // SAFETY: as for `entry_point_layouts`, and `ty` is a non-null
             // type of the session of this layout, which the check above
-            // established and which its borrow keeps alive (Section 11.3).
+            // established and which its borrow keeps alive.
             unsafe {
                 guard::abort_on_exception("spReflection_GetTypeLayout", || {
                     #[expect(
@@ -501,8 +499,7 @@ impl<'a> ProgramLayout<'a> {
         guard::call("ProgramLayout::to_json", || {
             let mut out: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: as for `entry_point_layouts`, Slang accepts a null
-            // compile request (Section 3.9 of `docs/design/slang-compiler.md`),
-            // and `out` is a live out-pointer.
+            // compile request, and `out` is a live out-pointer.
             let result = unsafe {
                 guard::abort_on_exception("spReflection_ToJson", || {
                     #[expect(
@@ -513,7 +510,7 @@ impl<'a> ProgramLayout<'a> {
                 })
             };
             // SAFETY: `spReflection_ToJson` returns a new blob reference or
-            // null (Section 5.3 of `docs/design/slang-compiler.md`).
+            // null.
             let text = unsafe { Owned::adopt_output(out) };
             mapping::check(operation, result, Diagnostics::default())?;
             let text = text.ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
@@ -603,8 +600,8 @@ impl<'a> ProgramLayout<'a> {
     }
 
     /// Returns the pointer to the program layout, for use with the
-    /// reflection functions of `slang-compiler-sys` that this version does
-    /// not wrap.
+    /// reflection functions of `slang-compiler-sys` that this crate does not
+    /// wrap.
     ///
     /// The pointer is valid only while the component type that the layout
     /// borrows lives. Every use of it is unsafe and follows the safety
@@ -680,7 +677,7 @@ impl<'a> EntryPointLayouts<'a> {
             // SAFETY: as for `ProgramLayout::entry_point_layouts`, and
             // `position` is below the count that Slang reported, which bounds
             // the index that `spReflection_getEntryPointByIndex` does not
-            // check (SLC-20).
+            // check.
             unsafe {
                 guard::abort_on_exception("spReflection_getEntryPointByIndex", || {
                     #[expect(
@@ -753,9 +750,8 @@ impl<'a> EntryPointLayout<'a> {
     /// # Safety
     ///
     /// `raw` points to an entry point layout of a program layout that a
-    /// handle of lifetime `'a` of `session` reached, and so lives for `'a`
-    /// (Section 11.3 of `docs/design/slang-compiler.md`). Breaking this is
-    /// undefined behaviour.
+    /// handle of lifetime `'a` of `session` reached, and so lives for `'a`.
+    /// Breaking this is undefined behaviour.
     unsafe fn new(raw: NonNull<SlangReflectionEntryPoint>, session: &'a Session) -> Self {
         Self { raw, session }
     }
@@ -794,8 +790,7 @@ impl<'a> EntryPointLayout<'a> {
         let raw = guard::call("EntryPointLayout::name", || {
             // SAFETY: `self.raw` is a live entry point layout, which the
             // wrapper that `'a` borrows keeps alive, used only on this
-            // thread, and the call runs with the Slang call guard raised
-            // (Section 11.3 of `docs/design/slang-compiler.md`).
+            // thread, and the call runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionEntryPoint_getName", || {
                     #[expect(
@@ -807,7 +802,7 @@ impl<'a> EntryPointLayout<'a> {
             }
         });
         // SAFETY: the name is in the name pool of the global session, which
-        // the session keeps alive for `'a` (Section 3.9).
+        // the session keeps alive for `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the name of an entry point") }
     }
 
@@ -844,7 +839,7 @@ impl<'a> EntryPointLayout<'a> {
             }
         });
         // SAFETY: the name is in the entry point layout or the name pool,
-        // which live for `'a` (Section 3.9).
+        // which live for `'a`.
         unsafe {
             borrowed_str(
                 raw,
@@ -1108,7 +1103,7 @@ impl<'a> EntryPointLayout<'a> {
             }
         });
         // SAFETY: Slang returned the function of the entry point, which lives
-        // in the syntax trees of the session for `'a` (Section 3.9).
+        // in the syntax trees of the session for `'a`.
         NonNull::new(raw).map(|raw: NonNull<SlangReflectionFunction>| unsafe {
             Function::new(raw, self.session)
         })
@@ -1155,8 +1150,8 @@ impl<'a> EntryPointLayout<'a> {
     }
 
     /// Returns the pointer to the entry point layout, for use with the
-    /// reflection functions of `slang-compiler-sys` that this version does
-    /// not wrap.
+    /// reflection functions of `slang-compiler-sys` that this crate does not
+    /// wrap.
     ///
     /// The pointer is valid only while the component type that the layout
     /// borrows lives. Every use of it is unsafe and follows the safety
@@ -1245,7 +1240,7 @@ impl<'a> ParameterLayouts<'a> {
                     // SAFETY: as for `ProgramLayout::parameter_layouts`, and
                     // `index` is below the count that Slang reported, which
                     // bounds the index that `spReflection_GetParameterByIndex`
-                    // does not check (SLC-20).
+                    // does not check.
                     unsafe {
                         guard::abort_on_exception("spReflection_GetParameterByIndex", || {
                             #[expect(
@@ -1264,7 +1259,7 @@ impl<'a> ParameterLayouts<'a> {
                     // and `index` is below the count that Slang reported,
                     // which bounds the index that
                     // `spReflectionEntryPoint_getParameterByIndex` does not
-                    // check (SLC-20).
+                    // check.
                     unsafe {
                         guard::abort_on_exception(
                             "spReflectionEntryPoint_getParameterByIndex",

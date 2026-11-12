@@ -106,9 +106,7 @@ impl<'a> TypeLayout<'a> {
     ///
     /// `raw` points to a type layout of a program layout, or of the cache of
     /// a target of `session`, which a handle of lifetime `'a` of `session`
-    /// reached, and so lives for `'a` (Section 11.3 of
-    /// `docs/design/slang-compiler.md`). Breaking this is undefined
-    /// behaviour.
+    /// reached, and so lives for `'a`. Breaking this is undefined behaviour.
     pub(super) unsafe fn new(
         raw: NonNull<SlangReflectionTypeLayout>,
         session: &'a Session,
@@ -164,8 +162,7 @@ impl<'a> TypeLayout<'a> {
         let raw = guard::call("TypeLayout::ty", || {
             // SAFETY: `self.raw` is a live type layout, which the wrapper that
             // `'a` borrows keeps alive, used only on this thread, and the call
-            // runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionTypeLayout_GetType", || {
                     #[expect(
@@ -417,7 +414,7 @@ impl<'a> TypeLayout<'a> {
         let raw = guard::call("TypeLayout::find_field_index_by_name", || {
             // SAFETY: as for `ty`, and `name` is a C string that lives until
             // the call returns, which Slang reads to its NUL byte because the
-            // end pointer is null (SLC-15).
+            // end pointer is null.
             unsafe {
                 guard::abort_on_exception("spReflectionTypeLayout_findFieldIndexByName", || {
                     #[expect(
@@ -830,7 +827,7 @@ impl<'a> TypeLayout<'a> {
             // SAFETY: as for `ty`, and `index` is below the field count that
             // Slang reported, which bounds the index that
             // `spReflectionTypeLayout_getFieldBindingRangeOffset` does not
-            // check (SLC-20).
+            // check.
             unsafe {
                 guard::abort_on_exception(
                     "spReflectionTypeLayout_getFieldBindingRangeOffset",
@@ -951,7 +948,7 @@ impl<'a> TypeLayout<'a> {
     }
 
     /// Returns the pointer to the type layout, for use with the reflection
-    /// functions of `slang-compiler-sys` that this version does not wrap.
+    /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
     /// The pointer is valid only while the object that the layout borrows
     /// lives. Every use of it is unsafe and follows the safety contract of
@@ -1027,8 +1024,7 @@ impl<'a> FieldLayouts<'a> {
         let raw = guard::call("FieldLayouts::next", || {
             // SAFETY: as for `TypeLayout::ty`, and `index` is below the count
             // that Slang reported, which bounds the index that
-            // `spReflectionTypeLayout_GetFieldByIndex` does not check
-            // (SLC-20).
+            // `spReflectionTypeLayout_GetFieldByIndex` does not check.
             unsafe {
                 guard::abort_on_exception("spReflectionTypeLayout_GetFieldByIndex", || {
                     #[expect(
@@ -1089,8 +1085,7 @@ impl Categories<'_> {
         let raw = guard::call("Categories::next", || {
             // SAFETY: as for `TypeLayout::ty`, and `index` is below the count
             // that Slang reported, which bounds the index that
-            // `spReflectionTypeLayout_GetCategoryByIndex` does not check
-            // (SLC-20).
+            // `spReflectionTypeLayout_GetCategoryByIndex` does not check.
             unsafe {
                 guard::abort_on_exception("spReflectionTypeLayout_GetCategoryByIndex", || {
                     #[expect(

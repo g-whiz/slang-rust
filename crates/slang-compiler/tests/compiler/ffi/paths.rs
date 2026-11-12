@@ -1,6 +1,5 @@
-//! The test of CA-10 of `docs/design/slang-compiler.md`: relative paths that
-//! Slang receives, including relative search paths, resolve against the
-//! working directory of the process.
+//! The test that relative paths that Slang receives, including relative
+//! search paths, resolve against the working directory of the process.
 //!
 //! The working directory belongs to the whole process, so each case runs
 //! this test binary again as a child process with its own working directory.

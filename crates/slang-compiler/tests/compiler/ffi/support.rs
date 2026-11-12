@@ -183,8 +183,8 @@ pub(super) fn has_code(diagnostics: &Diagnostics, code: u32) -> bool {
 /// its session.
 ///
 /// `getLayout` lets a C++ exception escape for a module whose parameters nest
-/// types past Slang's limit (Section 3.6 of `docs/design/slang-compiler.md`),
-/// so the tests call it only on modules without such parameters.
+/// types past Slang's limit, so the tests call it only on modules without
+/// such parameters.
 pub(super) fn find_type<'module>(
     session: &Session,
     module: &'module Module,

@@ -68,8 +68,8 @@ fn assert_rejected(builder: SessionBuilder, kind: ErrorKind, text: &str) {
 }
 
 /// Shows only that the pinned Slang accepts a session descriptor that holds
-/// every setting, and creates the session. No module can be loaded yet, so the
-/// test observes no effect of any setting on what Slang compiles.
+/// every setting, and creates the session. The test loads no module, so it
+/// observes no effect of any setting on what Slang compiles.
 #[test]
 fn a_session_with_four_targets_and_every_setting_is_created() {
     let global = GlobalSession::new().expect("Slang creates a global session");
@@ -263,8 +263,8 @@ fn a_session_keeps_its_global_session_alive_after_the_handle_is_dropped() {
 
 /// Shows only that the pinned Slang accepts each of the four settings that
 /// Slang takes from fields of the target descriptor, set on the session, on a
-/// target, and on both. No module can be loaded yet, so the test observes no
-/// effect of them on generated code.
+/// target, and on both. The test loads no module, so it observes no effect of
+/// them on generated code.
 #[test]
 fn sessions_with_the_settings_of_the_target_descriptor_are_created() {
     let global = GlobalSession::new().expect("Slang creates a global session");

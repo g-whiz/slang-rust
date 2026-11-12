@@ -118,8 +118,7 @@ impl<'a> VariableLayout<'a> {
     ///
     /// `raw` points to a variable layout of a program layout or of a type
     /// layout in the cache of a session, which a handle of lifetime `'a` of
-    /// `session` reached, and so lives for `'a` (Section 11.3 of
-    /// `docs/design/slang-compiler.md`). Breaking this is undefined
+    /// `session` reached, and so lives for `'a`. Breaking this is undefined
     /// behaviour.
     pub(super) unsafe fn new(
         raw: NonNull<SlangReflectionVariableLayout>,
@@ -160,8 +159,7 @@ impl<'a> VariableLayout<'a> {
         let raw = guard::call("VariableLayout::variable", || {
             // SAFETY: `self.raw` is a live variable layout, which the wrapper
             // that `'a` borrows keeps alive, used only on this thread, and the
-            // call runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // call runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionVariableLayout_GetVariable", || {
                     #[expect(
@@ -326,7 +324,7 @@ impl<'a> VariableLayout<'a> {
             }
         });
         // SAFETY: the name is held by the variable layout, which lives for
-        // `'a` (Section 3.9).
+        // `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the semantic name of a variable") }
     }
 
@@ -403,8 +401,8 @@ impl<'a> VariableLayout<'a> {
     }
 
     /// Returns the pointer to the variable layout, for use with the
-    /// reflection functions of `slang-compiler-sys` that this version does
-    /// not wrap.
+    /// reflection functions of `slang-compiler-sys` that this crate does not
+    /// wrap.
     ///
     /// The pointer is valid only while the object that the layout borrows
     /// lives. Every use of it is unsafe and follows the safety contract of
@@ -512,9 +510,8 @@ impl<'a> Variable<'a> {
     ///
     /// When `raw` is not null, it points to a variable in the syntax trees of
     /// `session`, which live as long as the session, and `session` is
-    /// borrowed for `'a` from a wrapper that a handle reached (Section 11.3
-    /// of `docs/design/slang-compiler.md`). Breaking this is undefined
-    /// behaviour.
+    /// borrowed for `'a` from a wrapper that a handle reached. Breaking this
+    /// is undefined behaviour.
     pub(super) unsafe fn from_output(
         raw: *mut SlangReflectionVariable,
         session: &'a Session,
@@ -542,8 +539,7 @@ impl<'a> Variable<'a> {
         let raw = guard::call("Variable::name", || {
             // SAFETY: `self.raw` is a live variable of `self.session`, which
             // keeps it alive for `'a`, used only on this thread, and the call
-            // runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionVariable_GetName", || {
                     #[expect(
@@ -555,7 +551,7 @@ impl<'a> Variable<'a> {
             }
         });
         // SAFETY: the name is in the name pool of the global session or a
-        // string literal, which live for `'a` (Section 3.9).
+        // string literal, which live for `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the name of a variable") }
     }
 
@@ -657,9 +653,8 @@ impl<'a> Variable<'a> {
         let raw = guard::call("Variable::find_user_attribute_by_name", || {
             // SAFETY: as for `name`, `global` is the live global session of
             // the session of the variable, which owns the name pool that the
-            // call looks the name up in (Section 9.3 of
-            // `docs/design/slang-compiler.md`), and `name` is a C string that
-            // lives until the call returns (SLC-15).
+            // call looks the name up in, and `name` is a C string that lives
+            // until the call returns.
             unsafe {
                 guard::abort_on_exception("spReflectionVariable_FindUserAttributeByName", || {
                     #[expect(
@@ -680,7 +675,7 @@ impl<'a> Variable<'a> {
     }
 
     /// Returns the pointer to the variable, for use with the reflection
-    /// functions of `slang-compiler-sys` that this version does not wrap.
+    /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
     /// The pointer is valid only while the object that the variable borrows
     /// lives. Every use of it is unsafe and follows the safety contract of
@@ -756,7 +751,7 @@ impl<'a> UserAttributes<'a> {
         let index = index(position)?;
         let raw = guard::call("UserAttributes::next", || {
             // SAFETY: as for `Variable::name`, and `index` is below the count
-            // that Slang reported (SLC-20).
+            // that Slang reported.
             unsafe {
                 guard::abort_on_exception("spReflectionVariable_GetUserAttribute", || {
                     #[expect(
@@ -835,9 +830,8 @@ impl<'a> Attribute<'a> {
     ///
     /// When `raw` is not null, it points to an attribute in the syntax trees
     /// of `session`, which live as long as the session, and `session` is
-    /// borrowed for `'a` from a wrapper that a handle reached (Section 11.3
-    /// of `docs/design/slang-compiler.md`). Breaking this is undefined
-    /// behaviour.
+    /// borrowed for `'a` from a wrapper that a handle reached. Breaking this
+    /// is undefined behaviour.
     unsafe fn from_output(
         raw: *mut SlangReflectionUserAttribute,
         session: &'a Session,
@@ -846,7 +840,7 @@ impl<'a> Attribute<'a> {
     }
 
     /// Checks `position` against the number of arguments before a call
-    /// that indexes the arguments (SLC-20).
+    /// that indexes the arguments, because Slang does not check it.
     fn check(self, position: usize) -> Result<u32> {
         let count = self.argument_count();
         if position >= count {
@@ -875,8 +869,7 @@ impl<'a> Attribute<'a> {
         let raw = guard::call("Attribute::name", || {
             // SAFETY: `self.raw` is a live attribute of `self.session`, which
             // keeps it alive for `'a`, used only on this thread, and the call
-            // runs with the Slang call guard raised (Section 11.3 of
-            // `docs/design/slang-compiler.md`).
+            // runs with the Slang call guard raised.
             unsafe {
                 guard::abort_on_exception("spReflectionUserAttribute_GetName", || {
                     #[expect(
@@ -888,7 +881,7 @@ impl<'a> Attribute<'a> {
             }
         });
         // SAFETY: the name is in the name pool of the global session, which
-        // the session keeps alive for `'a` (Section 3.9).
+        // the session keeps alive for `'a`.
         unsafe { borrowed_str(raw, Operation::Reflect, "the name of an attribute") }
     }
 
@@ -959,8 +952,7 @@ impl<'a> Attribute<'a> {
         let raw = guard::call("Attribute::argument_type", || {
             // SAFETY: as for `name`, and `index` is below the count that Slang
             // reported, which bounds the index that
-            // `spReflectionUserAttribute_GetArgumentType` does not check
-            // (SLC-20).
+            // `spReflectionUserAttribute_GetArgumentType` does not check.
             unsafe {
                 guard::abort_on_exception("spReflectionUserAttribute_GetArgumentType", || {
                     #[expect(
@@ -1061,9 +1053,8 @@ impl<'a> Attribute<'a> {
 
     /// Returns the value of a successful read of an argument, `None` when
     /// Slang reports that the argument is not of the kind asked for, which
-    /// it reports with the code that the mapping of SLC-11 classifies as
-    /// `InvalidArgument` after the crate checked the position, and an error
-    /// for any other failure.
+    /// it reports with a code that maps to `InvalidArgument` after the crate
+    /// checked the position, and an error for any other failure.
     fn value_or_none<T>(result: slang_compiler_sys::SlangResult, value: T) -> Result<Option<T>> {
         match mapping::check(Operation::Reflect, result, Diagnostics::default()) {
             Ok(()) => Ok(Some(value)),
@@ -1128,8 +1119,8 @@ impl<'a> Attribute<'a> {
         }
         // SAFETY: `data` is non-null and points to the `len` bytes of the
         // string literal of the attribute, which lives in the syntax trees
-        // of the session for `'a` and does not change (Section 3.9 of
-        // `docs/design/slang-compiler.md`), and `len` fits `isize` (FFI-5).
+        // of the session for `'a` and does not change, and `len` fits
+        // `isize`.
         let bytes = unsafe { slice::from_raw_parts(data.as_ptr().cast::<u8>(), len) };
         str::from_utf8(bytes).map(Some).map_err(|error| {
             invalid_utf8(
@@ -1141,7 +1132,7 @@ impl<'a> Attribute<'a> {
     }
 
     /// Returns the pointer to the attribute, for use with the reflection
-    /// functions of `slang-compiler-sys` that this version does not wrap.
+    /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
     /// The pointer is valid only while the object that the attribute borrows
     /// lives. Every use of it is unsafe and follows the safety contract of

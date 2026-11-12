@@ -57,7 +57,7 @@ macro_rules! com_interfaces {
     ($($interface:ident),+ $(,)?) => {$(
         // SAFETY: `$interface` is a generated interface type, and its
         // generated thunks call the methods of `ISlangUnknown` through the
-        // object's own vtable (COM-9).
+        // object's own vtable.
         unsafe impl ComInterface for $interface {
             unsafe fn add_ref(this: *mut Self) -> u32 {
                 // SAFETY: the caller guarantees that `this` points to a live
@@ -111,12 +111,11 @@ com_interfaces!(
 );
 
 /// An owning interface pointer, which holds exactly one reference to a Slang
-/// object (SLC-2).
+/// object.
 ///
-/// It is the only code of the crate that adds or releases a reference.
-/// Section 11.1 of `docs/design/slang-compiler.md` states its invariant: `raw`
-/// points to a live object of the pinned Slang build that implements `T`, and
-/// the value owns one reference to it.
+/// It is the only code of the crate that adds or releases a reference. Its
+/// invariant is that `raw` points to a live object of the pinned Slang build
+/// that implements `T`, and that the value owns one reference to it.
 pub(crate) struct Owned<T: ComInterface> {
     raw: NonNull<T>,
 }
@@ -127,10 +126,9 @@ impl<T: ComInterface> Owned<T> {
     /// # Safety
     ///
     /// `raw` points to a live object of the pinned Slang build that implements
-    /// `T`, the caller owns one reference to it, which Section 5.3 of
-    /// `docs/design/slang-compiler.md` marks as a new reference, and the caller
-    /// transfers that reference to the returned value. Breaking any of them is
-    /// undefined behaviour.
+    /// `T`, the caller owns one reference to it, because the call returned a
+    /// new reference, and the caller transfers that reference to the returned
+    /// value. Breaking any of them is undefined behaviour.
     pub(crate) unsafe fn adopt(raw: NonNull<T>) -> Self {
         Self { raw }
     }
@@ -156,9 +154,8 @@ impl<T: ComInterface> Owned<T> {
     /// # Safety
     ///
     /// `raw` points to a live object of the pinned Slang build that implements
-    /// `T`, which Section 5.3 of `docs/design/slang-compiler.md` marks as a
-    /// borrowed return, and the object that owns it is still alive. Breaking
-    /// either is undefined behaviour.
+    /// `T`, which the call returned as a borrowed pointer, and the object that
+    /// owns it is still alive. Breaking either is undefined behaviour.
     pub(crate) unsafe fn from_borrowed(raw: NonNull<T>) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live object that
         // implements `T`, and the reference that this adds is the one that the
@@ -183,11 +180,11 @@ impl<T: ComInterface> Owned<T> {
     }
 
     /// Asks the object for the interface `U` through `queryInterface`, with
-    /// the identifier of `U` that the binding generator produced (COM-3,
-    /// COM-4), and owns the reference that a successful call adds.
+    /// the identifier of `U` that the binding generator produced, and owns the
+    /// reference that a successful call adds.
     ///
     /// A failure is reported as an error of `operation`. The caller raises the
-    /// Slang call guard (SLC-28).
+    /// Slang call guard.
     pub(crate) fn cast<U: ComInterface>(&self, operation: Operation) -> Result<Owned<U>> {
         let mut out: *mut c_void = ptr::null_mut();
         let uuid = U::UUID;
@@ -201,7 +198,7 @@ impl<T: ComInterface> Owned<T> {
             .ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
         // SAFETY: `queryInterface` succeeded with the identifier of `U` and
         // wrote a non-null pointer, which is a new reference to a live object
-        // that implements `U` (Section 5.3 of `docs/design/slang-compiler.md`).
+        // that implements `U`.
         Ok(unsafe { Owned::adopt(raw) })
     }
 }
@@ -211,7 +208,7 @@ impl<T: ComInterface> Clone for Owned<T> {
         // SAFETY: `self.raw` points to a live object that implements `T`,
         // because `self` owns a reference to it, and the returned value owns
         // the reference that this adds. `addRef` runs without the Slang call
-        // guard, as rule 1 of SLC-28 allows.
+        // guard.
         unsafe { T::add_ref(self.raw.as_ptr()) };
         Self { raw: self.raw }
     }
@@ -223,7 +220,7 @@ impl<T: ComInterface> Drop for Owned<T> {
         // `T`, `release_erased::<T>` releases exactly one reference of such an
         // object, and `drop` runs once, so the reference passes to the guard
         // once. The object belongs to a graph of this thread, because no
-        // wrapper is `Send` (SLC-21).
+        // wrapper is `Send`.
         let release = unsafe { Release::new(self.raw.cast::<c_void>(), release_erased::<T>) };
         guard::release(release);
     }

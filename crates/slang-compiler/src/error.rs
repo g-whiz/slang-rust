@@ -216,7 +216,8 @@ pub enum ErrorKind {
     /// input that caused it.
     Unrecognized,
     /// A file system that the program gave Slang failed or panicked during the
-    /// call.
+    /// call. No operation returns this kind, because a session cannot take a
+    /// custom file system.
     FileSystem,
     /// Text that Slang returned is not valid UTF-8.
     InvalidUtf8,

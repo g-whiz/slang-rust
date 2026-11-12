@@ -4,7 +4,7 @@ use std::str::Utf8Error;
 use crate::error::{Error, ErrorKind, Operation, Result};
 
 /// Converts text that the crate passes to Slang into a C string, and reports
-/// an interior NUL byte as an error of kind `InvalidArgument` (SLC-15).
+/// an interior NUL byte as an error of kind `InvalidArgument`.
 ///
 /// `what` names the text in the error, such as `the profile`. The error
 /// gives the position of the NUL byte and not the text, which can be a whole

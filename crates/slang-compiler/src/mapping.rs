@@ -71,7 +71,7 @@ pub(crate) fn check(
 }
 
 /// Returns the diagnostics of a call for a result code that is not negative,
-/// for the value of a successful call (SLC-8), and the classified error, which
+/// for the value of a successful call, and the classified error, which
 /// holds them, for a negative one.
 pub(crate) fn finish(
     operation: Operation,
@@ -100,9 +100,8 @@ pub(crate) fn error(operation: Operation, failure: Failure, diagnostics: Diagnos
     }
 }
 
-/// Classifies a failure by the table of SLC-11 of
-/// `docs/design/slang-compiler.md`, in which the first row that matches
-/// decides the kind.
+/// Classifies a failure by an ordered table of rows, one for each arm, in
+/// which the first row that matches decides the kind.
 #[expect(
     clippy::match_same_arms,
     reason = "each arm is one row of the table of SLC-11, whose order decides the kind, so rows with the same kind cannot merge"

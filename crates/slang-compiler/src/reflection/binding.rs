@@ -96,7 +96,7 @@ pub enum BindingType {
 }
 
 impl BindingType {
-    /// Converts a binding type that reflection returned (SLC-14).
+    /// Converts a binding type that reflection returned.
     ///
     /// The flag `SLANG_BINDING_TYPE_MUTABLE_FLAG` alone and the masks
     /// `SLANG_BINDING_TYPE_BASE_MASK` and `SLANG_BINDING_TYPE_EXT_MASK` name no
@@ -206,7 +206,7 @@ impl<'a> BindingRange<'a> {
             // borrows keeps alive, used only on this thread, the call runs
             // with the Slang call guard raised, and the index is below the
             // count that Slang reported, which the function also checks
-            // itself (Section 11.3 of `docs/design/slang-compiler.md`).
+            // itself.
             unsafe {
                 guard::abort_on_exception("spReflectionTypeLayout_getBindingRangeType", || {
                     #[expect(

@@ -1,7 +1,8 @@
-//! The tests of reflection through the public API: the usage flow of
-//! Section 6.2 of `docs/design/slang-compiler.md`, snapshots of the JSON text
-//! of a layout and of a printed layout, the checks of SLC-20 and of SLC-7 for
-//! `ProgramLayout::type_layout`, and the lifetime of the handles.
+//! The tests of reflection through the public API: the usage flow of the
+//! crate-level example, snapshots of the JSON text of a layout and of a
+//! printed layout, the checks of positions, null returns, and objects of
+//! another session, including those of `ProgramLayout::type_layout`, and the
+//! lifetime of the handles.
 
 use std::fmt::Write as _;
 
@@ -14,7 +15,7 @@ use slang_compiler::{
     Operation, ParameterCategory, Session, Stage, Target, TargetFormat,
 };
 
-/// The compute shader of the usage flow of Section 6.2.
+/// The compute shader of the usage flow of the crate-level example.
 const SCALE: &str = r#"
 RWStructuredBuffer<float> data;
 [shader("compute")]
@@ -96,7 +97,7 @@ fn link(session: &Session, name: &str, source: &str, entry_point: &str) -> Linke
 
 /// Returns the type layout of the parameters of the first entry point,
 /// without the constant buffer that Slang can place around them, as the
-/// usage flow of Section 6.2 does.
+/// crate-level example does.
 fn entry_parameters(layout: ProgramLayout<'_>) -> TypeLayout<'_> {
     let scope = layout
         .entry_point_layouts()

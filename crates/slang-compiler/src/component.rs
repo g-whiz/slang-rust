@@ -24,8 +24,8 @@ use crate::session::{Session, TargetIndex};
 ///
 /// An implementer guarantees that each function calls the method of the same
 /// name of `IComponentType` through the generated thunk of `Self`, which calls
-/// through the vtable of the object that `this` points to (SCS-10 of
-/// `docs/design/slang-compiler-sys.md`). Breaking this is undefined behaviour.
+/// through the vtable of the object that `this` points to. Breaking this is
+/// undefined behaviour.
 pub(crate) unsafe trait ComponentInterface: ComInterface {
     /// Calls `link` on the object.
     ///
@@ -73,7 +73,7 @@ macro_rules! component_interfaces {
     ($($interface:ident),+ $(,)?) => {$(
         // SAFETY: `$interface` derives from `IComponentType`, and its
         // generated thunks call `link` and `linkWithOptions` through the
-        // object's own vtable (COM-9, SCS-10).
+        // object's own vtable.
         unsafe impl ComponentInterface for $interface {
             unsafe fn link(
                 this: *mut Self,
@@ -147,11 +147,10 @@ pub(crate) fn link<I: ComponentInterface>(
         let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
         let result = if options.is_some() {
             // SAFETY: `raw` points to a live component type of `session`, which
-            // the caller's wrapper holds (Section 11.2 of
-            // `docs/design/slang-compiler.md`), `out` and `diagnostics` are
-            // live out-pointers, `entries` owns the entry array and borrows
+            // the caller's wrapper holds, `out` and `diagnostics` are live
+            // out-pointers, `entries` owns the entry array and borrows
             // `prepared`, which owns their strings until the call returns, and
-            // the call runs with the Slang call guard raised (SLC-28).
+            // the call runs with the Slang call guard raised.
             unsafe {
                 I::link_with_options(
                     raw.as_ptr(),
@@ -168,8 +167,7 @@ pub(crate) fn link<I: ComponentInterface>(
         // SAFETY: `link` and `linkWithOptions` return a new reference, which
         // can be the input object itself, so the crate adopts it and assumes
         // nothing about whether it is a distinct object, and every
-        // diagnostics output carries a new reference or is null (Section 5.3
-        // of `docs/design/slang-compiler.md`).
+        // diagnostics output carries a new reference or is null.
         let Compiled {
             value: raw,
             diagnostics,
@@ -199,13 +197,11 @@ pub(crate) fn layout<'a, I: ComponentInterface>(
     guard::call(method, || {
         let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
         // SAFETY: `raw` points to a live component type of `session`, which
-        // the caller's wrapper holds (Section 11.2 of
-        // `docs/design/slang-compiler.md`), `target` is below the target count
-        // of the session, `diagnostics` is a live out-pointer, and the call
-        // runs with the Slang call guard raised (SLC-28).
+        // the caller's wrapper holds, `target` is below the target count of
+        // the session, `diagnostics` is a live out-pointer, and the call runs
+        // with the Slang call guard raised.
         let layout = unsafe { I::get_layout(raw.as_ptr(), target, &raw mut diagnostics) };
-        // SAFETY: every diagnostics output carries a new reference or is null
-        // (Section 5.3 of `docs/design/slang-compiler.md`).
+        // SAFETY: every diagnostics output carries a new reference or is null.
         let diagnostics = unsafe { blob::take_diagnostics(diagnostics) };
         let layout = NonNull::new(layout.cast::<SlangReflection>())
             .ok_or_else(|| mapping::null(operation, diagnostics.clone()))?;
@@ -213,8 +209,7 @@ pub(crate) fn layout<'a, I: ComponentInterface>(
             // SAFETY: `getLayout` returned the program layout of the component
             // type for this target, which the component type owns and which
             // is not counted, and the caller's wrapper, which holds the
-            // component type and `session`, is borrowed for `'a` (Sections 5.3
-            // and 11.3 of `docs/design/slang-compiler.md`).
+            // component type and `session`, is borrowed for `'a`.
             value: unsafe { ProgramLayout::from_slang(layout, session) },
             diagnostics,
         })
@@ -269,8 +264,8 @@ impl<'a> Component<'a> {
     }
 
     /// Returns an owning pointer to the part as an `IComponentType`, through
-    /// the cast of Section 5.4 of `docs/design/slang-compiler.md`. The caller
-    /// raises the Slang call guard.
+    /// a checked cast with `queryInterface`. The caller raises the Slang call
+    /// guard.
     fn component_type(self, operation: Operation) -> Result<Owned<IComponentType>> {
         match self {
             Self::Module(module) => module.raw().cast(operation),
@@ -362,12 +357,11 @@ impl Session {
             let pointers = parts.iter().map(Owned::as_ptr).collect::<Vec<_>>();
             let mut out: *mut IComponentType = ptr::null_mut();
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
-            // SAFETY: `self.raw()` points to a live session (Section 11.1 of
-            // `docs/design/slang-compiler.md`), used only on this thread
-            // (Section 11.2). `pointers` holds `count` live component types of
-            // this session, which `parts` keeps alive until the call returns,
-            // `out` and `diagnostics` are live out-pointers, and the call runs
-            // with the Slang call guard raised (SLC-28).
+            // SAFETY: `self.raw()` points to a live session, used only on this
+            // thread. `pointers` holds `count` live component types of this
+            // session, which `parts` keeps alive until the call returns, `out`
+            // and `diagnostics` are live out-pointers, and the call runs with
+            // the Slang call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("ISession::createCompositeComponentType", || {
                     slang_compiler_sys::ISession::createCompositeComponentType(
@@ -381,8 +375,7 @@ impl Session {
             };
             // SAFETY: `createCompositeComponentType` returns a new reference,
             // which can be an input with one more reference, and every
-            // diagnostics output carries a new reference or is null (Section
-            // 5.3 of `docs/design/slang-compiler.md`).
+            // diagnostics output carries a new reference or is null.
             let Compiled {
                 value: raw,
                 diagnostics,
@@ -479,12 +472,10 @@ impl Session {
             let mut out: *mut ITypeConformance = ptr::null_mut();
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: `self.raw()` points to a live session, used only on this
-            // thread (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`). `ty` and `interface` are
-            // non-null types of this session, which the check above
-            // established and which their borrows keep alive (Section 11.3),
-            // `out` and `diagnostics` are live out-pointers, and the call runs
-            // with the Slang call guard raised (SLC-28).
+            // thread. `ty` and `interface` are non-null types of this session,
+            // which the check above established and which their borrows keep
+            // alive, `out` and `diagnostics` are live out-pointers, and the
+            // call runs with the Slang call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("ISession::createTypeConformanceComponentType", || {
                     slang_compiler_sys::ISession::createTypeConformanceComponentType(
@@ -499,7 +490,7 @@ impl Session {
             };
             // SAFETY: `createTypeConformanceComponentType` returns a new
             // reference, and every diagnostics output carries a new reference
-            // or is null (Section 5.3 of `docs/design/slang-compiler.md`).
+            // or is null.
             let Compiled {
                 value: raw,
                 diagnostics,
@@ -515,7 +506,7 @@ impl Session {
     }
 }
 
-/// The error of an argument of another session (SLC-7).
+/// The error of an argument of another session.
 pub(crate) fn other_session(operation: Operation, what: &str) -> Error {
     Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
         "{what} belongs to another session, and Slang resolves it only in its own session"
@@ -622,9 +613,8 @@ impl ComponentType {
     pub fn specialization_param_count(&self) -> Result<usize> {
         guard::call("ComponentType::specialization_param_count", || {
             // SAFETY: `self.raw` points to a live component type of
-            // `self.session` (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`), and the call runs with the
-            // Slang call guard raised (SLC-28).
+            // `self.session`, and the call runs with the Slang call guard
+            // raised.
             let count = unsafe {
                 guard::abort_on_exception("IComponentType::getSpecializationParamCount", || {
                     IComponentType::getSpecializationParamCount(self.raw.as_ptr())
@@ -718,12 +708,10 @@ impl ComponentType {
             let mut out: *mut IComponentType = ptr::null_mut();
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: `self.raw` points to a live component type of
-            // `self.session` (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`). `raw_args` holds `count`
-            // arguments, each a non-null type of this session, which the
-            // check above established and whose borrows keep it alive
-            // (Section 11.3). `out` and `diagnostics` are live out-pointers,
-            // and the call runs with the Slang call guard raised (SLC-28).
+            // `self.session`. `raw_args` holds `count` arguments, each a
+            // non-null type of this session, which the check above established
+            // and whose borrows keep it alive. `out` and `diagnostics` are live
+            // out-pointers, and the call runs with the Slang call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("IComponentType::specialize", || {
                     IComponentType::specialize(
@@ -738,8 +726,7 @@ impl ComponentType {
             // SAFETY: `specialize` returns a new reference, which it can set
             // also when it fails, so the crate adopts it either way and the
             // drop releases it on failure, and every diagnostics output carries
-            // a new reference or is null (Section 5.3 of
-            // `docs/design/slang-compiler.md`).
+            // a new reference or is null.
             let Compiled {
                 value: raw,
                 diagnostics,
@@ -921,8 +908,6 @@ impl ComponentType {
     ///   before it passes the position to Slang.
     /// - The component type is not used on another thread while the returned
     ///   value or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(
         raw: NonNull<IComponentType>,
@@ -930,8 +915,7 @@ impl ComponentType {
         entry_point_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live component
-        // type of the pinned build and transfers one reference to it (Section
-        // 11.7 of `docs/design/slang-compiler.md`).
+        // type of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,
@@ -1147,13 +1131,10 @@ impl TypeConformance {
     /// - `session` is the session that the type conformance was created in.
     /// - The type conformance is not used on another thread while the
     ///   returned value or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<ITypeConformance>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live type
-        // conformance of the pinned build and transfers one reference to it
-        // (Section 11.7 of `docs/design/slang-compiler.md`).
+        // conformance of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }
@@ -1312,11 +1293,9 @@ impl LinkedProgram {
             let mut code: *mut ISlangBlob = ptr::null_mut();
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
             // SAFETY: `self.raw` points to a live linked program of
-            // `self.session` (Sections 11.1 and 11.2 of
-            // `docs/design/slang-compiler.md`), `entry_point` and `target` are
-            // below the counts of the program and the session, `code` and
-            // `diagnostics` are live out-pointers, and the call runs with the
-            // Slang call guard raised (SLC-28).
+            // `self.session`, `entry_point` and `target` are below the counts
+            // of the program and the session, `code` and `diagnostics` are live
+            // out-pointers, and the call runs with the Slang call guard raised.
             let result = unsafe {
                 guard::abort_on_exception("IComponentType::getEntryPointCode", || {
                     IComponentType::getEntryPointCode(
@@ -1565,8 +1544,6 @@ impl LinkedProgram {
     ///   before it passes the position to Slang.
     /// - The program is not used on another thread while the returned value
     ///   or a clone of it exists.
-    ///
-    /// Section 11.7 of the design of this crate states these conditions.
     #[must_use]
     pub unsafe fn from_raw(
         raw: NonNull<IComponentType>,
@@ -1574,8 +1551,7 @@ impl LinkedProgram {
         entry_point_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live linked
-        // component type of the pinned build and transfers one reference to
-        // it (Section 11.7 of `docs/design/slang-compiler.md`).
+        // component type of the pinned build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,
@@ -1628,8 +1604,7 @@ impl LinkedProgram {
     }
 
     /// Checks an entry point position against the count of the program
-    /// before it reaches Slang, which indexes without a check (Section 6.7 of
-    /// `docs/design/slang-compiler.md`).
+    /// before it reaches Slang, which indexes without a check.
     fn slang_entry_point(&self, position: usize, operation: Operation) -> Result<SlangInt> {
         if position >= self.entry_point_count {
             return Err(Error::new(ErrorKind::InvalidArgument, operation)
@@ -1656,8 +1631,7 @@ impl LinkedProgram {
     ) -> Result<Compiled<Blob>> {
         // SAFETY: `getEntryPointCode` and `getTargetCode` return a new blob
         // reference or leave the output null, and every diagnostics output
-        // carries a new reference or is null (Section 5.3 of
-        // `docs/design/slang-compiler.md`).
+        // carries a new reference or is null.
         let Compiled {
             value: code,
             diagnostics,
@@ -1678,8 +1652,7 @@ impl LinkedProgram {
     ) -> Result<Compiled<Metadata>> {
         // SAFETY: `getEntryPointMetadata` and `getTargetMetadata` return a new
         // reference or leave the output null, and every diagnostics output
-        // carries a new reference or is null (Section 5.3 of
-        // `docs/design/slang-compiler.md`).
+        // carries a new reference or is null.
         let Compiled {
             value: metadata,
             diagnostics,

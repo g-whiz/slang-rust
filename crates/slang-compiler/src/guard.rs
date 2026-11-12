@@ -40,7 +40,7 @@ impl Release {
 }
 
 /// A raised Slang call guard, which lowers the guard when it is dropped and
-/// then runs the deferred work once the guard is down (SLC-28).
+/// then runs the deferred work once the guard is down.
 pub(crate) struct Raised {
     thread: PhantomData<*const ()>,
 }
@@ -88,7 +88,7 @@ fn drain() {
 ///
 /// When the queue of this thread is already destroyed, which happens only
 /// while the thread exits, the release is dropped. A dropped release leaks its
-/// reference, which is sound (UNS-4), where a release during a call is not.
+/// reference, which is sound, where a release during a call is not.
 fn defer(release: Release) -> bool {
     PENDING
         .try_with(|queue| queue.borrow_mut().push_back(release))
@@ -101,7 +101,7 @@ fn defer(release: Release) -> bool {
 /// # Panics
 ///
 /// Panics before it runs `call` when the guard is already raised on this
-/// thread, which is a reentrant call (SLC-28).
+/// thread, which is a reentrant call.
 pub(crate) fn call<R>(method: &str, call: impl FnOnce() -> R) -> R {
     if is_raised() {
         reentrant(method);
@@ -168,7 +168,7 @@ fn exception_escaped(callee: &str) -> ! {
 }
 
 /// Releases a reference now, or after the guard falls back to zero when it is
-/// raised (rule 3 of SLC-28).
+/// raised, because a release during a call into Slang would reenter Slang.
 pub(crate) fn release(release: Release) {
     if is_raised() {
         defer(release);

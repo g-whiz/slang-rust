@@ -173,7 +173,7 @@ fn signed_index(position: usize) -> Option<SlangInt> {
 
 /// Converts a count or a position that Slang returned as a signed integer,
 /// and reports a negative value as an error of kind `Internal` that names
-/// `what` (SLC-12).
+/// `what`.
 fn signed(value: SlangInt, what: &str) -> Result<usize> {
     usize::try_from(value).map_err(|error| {
         Error::new(ErrorKind::Internal, Operation::Reflect)
@@ -184,7 +184,7 @@ fn signed(value: SlangInt, what: &str) -> Result<usize> {
 /// Converts a binding number or a binding space that Slang returned as
 /// `size_t`, or returns `None` for `SLANG_UNKNOWN_SIZE`, which Slang returns
 /// when the number is not known, and for `SLANG_UNBOUNDED_SIZE`, which the
-/// pinned Slang does not return for these numbers (SLC-12, SLC-13).
+/// pinned Slang does not return for these numbers.
 fn binding_number(raw: usize) -> Option<u64> {
     match raw {
         SLANG_UNBOUNDED_SIZE | SLANG_UNKNOWN_SIZE => None,
@@ -208,7 +208,7 @@ fn signed_binding_number(raw: SlangInt, what: &str) -> Result<Option<u64>> {
 }
 
 /// Returns the error of a position past the end of a list of `count` items
-/// that `what` names (SLC-20).
+/// that `what` names.
 fn out_of_range(what: &str, position: usize, count: usize) -> Error {
     Error::new(ErrorKind::InvalidArgument, Operation::Reflect).with_detail(format!(
         "{what} {position} is past the end of the {count} that Slang reports"
