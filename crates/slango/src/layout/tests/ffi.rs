@@ -838,7 +838,7 @@ fn a_push_constant_block_becomes_the_immediates_and_a_second_block_is_unsupporte
         assert_eq!(
             error.to_string(),
             format!(
-                "cannot load a Slang module: the parameter `{second}` of the kernel `run` is a second block of immediates, which this version does not support"
+                "cannot load a Slang module: the parameter `{second}` of the kernel `run` is a second block of immediates, which slango does not support"
             )
         );
     }

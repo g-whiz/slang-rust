@@ -1107,7 +1107,7 @@ impl Walk<'_> {
         let entry_point = self.entry_point;
         let noun = self.role.noun();
         Error::new(ErrorKind::UnsupportedParameter, LOAD).with_detail(format!(
-            "the parameter `{path}` of the {noun} `{entry_point}` is {what}, which this version does not support"
+            "the parameter `{path}` of the {noun} `{entry_point}` is {what}, which slango does not support"
         ))
     }
 }

@@ -472,7 +472,7 @@ fn an_encoding_of_another_version_is_an_invalid_argument_that_names_both_version
         assert_eq!(
             detail_of(&other),
             format!(
-                "cannot load a precompiled module: the encoded snapshot has version {version}, and this version of slango reads version {ENCODING_VERSION}"
+                "cannot load a precompiled module: the encoded snapshot has version {version}, and slango reads version {ENCODING_VERSION}"
             )
         );
     }

@@ -6,7 +6,7 @@ use crate::layout::{self, Binding, Compilation, CompiledKernel, KernelLayout, Re
 /// `slango-codegen` reads: its kernels and the files that Slang read.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Interface {
@@ -21,7 +21,7 @@ pub struct Interface {
 /// The description of one kernel, a compute entry point of a module.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelInterface {
@@ -43,7 +43,7 @@ pub struct KernelInterface {
 /// One parameter of a kernel that a call sets or binds by its path.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parameter {
@@ -58,7 +58,7 @@ pub struct Parameter {
 /// [`Call`](crate::Call) gives it.
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParameterKind {
@@ -85,7 +85,7 @@ pub enum ParameterKind {
 /// fixed length of one of them.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValueType {
@@ -99,7 +99,7 @@ pub struct ValueType {
 /// `float`.
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scalar {
@@ -124,7 +124,7 @@ pub fn slang_type(scalar: Scalar, components: u32) -> String {
 /// How the scalars of a plain value are arranged.
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Shape {
@@ -156,7 +156,7 @@ pub enum Shape {
 /// Whether a kernel can write a structured buffer.
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
@@ -169,7 +169,7 @@ pub enum Access {
 /// The type of the elements of a structured buffer.
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ElementType {
@@ -196,7 +196,7 @@ pub enum ElementType {
 /// of one, with its layout in the buffer.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Structure {
@@ -212,7 +212,7 @@ pub struct Structure {
 /// A field of a [`Structure`].
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field {
@@ -227,7 +227,7 @@ pub struct Field {
 /// The type of a [`Field`].
 #[expect(
     clippy::exhaustive_enums,
-    reason = "the module has no stability promise (SLM-6), and the generator matches every variant"
+    reason = "the module has no stability promise, and the generator matches every variant"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FieldType {
@@ -250,7 +250,7 @@ pub enum FieldType {
 /// part of their paths.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and the tests of the generator build it with a literal"
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UniformStructure {

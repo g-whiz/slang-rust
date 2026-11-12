@@ -57,7 +57,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Compiled> {
     let version = input.u32().ok_or_else(malformed)?;
     if version != ENCODING_VERSION {
         return Err(invalid(format!(
-            "the encoded snapshot has version {version}, and this version of slango reads version {ENCODING_VERSION}"
+            "the encoded snapshot has version {version}, and slango reads version {ENCODING_VERSION}"
         )));
     }
     let kernels = input.list(Reader::kernel).ok_or_else(malformed)?;

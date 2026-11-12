@@ -71,7 +71,7 @@ pub trait StructElement: Copy + Send + Sync + 'static {
 /// the generator, and the encoded snapshot that the generated code embeds.
 #[expect(
     clippy::exhaustive_structs,
-    reason = "the module has no stability promise (SLM-6), and its users read every field"
+    reason = "the module has no stability promise, and its users read every field"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Precompiled {

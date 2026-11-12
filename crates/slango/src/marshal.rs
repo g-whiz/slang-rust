@@ -14,11 +14,11 @@ mod sealed {
     /// The Slang type of a Rust value.
     #[expect(
         unnameable_types,
-        reason = "it appears only in the methods of the supertrait that seals `Value` (API-8)"
+        reason = "it appears only in the methods of the supertrait that seals `Value`"
     )]
     #[expect(
         private_interfaces,
-        reason = "no other crate can name the enum (API-8), so the crate-private scalar type of its variant reaches none"
+        reason = "no other crate can name the enum, so the crate-private scalar type of its variant reaches none"
     )]
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum ValueType {
@@ -32,7 +32,7 @@ mod sealed {
 
     #[expect(
         unnameable_types,
-        reason = "the supertrait that seals `Value` is private so that no other crate implements it (API-8)"
+        reason = "the supertrait that seals `Value` is private so that no other crate implements it"
     )]
     pub trait SealedValue {
         fn value_type() -> ValueType;
@@ -42,7 +42,7 @@ mod sealed {
 
     #[expect(
         unnameable_types,
-        reason = "the supertrait that seals `VertexElement` is private so that no other crate implements it (API-8)"
+        reason = "the supertrait that seals `VertexElement` is private so that no other crate implements it"
     )]
     pub trait SealedVertexElement: SealedValue + Sized {
         const STRIDE: usize;
@@ -54,7 +54,7 @@ mod sealed {
 
     #[expect(
         unnameable_types,
-        reason = "the supertrait that seals `Element` is private so that no other crate implements it (API-8)"
+        reason = "the supertrait that seals `Element` is private so that no other crate implements it"
     )]
     pub trait SealedElement {}
 }
