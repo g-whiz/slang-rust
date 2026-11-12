@@ -18,8 +18,10 @@
 //!
 //! This example calls the macro for a Slang file beside the Rust file and
 //! runs its kernel `saxpy`, which computes `result = a * x + y`. The macro
-//! resolves the path against the Rust file that calls it, which a doctest
-//! does not have, so the example is not a doctest:
+//! resolves the path against the directory of the Rust file that calls it.
+//! In a doctest, that file is the source file of this crate that holds the
+//! documentation, so the path of the example does not resolve there, and the
+//! example is not a doctest:
 //!
 //! ```text
 //! mod saxpy {
