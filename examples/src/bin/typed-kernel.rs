@@ -49,11 +49,15 @@
     reason = "the example prints the adapter and its errors on standard error"
 )]
 
+#[path = "../shared/report.rs"]
+mod report;
+
 use std::error::Error;
 use std::process::ExitCode;
 
 use slango::{Buffer, Device, DeviceOptions};
 
+use crate::report::report;
 use particles::Shader;
 
 #[expect(
@@ -83,12 +87,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("typed-kernel: {error}");
-            let mut source = error.source();
-            while let Some(cause) = source {
-                eprintln!("  caused by: {cause}");
-                source = cause.source();
-            }
+            report(&*error);
             ExitCode::FAILURE
         }
     }

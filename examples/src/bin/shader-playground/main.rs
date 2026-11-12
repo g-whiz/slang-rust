@@ -50,6 +50,8 @@
     reason = "the example prints the adapter, its reloads, and its errors on standard error"
 )]
 
+#[path = "../../shared/report.rs"]
+mod report;
 mod scene;
 mod ui;
 
@@ -62,6 +64,7 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, RenderingState, Timer, TimerMode};
 
+use crate::report::report;
 use crate::scene::{Scene, Uniforms};
 use crate::ui::Playground;
 
@@ -87,15 +90,6 @@ fn main() -> ExitCode {
             report(&*error);
             ExitCode::FAILURE
         }
-    }
-}
-
-fn report(error: &dyn Error) {
-    eprintln!("shader-playground: {error}");
-    let mut source = error.source();
-    while let Some(cause) = source {
-        eprintln!("  caused by: {cause}");
-        source = cause.source();
     }
 }
 

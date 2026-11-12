@@ -47,6 +47,8 @@
 )]
 
 mod format;
+#[path = "../../shared/report.rs"]
+mod report;
 mod scene;
 
 use std::error::Error;
@@ -62,6 +64,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::format::colour_format;
+use crate::report::report;
 use crate::scene::Scene;
 
 const UNATTENDED_STALL: Duration = Duration::from_secs(10);
@@ -85,15 +88,6 @@ fn main() -> ExitCode {
             report(&*error);
             ExitCode::FAILURE
         }
-    }
-}
-
-fn report(error: &dyn Error) {
-    eprintln!("windowed-renderer: {error}");
-    let mut source = error.source();
-    while let Some(cause) = source {
-        eprintln!("  caused by: {cause}");
-        source = cause.source();
     }
 }
 

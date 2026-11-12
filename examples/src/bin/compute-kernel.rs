@@ -35,11 +35,16 @@
     reason = "the example prints the adapter and its errors on standard error"
 )]
 
+#[path = "../shared/report.rs"]
+mod report;
+
 use std::error::Error;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use slango::{Buffer, Device, DeviceOptions};
+
+use crate::report::report;
 
 const USAGE: &str = "\
 Usage: compute-kernel <FILE>
@@ -56,12 +61,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("compute-kernel: {error}");
-            let mut source = error.source();
-            while let Some(cause) = source {
-                eprintln!("  caused by: {cause}");
-                source = cause.source();
-            }
+            report(&*error);
             ExitCode::FAILURE
         }
     }

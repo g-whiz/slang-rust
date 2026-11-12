@@ -31,6 +31,9 @@
     reason = "the example prints Slang's diagnostics and its errors on standard error"
 )]
 
+#[path = "../shared/report.rs"]
+mod report;
+
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -41,6 +44,8 @@ use slang_compiler::{
     BindingSpace, Compiled, Component, GlobalSession, ParameterCategory, Session, Target,
     TargetFormat,
 };
+
+use crate::report::report;
 
 const USAGE: &str = "\
 Usage: compile-and-reflect [OPTIONS] <FILE>
@@ -80,7 +85,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("compile-and-reflect: {error}");
+            report(&*error);
             ExitCode::FAILURE
         }
     }
