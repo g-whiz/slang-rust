@@ -35,6 +35,52 @@ use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangInt};
 
 use crate::error::{Error, ErrorKind, Operation, Result};
 
+/// Implements `Iterator`, `DoubleEndedIterator`, and `FusedIterator` for an
+/// iterator of this module that holds `positions` and an `at` method, which
+/// returns the item at a position or `None` to skip it.
+///
+/// With `exact`, the iterator never skips a position, so it also implements
+/// `ExactSizeIterator` and reports the positions left as both bounds of
+/// `size_hint`. Otherwise the lower bound is 0.
+macro_rules! position_iterator {
+    ($name:ident<$lifetime:lifetime>, $item:ty, exact) => {
+        position_iterator!(@impl $name<$lifetime>, $item, true);
+
+        impl ::std::iter::ExactSizeIterator for $name<'_> {}
+    };
+    ($name:ident<$lifetime:lifetime>, $item:ty) => {
+        position_iterator!(@impl $name<$lifetime>, $item, false);
+    };
+    (@impl $name:ident<$lifetime:lifetime>, $item:ty, $exact:literal) => {
+        impl<$lifetime> ::std::iter::Iterator for $name<$lifetime> {
+            type Item = $item;
+
+            fn next(&mut self) -> ::std::option::Option<$item> {
+                let mut positions = self.positions;
+                let item = positions.next(|position| self.at(position));
+                self.positions = positions;
+                item
+            }
+
+            fn size_hint(&self) -> (usize, ::std::option::Option<usize>) {
+                let len = self.positions.len();
+                (if $exact { len } else { 0 }, ::std::option::Option::Some(len))
+            }
+        }
+
+        impl ::std::iter::DoubleEndedIterator for $name<'_> {
+            fn next_back(&mut self) -> ::std::option::Option<Self::Item> {
+                let mut positions = self.positions;
+                let item = positions.next_back(|position| self.at(position));
+                self.positions = positions;
+                item
+            }
+        }
+
+        impl ::std::iter::FusedIterator for $name<'_> {}
+    };
+}
+
 mod binding;
 mod kinds;
 mod program;

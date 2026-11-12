@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::FusedIterator;
 
 use slang_compiler_sys::{
     SlangBindingType, SlangInt, spReflectionTypeLayout_getBindingRangeBindingCount,
@@ -604,34 +603,7 @@ impl<'a> BindingRanges<'a> {
     }
 }
 
-impl<'a> Iterator for BindingRanges<'a> {
-    type Item = BindingRange<'a>;
-
-    fn next(&mut self) -> Option<BindingRange<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.positions.len();
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for BindingRanges<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl ExactSizeIterator for BindingRanges<'_> {}
-
-impl FusedIterator for BindingRanges<'_> {}
+position_iterator!(BindingRanges<'a>, BindingRange<'a>, exact);
 
 /// One descriptor set that a type layout uses, a numbered group of bindings
 /// of Vulkan, which Direct3D calls a register space, with its descriptor
@@ -834,34 +806,7 @@ impl<'a> DescriptorSets<'a> {
     }
 }
 
-impl<'a> Iterator for DescriptorSets<'a> {
-    type Item = DescriptorSet<'a>;
-
-    fn next(&mut self) -> Option<DescriptorSet<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.positions.len();
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for DescriptorSets<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl ExactSizeIterator for DescriptorSets<'_> {}
-
-impl FusedIterator for DescriptorSets<'_> {}
+position_iterator!(DescriptorSets<'a>, DescriptorSet<'a>, exact);
 
 /// One descriptor range of a descriptor set, a run of consecutive
 /// descriptors of one kind, such as the descriptors of an array of
@@ -1129,34 +1074,7 @@ impl<'a> DescriptorRanges<'a> {
     }
 }
 
-impl<'a> Iterator for DescriptorRanges<'a> {
-    type Item = DescriptorRange<'a>;
-
-    fn next(&mut self) -> Option<DescriptorRange<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.positions.len();
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for DescriptorRanges<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl ExactSizeIterator for DescriptorRanges<'_> {}
-
-impl FusedIterator for DescriptorRanges<'_> {}
+position_iterator!(DescriptorRanges<'a>, DescriptorRange<'a>, exact);
 
 #[cfg(test)]
 mod tests {

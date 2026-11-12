@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::FusedIterator;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
@@ -790,31 +789,7 @@ impl<'a> Fields<'a> {
     }
 }
 
-impl<'a> Iterator for Fields<'a> {
-    type Item = Variable<'a>;
-
-    fn next(&mut self) -> Option<Variable<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for Fields<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for Fields<'_> {}
+position_iterator!(Fields<'a>, Variable<'a>);
 
 /// A function of Slang code, as its declaration describes it.
 ///
@@ -1090,28 +1065,4 @@ impl<'a> Parameters<'a> {
     }
 }
 
-impl<'a> Iterator for Parameters<'a> {
-    type Item = Variable<'a>;
-
-    fn next(&mut self) -> Option<Variable<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for Parameters<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for Parameters<'_> {}
+position_iterator!(Parameters<'a>, Variable<'a>);

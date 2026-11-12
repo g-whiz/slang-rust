@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::FusedIterator;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
@@ -698,31 +697,7 @@ impl<'a> EntryPointLayouts<'a> {
     }
 }
 
-impl<'a> Iterator for EntryPointLayouts<'a> {
-    type Item = EntryPointLayout<'a>;
-
-    fn next(&mut self) -> Option<EntryPointLayout<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for EntryPointLayouts<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for EntryPointLayouts<'_> {}
+position_iterator!(EntryPointLayouts<'a>, EntryPointLayout<'a>);
 
 /// The layout of one entry point of a program, a function that a graphics
 /// API calls, like `main` in a program.
@@ -1315,28 +1290,4 @@ impl<'a> ParameterLayouts<'a> {
     }
 }
 
-impl<'a> Iterator for ParameterLayouts<'a> {
-    type Item = VariableLayout<'a>;
-
-    fn next(&mut self) -> Option<VariableLayout<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for ParameterLayouts<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for ParameterLayouts<'_> {}
+position_iterator!(ParameterLayouts<'a>, VariableLayout<'a>);

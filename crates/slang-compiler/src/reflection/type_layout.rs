@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::FusedIterator;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
@@ -1046,31 +1045,7 @@ impl<'a> FieldLayouts<'a> {
     }
 }
 
-impl<'a> Iterator for FieldLayouts<'a> {
-    type Item = VariableLayout<'a>;
-
-    fn next(&mut self) -> Option<VariableLayout<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for FieldLayouts<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for FieldLayouts<'_> {}
+position_iterator!(FieldLayouts<'a>, VariableLayout<'a>);
 
 /// An iterator over the parameter categories that a type uses, which
 /// [`TypeLayout::categories`] returns.
@@ -1130,28 +1105,4 @@ impl Categories<'_> {
     }
 }
 
-impl Iterator for Categories<'_> {
-    type Item = Result<ParameterCategory>;
-
-    fn next(&mut self) -> Option<Result<ParameterCategory>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for Categories<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for Categories<'_> {}
+position_iterator!(Categories<'a>, Result<ParameterCategory>);

@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::FusedIterator;
 use std::ptr::NonNull;
 use std::slice;
 use std::str;
@@ -774,31 +773,7 @@ impl<'a> UserAttributes<'a> {
     }
 }
 
-impl<'a> Iterator for UserAttributes<'a> {
-    type Item = Attribute<'a>;
-
-    fn next(&mut self) -> Option<Attribute<'a>> {
-        let mut positions = self.positions;
-        let item = positions.next(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.positions.len()))
-    }
-}
-
-impl DoubleEndedIterator for UserAttributes<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let mut positions = self.positions;
-        let item = positions.next_back(|position| self.at(position));
-        self.positions = positions;
-        item
-    }
-}
-
-impl FusedIterator for UserAttributes<'_> {}
+position_iterator!(UserAttributes<'a>, Attribute<'a>);
 
 /// A user attribute of a declaration, an attribute with a name that the
 /// source chooses, such as `[Range(0, 10)]`, with its arguments.
