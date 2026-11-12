@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Write};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::check::{Selection, Validator, unfixed_prim};
@@ -85,6 +86,7 @@ pub(crate) fn rustfmt(text: &str) -> Result<String> {
 
 fn format_with(program: &str, args: &[&str], text: &str, timeout: Duration) -> Result<String> {
     let failure = |message: String| Error::new(ErrorKind::Rustfmt, message);
+    let deadline = Instant::now() + timeout;
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
@@ -104,39 +106,42 @@ fn format_with(program: &str, args: &[&str], text: &str, timeout: Duration) -> R
             },
         ));
     };
-    let (written, status, output, errors) = std::thread::scope(|scope| {
-        let writer = scope.spawn(move || stdin.write_all(text.as_bytes()));
-        let output = scope.spawn(move || read_all(stdout));
-        let errors = scope.spawn(move || read_all(stderr));
-        let status = wait_for(&mut child, timeout);
-        (
-            joined(writer.join()),
-            status,
-            joined(output.join()),
-            joined(errors.join()),
-        )
-    });
-    let status = status
+    let text = text.to_owned();
+    let written = in_background(move || stdin.write_all(text.as_bytes()));
+    let output = in_background(move || read_all(stdout));
+    let errors = in_background(move || read_all(stderr));
+    let status = wait_for(&mut child, deadline)
         .map_err(|error| failure(format!("cannot wait for {program}")).with_source(error))?
         .ok_or_else(|| {
             failure(format!(
                 "{program} did not finish within {timeout:?}, so the generator stopped it"
             ))
         })?;
+    let unfinished = || {
+        failure(format!(
+            "the standard streams of {program} stayed open for longer than {timeout:?} after it exited"
+        ))
+    };
     let read_error = |error: std::io::Error| {
         failure(format!("cannot read the output of {program}")).with_source(error)
     };
-    let output = output.map_err(read_error)?;
-    let errors = errors.map_err(read_error)?;
+    let output = received(&output, deadline)
+        .ok_or_else(unfinished)?
+        .map_err(read_error)?;
+    let errors = received(&errors, deadline)
+        .ok_or_else(unfinished)?
+        .map_err(read_error)?;
     if !status.success() {
         return Err(failure(format!(
             "{program} failed with {status}: {}",
             String::from_utf8_lossy(&errors).trim()
         )));
     }
-    written.map_err(|error| {
-        failure(format!("cannot write the bindings to {program}")).with_source(error)
-    })?;
+    received(&written, deadline)
+        .ok_or_else(unfinished)?
+        .map_err(|error| {
+            failure(format!("cannot write the bindings to {program}")).with_source(error)
+        })?;
     String::from_utf8(output).map_err(|error| {
         failure(format!("{program} wrote text that is not UTF-8")).with_source(error)
     })
@@ -148,13 +153,36 @@ fn read_all(mut stream: impl Read) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn joined<T>(result: std::thread::Result<std::io::Result<T>>) -> std::io::Result<T> {
-    result.unwrap_or_else(|_| Err(std::io::Error::other("the thread panicked")))
+fn in_background<T: Send + 'static>(
+    work: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+) -> Receiver<std::io::Result<T>> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        #[expect(
+            clippy::let_underscore_must_use,
+            let_underscore_drop,
+            reason = "the receiver is gone only when format_with has already returned, which no longer needs the result"
+        )]
+        let _ = sender.send(work());
+    });
+    receiver
 }
 
-fn wait_for(child: &mut Child, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
-    let start = Instant::now();
-    while start.elapsed() < timeout {
+fn received<T>(
+    receiver: &Receiver<std::io::Result<T>>,
+    deadline: Instant,
+) -> Option<std::io::Result<T>> {
+    match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(result) => Some(result),
+        Err(RecvTimeoutError::Timeout) => None,
+        Err(RecvTimeoutError::Disconnected) => {
+            Some(Err(std::io::Error::other("the thread panicked")))
+        }
+    }
+}
+
+fn wait_for(child: &mut Child, deadline: Instant) -> std::io::Result<Option<ExitStatus>> {
+    while Instant::now() < deadline {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(Some(status)),
             Ok(None) => std::thread::sleep(POLL_INTERVAL),
@@ -1087,6 +1115,37 @@ mod tests {
             assert_eq!(
                 error.message(),
                 "sh did not finish within 200ms, so the generator stopped it"
+            );
+        }
+
+        #[test]
+        fn format_with_stops_a_program_whose_child_holds_its_streams() {
+            let start = Instant::now();
+            let error = format_with("sh", &["-c", "sleep 10; :"], "", Duration::from_millis(200))
+                .expect_err("the program is stopped");
+            assert!(start.elapsed() < Duration::from_secs(5), "{error}");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(
+                error.message(),
+                "sh did not finish within 200ms, so the generator stopped it"
+            );
+        }
+
+        #[test]
+        fn format_with_bounds_the_wait_for_streams_that_stay_open_after_the_program_exits() {
+            let start = Instant::now();
+            let error = format_with(
+                "sh",
+                &["-c", "sleep 10 & exit 0"],
+                "",
+                Duration::from_millis(200),
+            )
+            .expect_err("the streams stay open");
+            assert!(start.elapsed() < Duration::from_secs(5), "{error}");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(
+                error.message(),
+                "the standard streams of sh stayed open for longer than 200ms after it exited"
             );
         }
     }
