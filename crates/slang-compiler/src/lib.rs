@@ -180,6 +180,29 @@
 //! does not detect which way Slang was linked, and it returns what Slang
 //! reports. What [`GlobalSession::check_target_support`] reports for SPIR-V
 //! on that build has not been established.
+//!
+//! # Process-level inputs
+//!
+//! The crate reads no environment variable. Slang and the operating system
+//! read these inputs of the process, which the crate does not control:
+//!
+//! - `SLANG_RECORD_LAYER`: Unset by default, which leaves Slang's record
+//!   layer, a debugging mode, off. When the variable switches the layer on,
+//!   creating a global session returns recording proxies of Slang's objects,
+//!   and Slang writes files.
+//! - `SLANG_RUN_SPIRV_VALIDATION`: Unset by default, so Slang does not
+//!   validate the SPIR-V that it generates directly. When it is `1`, Slang
+//!   validates that SPIR-V, unless
+//!   [`CompilerOptions::skip_spirv_validation`] is on.
+//! - `PATH`: Slang finds downstream compilers through it, the separate
+//!   programs that it runs for some targets, such as a C++ compiler for
+//!   host code. A target whose program is missing fails at code generation.
+//! - The working directory: Slang resolves every relative path against it,
+//!   such as the path of a module file, a search path, or an included file.
+//! - The library path of the dynamic loader, which is `LD_LIBRARY_PATH` on
+//!   Linux, `DYLD_LIBRARY_PATH` on macOS, and `PATH` on Windows: it decides
+//!   which Slang shared library the program loads, as
+//!   [Finding the Slang library](#finding-the-slang-library) describes.
 
 #![expect(
     unsafe_code,

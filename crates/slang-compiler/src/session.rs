@@ -535,8 +535,9 @@ impl SessionBuilder {
     /// Slang looks for an imported module or an included file first relative
     /// to the file that imports or includes it, then in the search paths in
     /// the order of the calls. A relative search path is passed to Slang
-    /// unchanged. Slang reads the file system of the operating system through
-    /// these paths.
+    /// unchanged and resolves against the working directory of the process.
+    /// Slang reads the file system of the operating system through these
+    /// paths.
     ///
     /// # Examples
     ///
