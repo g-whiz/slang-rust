@@ -107,6 +107,28 @@ enum EntryKind {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wanted {
+    Directory,
+    File,
+}
+
+impl Wanted {
+    fn kind(self) -> EntryKind {
+        match self {
+            Self::Directory => EntryKind::Directory,
+            Self::File => EntryKind::File,
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Directory => "directory",
+            Self::File => "file",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Invocation {
     program: &'static str,
@@ -236,11 +258,11 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
 }
 
 fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError> {
-    let fail = |path: &Path, want: EntryKind, error: KindError| {
+    let fail = |path: &Path, want: Wanted, error: KindError| {
         lib_error(sdk, lib, &kind_problem(path, want, error))
     };
-    expect_kind(host, lib, EntryKind::Directory)
-        .map_err(|error| fail(lib, EntryKind::Directory, error))?;
+    expect_kind(host, lib, Wanted::Directory)
+        .map_err(|error| fail(lib, Wanted::Directory, error))?;
     let target_os = host.var(TARGET_OS);
     let Some(name) = target_os
         .as_ref()
@@ -251,25 +273,20 @@ fn check_lib(host: &impl Host, sdk: &Path, lib: &Path) -> Result<(), BuildError>
         return Ok(());
     };
     let file = lib.join(name);
-    expect_kind(host, &file, EntryKind::File).map_err(|error| fail(&file, EntryKind::File, error))
+    expect_kind(host, &file, Wanted::File).map_err(|error| fail(&file, Wanted::File, error))
 }
 
-fn expect_kind(host: &impl Host, path: &Path, want: EntryKind) -> Result<(), KindError> {
+fn expect_kind(host: &impl Host, path: &Path, want: Wanted) -> Result<(), KindError> {
     match host.kind(path) {
-        Ok(kind) if kind == want => Ok(()),
+        Ok(kind) if kind == want.kind() => Ok(()),
         Ok(_) => Err(KindError::Wrong),
         Err(error) => Err(KindError::Inaccessible(error)),
     }
 }
 
-fn kind_problem(path: &Path, want: EntryKind, error: KindError) -> String {
-    let noun = match want {
-        EntryKind::Directory => "directory",
-        EntryKind::File => "file",
-        EntryKind::Other => "special file",
-    };
+fn kind_problem(path: &Path, want: Wanted, error: KindError) -> String {
     match error {
-        KindError::Wrong => format!("{} is not a {noun}", path.display()),
+        KindError::Wrong => format!("{} is not a {}", path.display(), want.noun()),
         KindError::Inaccessible(error) => format!("cannot access {}: {error}", path.display()),
     }
 }
@@ -340,7 +357,7 @@ fn static_route(
     value: &OsStr,
 ) -> Result<(), BuildError> {
     let source = source_dir(value)?;
-    expect_kind(host, &source, EntryKind::Directory).map_err(|error| match error {
+    expect_kind(host, &source, Wanted::Directory).map_err(|error| match error {
         KindError::Wrong => source_error(&source, "which is not a directory"),
         KindError::Inaccessible(error) => {
             source_error(&source, &format!("which cannot be accessed: {error}"))
@@ -764,8 +781,8 @@ fn verify_build(host: &impl Host, layout: &Layout, platform: &Platform) -> Resul
         } else {
             format!("lib{library}.a")
         });
-        expect_kind(host, &file, EntryKind::File)
-            .map_err(|error| layout_error(&kind_problem(&file, EntryKind::File, error)))?;
+        expect_kind(host, &file, Wanted::File)
+            .map_err(|error| layout_error(&kind_problem(&file, Wanted::File, error)))?;
     }
     let header = layout.include.join("slang-tag-version.h");
     let text = host
