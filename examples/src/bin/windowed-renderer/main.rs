@@ -18,7 +18,9 @@
 //! error that caused it on standard error and keeps drawing with the old
 //! pipeline, so a shader can be edited while the window shows the result of
 //! each save. Each reload creates a Slang global session, which takes about a
-//! tenth of a second.
+//! tenth of a second. When the surface gives no texture to draw into, as for
+//! a window that is hidden or has a size of zero, the example tries again a
+//! tenth of a second later instead of at once.
 //!
 //! Run it from the root of the workspace on the sample shader, on a desktop
 //! with a display:
@@ -59,7 +61,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -71,6 +73,8 @@ use crate::format::colour_format;
 use crate::frames::{Frames, OPTIONS, parse_args};
 use crate::report::report;
 use crate::scene::Scene;
+
+const REDRAW_RETRY: Duration = Duration::from_millis(100);
 
 const USAGE: &str = "\
 Usage: windowed-renderer [--frames N] <FILE>
@@ -99,6 +103,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         file: args.file,
         frames: Frames::new(args.frames, Instant::now()),
         start: Instant::now(),
+        retry: None,
         state: None,
         error: None,
     };
@@ -117,6 +122,7 @@ struct App {
     file: PathBuf,
     frames: Frames,
     start: Instant,
+    retry: Option<Instant>,
     state: Option<State>,
     error: Option<Box<dyn Error>>,
 }
@@ -242,10 +248,12 @@ impl ApplicationHandler for App {
                         if drawn {
                             self.frames.drawn(Instant::now());
                         }
-                        if self.frames.running() {
+                        if !self.frames.running() {
+                            event_loop.exit();
+                        } else if drawn {
                             state.window.request_redraw();
                         } else {
-                            event_loop.exit();
+                            self.retry = Some(Instant::now() + REDRAW_RETRY);
                         }
                     }
                     Err(error) => self.fail(event_loop, error),
@@ -256,12 +264,22 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_none() || event_loop.exiting() {
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        if event_loop.exiting() {
             return;
         }
-        match self.frames.watch(Instant::now()) {
-            Ok(Some(deadline)) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
-            Ok(None) => {}
+        let now = Instant::now();
+        if self.retry.is_some_and(|retry| retry <= now) {
+            self.retry = None;
+            state.window.request_redraw();
+        }
+        match self.frames.watch(now) {
+            Ok(deadline) => {
+                let wake = self.retry.into_iter().chain(deadline).min();
+                event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
+            }
             Err(error) => self.fail(event_loop, error),
         }
     }
