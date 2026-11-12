@@ -732,31 +732,46 @@ fn a_kernel_with_another_resource_or_an_array_of_resources_is_unsupported() {
             "[format(\"rgba32f\")] RWTexture2D<float4> target;",
             "target[uint2(0, 0)].x",
             "target",
+            "a resource of shape",
         ),
-        ("ByteAddressBuffer raw;", "asfloat(raw.Load(0))", "raw"),
-        ("uniform double precise;", "float(precise)", "precise"),
+        (
+            "ByteAddressBuffer raw;",
+            "asfloat(raw.Load(0))",
+            "raw",
+            "a resource of shape",
+        ),
+        (
+            "uniform double precise;",
+            "float(precise)",
+            "precise",
+            "a plain value of scalar type",
+        ),
         (
             "Texture2D<float4> images[2];",
             "images[1].Load(int3(0, 0, 0)).x",
             "images",
+            "an array of elements of kind",
         ),
         (
             "SamplerState samplers[2]; Texture2D<float4> image;",
             "image.SampleLevel(samplers[1], float2(0, 0), 0).x",
             "samplers",
+            "an array of elements of kind",
         ),
         (
             "StructuredBuffer<float> inputs[2];",
             "inputs[1][0]",
             "inputs",
+            "an array of elements of kind",
         ),
         (
             "struct Pair { float first; float second; }; cbuffer Pairs { Pair pairs[2]; };",
             "pairs[1].second",
             "Pairs.pairs",
+            "an array of elements of kind",
         ),
     ];
-    for (declaration, read, parameter) in cases {
+    for (declaration, read, parameter, reason) in cases {
         let source = format!(
             "{declaration}\nRWStructuredBuffer<float> output;\n\
              [shader(\"compute\")] [numthreads(1, 1, 1)] void run() {{ output[0] = {read}; }}"
@@ -765,7 +780,9 @@ fn a_kernel_with_another_resource_or_an_array_of_resources_is_unsupported() {
         assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
         let text = error.to_string();
         assert!(
-            text.contains(&format!("`{parameter}`")) && text.contains("`run`"),
+            text.contains(&format!(
+                "the parameter `{parameter}` of the kernel `run` is {reason}"
+            )),
             "{text}"
         );
     }
@@ -1126,16 +1143,28 @@ fn an_attribute_of_another_type_rejects_its_vertex_entry_point_and_not_the_modul
             "float4x4 transform : TRANSFORM",
             "input.transform[0].x",
             "input.transform",
+            "a vertex attribute of kind Matrix",
         ),
-        ("bool flag : FLAG", "(input.flag ? 1.0 : 0.0)", "input.flag"),
-        ("float2 pairs[2] : PAIRS", "input.pairs[1].x", "input.pairs"),
+        (
+            "bool flag : FLAG",
+            "(input.flag ? 1.0 : 0.0)",
+            "input.flag",
+            "a vertex attribute of scalar type Bool",
+        ),
+        (
+            "float2 pairs[2] : PAIRS",
+            "input.pairs[1].x",
+            "input.pairs",
+            "a vertex attribute of kind Array",
+        ),
         (
             "double precise : PRECISE",
             "float(input.precise)",
             "input.precise",
+            "a plain value of scalar type Float64",
         ),
     ];
-    for (declaration, read, path) in cases {
+    for (declaration, read, path, reason) in cases {
         let source = format!(
             "struct VIn {{ float3 position : POSITION; {declaration}; }};\n\
              [shader(\"vertex\")] float4 vsMain(VIn input) : SV_Position \
@@ -1149,8 +1178,9 @@ fn an_attribute_of_another_type_rejects_its_vertex_entry_point_and_not_the_modul
         assert_eq!(rejection.kind, ErrorKind::UnsupportedParameter);
         let message = &rejection.detail;
         assert!(
-            message.contains(&format!("`{path}`"))
-                && message.contains("vertex entry point `vsMain`"),
+            message.contains(&format!(
+                "the parameter `{path}` of the vertex entry point `vsMain` is {reason}"
+            )),
             "{message}"
         );
     }
@@ -1295,49 +1325,58 @@ fn every_other_texture_or_sampler_is_unsupported() {
             "Sampler2D image;",
             "image.SampleLevel(float2(0, 0), 0)",
             "image",
+            "a texture combined with a sampler",
         ),
         (
             "[format(\"rgba32f\")] RWTexture2D<float4> image;",
             "image[uint2(0, 0)]",
             "image",
+            "a resource of shape",
         ),
         (
             "Texture3D<float4> image; SamplerState linear;",
             "image.SampleLevel(linear, float3(0, 0, 0), 0)",
             "image",
+            "a resource of shape",
         ),
         (
             "TextureCube<float4> image; SamplerState linear;",
             "image.SampleLevel(linear, float3(0, 0, 1), 0)",
             "image",
+            "a resource of shape",
         ),
         (
             "Texture2D<int4> image;",
             "float4(image.Load(int3(0, 0, 0)))",
             "image",
+            "a texture with results of scalar type",
         ),
         (
             "Texture2DArray<float4> image; SamplerState linear;",
             "image.SampleLevel(linear, float3(0, 0, 0), 0)",
             "image",
+            "an array texture",
         ),
         (
             "Texture2D<float4> images[2]; SamplerState linear;",
             "images[1].SampleLevel(linear, float2(0, 0), 0)",
             "images",
+            "an array of elements of kind",
         ),
         (
             "Texture2D<float4> image; SamplerState samplers[2];",
             "image.SampleLevel(samplers[1], float2(0, 0), 0)",
             "samplers",
+            "an array of elements of kind",
         ),
         (
             "Texture2D<float> image; SamplerComparisonState compare;",
             "float4(image.SampleCmpLevelZero(compare, float2(0, 0), 0.5))",
             "compare",
+            "a sampler of type SamplerComparisonState",
         ),
     ];
-    for (declaration, read, parameter) in cases {
+    for (declaration, read, parameter, reason) in cases {
         let source = format!(
             "{declaration}\nRWStructuredBuffer<float4> output;\n\
              [shader(\"compute\")] [numthreads(1, 1, 1)] void run() {{ output[0] = {read}; }}"
@@ -1346,7 +1385,9 @@ fn every_other_texture_or_sampler_is_unsupported() {
         assert_eq!(error.kind(), ErrorKind::UnsupportedParameter, "{error}");
         let text = error.to_string();
         assert!(
-            text.contains(&format!("`{parameter}`")) && text.contains("kernel `run`"),
+            text.contains(&format!(
+                "the parameter `{parameter}` of the kernel `run` is {reason}"
+            )),
             "{declaration}: {text}"
         );
     }
