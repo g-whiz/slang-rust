@@ -587,7 +587,7 @@ fn verify_checkout(
     }
     if head != SLANG_COMMIT {
         return Err(BuildError(format!(
-            "the Slang source tree at {} is at the commit {head}, but this version of slang-compiler-sys needs the commit {SLANG_COMMIT}, which is the Slang build {SLANG_BUILD_TAG} of the Vulkan SDK {VULKAN_SDK_VERSION}, because its bindings match only that commit. Check out the pinned commit with `git -C {} checkout {SLANG_COMMIT}` followed by `git -C {} submodule update --init --recursive`, or use the version of slang-compiler-sys that matches the tree.",
+            "the Slang source tree at {} is at the commit {head}, but slang-compiler-sys needs the commit {SLANG_COMMIT}, which is the Slang build {SLANG_BUILD_TAG} of the Vulkan SDK {VULKAN_SDK_VERSION}, because its bindings match only that commit. Check out the pinned commit with `git -C {} checkout {SLANG_COMMIT}` followed by `git -C {} submodule update --init --recursive`, or use the version of slang-compiler-sys that matches the tree.",
             source.display(),
             source.display(),
             source.display()
@@ -800,7 +800,7 @@ fn verify_build(host: &impl Host, layout: &Layout, platform: &Platform) -> Resul
     let tag = parse_tag(&text).map_err(|error| layout_error(&tag_problem(&header, &error)))?;
     if tag != SLANG_BUILD_TAG {
         return Err(BuildError(format!(
-            "the Slang built from source reports the build tag {tag} in {}, but this version of slang-compiler-sys needs the build {SLANG_BUILD_TAG}, because its bindings match only that build.",
+            "the Slang built from source reports the build tag {tag} in {}, but slang-compiler-sys needs the build {SLANG_BUILD_TAG}, because its bindings match only that build.",
             header.display()
         )));
     }
@@ -900,7 +900,7 @@ fn file_error(action: &str, path: &Path, error: &io::Error) -> BuildError {
 
 fn layout_error(problem: &str) -> BuildError {
     BuildError(format!(
-        "the build of Slang from source finished, but {problem}, so the build produced another layout than the one that this version of slang-compiler-sys expects from the Slang commit {SLANG_COMMIT}."
+        "the build of Slang from source finished, but {problem}, so the build produced another layout than the one that slang-compiler-sys expects from the Slang commit {SLANG_COMMIT}."
     ))
 }
 
@@ -945,7 +945,7 @@ fn tag_error(path: &Path, error: &TagError) -> BuildError {
 
 fn mismatch_error(sdk: &Path, path: &Path, tag: &str) -> BuildError {
     BuildError(format!(
-        "the Vulkan SDK at {} ships the Slang build {tag}, as {} records, but this version of slang-compiler-sys needs the Slang build {SLANG_BUILD_TAG} of the Vulkan SDK {VULKAN_SDK_VERSION}, because its bindings match only that build. Install the Vulkan SDK {VULKAN_SDK_VERSION} and set {VULKAN_SDK} to it, or use the version of slang-compiler-sys that matches the installed SDK.",
+        "the Vulkan SDK at {} ships the Slang build {tag}, as {} records, but slang-compiler-sys needs the Slang build {SLANG_BUILD_TAG} of the Vulkan SDK {VULKAN_SDK_VERSION}, because its bindings match only that build. Install the Vulkan SDK {VULKAN_SDK_VERSION} and set {VULKAN_SDK} to it, or use the version of slang-compiler-sys that matches the installed SDK.",
         sdk.display(),
         path.display()
     ))
