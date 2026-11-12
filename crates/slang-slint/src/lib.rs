@@ -193,7 +193,8 @@
 //! development files of fontconfig, which Slint links. With the
 //! configuration of [`wgpu_configuration`], Slint refuses an adapter that
 //! runs on the CPU, such as lavapipe, unless the environment variable
-//! `SLINT_WGPU_CPU` is `1`.
+//! `SLINT_WGPU_CPU` is set. Slint checks only that it is set, so any value,
+//! including `0` and the empty string, allows such an adapter.
 //!
 //! # Finding the Slang library
 //!
