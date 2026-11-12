@@ -12,12 +12,12 @@
 //! `slang-compiler-sys` only to reach a part of Slang that this crate does not
 //! wrap.
 //!
-//! This version is the fourth part of the crate. It offers the
-//! [`GlobalSession`], the root object of Slang from which every compilation
-//! starts, with its builder and the check of which [`TargetFormat`] values
-//! Slang can produce. It offers the [`Session`], the context of a compilation
-//! with its targets, search paths, macros, and [`CompilerOptions`], which
-//! [`SessionBuilder`] checks and creates. A session loads each [`Module`], a
+//! The crate offers the [`GlobalSession`], the root object of Slang from
+//! which every compilation starts, with its builder and the check of which
+//! [`TargetFormat`] values Slang can produce. It offers the [`Session`], the
+//! context of a compilation with its targets, search paths, macros, and
+//! [`CompilerOptions`], which [`SessionBuilder`] checks and creates. A
+//! session loads each [`Module`], a
 //! unit of Slang source, from text, from a file on its search paths, or from
 //! Slang's compiled form. A module yields each [`EntryPoint`], a function
 //! that a graphics API calls. [`Session::compose`] combines them into a
@@ -29,8 +29,8 @@
 //! sits in memory and in the bindings of a target, the numbered slots
 //! through which a shader reaches its resources. The module [`reflection`]
 //! holds every handle of reflection. Every failure is an [`Error`] with the
-//! [`Diagnostics`] that Slang prints. A custom file system follows in a later
-//! version.
+//! [`Diagnostics`] that Slang prints. A session cannot take a custom file
+//! system.
 //!
 //! These rules hold for every object of the crate:
 //!
