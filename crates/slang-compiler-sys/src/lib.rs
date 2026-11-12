@@ -18,11 +18,9 @@
 //! their parameters, and the crate `slango` builds on that to run compute
 //! kernels and draw with render pipelines on a GPU.
 //!
-//! A binding generator in the repository of this crate writes every item
-//! except the pin from the headers of the pinned Slang build, and no item is
-//! written by hand. The items keep the names of the C++ header without its
-//! namespace, so `slang::IGlobalSession` is [`IGlobalSession`], and their
-//! meaning is the one that Slang documents in its
+//! The items keep the names of the C++ header without its namespace, so
+//! `slang::IGlobalSession` is [`IGlobalSession`], and their meaning is the
+//! one that Slang documents in its
 //! [user guide](https://github.com/shader-slang/slang/tree/c7954ebd1f1984ad2bfde15f76248db41dc34aa3/docs/user-guide)
 //! and in the comments of `slang.h`. These are the forms that the C++
 //! declarations take in Rust:
@@ -56,13 +54,11 @@
 //! The pin is the version of Slang that the bindings match:
 //! [`VULKAN_SDK_VERSION`] names the Vulkan software development kit (SDK)
 //! that ships that Slang, [`SLANG_BUILD_TAG`] is the version string of that
-//! Slang build, and [`SLANG_COMMIT`] is its commit. These constants are the
-//! only record of the pin in the repository, and every tool that needs the pin
-//! reads them. For a user, the pin means that one version of this crate works
-//! with exactly one Slang build. The build script refuses any other, on both
-//! routes by which it obtains Slang, which [Linking Slang](#linking-slang)
-//! describes. To use another Slang build, a program needs a version of this
-//! crate whose pin names that build.
+//! Slang build, and [`SLANG_COMMIT`] is its commit. One version of this crate
+//! works with exactly one Slang build. The build script refuses any other, on
+//! both routes by which it obtains Slang, which
+//! [Linking Slang](#linking-slang) describes. To use another Slang build, a
+//! program needs a version of this crate whose pin names that build.
 //!
 //! # Examples
 //!
