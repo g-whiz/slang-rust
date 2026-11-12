@@ -141,7 +141,7 @@ What exists and works:
   - Internally, the crate counts every reference through one owning interface pointer and maps every failure signal of Slang to an `ErrorKind` in one function. It also keeps a per-thread Slang call guard that panics on a reentrant call and defers releases until the outermost call returns.
   - Every call of the crate into Slang runs inside the crate-private function `abort_on_exception`, which aborts the process with one line on standard error that names the call when a C++ exception escapes Slang. The custom checker `check-slang-call-guard` checks where each such call sits (SLC-32).
   - A user cannot give a session a custom file system, which is deferred until a concrete need appears.
-  - Some inputs crash or abort the process through known defects of Slang, such as a shader whose types nest past Slang's limit of 128 levels when an entry point of it is looked up with a stage or its layout is requested. Section 3.12 of the design lists them (Hard Rule 14).
+  - Some inputs crash or abort the process through known defects of Slang, such as a shader whose types nest past Slang's limit of 128 levels when an entry point of it is looked up with a stage or its layout is requested. Section 3.12 of `docs/design/slang-compiler.md` lists them (Hard Rule 14).
   - Its unit tests run under Miri against a fake of the Slang interfaces, and its integration-test binary `tests/compiler/` holds `ffi` tests that call Slang. On 2026-11-11, all of them passed in CI on Linux, Windows, and macOS, in run 42923671966.
 - `crates/slango`, the high-level crate for compute kernels, which also draws with render pipelines into a texture, with publication metadata, and `slang-compiler`, `wgpu`, and `pollster` as its dependencies.
   - Its public API covers `Device` with `DeviceOptions` and `AdapterSelection`, `Module`, `Kernel`, `Call`, `Buffer`, `Texture`, `Sampler`, the sealed traits `Element`, `VertexElement`, and `Value`, the error type `Error` with its `ErrorKind`, and the public module `wgpu`.
@@ -154,7 +154,7 @@ What exists and works:
     - `View` draws with a `slango` render pipeline into a texture that Slint shows as an image.
     - The error type `Error` with its `ErrorKind`.
   - It has no unsafe code. The crate's API documentation is the detailed record.
-  - Its pure tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slang_slint/` passed locally on 2026-11-11 (Section 9 of that design).
+  - Its pure tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slang_slint/` passed locally on 2026-11-11 (Section 9 of `docs/design/slang-slint.md`).
 - `crates/slango-codegen`, the library crate that holds the generator of `slango-macros`, with publication metadata, `slango` with an exact version, `proc-macro2`, and `quote` as its dependencies, and `insta`, `prettyplease`, and `syn` as its development dependencies.
   - Its public API covers `generate`, `generate_precompiled`, and the error type `Error` with its `ErrorKind` of three kinds. It has no unsafe code. The crate's API documentation is the detailed record.
   - Its pure unit tests run under Miri, and the `ffi` tests of its integration-test binary `tests/codegen/` compare the generated code with `insta` snapshots.
@@ -436,7 +436,7 @@ The planned crates are:
 
   The abort guard is frozen. It consists of the unwinding ABIs of the generated declarations, `abort_on_exception`, and the checker. The agent MUST NOT extend it with audits of which functions of Slang throw, new tests of an abort, or new "Aborts" paragraphs.
 
-  The agent MUST remove the mechanism instead of modifying it when a change would have to modify it, by returning the declarations to non-unwinding ABIs and making the calls direct. The mechanism exists only to give a defect of Slang a defined outcome (Hard Rule 14, Section 11.6 of the design).
+  The agent MUST remove the mechanism instead of modifying it when a change would have to modify it, by returning the declarations to non-unwinding ABIs and making the calls direct. The mechanism exists only to give a defect of Slang a defined outcome (Hard Rule 14, Section 11.6 of `docs/design/slang-compiler.md`).
 
   The checker enforces where each call sits. Three cases stay a judgement rule, together with the other cases that Section 6.9 of `docs/design/tooling.md` lists:
 
@@ -454,12 +454,12 @@ The planned crates are:
 
   In M3, `slango` uses wgpu 30 and loads every shader through wgpu's validated SPIR-V path, so it has no unsafe code. A load copies what the kernels need into a private, owned layout snapshot and releases every Slang object before it returns, so no Slang object outlives a load and the public types are `Send` and `Sync`. A call sets each parameter by name (SLO-1, SLO-2, SLO-5, SLO-6, and Section 9.1 of `docs/design/slango.md`).
 
-  Since M4, it also draws into a texture with render pipelines built from existing vertex and fragment entry points, still with SPIR-V only and no unsafe code. A shader target configurable per backend is deferred with no milestone assigned (Sections 1.4 and 1.5 of that design).
+  Since M4, it also draws into a texture with render pipelines built from existing vertex and fragment entry points, still with SPIR-V only and no unsafe code. A shader target configurable per backend is deferred with no milestone assigned (Sections 1.4 and 1.5 of `docs/design/slango.md`).
 - `slango-macros`: A function-like procedural macro, `shader!`, of M6, that compiles a `.slang` file with the pinned Slang during compilation and generates typed Rust bindings to its compute kernels. The generated code embeds the precompiled SPIR-V and layout snapshot and calls the same core of `slango` as the runtime API through a hidden module of `slango`, and the generator is in the library crate `slango-codegen` (SLM-1, SLM-6, and Section 7 of `docs/design/slango-macros.md`). Every crate that uses it needs the pinned Slang at build time, and `slango` does not re-export it in M6 (Section 4.1 of that design).
 - `slango-codegen`: The library crate of M6, to be published, that holds the generator of `slango-macros`, so that its pure tests run under Miri (SLM-1 of `docs/design/slango-macros.md`).
 - `slang-slint`: An extension to Slint that provides a view backed by a Slang render pipeline, built on `slango`, with wgpu only, permanently. In M5 it is a minimal view that hands a texture that `slango` draws to an ordinary Slint `Image` element, on a narrow range of Slint versions with wgpu 30 only. Slint creates the device from a configuration that `slang-slint` supplies (SLS-1, SLS-6, and SLS-9 of `docs/design/slang-slint.md`).
 
-  The licence consequence of depending on Slint is in Section 4.2 of that design.
+  The licence consequence of depending on Slint is in Section 4.2 of `docs/design/slang-slint.md`.
 - The binding generator: A tool in this repository that parses the Slang headers with libclang. It is not published.
 - The examples, which also serve as the integration testbed and are not published:
   - A command-line program that compiles and reflects Slang source.
