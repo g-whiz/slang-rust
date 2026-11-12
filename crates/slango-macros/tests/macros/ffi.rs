@@ -17,6 +17,7 @@ fn the_macro_compiles_a_shader_and_reports_each_failure_at_the_path() {
     cases.compile_fail("tests/macros/ui/unsupported_field.rs");
     cases.compile_fail("tests/macros/ui/name_conflict.rs");
     cases.compile_fail("tests/macros/ui/not_a_literal.rs");
+    cases.compile_fail("tests/macros/ui/suffixed_literal.rs");
 }
 
 fn collect_structures<'a>(structure: &'a Structure, all: &mut HashMap<&'a str, &'a Structure>) {

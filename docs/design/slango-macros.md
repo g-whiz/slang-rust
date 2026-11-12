@@ -422,7 +422,7 @@ An arguments struct holds references to buffers, textures, and samplers, which a
 
 `slango-macros` has one integration-test binary, `tests/macros/`:
 
-- The module `ffi` runs trybuild with one passing case and compile-fail cases for a Slang compile error, an unsupported parameter, a name conflict, and input that is not one string literal. The expected text of a Slang error contains Slang's messages, so a new pin can change it (SLM-22).
+- The module `ffi` runs trybuild with one passing case and compile-fail cases for a Slang compile error, an unsupported parameter, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a new pin can change it (SLM-22).
 - The module `gpu` runs generated bindings: saxpy, and a kernel over a structured buffer of a structure with padding, each checked against values computed on the CPU, and the assertions of SLM-21.
 
 `slango` gains unit tests and `gpu` tests of SLM-5 for each kind of mismatch of a scalar or vector element and for a built-in element of the same stride bound to a structure, a round-trip test of the encoding under Miri (SLM-7), a test that pins the bytes of the encoding to `ENCODING_VERSION`, which guards the version rule of Section 5.3, and `gpu` tests that a precompiled load and a load from source give the same results.

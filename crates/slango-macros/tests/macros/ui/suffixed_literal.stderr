@@ -1,0 +1,5 @@
+error: shader! takes one string literal, the path of a Slang file
+ --> tests/macros/ui/suffixed_literal.rs:1:24
+  |
+1 | slango_macros::shader!("vector3.slang"suffix);
+  |                        ^^^^^^^^^^^^^^^^^^^^^
