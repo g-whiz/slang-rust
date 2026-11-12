@@ -14,9 +14,9 @@
 //! Use this crate when you need the Slang API exactly as Slang declares it
 //! and accept writing unsafe code, such as to build a safe wrapper of your
 //! own. Most programs do not need it directly. The crate `slang-compiler`
-//! wraps these bindings in a safe API, which compiles shaders and does not
-//! reflect them yet, and the planned crate `slango` will build on that to run
-//! Slang code on a GPU.
+//! wraps these bindings in a safe API, which compiles shaders and reflects
+//! their parameters, and the crate `slango` builds on that to run compute
+//! kernels and draw with render pipelines on a GPU.
 //!
 //! A binding generator in the repository of this crate writes every item
 //! except the pin from the headers of the pinned Slang build, and no item is
