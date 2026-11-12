@@ -35,7 +35,8 @@ pub enum ErrorKind {
     Evaluation,
     /// Two generated items would have the same Rust name.
     NameCollision,
-    /// rustfmt could not be started or failed to format the generated text.
+    /// rustfmt could not be started, failed to format the generated text, or
+    /// did not finish within 60 seconds.
     Rustfmt,
 }
 

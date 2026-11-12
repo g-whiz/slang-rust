@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::check::{Selection, Validator, unfixed_prim};
 use crate::error::{Error, ErrorKind, Location, Result};
@@ -18,6 +20,10 @@ const SYMBOLS_CRATE: &str = "slang_compiler_sys";
 const POINTER_WIDTH_CHECK: &str = "#[cfg(not(target_pointer_width = \"64\"))]\ncompile_error!(\"the Slang bindings support only 64-bit targets: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS\");\n\n";
 
 const INTERFACE_TRAIT: &str = "Interface";
+
+const RUSTFMT_TIMEOUT: Duration = Duration::from_secs(60);
+
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 const RAW_KEYWORDS: &[&str] = &[
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
@@ -74,10 +80,10 @@ fn symbols(functions: &[String]) -> String {
 }
 
 pub(crate) fn rustfmt(text: &str) -> Result<String> {
-    format_with("rustfmt", &["--edition", "2024"], text)
+    format_with("rustfmt", &["--edition", "2024"], text, RUSTFMT_TIMEOUT)
 }
 
-fn format_with(program: &str, args: &[&str], text: &str) -> Result<String> {
+fn format_with(program: &str, args: &[&str], text: &str, timeout: Duration) -> Result<String> {
     let failure = |message: String| Error::new(ErrorKind::Rustfmt, message);
     let mut child = Command::new(program)
         .args(args)
@@ -86,41 +92,82 @@ fn format_with(program: &str, args: &[&str], text: &str) -> Result<String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| failure(format!("cannot start {program}")).with_source(error))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| failure(format!("cannot write to the standard input of {program}")))?;
-    let (written, output) = std::thread::scope(|scope| {
-        let writer = scope.spawn(move || std::io::Write::write_all(&mut stdin, text.as_bytes()));
-        let output = child.wait_with_output();
-        (writer.join(), output)
+    let (Some(mut stdin), Some(stdout), Some(stderr)) =
+        (child.stdin.take(), child.stdout.take(), child.stderr.take())
+    else {
+        return Err(stop(&mut child).map_or_else(
+            |error| failure(format!("cannot stop {program}")).with_source(error),
+            |()| {
+                failure(format!(
+                    "cannot connect to the standard streams of {program}"
+                ))
+            },
+        ));
+    };
+    let (written, status, output, errors) = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(text.as_bytes()));
+        let output = scope.spawn(move || read_all(stdout));
+        let errors = scope.spawn(move || read_all(stderr));
+        let status = wait_for(&mut child, timeout);
+        (
+            joined(writer.join()),
+            status,
+            joined(output.join()),
+            joined(errors.join()),
+        )
     });
-    let output = output.map_err(|error| {
+    let status = status
+        .map_err(|error| failure(format!("cannot wait for {program}")).with_source(error))?
+        .ok_or_else(|| {
+            failure(format!(
+                "{program} did not finish within {timeout:?}, so the generator stopped it"
+            ))
+        })?;
+    let read_error = |error: std::io::Error| {
         failure(format!("cannot read the output of {program}")).with_source(error)
-    })?;
-    if !output.status.success() {
+    };
+    let output = output.map_err(read_error)?;
+    let errors = errors.map_err(read_error)?;
+    if !status.success() {
         return Err(failure(format!(
-            "{program} failed with {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
+            "{program} failed with {status}: {}",
+            String::from_utf8_lossy(&errors).trim()
         )));
     }
-    match written {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            return Err(
-                failure(format!("cannot write the bindings to {program}")).with_source(error)
-            );
-        }
-        Err(_) => {
-            return Err(failure(format!(
-                "the thread that writes the bindings to {program} panicked"
-            )));
-        }
-    }
-    String::from_utf8(output.stdout).map_err(|error| {
+    written.map_err(|error| {
+        failure(format!("cannot write the bindings to {program}")).with_source(error)
+    })?;
+    String::from_utf8(output).map_err(|error| {
         failure(format!("{program} wrote text that is not UTF-8")).with_source(error)
     })
+}
+
+fn read_all(mut stream: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn joined<T>(result: std::thread::Result<std::io::Result<T>>) -> std::io::Result<T> {
+    result.unwrap_or_else(|_| Err(std::io::Error::other("the thread panicked")))
+}
+
+fn wait_for(child: &mut Child, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Ok(None) => std::thread::sleep(POLL_INTERVAL),
+            Err(error) => return stop(child).and(Err(error)),
+        }
+    }
+    stop(child).map(|()| None)
+}
+
+fn stop(child: &mut Child) -> std::io::Result<()> {
+    child.kill()?;
+    child.wait()?;
+    Ok(())
 }
 
 struct Emitter<'a> {
@@ -902,8 +949,12 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     mod ffi {
+        use std::time::{Duration, Instant};
+
         use super::super::{format_with, rustfmt};
         use crate::error::ErrorKind;
+
+        const LONG: Duration = Duration::from_secs(60);
 
         #[test]
         fn rustfmt_formats_valid_rust() {
@@ -926,7 +977,7 @@ mod tests {
 
         #[test]
         fn format_with_reports_a_program_that_cannot_start() {
-            let error = format_with("bindings-generator-test-no-such-rustfmt", &[], "")
+            let error = format_with("bindings-generator-test-no-such-rustfmt", &[], "", LONG)
                 .expect_err("the program is missing");
             assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
             assert_eq!(
@@ -939,10 +990,28 @@ mod tests {
         #[test]
         fn format_with_reports_the_status_of_a_program_that_exits_before_reading_its_input() {
             let text = "x".repeat(16 << 20);
-            let error = format_with("sh", &["-c", "echo refused >&2; exit 3"], &text)
+            let error = format_with("sh", &["-c", "echo refused >&2; exit 3"], &text, LONG)
                 .expect_err("the program fails");
             assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
             assert_eq!(error.message(), "sh failed with exit status: 3: refused");
+        }
+
+        #[test]
+        fn format_with_stops_a_program_that_does_not_finish_in_time() {
+            let start = Instant::now();
+            let error = format_with(
+                "sh",
+                &["-c", "exec sleep 30"],
+                "",
+                Duration::from_millis(200),
+            )
+            .expect_err("the program is stopped");
+            assert!(start.elapsed() < Duration::from_secs(20), "{error}");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(
+                error.message(),
+                "sh did not finish within 200ms, so the generator stopped it"
+            );
         }
     }
 }

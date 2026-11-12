@@ -170,7 +170,8 @@ impl Generated {
 ///   cannot be evaluated or does not fit its type.
 /// - [`ErrorKind::NameCollision`] when two generated items would have the
 ///   same Rust name.
-/// - [`ErrorKind::Rustfmt`] when rustfmt cannot format the text.
+/// - [`ErrorKind::Rustfmt`] when rustfmt cannot format the text or does not
+///   finish within 60 seconds.
 pub fn generate(header_dir: impl AsRef<Path>) -> Result<Generated> {
     generate_with(&rules::SLANG, header_dir.as_ref(), pin::SLANG_BUILD_TAG)
 }
