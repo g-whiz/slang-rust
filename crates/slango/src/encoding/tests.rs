@@ -336,6 +336,36 @@ fn small() -> Compiled {
     }
 }
 
+/// A small snapshot with one usable render record that has a binding,
+/// immediates, and one attribute, for the tests that decode every variation
+/// of its bytes.
+fn small_render() -> Compiled {
+    Compiled {
+        kernels: Vec::new(),
+        render: vec![CompiledRender {
+            name: "v".to_owned(),
+            stage: RenderStage::Vertex,
+            usable: Ok(UsableRender {
+                layout: RenderLayout {
+                    bindings: vec![binding("t", 0, Usage::Used, Resource::SampledTexture)],
+                    immediates: Some(UniformBlock {
+                        size: 4,
+                        values: vec![value("n", 0, Scalar::Uint32, Shape::Scalar)],
+                    }),
+                    attributes: vec![Attribute {
+                        path: "p".to_owned(),
+                        location: 0,
+                        scalar: Scalar::Float32,
+                        components: 2,
+                        usage: Usage::Used,
+                    }],
+                },
+                spirv: vec![1],
+            }),
+        }],
+    }
+}
+
 fn round_trip(compiled: &Compiled) -> Compiled {
     let bytes = encode(compiled).expect("the snapshot encodes");
     decode(&bytes).expect("the encoding decodes")
@@ -463,15 +493,17 @@ fn bytes_without_the_magic_bytes_are_an_invalid_argument() {
 
 #[test]
 fn every_truncation_of_an_encoding_is_an_invalid_argument() {
-    let bytes = encode(&small()).expect("the snapshot encodes");
-    for len in MAGIC.len()..bytes.len() {
-        let truncated = bytes.get(..len).unwrap_or_default();
-        assert_eq!(
-            detail_of(truncated),
-            "cannot load a precompiled module: the encoded snapshot is truncated or malformed",
-            "a truncation to {len} of {} bytes",
-            bytes.len()
-        );
+    for compiled in [small(), small_render()] {
+        let bytes = encode(&compiled).expect("the snapshot encodes");
+        for len in MAGIC.len()..bytes.len() {
+            let truncated = bytes.get(..len).unwrap_or_default();
+            assert_eq!(
+                detail_of(truncated),
+                "cannot load a precompiled module: the encoded snapshot is truncated or malformed",
+                "a truncation to {len} of {} bytes",
+                bytes.len()
+            );
+        }
     }
 }
 
@@ -487,24 +519,31 @@ fn an_encoding_with_trailing_bytes_is_an_invalid_argument() {
 
 #[test]
 fn a_corrupt_byte_anywhere_fails_or_decodes_to_a_snapshot_that_encodes_to_the_same_bytes() {
-    let bytes = encode(&small()).expect("the snapshot encodes");
-    let mut decoded = 0_usize;
-    for position in 0..bytes.len() {
-        for corrupt in [0x00, 0xFF] {
-            let mut changed = bytes.clone();
-            if let Some(byte) = changed.get_mut(position) {
-                *byte = corrupt;
-            }
-            match decode(&changed) {
-                Ok(compiled) => {
-                    decoded += 1;
-                    assert_eq!(encode(&compiled).ok(), Some(changed));
+    for compiled in [small(), small_render()] {
+        let bytes = encode(&compiled).expect("the snapshot encodes");
+        let mut decoded = 0_usize;
+        let mut failed = 0_usize;
+        for position in 0..bytes.len() {
+            for corrupt in [0x00, 0xFF] {
+                let mut changed = bytes.clone();
+                if let Some(byte) = changed.get_mut(position) {
+                    *byte = corrupt;
                 }
-                Err(error) => assert_eq!(error.kind(), ErrorKind::InvalidArgument),
+                match decode(&changed) {
+                    Ok(compiled) => {
+                        decoded += 1;
+                        assert_eq!(encode(&compiled).ok(), Some(changed));
+                    }
+                    Err(error) => {
+                        failed += 1;
+                        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+                    }
+                }
             }
         }
+        assert!(decoded > 0, "no corrupt byte changed a value only");
+        assert!(failed > 0, "no corrupt byte made the bytes malformed");
     }
-    assert!(decoded > 0, "no corrupt byte changed a value only");
 }
 
 #[test]
