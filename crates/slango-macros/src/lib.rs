@@ -140,14 +140,28 @@ fn expand(literal: &LitStr) -> syn::Result<TokenStream> {
 }
 
 #[cfg(slango_docs_rs)]
-fn expand(literal: &LitStr) -> syn::Result<TokenStream> {
-    const STUB: &str = "/// The bindings that `slango_macros::shader!` generates, which exist\n/// only in a build with the Slang library, not in this documentation.\npub struct Shader;";
-    STUB.parse().map_err(|error| {
-        syn::Error::new(
-            literal.span(),
-            format!("cannot emit the stub of the bindings: {error}"),
-        )
-    })
+fn expand(_literal: &LitStr) -> syn::Result<TokenStream> {
+    use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenTree};
+    const DOCUMENTATION: &str = " The bindings that `slango_macros::shader!` generates, which exist only in a build with the Slang library, not in this documentation.";
+    let ident = |name| TokenTree::Ident(Ident::new(name, Span::call_site()));
+    let attribute = [
+        ident("doc"),
+        TokenTree::Punct(Punct::new('=', Spacing::Alone)),
+        TokenTree::Literal(Literal::string(DOCUMENTATION)),
+    ];
+    Ok([
+        TokenTree::Punct(Punct::new('#', Spacing::Alone)),
+        TokenTree::Group(Group::new(
+            Delimiter::Bracket,
+            attribute.into_iter().collect(),
+        )),
+        ident("pub"),
+        ident("struct"),
+        ident("Shader"),
+        TokenTree::Punct(Punct::new(';', Spacing::Alone)),
+    ]
+    .into_iter()
+    .collect())
 }
 
 /// Returns the absolute path that a path literal names, relative to the
