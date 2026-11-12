@@ -10,18 +10,59 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 1. **Documentation changes with the code, once.** In the same change as the code, the agent MUST update the design document of each crate or tool that the change alters, and every statement in another document that the change would otherwise make false. The next agent reads the documentation as true and builds on it, so a false statement misleads it. `AGENTS.md`, the architecture design, the tooling design, and `README.md` change only for such a statement, or when the change alters a rule, the repository layout, or what a user can do. The agent MUST NOT mirror a fact into several documents, because every copy can diverge. It states the fact once and cites that place. Documentation Maintenance lists what the agent re-reads.
 2. **Documentation follows the writing guide.** The agent MUST write every document, and all application programming interface (API) documentation written with rustdoc, in accordance with `docs/writing-documentation.md`, because the agents and users that read a document depend on its conventions to interpret it. This includes the metadata rules for design documents and the API documentation rules of Section 7 of the writing guide. This file is an instruction file under Section 3.4 of that guide, so it has no metadata table or abstract, and its unnumbered headings are cited by name.
-3. **Rust code follows the coding standard.** The agent MUST write all Rust code in accordance with `docs/rust-coding-standards.md`, because a reviewer checks every change against it and rejects code that breaks it. The standard has two kinds of rules. An agent learns the rules that a lint or tool enforces from the failing check, by reading the lint's row in Section 4.5 and following Section 4.4. The judgement rules, listed in Appendix A, are what an agent reads before it writes Rust. A reviewer checks each change against them and cites the rule identifier in each finding. Section 1.2 of the standard says which sections to read for a change.
-4. **Deterministic checks belong to tools.** The agent MUST leave every check that a deterministic tool can perform to that tool, and MUST NOT send anything that such a tool can find to an agent or a large language model (LLM) for review, because a reviewer misses findings that a tool reports every time and spends effort that only judgement can use. An agent that checks by hand something a tool could check adds the tool check in the same change, or proposes it in its report when it cannot add it. A review agent does not report a finding that a configured tool already reports. A new rule that a tool can check goes into the tool configuration, not into a list of judgement rules, as Section 19 of the coding standard and Section 3.5 of the writing guide require. A rule that a tool could check but that no configured tool checks yet stays a judgement rule until a tool covers it.
-5. **Comments follow the writing guide.** Rust source contains only the comments that Section 7.2 of the writing guide lists, which are API documentation on public items and `# Safety` sections and `// SAFETY:` comments on unsafe code, and never a `TODO` or a `FIXME`. In the `justfile` and the scripts, the only comments are text addressed to a human, such as the help comment of a recipe or the usage text of a script.
-6. **Lint exceptions use `#[expect]`.** The agent MUST record every lint exception as `#[expect(lint, reason = "...")]` on the narrowest scope that needs it and MUST NOT use `#[allow]`, because an `#[allow]` hides the lint silently for as long as it stays, while a stale `#[expect]` fails the check. No agent weakens the lint or tool configuration to make a check pass. Rules LINT-1 and LINT-2 in Section 4.4 of the coding standard define the form of an exception and when the configuration may change.
-7. **Soundness and security by default.** When two approaches are otherwise comparable, the agent MUST choose the sounder and more secure one and say so in its report, because unsound or insecure code that works is rarely revisited. Unsafe code appears only in `slang-compiler-sys` and `slang-compiler`, and any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states. Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions in `crates/slang-compiler-sys/tests/sys/symbols.rs` are never edited by hand, and the agent changes them only by running the binding generator again (FFI-1, COM-9). No file in the repository contains a secret. A build script downloads nothing, installs nothing, and writes only inside `OUT_DIR` (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
-8. **Every action is a `just` recipe.** Every command, build step, and check is a recipe in the root `justfile`, which is one flat file with `[group]` attributes and no `just` modules, because modules hide their recipes from `just --list`. The agent invokes no script under `scripts/` directly when a recipe wraps it. Every recipe has a help comment, every shell script starts with `#!/usr/bin/env bash` and `set -euo pipefail`, and every shell script and every recipe that contains shell is `shellcheck`-clean. Section 3.2 of `docs/design/tooling.md` lists every recipe, and Validating Changes names the recipes to run for each kind of change.
+3. **Rust code follows the coding standard.** The agent MUST write all Rust code in accordance with `docs/rust-coding-standards.md`, because a reviewer checks every change against it and rejects code that breaks it. The standard has two kinds of rules.
+
+   An agent learns the rules that a lint or tool enforces from the failing check, by reading the lint's row in Section 4.5 and following Section 4.4. The judgement rules, listed in Appendix A, are what an agent reads before it writes Rust.
+
+   A reviewer checks each change against them and cites the rule identifier in each finding. Section 1.2 of the standard says which sections to read for a change.
+4. **Deterministic checks belong to tools.** The agent MUST leave every check that a deterministic tool can perform to that tool, and MUST NOT send anything that such a tool can find to an agent or a large language model (LLM) for review. A reviewer misses findings that a tool reports every time and spends effort that only judgement can use.
+
+   An agent that checks by hand something a tool could check adds the tool check in the same change, or proposes it in its report when it cannot add it. A review agent does not report a finding that a configured tool already reports.
+
+   A new rule that a tool can check goes into the tool configuration, not into a list of judgement rules, as Section 19 of the coding standard and Section 3.5 of the writing guide require. A rule that a tool could check but that no configured tool checks yet stays a judgement rule until a tool covers it.
+5. **Comments follow the writing guide.** Rust source contains only the comments that Section 7.2 of the writing guide lists, which are API documentation on public items and `# Safety` sections and `// SAFETY:` comments on unsafe code, and never a `TODO` or a `FIXME`. In the `justfile` and the scripts, the only comments are text addressed to a human, such as the help comment of a recipe or the usage text of a script. No comment cites a project document, as Hard Rule 15 states.
+6. **Lint exceptions use `#[expect]`.** The agent MUST record every lint exception as `#[expect(lint, reason = "...")]` on the narrowest scope that needs it and MUST NOT use `#[allow]`, because an `#[allow]` hides the lint silently for as long as it stays, while a stale `#[expect]` fails the check.
+
+   No agent weakens the lint or tool configuration to make a check pass. Rules LINT-1 and LINT-2 in Section 4.4 of the coding standard define the form of an exception and when the configuration may change. The `reason` states the reason in plain words and names no rule identifier, as Hard Rule 15 requires.
+7. **Soundness and security by default.** When two approaches are otherwise comparable, the agent MUST choose the sounder and more secure one and say so in its report, because unsound or insecure code that works is rarely revisited.
+
+   Unsafe code appears only in `slang-compiler-sys` and `slang-compiler`, and any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states.
+
+   Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions in `crates/slang-compiler-sys/tests/sys/symbols.rs` are never edited by hand, and the agent changes them only by running the binding generator again (FFI-1, COM-9).
+
+   No file in the repository contains a secret. A build script downloads nothing, installs nothing, and writes only inside `OUT_DIR` (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
+8. **Every action is a `just` recipe.** Every command, build step, and check is a recipe in the root `justfile`, which is one flat file with `[group]` attributes and no `just` modules, because modules hide their recipes from `just --list`. The agent invokes no script under `scripts/` directly when a recipe wraps it.
+
+   Every recipe has a help comment, and every shell script starts with `#!/usr/bin/env bash` and `set -euo pipefail`. Every shell script and every recipe that contains shell is `shellcheck`-clean. Section 3.2 of `docs/design/tooling.md` lists every recipe, and Validating Changes names the recipes to run for each kind of change.
 9. **No attribution.** No output contains a generated-by line, a `Co-Authored-By` trailer, or a link to an agent session, because such a line says nothing about the change and a session link can expose a private session. This covers commits, pull requests, issues, and files. The `commit-msg` hook rejects such lines, and `just merge` strips them.
 10. **No extra documentation.** The agent writes no document beyond `README.md`, `AGENTS.md`, `CLAUDE.md`, and the `docs/` tree, with design documents in `docs/design/`, because every extra document is one more place that can diverge from the code.
-11. **Work in a worktree.** Files change only in a git worktree under `.worktrees/`, never in the main checkout, because the main checkout is where `just merge` runs. Branches are named `feature/<short-description>`, lowercase and hyphenated, because the repository has no ticket keys. The agent commits without asking and pushes its branch to run CI, because the project opens no pull requests and a push to a branch that matches `feature/**` is what runs CI on a branch. The agent MUST run `just merge` only after the CI run for the last commit of the branch concluded `success` with every job succeeded, because a merge without that result can put a failing commit on `main`. A fresh branch that holds the tree of a verified branch counts as verified, as Development Workflow describes. The agent MAY push `main` after the merge. Agents open no pull requests and never force-push.
-12. **Canadian English and ASCII punctuation.** All prose, including API documentation, commit messages, and recipe help text, uses Canadian English spelling and ASCII punctuation, as Section 8 of the writing guide defines, because one spelling lets an agent find every occurrence of a word with one search.
-13. **Consult the references before inventing a pattern.** When an agent is about to use a design pattern, or to make a design choice that the coding standard does not cover, it MUST look the topic up in `docs/rust-references.md`, read the sources starting at the highest tier, and extend the standard in the same change, because a reviewer cannot check code against a rule that does not exist yet. Section 1.1 of the reference list gives the lookup steps, and Section 19 of the coding standard gives the steps to add a rule.
-14. **Defects of Slang are not guarded against.** Where Slang has a genuine defect, the agent MUST NOT guard against it, screen input for it, or write a new test for it, and MUST implement the crates as if the defect did not exist. The crates provide a safe interface on the explicit assumption that Slang behaves as documented. Shader source, type names, and other text passed to Slang are trusted input. The crates are sound for well-formed use, and a crash or an abort that a defect causes on pathological input is accepted and documented, not prevented. The checks that a safe interface needs stay whatever Slang's defects are: the bounds of indexes, null returns, the conversion of strings, objects of another session, and reentrant calls, which Slang documents as unsupported. The agent MUST record each defect once, in the list of known upstream bugs in Section 3.12 of `docs/design/slang-compiler.md`, with the smallest known input, the call, the observed outcome, and the source location if already known, so that a later investigation can start from it. The agent MUST NOT investigate a defect further unless it blocks the work. The agent MAY draft a bug report as low-priority work and MUST NOT post it without the owner's explicit go-ahead, because a report speaks for the project in a public repository.
+11. **Work in a worktree.** Files change only in a git worktree under `.worktrees/`, never in the main checkout, because the main checkout is where `just merge` runs. Branches are named `feature/<short-description>`, lowercase and hyphenated, because the repository has no ticket keys.
+
+   The agent commits without asking and pushes its branch to run CI, because the project opens no pull requests and a push to a branch that matches `feature/**` is what runs CI on a branch.
+
+   The agent MUST run `just merge` only after the CI run for the last commit of the branch concluded `success` with every job succeeded, because a merge without that result can put a failing commit on `main`. A fresh branch that holds the tree of a verified branch counts as verified, as Development Workflow describes.
+
+   The agent MAY push `main` after the merge. Agents open no pull requests and never force-push.
+12. **Canadian English and ASCII punctuation.** All prose, including API documentation, commit messages, and recipe help text, uses Canadian English spelling and ASCII punctuation, as Section 8 of the writing guide defines. One spelling lets an agent find every occurrence of a word with one search.
+13. **Consult the references before inventing a pattern.** When an agent is about to use a design pattern, or to make a design choice that the coding standard does not cover, it MUST look the topic up in `docs/rust-references.md` and read the sources starting at the highest tier. It MUST then extend the standard in the same change.
+
+   A reviewer cannot check code against a rule that does not exist yet. Section 1.1 of the reference list gives the lookup steps, and Section 19 of the coding standard gives the steps to add a rule.
+14. **Defects of Slang are not guarded against.** Where Slang has a genuine defect, the agent MUST NOT guard against it, screen input for it, or write a new test for it, and MUST implement the crates as if the defect did not exist.
+
+   The crates provide a safe interface on the explicit assumption that Slang behaves as documented. Shader source, type names, and other text passed to Slang are trusted input. The crates are sound for well-formed use, and a crash or an abort that a defect causes on pathological input is accepted and documented, not prevented.
+
+   The checks that a safe interface needs stay whatever Slang's defects are: the bounds of indexes, null returns, the conversion of strings, objects of another session, and reentrant calls, which Slang documents as unsupported.
+
+   The agent MUST record each defect once, in the list of known upstream bugs in Section 3.12 of `docs/design/slang-compiler.md`, with the smallest known input, the call, the observed outcome, and the source location if already known, so that a later investigation can start from it. The agent MUST NOT investigate a defect further unless it blocks the work.
+
+   The agent MAY draft a bug report as low-priority work and MUST NOT post it without the owner's explicit go-ahead, because a report speaks for the project in a public repository.
+15. **Code cites no project document.** The agent MUST NOT cite, in a code file or a comment, a project document, which is a Markdown file under `docs/`, a section of one, or a rule identifier that a project document defines, such as `SLC-32` or `FFI-7`. A reader of the code or of a published crate sees it without the repository's documents, and a citation breaks when a document changes.
+
+   The rule covers API documentation, ordinary comments, the `reason` strings of lint exceptions, error and panic messages, recipe help comments, script usage text, and comments in configuration files. Code also MUST NOT hold project history wording, such as "this version", a milestone, or a step.
+
+   Where a citation would have carried a reason, the code MUST state the reason itself in plain words. The documents cite the code, never the reverse.
+
+   The checker `check-doc-references` reports the path or file name of a project document, a section cited by number, and a rule identifier that a project document defines. `just check` and the `pre-commit` hook run it. No tool checks history wording, so that part stays a judgement rule.
 
 ## Project Status
 
@@ -42,8 +83,17 @@ M6 is complete once these two tasks are done and the exit criteria of Section 15
 
 What exists and works:
 
-- The `justfile` and its recipes, which `just --list` shows, including the recipes that run the Rust checks, the recipe `pin`, which prints the pin, the recipes `generate-bindings` and `check-bindings`, which regenerate the two generated files and check them against a regeneration, the recipe `check-doc-without-slang`, which builds the documentation with `DOCS_RS` set and `VULKAN_SDK` removed, the recipe `test-static`, which runs the tests of `slang-compiler-sys` on the static route, the recipes `fmt` and `check-fmt`, which format and check every Rust file that git tracks or does not ignore, and the recipes `install-vulkan-sdk` and `check-vulkan-sdk`, which install the pinned Vulkan SDK on a CI runner and check an installed SDK against the pin. Its variable `slang_library_path` holds the assignment that puts `$VULKAN_SDK/lib` on the library path of Linux or macOS. The recipes that run compiled code which loads Slang put it at the start of their command line (SCS-32 of `docs/design/slang-compiler-sys.md`).
-- The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`: `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, and `check-workflow-pins`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
+- The `justfile` and its recipes, which `just --list` shows. They include these recipes:
+  - The recipes that run the Rust checks.
+  - `pin` prints the pin.
+  - `generate-bindings` and `check-bindings` regenerate the two generated files and check them against a regeneration.
+  - `check-doc-without-slang` builds the documentation with `DOCS_RS` set and `VULKAN_SDK` removed.
+  - `test-static` runs the tests of `slang-compiler-sys` on the static route.
+  - `fmt` and `check-fmt` format and check every Rust file that git tracks or does not ignore.
+  - `install-vulkan-sdk` and `check-vulkan-sdk` install the pinned Vulkan SDK on a CI runner and check an installed SDK against the pin.
+
+  Its variable `slang_library_path` holds the assignment that puts `$VULKAN_SDK/lib` on the library path of Linux or macOS. The recipes that run compiled code which loads Slang put it at the start of their command line (SCS-32 of `docs/design/slang-compiler-sys.md`).
+- The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`. These are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-workflow-pins`, and `check-doc-references`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
 - The git hooks in `.pre-commit-config.yaml`.
 - The CI workflow `.github/workflows/ci.yml`, which runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request. Every job installs the pinned Vulkan SDK, verified against a SHA-256 checksum that the workflow records, and checks it against the pin, on Linux, Windows, and macOS. The job `coverage` measures test coverage on Linux and keeps the report as an artifact. Section 7 of `docs/design/tooling.md` specifies the jobs. On 2026-11-10, all six jobs, counting each entry of a matrix, passed on GitHub. Afterwards, on 2026-11-10 and 2026-11-11, CI on `main` failed in the Windows job for three commits, from the commit that added the static route of `slang-compiler-sys` to the commit that added the design of `slang-compiler`, because one test of the real host of the build script asserted an error kind that Windows reports differently. The commit "Assert only the variant of a start failure of the real host" fixed it, and run 42833561065 on `main` passed all six jobs. On 2026-11-11, the workflow gained the trigger for pushes to feature branches, and run 42861650459, started by a plain push to a feature branch with no pull request, passed all six jobs. Run 42898756060 on 2026-11-11, for the last commit of the branch that added modules, linking, and code generation to `slang-compiler`, passed all six jobs. Run 42907583067 on 2026-11-11, for the commit that added `check-slang-call-guard`, passed all six jobs, and so did run 42923671966, for the last commit of the branch that added reflection to `slang-compiler`.
 - The editor settings in `.editorconfig`.
@@ -83,7 +133,19 @@ What does not exist yet:
 - The CI job `semver`, which arrives in M7.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, and `slango-codegen`, which is written as the first task of the milestone that delivers the crate.
 
-The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states. The custom checkers enforce the rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, on the `# Features` section, and on ASCII punctuation, semicolons, and listed spellings in API documentation, the part of rule SLC-32 of `docs/design/slang-compiler.md` that places every call of `slang-compiler` into Slang alone inside the closure of `abort_on_exception`, and the rules of Section 7.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions. Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule. `check-features`, `check-msrv`, `check-vulkan-sdk`, and `coverage` run outside `just check`, and CI runs them in every run of the workflow. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
+The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states.
+
+The custom checkers enforce these rules:
+
+- The rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, and on the `# Features` section.
+- The rules of the writing guide on ASCII punctuation, semicolons, and listed spellings in API documentation.
+- The part of rule SLC-32 of `docs/design/slang-compiler.md` that places every call of `slang-compiler` into Slang alone inside the closure of `abort_on_exception`.
+- The rules of Section 7.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions.
+- The part of Hard Rule 15 that forbids citations of project documents, sections, and rule identifiers in code and configuration.
+
+Section 7.12 of the writing guide and Section 4.8 of the coding standard say which part of each rule a checker enforces. Every rule that no configured tool checks stays a judgement rule.
+
+`check-features`, `check-msrv`, `check-vulkan-sdk`, and `coverage` run outside `just check`, and CI runs them in every run of the workflow. The agent MUST NOT assume that a planned crate, recipe, file, or tool exists, because an agent that builds on something absent produces code that cannot work.
 
 ## Repository Layout
 
@@ -163,6 +225,7 @@ The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and 
 - `scripts/check-feature-docs`: The checker that the crate-level documentation of each library names every Cargo feature.
 - `scripts/check-slang-call-guard`: The checker that every call of `slang-compiler` into Slang runs alone inside the closure of `abort_on_exception`, which reads the names of Slang's functions from the generated bindings (Section 6.9 of `docs/design/tooling.md`).
 - `scripts/check-workflow-pins`: The checker that every action is pinned by a full commit SHA, and that no workflow uses `pull_request_target` or grants more than read access at its top level.
+- `scripts/check-doc-references`: The checker that code and configuration cite no project document, section, or rule identifier (Hard Rule 15). It reads the rule identifiers from the tables of the documents under `docs/` on every run.
 - `scripts/rust_lexer.py`: The Python module that the custom checkers share, which reads Rust tokens and documentation comments.
 - `scripts/self-test-checker`: The runner of the self-test of each custom checker.
 - `scripts/fixtures/`: The cases of each self-test, one directory per checker and per case, with input files that end in `.fixture`.
@@ -224,13 +287,32 @@ Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machet
 
 ## Development Workflow
 
-A change starts with the section of the design document that covers it: `docs/design/architecture.md` for the architecture and the roadmap, and the crate's own design document for the crate. Work on the code of a milestone starts only once the design document that Section 15 of the architecture design requires for it exists. When that document does not exist yet, writing it is the first task of the milestone. Before it writes Rust, the agent reads the sections of the coding standard that Section 1.2 of that standard names. The agent makes the change in a worktree, as Hard Rule 11 requires, runs the checks in Validating Changes, and fixes whatever they report. The agent updates the documentation as Hard Rule 1 requires before it considers the change done.
+A change starts with the section of the design document that covers it: `docs/design/architecture.md` for the architecture and the roadmap, and the crate's own design document for the crate. Work on the code of a milestone starts only once the design document that Section 15 of the architecture design requires for it exists. When that document does not exist yet, writing it is the first task of the milestone.
 
-`just hooks-install` installs the git hooks once per clone. At commit time, the hooks run the prose check on each changed Markdown file and each changed Rust file, the shell and commit message checks, the rustfmt check when a Rust file changes, typos on every commit, the TOML format check when a TOML file changes, `check-workflows` and `check-workflow-pins` when a file under `.github/` changes, and general checks for valid YAML and JSON, file endings, trailing whitespace, merge conflict markers, private keys, and large files. After a merge, they run `just worktree-prune`.
+Before it writes Rust, the agent reads the sections of the coding standard that Section 1.2 of that standard names. The agent makes the change in a worktree, as Hard Rule 11 requires, runs the checks in Validating Changes, and fixes whatever they report. The agent updates the documentation as Hard Rule 1 requires before it considers the change done.
 
-CI runs the workflow `.github/workflows/ci.yml` on every push to `main`, every push to a branch that matches `feature/**`, and every pull request. A new push to the same feature branch or pull request cancels the earlier run, and no run on `main` is cancelled, so every commit on `main` keeps its own result. No real run has shown the cancellation on a feature branch yet. The project opens no pull requests, so a push of a feature branch starts one run. Every job installs and checks the pinned Vulkan SDK before its own steps, and every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container. Sections 7.1 and 7.3 of `docs/design/tooling.md` specify the jobs, their steps, and the artifact of the job `coverage`.
+`just hooks-install` installs the git hooks once per clone. At commit time, the hooks run these checks:
 
-Commits are small, and each holds one group of logically related changes, because a later reader reads history one commit at a time. The subject line is in the imperative mood, such as `Add the safe compiler session`, and the body says why the change was made. `just merge BRANCH` squash-merges the branch onto `main` from the main checkout with the subject and body of every commit in the message, removes the worktree and the branch, pushes `main`, and deletes the branch on `origin` when its tip there is part of the squash. `just worktree-prune` removes branches that were squash-merged some other way. Agents never force-push.
+- The prose check on each changed Markdown file and each changed Rust file.
+- The shell and commit message checks.
+- The rustfmt check when a Rust file changes.
+- Typos on every commit.
+- The TOML format check when a TOML file changes.
+- `check-workflows` and `check-workflow-pins` when a file under `.github/` changes.
+- `check-doc-references` when a Rust, TOML, YAML, or JSON file, the `justfile`, a file under `scripts/`, or a Markdown file under `docs/` changes.
+- General checks for valid YAML and JSON, file endings, trailing whitespace, merge conflict markers, private keys, and large files.
+
+After a merge, the hooks run `just worktree-prune`.
+
+CI runs the workflow `.github/workflows/ci.yml` on every push to `main`, every push to a branch that matches `feature/**`, and every pull request. A new push to the same feature branch or pull request cancels the earlier run, and no run on `main` is cancelled, so every commit on `main` keeps its own result. No real run has shown the cancellation on a feature branch yet.
+
+The project opens no pull requests, so a push of a feature branch starts one run. Every job installs and checks the pinned Vulkan SDK before its own steps, and every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container. Sections 7.1 and 7.3 of `docs/design/tooling.md` specify the jobs, their steps, and the artifact of the job `coverage`.
+
+Commits are small, and each holds one group of logically related changes, because a later reader reads history one commit at a time. The subject line is in the imperative mood, such as `Add the safe compiler session`, and the body says why the change was made.
+
+`just merge BRANCH` squash-merges the branch onto `main` from the main checkout with the subject and body of every commit in the message. It then removes the worktree and the branch, pushes `main`, and deletes the branch on `origin` when its tip there is part of the squash.
+
+`just worktree-prune` removes branches that were squash-merged some other way. Agents never force-push.
 
 The agent verifies a branch in CI before it merges the branch, with these steps, which Section 14.7 of `docs/design/tooling.md` specifies:
 
@@ -260,7 +342,7 @@ To run every check:
 just check
 ```
 
-`just check` runs `check-prose`, `check-shell`, the self-test of each checker, `check-typos`, `check-toml`, `check-workflows`, `check-workflow-pins`, and `check-rust`, in that order, and Section 3.3 of `docs/design/tooling.md` lists every recipe in it. It needs network access, because `check-deny` fetches the advisory database on every run, the nightly toolchain, because `check-miri` runs Miri on it, and the pinned Vulkan SDK at `VULKAN_SDK`, because the build script of `slang-compiler-sys` links its Slang. The development container provides the nightly toolchain and the SDK.
+`just check` runs `check-prose`, `check-shell`, the self-test of each checker, `check-typos`, `check-toml`, `check-workflows`, `check-workflow-pins`, `check-doc-references`, and `check-rust`, in that order, and Section 3.3 of `docs/design/tooling.md` lists every recipe in it. It needs network access, because `check-deny` fetches the advisory database on every run, the nightly toolchain, because `check-miri` runs Miri on it, and the pinned Vulkan SDK at `VULKAN_SDK`, because the build script of `slang-compiler-sys` links its Slang. The development container provides the nightly toolchain and the SDK.
 
 To run only the Rust checks, which are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doc-without-slang`, `check-doctest`, `test-gpu`, and `check-miri`, in that order:
 
@@ -373,6 +455,12 @@ just check-workflows
 just check-workflow-pins
 ```
 
+To check that code and configuration cite no project document, section, or rule identifier, run this recipe after a change to code, configuration, a script, the `justfile`, or a rule table of a document. It also takes the paths of files to check. With no paths, it checks every Rust, TOML, YAML, and JSON file, the `justfile`, and every file under `scripts/`:
+
+```sh
+just check-doc-references
+```
+
 To run the self-test of a checker after a change to the checker, to `scripts/rust_lexer.py`, or to its cases under `scripts/fixtures/`:
 
 ```sh
@@ -383,6 +471,7 @@ just check-doctest-attributes-self-test
 just check-feature-docs-self-test
 just check-slang-call-guard-self-test
 just check-workflow-pins-self-test
+just check-doc-references-self-test
 ```
 
 To check a shell script, or a recipe in the `justfile`:

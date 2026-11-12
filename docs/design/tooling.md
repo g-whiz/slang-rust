@@ -158,6 +158,8 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-slang-call-guard-self-test` | `checks` | The self-test of Section 6.1 for the Slang call guard checker | Yes |
 | `check-workflow-pins` | `checks` | The workflow pin checker of Section 6.8 | Yes |
 | `check-workflow-pins-self-test` | `checks` | The self-test of Section 6.1 for the workflow pin checker | Yes |
+| `check-doc-references` | `checks` | The document reference checker of Section 6.10 | Yes, directly after `check-workflow-pins` |
+| `check-doc-references-self-test` | `checks` | The self-test of Section 6.1 for the document reference checker | Yes |
 | `pin` | `rust` | Prints the pin of `crates/slang-compiler-sys/pin.rs` as `NAME=value` lines, and fails when a constant is missing (Section 8.1 of `docs/design/slang-compiler-sys.md`). It runs on bash 3.2, which has no associative arrays and is the bash that a recipe gets on the hosted macOS runner. It accepts lines that end in CRLF, because a user's own git settings can produce them (Section 14.3) | No |
 | `install-vulkan-sdk` | `ci` | `scripts/install-vulkan-sdk` with the SDK version and the expected SHA-256 checksum, which downloads, verifies, and installs the Vulkan SDK on a GitHub Actions runner and exports it to the later steps of the job (Section 7.3). Only the CI workflow runs it, and it refuses to run outside a runner | No, because it runs only on a CI runner |
 | `check-vulkan-sdk` | `checks` | `scripts/check-vulkan-sdk`, without arguments, which reads the build tag of the pin with `just pin` and checks that the SDK at `VULKAN_SDK` provides that build of Slang (Section 7.3) | No, every CI job runs it after it installs the SDK |
@@ -207,11 +209,13 @@ The recipes that run compiled code which loads Slang put the assignment at the s
 8. `check-feature-docs-self-test`
 9. `check-slang-call-guard-self-test`
 10. `check-workflow-pins-self-test`
-11. `check-typos`
-12. `check-toml`
-13. `check-workflows`
-14. `check-workflow-pins`
-15. `check-rust`
+11. `check-doc-references-self-test`
+12. `check-typos`
+13. `check-toml`
+14. `check-workflows`
+15. `check-workflow-pins`
+16. `check-doc-references`
+17. `check-rust`
 
 `check-workflows` can run in `check` only while the repository has a workflow, because actionlint exits with status 3 when it finds none. `check` needs network access (Section 14.6).
 
@@ -308,6 +312,7 @@ These local hooks run in the `pre-commit` stage:
 | `check-toml` | A staged TOML file changes |
 | `check-workflows` | A staged file under `.github/` changes |
 | `check-workflow-pins` | A staged file under `.github/` changes |
+| `check-doc-references` | A staged file that the checker reads changes, which is a `.rs`, `.toml`, `.yml`, `.yaml`, or `.json` file, the `justfile`, or a file under `scripts/`. It also runs when a Markdown file under `docs/` changes, because a document can define a new rule identifier (Section 6.10) |
 
 Each of these hooks except `check-prose` runs its recipe on the whole repository, not on the staged files only. The `pre-commit` stage also runs hooks of the repository `pre-commit-hooks`, pinned to a commit SHA, which check YAML and JSON syntax, file endings, trailing whitespace, merge conflict markers, private keys, and large files. The `commit-msg` hook runs `check-commit-message`, and the `post-merge` hook runs `worktree-prune`.
 
@@ -342,7 +347,7 @@ TOOL-14. Each custom checker MUST be a script under `scripts/` with a recipe of 
 
 With no paths, the checker checks every relevant file in the git repository, tracked or not ignored. A checker that differs breaks the hooks and the recipes, which rely on these exit statuses to tell a finding from a broken setup.
 
-The one departure is a checker that needs an input to know what to look for, such as the generated bindings of Section 6.9. It exits with status 2 before it checks any file when that input is missing or unusable.
+The one departure is a checker that needs an input to know what to look for, such as the generated bindings of Section 6.9 or the project documents of Section 6.10. It exits with status 2 before it checks any file when that input is missing or unusable.
 
 A file that is not valid UTF-8 is a file that cannot be read, so a checker reports it on standard error and exits with status 2. The exception is a Markdown file given to `check-prose`, in which an invalid byte is a finding.
 
@@ -552,7 +557,7 @@ This keeps names that Slang shares with other code, such as `release` and `link`
 
 When guards are nested, a call belongs to the innermost one, so an outer guard whose only call sits in an inner guard is reported as making no call into Slang. A nested closure is a `|` after one of `(`, `[`, `{`, `,`, `=`, `;`, `:`, `>`, `&`, `return`, `break`, and `move`, which includes the closure of a match arm. A call in the body of a macro counts once, not once for each expansion.
 
-The checker follows TOOL-14, with the departure that TOOL-14 allows. It prints each finding as `path:line: message (SLC-32)`.
+The checker follows TOOL-14, with the departure that TOOL-14 allows. It prints each finding as `path:line: message`, and the message names no rule identifier, as the checker of Section 6.10 requires.
 
 With no paths, it checks every `.rs` file under `crates/slang-compiler/src` that git tracks or does not ignore, and prints paths relative to the root of the repository. A file named `fake.rs` is skipped also when it is given as a path.
 
@@ -578,7 +583,74 @@ IModule::getName(self.raw.as_ptr())
 ```
 
 ```text
-crates/slang-compiler/src/module.rs:489: call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)
+crates/slang-compiler/src/module.rs:489: call of IModule::getName is not inside a closure passed to abort_on_exception
+```
+
+### 6.10. Document Reference Checker
+
+This table summarizes the document reference checker.
+
+| Property | Value |
+| --- | --- |
+| Script and recipe | `scripts/check-doc-references`, `check-doc-references` |
+| Rule | Section 7.1 of the writing guide, and Hard Rule 15 of `AGENTS.md`, for the citations that a tool can recognize |
+| Reads | The project documents, which are the Markdown files under `docs/` of the git repository that contains the current directory, at any depth, tracked or not ignored. It then reads the whole text of each checked file, including comments, string literals, the help comments of recipes, and usage texts |
+| Reports | The path of a project document, its file name alone, a directory under `docs/` that holds one, a section citation, and a rule identifier that a project document defines |
+
+The checker counts these forms as a citation:
+
+- A document path, such as `docs/design/tooling.md`, its file name alone, such as `tooling.md`, and a directory under `docs/` that holds a document, such as `docs/design/`. The directory `docs/` alone is not reported. A match must not continue a longer name, so the character before it is not a letter, a digit, `_`, `.`, or `-`.
+- The word "Section" or "Sections" in any case, followed by whitespace and a number such as `3` or `3.1`. The checker reports every section citation, also one of an external document, because it cannot tell which document a number belongs to.
+- A rule identifier: a prefix that a project document defines, a hyphen, and a number, such as `TOOL-14`. A match must stand alone, so `XTOOL-14`, `TOOL-14x`, and `docs/TOOL-14` are not reported.
+
+The checker keeps no list of prefixes by hand. On every run, it collects from every project document the identifiers that stand alone in the first cell of a Markdown table row, such as `| TOOL-14 | 6.1 | ... |`.
+
+An identifier is a run of capital letters and digits that starts with a letter, a hyphen, and a number, and the run is its prefix. The summary tables of labelled requirements have that form.
+
+A document that adds a new prefix is therefore checked without a change to the checker. An identifier whose prefix no document defines in that way, such as `UTF-8`, `SHA-256`, or `RUSTSEC-2026-0441`, is not reported, so a fixed list cannot go stale or report a standard name. A label written only in prose, such as `[IR-8]` in a list of references, defines no prefix.
+
+With no paths, the checker checks every `.rs`, `.toml`, `.yml`, `.yaml`, and `.json` file, the `justfile` at the root, and every file under `scripts/`, tracked or not ignored, and prints paths relative to the root of the repository. It skips its own self-test cases under `scripts/fixtures/check-doc-references/`. It reads the cases of the other checkers under `scripts/fixtures/`, which carry the suffix `.fixture`, as files under `scripts/`.
+
+With no paths, the checker selects no Markdown file outside `scripts/`, so the documents and `README.md` may cite each other. A path given on the command line is checked whatever its name, and is printed as given.
+
+It prints each finding in one of these forms, at the line where the citation starts. A section citation that spans two lines is reported with its whitespace joined into one space:
+
+```text
+path:line: cites the project document <path or name>
+path:line: cites a section of a project document: '<citation>'
+path:line: cites the rule identifier <identifier> of a project document
+```
+
+The checker follows TOOL-14, with the departure that TOOL-14 allows. It exits with status 1 when it reports a finding. It exits with status 2 after checking every readable file when a file cannot be read or is not valid UTF-8.
+
+It also exits with status 2 before it checks any file, even when paths are given, in these cases:
+
+- It runs outside a git repository, with `check-doc-references: not inside a git repository`.
+- A project document cannot be read or is not valid UTF-8, with `check-doc-references: cannot read <document>: <cause>`.
+- The repository has no project document, with `check-doc-references: no project document: the repository has no Markdown file under docs/`.
+- No project document defines a rule identifier, with `check-doc-references: no rule identifier: no project document defines one in the first cell of a table row`.
+
+The last two errors keep a change in the layout of the documents from turning the check off silently.
+
+The cases of its self-test under `scripts/fixtures/check-doc-references/` give the checker small documents of their own, which define the prefix `ZZQ`. They cover these behaviours:
+
+- Each form of citation in each kind of file that the checker reads.
+- The forms that it must not report, such as `UTF-8`, `SHA-256`, `GPL-3.0-or-later`, a prefix defined only in prose, a prefix without a number, and a web address that contains `docs/`.
+- The files that it skips, which are a Markdown file, a file of another type, and its own cases.
+- Paths given on the command line.
+- The errors of exit status 2 for a missing git repository, a repository without project documents, documents that define no rule identifier, a checked file that cannot be read, and a checked file that is not valid UTF-8.
+
+Wording about the history of the project, such as "this version" or the milestone that added an item, is beyond what the checker reads, so it stays a judgement rule.
+
+This illustration shows a recipe help comment and the findings that the checker prints for it, assuming it is on line 14 of the `justfile`:
+
+```just
+# Run the checks that Section 3.3 of docs/design/tooling.md lists
+```
+
+```text
+justfile:14: cites a section of a project document: 'Section 3.3'
+justfile:14: cites the project document docs/design/tooling.md
 ```
 
 ## 7. Continuous Integration
@@ -1024,6 +1096,7 @@ This table lists every recipe parameter and its default. Every other recipe take
 | `check-feature-docs` | Paths of Cargo manifests to check | The workspace of the repository (Section 6.5) |
 | `check-slang-call-guard` | Paths of Rust files to check | Every Rust file under `crates/slang-compiler/src` (Section 6.9) |
 | `check-workflow-pins` | Paths of workflow and composite action files to check | Every workflow under `.github/workflows/` and every composite action under `.github/actions/` (Section 6.8) |
+| `check-doc-references` | Paths of files to check | Every `.rs`, `.toml`, `.yml`, `.yaml`, and `.json` file, the `justfile`, and every file under `scripts/` except the checker's own self-test cases (Section 6.10) |
 | `check-commit-message` | The commit message file | None. The parameter is required. |
 | `merge` | The branch, and further arguments for `scripts/merge-branch` | None for the branch, which is required |
 | `install-vulkan-sdk` | The SDK version, as four numbers separated by full stops, and the expected SHA-256 checksum of the download for the platform, as 64 lowercase hexadecimal characters (Section 7.3) | None. Both are required. `just` rejects a missing or extra argument before the script runs, and the script exits with status 2 on a malformed one |
@@ -1079,7 +1152,8 @@ This table says what a failure of each check means and what the developer does.
 | `check-deny` | A licence is not allowed, an advisory applies, a crate is duplicated, or a source is not crates.io. The exit status is the sum of 1 for advisories, 2 for bans, 4 for licences, and 8 for sources | Applies Section 8: replaces or upgrades the dependency, or records an exception that TOOL-24 or TOOL-26 permits |
 | `check-prose`, `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs` | Exit status 1: a rule of the writing guide is broken at each reported `path:line`, and the message names the problem, such as "comment other than API documentation or a safety comment" or "feature 'name' is not named in a code span in the '# Features' section". Exit status 2: a file cannot be read, including a file that ends inside an unterminated literal, comment, or attribute, `cargo metadata` failed, the checker ran with no paths outside a git repository, or the setup is broken, as the message on standard error says (Section 6.1) | For status 1, fixes the text as the rule that Section 6 names requires. For status 2, fixes the file or the setup that the message names, such as by closing the unterminated item at the reported line |
 | `check-workflow-pins` | Exit status 1: a rule of Section 7.2 is broken at each reported `path:line`, such as "uses: '...' is not pinned to a full 40-character commit SHA", "workflow uses the pull_request_target event", "workflow has no top-level permissions key", or "top-level permissions '...' grant more than read access". Exit status 2: as for the other custom checkers | Pins the action to the full commit SHA of the reviewed release, removes the event, or sets the top-level permissions to `contents: read` and moves any extra permission to the job that needs it (TOOL-19) |
-| `check-slang-call-guard` | Exit status 1: a call into Slang in `slang-compiler` breaks SLC-32 of `docs/design/slang-compiler.md` at each reported `path:line`, such as "call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)". Exit status 2: as for the other custom checkers, and also a file with a bracket without its partner, or bindings that cannot be read or declare no C function or no thunk (Section 6.9) | For status 1, makes the call the only call into Slang in a closure literal passed to `abort_on_exception`, as SLC-32 requires. For status 2, fixes the file or the bindings that the message names, and regenerates the bindings with `just generate-bindings` instead of editing them |
+| `check-slang-call-guard` | Exit status 1: a call into Slang in `slang-compiler` breaks SLC-32 of `docs/design/slang-compiler.md` at each reported `path:line`, such as "call of IModule::getName is not inside a closure passed to abort_on_exception". Exit status 2: as for the other custom checkers, and also a file with a bracket without its partner, or bindings that cannot be read or declare no C function or no thunk (Section 6.9) | For status 1, makes the call the only call into Slang in a closure literal passed to `abort_on_exception`, as SLC-32 requires. For status 2, fixes the file or the bindings that the message names, and regenerates the bindings with `just generate-bindings` instead of editing them |
+| `check-doc-references` | Exit status 1: code or configuration cites a project document at each reported `path:line`, with "cites the project document ...", "cites a section of a project document: '...'", or "cites the rule identifier ... of a project document". Exit status 2: as for the other custom checkers, and also a project document that cannot be read, no project document, or no document that defines a rule identifier (Section 6.10) | For status 1, removes the citation and states what the code needs on its own terms, as Section 7.1 of the writing guide requires. For status 2, fixes the file or the document that the message names, or restores the Markdown files under `docs/` and their summary tables |
 | A self-test recipe | A case under `scripts/fixtures/<checker>/` gave a different standard output, standard error, or exit status from the expected one, which the recipe prints after "FAIL" with the name of the case. Exit status 2 means that the checker or its cases cannot be read | Fixes the checker, or, when the change to its behaviour is intended, the expected files of the case |
 | `check-shell` | shellcheck reported a finding | Fixes the script or recipe |
 | `check-typos` | typos found a spelling mistake | Fixes the word, or accepts a correct word in `typos.toml` (TOOL-30) |

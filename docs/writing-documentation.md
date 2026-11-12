@@ -223,9 +223,13 @@ The reader of API documentation is a user who knows Rust but may know nothing ab
 
 An author MUST define in a short clause, or link to a definition of, every term from graphics or compilers on its first use in the documentation of each item. Examples are shader, entry point, SPIR-V, and uniform buffer. A reader often reaches one item from a search and reads nothing else, and a reader who does not know the term cannot use the item.
 
-An author MUST NOT cite in API documentation the design documents or any other document under `docs/`, their section numbers, or a rule identifier that a document of the repository defines, such as `SLC-32`. API documentation also holds no project history, such as the step or milestone that added an item. The reader sees the crate on docs.rs without the repository, so a citation points nowhere and history says nothing about how to use the API.
+An author MUST NOT cite the design documents or any other document under `docs/`, their section numbers, or a rule identifier that a document of the repository defines, such as `SLC-32`, anywhere in code or its comments. This covers API documentation, other comments, string literals such as error messages, the help comments of recipes, the usage texts of scripts, and configuration files.
 
-Checked by: judgement.
+Code and comments also hold no project history, such as the step or milestone that added an item.
+
+The reader of API documentation sees the crate on docs.rs without the repository, so a citation points nowhere. In other code, a citation goes stale when a document is renumbered, and history says nothing about what the code does.
+
+Checked by: `check-doc-references` for the paths and file names of documents under `docs/`, every section citation, and every rule identifier that a document under `docs/` defines. It checks every Rust, TOML, YAML, and JSON file, the `justfile`, and every file under `scripts/` (Section 6.10 of `docs/design/tooling.md`). Wording about project history is a judgement rule.
 
 ### 7.2. Comments in Code
 
@@ -417,7 +421,8 @@ This table summarizes how each rule in this section is checked.
 | Rule | Section | Checked by |
 | --- | --- | --- |
 | Plain English, terms defined on first use | 7.1 | Judgement |
-| No citation of documents under `docs/` or of their rule identifiers, and no project history | 7.1 | Judgement |
+| No citation of documents under `docs/`, their sections, or their rule identifiers in code, comments, or configuration | 7.1 | `check-doc-references` |
+| No project history in code or comments | 7.1 | Judgement |
 | API documentation on every public item | 7.2 | rustc `missing_docs` |
 | No comments in Rust source other than those listed | 7.2 | `check-rust-comments` |
 | Only comments addressed to a human in other files | 7.2 | Judgement |
@@ -456,9 +461,13 @@ This table summarizes how each rule in this section is checked.
 | ASCII punctuation, no semicolons, and the listed spellings in API documentation | 7.11 | `check-prose` |
 | Other language rules in API documentation | 7.11 | Judgement |
 
-The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 6 of `docs/design/tooling.md` specifies. In a Rust file, the checkers that read documentation read only `///` and `//!` comments. They do not read documentation written as a `#[doc = ...]` attribute, so for such documentation the rules that they enforce are judgement rules.
+The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 6 of `docs/design/tooling.md` specifies.
 
-A lint enforces a rule only when the workspace lint configuration enables it and the checks treat its warnings as errors. Several of these lints are off by default, including rustc `missing_docs`, `rustdoc::missing_crate_level_docs`, and the lints in the Clippy `pedantic` and `restriction` groups. The standards document `docs/rust-coding-standards.md` defines the lint configuration. Until the configuration enables a lint, the rule it checks is a judgement rule, as Section 3.5 states.
+In a Rust file, the checkers that read documentation read only `///` and `//!` comments. They do not read documentation written as a `#[doc = ...]` attribute, so for such documentation the rules that they enforce are judgement rules. The exception is `check-doc-references`, which reads the whole text of each file, including such attributes.
+
+A lint enforces a rule only when the workspace lint configuration enables it and the checks treat its warnings as errors. Several of these lints are off by default, including rustc `missing_docs`, `rustdoc::missing_crate_level_docs`, and the lints in the Clippy `pedantic` and `restriction` groups.
+
+The standards document `docs/rust-coding-standards.md` defines the lint configuration. Until the configuration enables a lint, the rule it checks is a judgement rule, as Section 3.5 states.
 
 These commands run the checks in this section:
 
@@ -481,6 +490,12 @@ just check-prose
 ```
 
 With no paths, `check-prose` also checks every Markdown file.
+
+This recipe checks every Rust, TOML, YAML, and JSON file, the `justfile`, and every file under `scripts/` for citations of documents under `docs/`, and also takes the paths of the files to check:
+
+```sh
+just check-doc-references
+```
 
 ## 8. Language and Punctuation
 
