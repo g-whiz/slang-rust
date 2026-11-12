@@ -174,13 +174,18 @@ struct Emitter<'a> {
     validator: Validator<'a>,
     rules: &'a RuleSet,
     selection: &'a Selection,
-    types: BTreeMap<String, (String, Location)>,
-    values: BTreeMap<String, (String, Location)>,
-    opaque: BTreeMap<String, (String, Location)>,
+    types: BTreeMap<String, Origin>,
+    values: BTreeMap<String, Origin>,
+    opaque: BTreeMap<String, Origin>,
     out: String,
     externs: String,
     functions: Vec<String>,
     trait_emitted: bool,
+}
+
+struct Origin {
+    cxx: String,
+    location: Location,
 }
 
 #[derive(Clone, Copy)]
@@ -218,8 +223,8 @@ impl<'a> Emitter<'a> {
             );
         }
         let opaque = std::mem::take(&mut self.opaque);
-        for (rust, (cxx, location)) in &opaque {
-            self.register(Namespace::Type, rust, cxx, location)?;
+        for (rust, origin) in &opaque {
+            self.register(Namespace::Type, rust, &origin.cxx, &origin.location)?;
             self.out.push_str(&opaque_struct(rust));
         }
         if !self.externs.is_empty() {
@@ -241,16 +246,23 @@ impl<'a> Emitter<'a> {
             Namespace::Type => &mut self.types,
             Namespace::Value => &mut self.values,
         };
-        if let Some((other, other_location)) = names.get(rust) {
+        if let Some(other) = names.get(rust) {
             return Err(Error::at(
                 ErrorKind::NameCollision,
                 location,
                 format!(
-                    "{cxx} and {other} ({other_location}) would both have the Rust name {rust}"
+                    "{cxx} and {} ({}) would both have the Rust name {rust}",
+                    other.cxx, other.location
                 ),
             ));
         }
-        names.insert(rust.to_owned(), (cxx.to_owned(), location.clone()));
+        names.insert(
+            rust.to_owned(),
+            Origin {
+                cxx: cxx.to_owned(),
+                location: location.clone(),
+            },
+        );
         Ok(())
     }
 
@@ -651,9 +663,10 @@ impl<'a> Emitter<'a> {
         }
         if let Some(item) = self.validator.excluded(cxx) {
             let name = rust_name_of(item)?;
-            self.opaque
-                .entry(name.clone())
-                .or_insert_with(|| (item.name.cxx.clone(), item.location.clone()));
+            self.opaque.entry(name.clone()).or_insert_with(|| Origin {
+                cxx: item.name.cxx.clone(),
+                location: item.location.clone(),
+            });
             return Ok(name);
         }
         Err(internal(
