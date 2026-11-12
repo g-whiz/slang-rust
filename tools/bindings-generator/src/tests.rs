@@ -110,6 +110,20 @@ struct IRoot
         (result, headers.dir.clone())
     }
 
+    fn generate_with_extra_header(
+        test: &str,
+        header: &str,
+        extra: (&str, &str),
+        rules: &RuleSet,
+    ) -> String {
+        let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
+        let headers = Headers::new(test, header, pin::SLANG_BUILD_TAG);
+        std::fs::write(headers.dir.join(extra.0), extra.1).expect("write the extra header");
+        generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG)
+            .unwrap_or_else(|error| panic!("generation failed: {error}"))
+            .bindings
+    }
+
     fn generate(test: &str, header: &str) -> String {
         generate_rules(test, header, &DEFAULT_RULES)
     }
@@ -1488,6 +1502,46 @@ struct SessionDesc
             "pub const kSessionFlags_Last: SessionFlags = 1_073_741_824;",
         );
         assert_contains(&text, "Self { flags: 0 }");
+    }
+
+    #[test]
+    fn generate_keeps_unnamed_enumerations_at_the_same_line_of_two_headers() {
+        const RULES: RuleSet = RuleSet {
+            unnamed_enums: &[
+                UnnamedEnumRule {
+                    header: "slang.h",
+                    enumerator: "kMain_One",
+                    typedef: "MainFlags",
+                    reason: "the main flags",
+                },
+                UnnamedEnumRule {
+                    header: "slang-extra.h",
+                    enumerator: "kExtra_One",
+                    typedef: "ExtraFlags",
+                    reason: "the extra flags",
+                },
+            ],
+            ..DEFAULT_RULES
+        };
+        let header = r#"
+typedef uint32_t MainFlags;
+typedef uint32_t ExtraFlags;
+enum
+{
+    kMain_One = 1,
+};
+#include "slang-extra.h"
+"#;
+        let padding = "\n".repeat(usize::try_from(line_of(header, "enum")).expect("fits") - 1);
+        let extra = format!("{padding}enum\n{{\n    kExtra_One = 2,\n}};\n");
+        let text = generate_with_extra_header(
+            "unnamed_same_line",
+            header,
+            ("slang-extra.h", &extra),
+            &RULES,
+        );
+        assert_contains(&text, "pub const kMain_One: MainFlags = 1;");
+        assert_contains(&text, "pub const kExtra_One: ExtraFlags = 2;");
     }
 
     #[test]

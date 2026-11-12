@@ -755,10 +755,20 @@ fn segment(entity: Entity<'_>) -> (String, Option<String>) {
     if let (true, Some(index)) = (is_record, index) {
         return (format!("(anonymous {index})"), Some(format!("anon{index}")));
     }
-    let line = entity
+    let place = entity
         .get_location()
-        .map_or(0, |location| location.get_file_location().line);
-    (format!("({:?} at line {line})", entity.get_kind()), None)
+        .map(|location| location.get_file_location());
+    let file = place
+        .as_ref()
+        .and_then(|place| place.file)
+        .and_then(|file| {
+            file.get_path()
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    let line = place.map_or(0, |place| place.line);
+    (format!("({:?} at {file}:{line})", entity.get_kind()), None)
 }
 
 fn has_fixed_underlying_type(entity: Entity<'_>) -> bool {

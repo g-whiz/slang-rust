@@ -222,7 +222,7 @@ pub(crate) const SLANG: RuleSet = RuleSet {
         ),
         exclude(
             "slang.h",
-            "*(StaticAssert at line *)",
+            "*(StaticAssert at slang.h:*)",
             "a compile-time assertion of the header, which declares nothing",
         ),
         exclude(
