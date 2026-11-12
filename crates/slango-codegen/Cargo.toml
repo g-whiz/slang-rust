@@ -23,7 +23,7 @@ targets = [
 proc-macro2.workspace = true
 quote.workspace = true
 # The exact version keeps the hidden module and the encoded snapshot of slango
-# that the generated code uses in step with this crate (SLM-2).
+# that the generated code uses in step with this crate.
 slango = { path = "../slango", version = "=0.1.0" }
 
 [dev-dependencies]

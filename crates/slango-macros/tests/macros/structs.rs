@@ -6,7 +6,7 @@ use layouts::{Gap, Grid, Inner, Nested, Tail, Wide};
 
 #[expect(
     clippy::partial_pub_fields,
-    reason = "the generated `Shader` keeps its module private behind `Shader::module` (SLM-15), and each structure keeps its padding private (SLM-18)"
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps its padding private"
 )]
 pub(crate) mod layouts {
     slango_macros::shader!("shaders/layouts.slang");

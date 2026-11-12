@@ -6,7 +6,7 @@ use crate::bindings::saxpy;
 
 #[expect(
     clippy::partial_pub_fields,
-    reason = "the generated `Shader` keeps its module private behind `Shader::module` (SLM-15), and each structure keeps its padding private (SLM-18)"
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps its padding private"
 )]
 mod particles {
     slango_macros::shader!("shaders/particles.slang");
