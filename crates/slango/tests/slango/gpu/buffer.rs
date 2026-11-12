@@ -101,3 +101,15 @@ fn a_buffer_larger_than_the_device_allows_is_an_invalid_argument() {
     let error = Buffer::<[f32; 4]>::zeroed(&device, len).expect_err("the buffer is too large");
     assert_eq!(error.kind(), slango::ErrorKind::InvalidArgument);
 }
+
+#[test]
+fn a_buffer_from_a_slice_on_a_destroyed_device_is_a_backend_error() {
+    let device = device();
+    slango::wgpu::device(&device).destroy();
+    let error = Buffer::from_slice(&device, &[1_u32, 2, 3]).expect_err("the device is destroyed");
+    assert_eq!(error.kind(), slango::ErrorKind::Backend);
+    assert!(
+        error.to_string().starts_with("cannot create a buffer"),
+        "{error}"
+    );
+}

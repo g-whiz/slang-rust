@@ -510,3 +510,23 @@ fn clones_of_a_kernel_run_on_two_threads_at_once() -> slango::Result<()> {
     assert_eq!(results, [vec![2.0, 3.0, 4.0], vec![101.0, 102.0, 103.0]]);
     Ok(())
 }
+
+#[test]
+fn a_dispatch_with_plain_values_on_a_destroyed_device_returns_instead_of_panicking()
+-> slango::Result<()> {
+    let device = device();
+    let module = device.load_module(shader("scale.slang"))?;
+    let data = Buffer::from_slice(&device, &[1.0_f32, 2.0])?;
+    slango::wgpu::device(&device).destroy();
+    let result = module
+        .kernel("scale")?
+        .call()
+        .set("factor", 2.0_f32)
+        .set("count", 2_u32)
+        .bind("data", &data)
+        .dispatch([2, 1, 1]);
+    if let Err(error) = result {
+        assert_eq!(error.kind(), slango::ErrorKind::Backend, "{error}");
+    }
+    Ok(())
+}

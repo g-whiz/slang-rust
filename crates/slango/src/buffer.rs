@@ -2,8 +2,6 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::mpsc;
 
-use ::wgpu::util::DeviceExt as _;
-
 use crate::Device;
 use crate::device::scoped;
 use crate::error::{Error, ErrorKind, Result};
@@ -70,20 +68,33 @@ impl<T: VertexElement> Buffer<T> {
     /// reports an error, such as a lack of memory, while it creates the
     /// buffer.
     pub fn from_slice(device: &Device, elements: &[T]) -> Result<Self> {
-        checked_size(device, elements.len(), T::STRIDE)?;
+        let size = checked_size(device, elements.len(), T::STRIDE)?;
+        if elements.is_empty() {
+            return Self::zeroed(device, 0);
+        }
         let mut contents = Vec::with_capacity(elements.len().saturating_mul(T::STRIDE));
         for element in elements {
             element.write_bytes(&mut contents);
         }
         let wgpu_device = device.wgpu_device();
-        let (buffer, error) = scoped(wgpu_device, || {
-            wgpu_device.create_buffer_init(&::wgpu::util::BufferInitDescriptor {
+        let ((buffer, mapped), error) = scoped(wgpu_device, || {
+            let buffer = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
                 label: Some("slango buffer"),
-                contents: &contents,
+                size: size
+                    .checked_next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT)
+                    .unwrap_or(size),
                 usage: usages(),
-            })
+                mapped_at_creation: true,
+            });
+            let mapped = buffer
+                .get_mapped_range_mut(..)
+                .map(|mut view| view.slice(..contents.len()).copy_from_slice(&contents));
+            buffer.unmap();
+            (buffer, mapped)
         });
-        Self::created(device, buffer, elements.len(), error)
+        let buffer = Self::created(device, buffer, elements.len(), error)?;
+        mapped.map_err(|error| Error::new(ErrorKind::Backend, CREATE).with_source(error))?;
+        Ok(buffer)
     }
 
     /// Creates a buffer on the device that holds `len` elements whose bytes

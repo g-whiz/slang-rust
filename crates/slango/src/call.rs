@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use ::wgpu::util::DeviceExt as _;
-
 use crate::buffer::Buffer;
 use crate::device::{Device, scoped};
 use crate::error::{Error, ErrorKind, Result};
@@ -464,13 +462,7 @@ pub(crate) fn bind_groups(
             entries
                 .iter()
                 .map(|entry| match &entry.source {
-                    Source::Uniform(bytes) => Some(device.create_buffer_init(
-                        &::wgpu::util::BufferInitDescriptor {
-                            label: Some(label),
-                            contents: bytes,
-                            usage: ::wgpu::BufferUsages::UNIFORM,
-                        },
-                    )),
+                    Source::Uniform(bytes) => Some(uniform_buffer(device, label, bytes)),
                     Source::Argument(_) => None,
                 })
                 .collect()
@@ -503,6 +495,30 @@ pub(crate) fn bind_groups(
             })
         })
         .collect()
+}
+
+/// Creates a uniform buffer that holds `bytes`.
+///
+/// A buffer that wgpu fails to create cannot be mapped, and wgpu reports the
+/// failure in the error scope around the work, so the bytes are then not
+/// written.
+fn uniform_buffer(device: &::wgpu::Device, label: &str, bytes: &[u8]) -> ::wgpu::Buffer {
+    let size = u64::try_from(bytes.len())
+        .ok()
+        .and_then(|len| len.checked_next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT))
+        .unwrap_or(u64::MAX)
+        .max(::wgpu::COPY_BUFFER_ALIGNMENT);
+    let buffer = device.create_buffer(&::wgpu::BufferDescriptor {
+        label: Some(label),
+        size,
+        usage: ::wgpu::BufferUsages::UNIFORM,
+        mapped_at_creation: true,
+    });
+    if let Ok(mut view) = buffer.get_mapped_range_mut(..) {
+        view.slice(..bytes.len()).copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    buffer
 }
 
 fn resource_of<'a>(
