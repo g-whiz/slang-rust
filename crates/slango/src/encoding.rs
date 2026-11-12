@@ -14,6 +14,11 @@ const MAGIC: [u8; 8] = *b"slango\0S";
 /// recurses a bounded number of times.
 const MAX_DEPTH: u32 = 256;
 
+/// The largest descriptor set that a binding of the encoding names, far
+/// above the bind groups that any wgpu device allows, so that a load of any
+/// decoded input creates a bounded number of bind group layouts.
+const MAX_SET: u32 = 255;
+
 const ENCODE: &str = "encode a layout snapshot";
 const DECODE: &str = "load a precompiled module";
 
@@ -33,7 +38,7 @@ pub(crate) fn encode(compiled: &Compiled) -> Result<Vec<u8>> {
     writer.list(render, Writer::render);
     if writer.overflow {
         return Err(Error::new(ErrorKind::UnsupportedParameter, ENCODE).with_detail(format!(
-            "the snapshot holds a list longer than {} items or nests deeper than {MAX_DEPTH} levels",
+            "the snapshot holds a list longer than {} items, nests deeper than {MAX_DEPTH} levels, or has a binding in a set above {MAX_SET}",
             u32::MAX
         )));
     }
@@ -196,6 +201,9 @@ impl Writer {
             usage,
             resource,
         } = binding;
+        if *set > MAX_SET {
+            self.overflow = true;
+        }
         self.str(path);
         self.u32(*set);
         self.u32(*index);
@@ -495,7 +503,7 @@ impl<'a> Reader<'a> {
 
     fn binding(&mut self) -> Option<Binding> {
         let path = self.string()?;
-        let set = self.u32()?;
+        let set = self.u32().filter(|&set| set <= MAX_SET)?;
         let index = self.u32()?;
         let usage = self.usage()?;
         let resource = match self.u8()? {

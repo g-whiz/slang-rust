@@ -1,4 +1,4 @@
-use super::{MAGIC, MAX_DEPTH, Reader, decode, encode};
+use super::{MAGIC, MAX_DEPTH, MAX_SET, Reader, decode, encode};
 use crate::__private::ENCODING_VERSION;
 use crate::error::{Error, ErrorKind};
 use crate::layout::{
@@ -514,6 +514,43 @@ fn a_count_beyond_the_bytes_left_is_rejected_before_any_allocation() {
     bytes.extend_from_slice(&u32::MAX.to_le_bytes());
     assert_eq!(
         detail_of(&bytes),
+        "cannot load a precompiled module: the encoded snapshot is truncated or malformed"
+    );
+}
+
+fn with_set(set: u32) -> Compiled {
+    let mut binding = binding("b", 0, Usage::Used, Resource::Sampler);
+    binding.set = set;
+    Compiled {
+        kernels: vec![kernel("k", vec![binding], None)],
+        render: Vec::new(),
+    }
+}
+
+#[test]
+fn a_set_up_to_the_largest_round_trips_and_a_larger_one_neither_encodes_nor_decodes() {
+    let largest = with_set(MAX_SET);
+    assert_eq!(round_trip(&largest), largest);
+    let error = encode(&with_set(MAX_SET + 1)).err();
+    assert_eq!(
+        error.as_ref().map(Error::kind),
+        Some(ErrorKind::UnsupportedParameter),
+        "{error:?}"
+    );
+    let bytes = encode(&largest).expect("the snapshot encodes");
+    let mut set = vec![1, 0, 0, 0, b'b'];
+    set.extend_from_slice(&MAX_SET.to_le_bytes());
+    let at = bytes
+        .windows(set.len())
+        .position(|window| window == set.as_slice())
+        .expect("the encoding holds the path and the set of the binding")
+        + 5;
+    let mut changed = bytes;
+    if let Some(slot) = changed.get_mut(at..at + 4) {
+        slot.copy_from_slice(&(MAX_SET + 1).to_le_bytes());
+    }
+    assert_eq!(
+        detail_of(&changed),
         "cannot load a precompiled module: the encoded snapshot is truncated or malformed"
     );
 }
