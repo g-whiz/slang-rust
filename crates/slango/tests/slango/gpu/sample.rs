@@ -95,7 +95,8 @@ fn a_kernel_reads_a_bgra_texture_as_red_green_blue_and_alpha() -> slango::Result
 }
 
 #[test]
-fn a_kernel_reads_an_srgb_texture_as_linear_values() -> slango::Result<()> {
+fn a_kernel_reads_the_channels_of_an_srgb_texture_in_the_order_of_its_format() -> slango::Result<()>
+{
     let device = device();
     let pixels = [
         [255, 0, 0, 255],
