@@ -1,11 +1,14 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::mem;
 
 use crate::buffer::Buffer;
 use crate::device::{Device, scoped};
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{Binding, KernelLayout, PlainValue, Resource, UniformBlock, Usage};
+use crate::layout::{
+    Binding, ElementType, KernelLayout, PlainValue, Resource, UniformBlock, Usage,
+};
 use crate::marshal::{self, Element, Marshalled, Value, ValueType};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
@@ -624,12 +627,6 @@ impl Subject<'_> {
             .with_detail(format!("wgpu rejected the {} of {self}", self.request()))
             .with_source(error)
     }
-
-    fn internal(self, path: &str) -> Error {
-        Error::new(ErrorKind::UnsupportedParameter, self.operation()).with_detail(format!(
-            "internal error: the layout of {self} lost the parameter `{path}`"
-        ))
-    }
 }
 
 impl fmt::Display for Subject<'_> {
@@ -673,8 +670,9 @@ impl<'l> Parameters<'l, Binding> {
 /// Where a parameter path leads in the parameters.
 #[derive(Clone, Copy)]
 enum Target<'l> {
-    /// The storage buffer at this index of the bindings.
-    Buffer(usize),
+    /// The storage buffer at this index of the bindings, with the stride and
+    /// the element type of its elements.
+    Buffer(usize, u64, &'l ElementType),
     /// The texture at this index of the bindings.
     Texture(usize),
     /// The sampler at this index of the bindings.
@@ -686,10 +684,11 @@ enum Target<'l> {
 }
 
 /// The state of the checks after each given argument passed: the bytes of
-/// each uniform buffer and of the immediates, the argument that gives each
-/// binding, and the paths of the plain values that the arguments set.
+/// each binding, which are empty for a binding that is no uniform buffer, and
+/// of the immediates, the argument that gives each binding, and the paths of
+/// the plain values that the arguments set.
 pub(crate) struct Checked<'p> {
-    blocks: Vec<Option<Vec<u8>>>,
+    blocks: Vec<Vec<u8>>,
     immediates: Vec<u8>,
     given: Vec<Option<usize>>,
     set: HashSet<&'p str>,
@@ -722,12 +721,14 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
     arguments: &[(&'p str, Argument<B, V, S>)],
 ) -> Result<Checked<'p>> {
     let subject = parameters.subject;
-    let mut blocks: Vec<Option<Vec<u8>>> = parameters
+    let mut blocks: Vec<Vec<u8>> = parameters
         .bindings
         .iter()
         .map(|binding| match &binding.as_ref().resource {
-            Resource::UniformBuffer(block) => Some(zeroed(block)),
-            Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => None,
+            Resource::UniformBuffer(block) => zeroed(block),
+            Resource::StorageBuffer { .. } | Resource::SampledTexture | Resource::Sampler => {
+                Vec::new()
+            }
         })
         .collect();
     let mut immediates = parameters.immediates.map(zeroed).unwrap_or_default();
@@ -739,11 +740,11 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
             subject.invalid(format!("{subject} has no parameter at the path `{path}`"))
         })?;
         let binding = match target {
-            Target::Buffer(binding) => {
+            Target::Buffer(binding, stride, element) => {
                 let Argument::Buffer(bound) = argument else {
                     return Err(mismatch(subject, path, "a buffer", argument));
                 };
-                check_buffer(parameters, binding, path, bound)?;
+                check_buffer(subject, path, stride, element, bound)?;
                 binding
             }
             Target::Texture(binding) => {
@@ -764,11 +765,7 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
                 let Argument::Value(value) = argument else {
                     return Err(mismatch(subject, path, "a plain value", argument));
                 };
-                let block = blocks
-                    .get_mut(binding)
-                    .and_then(Option::as_mut)
-                    .ok_or_else(|| subject.internal(path))?;
-                write(subject, path, value, plain, block)?;
+                write(subject, path, value, plain, &mut blocks[binding])?;
                 set.insert(path);
                 continue;
             }
@@ -781,9 +778,7 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
                 continue;
             }
         };
-        if let Some(slot) = given.get_mut(binding) {
-            *slot = Some(index);
-        }
+        given[binding] = Some(index);
     }
     Ok(Checked {
         blocks,
@@ -807,32 +802,21 @@ pub(crate) fn finish<P: AsRef<Binding>>(
         set,
     } = checked;
     require_arguments(parameters, &given, &set)?;
-    let subject = parameters.subject;
     let groups = group_sets(parameters.bindings)
         .into_iter()
         .map(|indexes| {
             indexes
                 .into_iter()
-                .map(|binding| {
-                    let index = parameters
-                        .bindings
-                        .get(binding)
-                        .map(|binding| binding.as_ref().index)
-                        .ok_or_else(|| subject.internal(""))?;
-                    let source = match given.get(binding).copied().flatten() {
+                .map(|binding| Entry {
+                    index: parameters.bindings[binding].as_ref().index,
+                    source: match given[binding] {
                         Some(argument) => Source::Argument(argument),
-                        None => Source::Uniform(
-                            blocks
-                                .get_mut(binding)
-                                .and_then(Option::take)
-                                .ok_or_else(|| subject.internal(""))?,
-                        ),
-                    };
-                    Ok(Entry { index, source })
+                        None => Source::Uniform(mem::take(&mut blocks[binding])),
+                    },
                 })
-                .collect::<Result<Vec<Entry>>>()
+                .collect::<Vec<Entry>>()
         })
-        .collect::<Result<Vec<Vec<Entry>>>>()?;
+        .collect();
     Ok(Plan { groups, immediates })
 }
 
@@ -900,8 +884,10 @@ fn group_sets<P: AsRef<Binding>>(bindings: &[P]) -> Vec<Vec<usize>> {
 fn find<'l, P: AsRef<Binding>>(parameters: Parameters<'l, P>, path: &str) -> Option<Target<'l>> {
     for (index, binding) in parameters.bindings.iter().map(AsRef::as_ref).enumerate() {
         match &binding.resource {
-            Resource::StorageBuffer { .. } if binding.path == path => {
-                return Some(Target::Buffer(index));
+            Resource::StorageBuffer {
+                stride, element, ..
+            } if binding.path == path => {
+                return Some(Target::Buffer(index, *stride, element));
             }
             Resource::SampledTexture if binding.path == path => {
                 return Some(Target::Texture(index));
@@ -925,29 +911,20 @@ fn find<'l, P: AsRef<Binding>>(parameters: Parameters<'l, P>, path: &str) -> Opt
         .map(Target::Immediate)
 }
 
-fn check_buffer<P: AsRef<Binding>, B>(
-    parameters: Parameters<'_, P>,
-    binding: usize,
+fn check_buffer<B>(
+    subject: Subject<'_>,
     path: &str,
+    stride: u64,
+    element: &ElementType,
     bound: &Bound<B>,
 ) -> Result<()> {
-    let subject = parameters.subject;
-    let Some(Resource::StorageBuffer {
-        stride, element, ..
-    }) = parameters
-        .bindings
-        .get(binding)
-        .map(|binding| &binding.as_ref().resource)
-    else {
-        return Err(subject.internal(path));
-    };
     check_on_device(subject, path, "buffer", bound.on_device)?;
     if bound.len == 0 {
         return Err(subject.invalid(format!(
             "the buffer bound to the parameter `{path}` of {subject} is empty"
         )));
     }
-    if !u64::try_from(bound.stride).is_ok_and(|given| given == *stride) {
+    if !u64::try_from(bound.stride).is_ok_and(|given| given == stride) {
         return Err(subject.invalid(format!(
             "the parameter `{path}` of {subject} has elements of {stride} bytes, and the bound buffer has elements of {} bytes",
             bound.stride

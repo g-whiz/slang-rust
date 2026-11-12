@@ -574,9 +574,7 @@ impl<'a> Draw<'a> {
                 pass.set_bind_group(set, group, &[]);
             }
             for &(slot, index) in &plan.vertex_buffers {
-                if let Some((_, bound)) = self.vertices.get(index) {
-                    pass.set_vertex_buffer(slot, bound.handle.slice(..));
-                }
+                pass.set_vertex_buffer(slot, self.vertices[index].1.handle.slice(..));
             }
             match indices {
                 Some(indices) => {
