@@ -1,23 +1,16 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use slango::{Device, DeviceOptions, ErrorKind};
+use slango::ErrorKind;
 
 #[path = "../../../src/bin/shader-playground/scene.rs"]
 mod scene;
 
 use scene::{Scene, Uniforms};
 
+use crate::common::{device, rewrite, scratch_copy, shader};
+
+const SHADER: &str = "playground.slang";
 const SIZE: [u32; 2] = [64, 32];
-
-fn shader() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders/playground.slang")
-}
-
-fn device() -> Device {
-    Device::new(&DeviceOptions::default()).expect("a device is created")
-}
 
 fn uniforms(time: f32, brightness: f32, scale: f32) -> Uniforms {
     Uniforms {
@@ -81,31 +74,6 @@ fn assert_pattern(pixels: &[[u8; 4]], uniforms: Uniforms) {
     }
 }
 
-fn scratch_copy(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("shader-playground")
-        .join(name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir).expect("the old scratch directory is removed");
-    }
-    fs::create_dir_all(&dir).expect("the scratch directory is created");
-    let path = dir.join("playground.slang");
-    fs::copy(shader(), &path).expect("the shader is copied");
-    path
-}
-
-fn rewrite(path: &Path, source: &str) {
-    let modified = fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .expect("the modification time is read");
-    fs::write(path, source).expect("the shader is written");
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .and_then(|file| file.set_modified(modified + Duration::from_secs(10)))
-        .expect("the modification time is set");
-}
-
 /// With a scale of 0, every pixel has the colour
 /// `brightness (0.5 + 0.5 cos(time + 2 i))`, which at time 0 is
 /// `(1.0, 0.292, 0.173)` times the brightness, or the bytes `(255, 74, 44)`
@@ -114,7 +82,7 @@ fn rewrite(path: &Path, source: &str) {
 #[test]
 fn the_brightness_slider_scales_every_colour() {
     let device = device();
-    let scene = Scene::new(&device, &shader(), SIZE).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), SIZE).expect("the scene is created");
 
     let full = draw(&scene, uniforms(0.0, 1.0, 0.0));
     assert_near(full[0], [255.0, 74.4, 44.2], (0, 0));
@@ -132,7 +100,7 @@ fn the_brightness_slider_scales_every_colour() {
 #[test]
 fn the_scale_slider_sets_the_size_of_the_pattern() {
     let device = device();
-    let scene = Scene::new(&device, &shader(), SIZE).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), SIZE).expect("the scene is created");
 
     let flat = draw(&scene, uniforms(0.0, 1.0, 0.0));
     assert!(flat.iter().all(|colour| *colour == flat[0]), "{flat:?}");
@@ -156,7 +124,7 @@ fn the_scale_slider_sets_the_size_of_the_pattern() {
 #[test]
 fn the_time_shifts_the_colours() {
     let device = device();
-    let scene = Scene::new(&device, &shader(), SIZE).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), SIZE).expect("the scene is created");
 
     let later = draw(&scene, uniforms(1.0, 1.0, 0.0));
     assert_near(later[0], [196.4, 1.3, 163.7], (0, 0));
@@ -166,7 +134,7 @@ fn the_time_shifts_the_colours() {
 #[test]
 fn keeps_its_view_when_a_reload_fails() {
     let device = device();
-    let path = scratch_copy("reload-fails");
+    let path = scratch_copy("shader-playground", SHADER, "reload-fails");
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(!scene.reload_if_changed().expect("an unchanged file loads"));
     let before = draw(&scene, uniforms(0.0, 1.0, 1.0));
@@ -192,7 +160,7 @@ fn keeps_its_view_when_a_reload_fails() {
 #[test]
 fn replaces_its_view_when_a_reload_succeeds() {
     let device = device();
-    let path = scratch_copy("reload-succeeds");
+    let path = scratch_copy("shader-playground", SHADER, "reload-succeeds");
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(scene.resize([16, 8]).expect("the view is resized"));
     let texture = slango::wgpu::texture(scene.view().texture()).clone();

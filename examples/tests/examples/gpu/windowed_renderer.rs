@@ -1,25 +1,18 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use slango::{Device, DeviceOptions, ErrorKind, Texture, TextureFormat};
+use slango::{Device, ErrorKind, Texture, TextureFormat};
 
 #[path = "../../../src/bin/windowed-renderer/scene.rs"]
 mod scene;
 
 use scene::Scene;
 
+use crate::common::{device, rewrite, scratch_copy, shader};
+
+const SHADER: &str = "textured-quad.slang";
 const SIZE: u32 = 64;
 const LIGHT: [u8; 4] = [240, 240, 230, 255];
 const DARK: [u8; 4] = [230, 120, 30, 255];
-
-fn shader() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders/textured-quad.slang")
-}
-
-fn device() -> Device {
-    Device::new(&DeviceOptions::default()).expect("a device is created")
-}
 
 struct Image {
     width: u32,
@@ -63,31 +56,6 @@ fn is_clear(colour: [u8; 4]) -> bool {
     colour[..3].iter().all(|&channel| channel < 32) && colour[3] == 255
 }
 
-fn scratch_copy(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("windowed-renderer")
-        .join(name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir).expect("the old scratch directory is removed");
-    }
-    fs::create_dir_all(&dir).expect("the scratch directory is created");
-    let path = dir.join("textured-quad.slang");
-    fs::copy(shader(), &path).expect("the shader is copied");
-    path
-}
-
-fn rewrite(path: &Path, source: &str) {
-    let modified = fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .expect("the modification time is read");
-    fs::write(path, source).expect("the shader is written");
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .and_then(|file| file.set_modified(modified + Duration::from_secs(10)))
-        .expect("the modification time is set");
-}
-
 /// At angle 0 on a square target of 64 pixels, the quad spans 0.7 of the
 /// normalized device coordinates on each side of the centre, so its edges sit
 /// at pixel coordinate 32 - 22.4 = 9.6 and 32 + 22.4 = 54.4, and it covers the
@@ -107,8 +75,8 @@ fn rewrite(path: &Path, source: &str) {
 #[test]
 fn draws_the_rotated_textured_quad_over_the_clear_colour() {
     let device = device();
-    let scene =
-        Scene::new(&device, &shader(), TextureFormat::Rgba8Unorm).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
+        .expect("the scene is created");
 
     let upright = draw(&device, &scene, 0.0);
     assert!(is_clear(upright.pixel(0, 0)), "{:?}", upright.pixel(0, 0));
@@ -146,8 +114,8 @@ fn draws_the_rotated_textured_quad_over_the_clear_colour() {
 #[test]
 fn keeps_the_quad_square_on_a_wide_target() {
     let device = device();
-    let scene =
-        Scene::new(&device, &shader(), TextureFormat::Rgba8Unorm).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
+        .expect("the scene is created");
 
     let wide = draw_sized(&device, &scene, [128, 64], 0.0);
     assert_eq!(wide.covered_in_row(32), (42..=85).collect::<Vec<_>>());
@@ -166,8 +134,8 @@ fn keeps_the_quad_square_on_a_wide_target() {
 #[test]
 fn keeps_the_quad_square_on_a_tall_target() {
     let device = device();
-    let scene =
-        Scene::new(&device, &shader(), TextureFormat::Rgba8Unorm).expect("the scene is created");
+    let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
+        .expect("the scene is created");
 
     let tall = draw_sized(&device, &scene, [64, 128], 0.0);
     assert_eq!(tall.covered_in_row(64), (10..=53).collect::<Vec<_>>());
@@ -181,7 +149,7 @@ fn keeps_the_quad_square_on_a_tall_target() {
 #[test]
 fn keeps_its_pipeline_when_a_reload_fails() {
     let device = device();
-    let path = scratch_copy("reload-fails");
+    let path = scratch_copy("windowed-renderer", SHADER, "reload-fails");
     let mut scene =
         Scene::new(&device, &path, TextureFormat::Rgba8Unorm).expect("the scene is created");
     assert!(!scene.reload_if_changed().expect("an unchanged file loads"));
@@ -203,7 +171,7 @@ fn keeps_its_pipeline_when_a_reload_fails() {
 #[test]
 fn replaces_its_pipeline_when_a_reload_succeeds() {
     let device = device();
-    let path = scratch_copy("reload-succeeds");
+    let path = scratch_copy("windowed-renderer", SHADER, "reload-succeeds");
     let mut scene =
         Scene::new(&device, &path, TextureFormat::Rgba8Unorm).expect("the scene is created");
     let source = fs::read_to_string(&path).expect("the shader is read");

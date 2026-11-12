@@ -1,5 +1,9 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::Duration;
+
+use slango::{Device, DeviceOptions};
 
 /// Runs the example binary at `bin` with `args` in the directory of the
 /// examples package, where the paths of the shaders start.
@@ -59,4 +63,46 @@ pub(crate) fn assert_rejects_bad_arguments(bin: &str, shader: &str) {
     assert_fails_with(bin, &[shader, "shaders/scale.slang"], one_file);
     assert_fails_with(bin, &[], one_file);
     assert_fails_with(bin, &["--frames", "3"], one_file);
+}
+
+/// Creates a device on the adapter that wgpu chooses.
+pub(crate) fn device() -> Device {
+    Device::new(&DeviceOptions::default()).expect("a device is created")
+}
+
+/// Returns the path of the shader `file` under `examples/shaders/`.
+pub(crate) fn shader(file: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("shaders")
+        .join(file)
+}
+
+/// Copies the shader `file` into the empty directory `example/name` under
+/// the scratch directory of the tests, and returns the path of the copy.
+pub(crate) fn scratch_copy(example: &str, file: &str, name: &str) -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(example)
+        .join(name);
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("the old scratch directory is removed");
+    }
+    fs::create_dir_all(&dir).expect("the scratch directory is created");
+    let path = dir.join(file);
+    fs::copy(shader(file), &path).expect("the shader is copied");
+    path
+}
+
+/// Writes `source` to the file at `path` and moves its modification time
+/// 10 seconds past the old one, so that a reload sees the change on a file
+/// system with coarse timestamps.
+pub(crate) fn rewrite(path: &Path, source: &str) {
+    let modified = fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .expect("the modification time is read");
+    fs::write(path, source).expect("the shader is written");
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(modified + Duration::from_secs(10)))
+        .expect("the modification time is set");
 }
