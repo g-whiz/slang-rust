@@ -60,8 +60,8 @@ pub use error::{Error, ErrorKind, Location, Result};
 /// tag, and the Slang commit that the bindings match.
 ///
 /// The generator reads these constants from the file `pin.rs` of
-/// `slang-compiler-sys`, which is their only record, and checks the build tag
-/// of the headers against [`pin::SLANG_BUILD_TAG`].
+/// `slang-compiler-sys` and checks the build tag of the headers against
+/// [`pin::SLANG_BUILD_TAG`].
 pub mod pin {
     include!("../../../crates/slang-compiler-sys/pin.rs");
 }
