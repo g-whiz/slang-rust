@@ -47,6 +47,8 @@
 )]
 
 mod format;
+#[path = "../../shared/frames.rs"]
+mod frames;
 #[path = "../../shared/report.rs"]
 mod report;
 mod scene;
@@ -55,7 +57,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -64,21 +66,15 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::format::colour_format;
+use crate::frames::{Frames, OPTIONS, parse_args};
 use crate::report::report;
 use crate::scene::Scene;
-
-const UNATTENDED_STALL: Duration = Duration::from_secs(10);
 
 const USAGE: &str = "\
 Usage: windowed-renderer [--frames N] <FILE>
 
 Draws a rotating, textured quad in a window with the entry points vsMain and
 fsMain of the Slang file FILE, and loads FILE again whenever it changes.
-
-Options:
-      --frames N  Close the window after N frames and print one line, or
-                  fail when no frame is drawn for 10 seconds
-  -h, --help      Print this help
 ";
 
 fn main() -> ExitCode {
@@ -92,35 +88,15 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let mut file = None;
-    let mut frames = None;
-    let mut args = std::env::args_os().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "-h" || arg == "--help" {
-            print!("{USAGE}");
-            return Ok(());
-        } else if arg == "--frames" {
-            let count = args.next().ok_or("--frames needs a number")?;
-            let count = count.to_str().and_then(|count| count.parse::<u64>().ok());
-            let count = count.ok_or("--frames needs a whole number")?;
-            if count == 0 {
-                return Err("--frames needs a number above zero".into());
-            }
-            frames = Some(count);
-        } else if file.is_none() {
-            file = Some(PathBuf::from(arg));
-        } else {
-            return Err("expected one Slang file, see --help".into());
-        }
-    }
-    let file = file.ok_or("expected one Slang file, see --help")?;
+    let Some(args) = parse_args(std::env::args_os().skip(1))? else {
+        print!("{USAGE}{OPTIONS}");
+        return Ok(());
+    };
 
     let mut app = App {
-        file,
-        frames,
-        drawn: 0,
+        file: args.file,
+        frames: Frames::new(args.frames, Instant::now()),
         start: Instant::now(),
-        last_drawn: Instant::now(),
         state: None,
         error: None,
     };
@@ -128,18 +104,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     if let Some(error) = app.error {
         return Err(error);
     }
-    if app.frames.is_some() {
-        println!("drew {} frames", app.drawn);
+    if let Some(summary) = app.frames.summary() {
+        println!("{summary}");
     }
     Ok(())
 }
 
 struct App {
     file: PathBuf,
-    frames: Option<u64>,
-    drawn: u64,
+    frames: Frames,
     start: Instant,
-    last_drawn: Instant,
     state: Option<State>,
     error: Option<Box<dyn Error>>,
 }
@@ -244,7 +218,7 @@ impl ApplicationHandler for App {
             match State::new(event_loop, &self.file) {
                 Ok(state) => {
                     self.state = Some(state);
-                    self.last_drawn = Instant::now();
+                    self.frames.start(Instant::now());
                 }
                 Err(error) => self.fail(event_loop, error),
             }
@@ -263,13 +237,12 @@ impl ApplicationHandler for App {
                 match state.frame(angle) {
                     Ok(drawn) => {
                         if drawn {
-                            self.drawn += 1;
-                            self.last_drawn = Instant::now();
+                            self.frames.drawn(Instant::now());
                         }
-                        if self.frames.is_some_and(|frames| self.drawn >= frames) {
-                            event_loop.exit();
-                        } else {
+                        if self.frames.running() {
                             state.window.request_redraw();
+                        } else {
+                            event_loop.exit();
                         }
                     }
                     Err(error) => self.fail(event_loop, error),
@@ -280,18 +253,13 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.frames.is_none() || self.state.is_none() || event_loop.exiting() {
+        if self.state.is_none() || event_loop.exiting() {
             return;
         }
-        if self.last_drawn.elapsed() >= UNATTENDED_STALL {
-            let error = format!(
-                "drew no frame for {} seconds after {} frames with --frames set",
-                UNATTENDED_STALL.as_secs(),
-                self.drawn
-            );
-            self.fail(event_loop, error.into());
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.last_drawn + UNATTENDED_STALL));
+        match self.frames.watch(Instant::now()) {
+            Ok(Some(deadline)) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
+            Ok(None) => {}
+            Err(error) => self.fail(event_loop, error),
         }
     }
 }

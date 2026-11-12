@@ -50,6 +50,8 @@
     reason = "the example prints the adapter, its reloads, and its errors on standard error"
 )]
 
+#[path = "../../shared/frames.rs"]
+mod frames;
 #[path = "../../shared/report.rs"]
 mod report;
 mod scene;
@@ -64,11 +66,10 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, RenderingState, Timer, TimerMode};
 
+use crate::frames::{Frames, OPTIONS, parse_args};
 use crate::report::report;
 use crate::scene::{Scene, Uniforms};
 use crate::ui::Playground;
-
-const UNATTENDED_STALL: Duration = Duration::from_secs(10);
 
 const USAGE: &str = "\
 Usage: shader-playground [--frames N] <FILE>
@@ -76,11 +77,6 @@ Usage: shader-playground [--frames N] <FILE>
 Shows what the entry points vsMain and fsMain of the Slang file FILE draw in a
 Slint window, with sliders for the uniforms brightness and scale, and loads
 FILE again whenever it changes.
-
-Options:
-      --frames N  Close the window after N frames and print one line, or
-                  fail when no frame is drawn for 10 seconds
-  -h, --help      Print this help
 ";
 
 fn main() -> ExitCode {
@@ -94,39 +90,19 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let mut file = None;
-    let mut frames = None;
-    let mut args = std::env::args_os().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "-h" || arg == "--help" {
-            print!("{USAGE}");
-            return Ok(());
-        } else if arg == "--frames" {
-            let count = args.next().ok_or("--frames needs a number")?;
-            let count = count.to_str().and_then(|count| count.parse::<u64>().ok());
-            let count = count.ok_or("--frames needs a whole number")?;
-            if count == 0 {
-                return Err("--frames needs a number above zero".into());
-            }
-            frames = Some(count);
-        } else if file.is_none() {
-            file = Some(PathBuf::from(arg));
-        } else {
-            return Err("expected one Slang file, see --help".into());
-        }
-    }
-    let file = file.ok_or("expected one Slang file, see --help")?;
+    let Some(args) = parse_args(std::env::args_os().skip(1))? else {
+        print!("{USAGE}{OPTIONS}");
+        return Ok(());
+    };
 
     slint::BackendSelector::new()
         .require_wgpu_30(slang_slint::wgpu_configuration())
         .select()?;
     let app = Playground::new()?;
     let state = Rc::new(RefCell::new(State {
-        file,
-        frames,
-        drawn: 0,
+        file: args.file,
+        frames: Frames::new(args.frames, Instant::now()),
         start: Instant::now(),
-        last_drawn: Instant::now(),
         scene: None,
         error: None,
     }));
@@ -159,17 +135,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     })?;
 
     let watchdog = Timer::default();
-    if frames.is_some() {
+    if args.frames.is_some() {
         let watched = Rc::clone(&state);
         watchdog.start(TimerMode::Repeated, Duration::from_secs(1), move || {
             let mut state = watched.borrow_mut();
-            if state.running() && state.last_drawn.elapsed() >= UNATTENDED_STALL {
-                let error = format!(
-                    "drew no frame for {} seconds after {} frames with --frames set",
-                    UNATTENDED_STALL.as_secs(),
-                    state.drawn
-                );
-                state.fail(error.into());
+            if state.running()
+                && let Err(error) = state.frames.watch(Instant::now())
+            {
+                state.fail(error);
             }
         });
     }
@@ -180,25 +153,23 @@ fn run() -> Result<(), Box<dyn Error>> {
     if let Some(error) = state.error.take() {
         return Err(error);
     }
-    if state.frames.is_some() {
-        println!("drew {} frames", state.drawn);
+    if let Some(summary) = state.frames.summary() {
+        println!("{summary}");
     }
     Ok(())
 }
 
 struct State {
     file: PathBuf,
-    frames: Option<u64>,
-    drawn: u64,
+    frames: Frames,
     start: Instant,
-    last_drawn: Instant,
     scene: Option<Scene>,
     error: Option<Box<dyn Error>>,
 }
 
 impl State {
     fn running(&self) -> bool {
-        self.error.is_none() && self.frames.is_none_or(|frames| self.drawn < frames)
+        self.error.is_none() && self.frames.running()
     }
 
     fn fail(&mut self, error: Box<dyn Error>) {
@@ -220,7 +191,7 @@ impl State {
         let scene = Scene::new(&device, &self.file, physical_size(app))?;
         app.set_view(scene.view().to_image()?);
         self.scene = Some(scene);
-        self.last_drawn = Instant::now();
+        self.frames.start(Instant::now());
         Ok(())
     }
 
@@ -252,8 +223,7 @@ impl State {
             brightness: app.get_brightness(),
             scale: app.get_scale(),
         })?;
-        self.drawn += 1;
-        self.last_drawn = Instant::now();
+        self.frames.drawn(Instant::now());
         if !self.running() {
             slint::quit_event_loop()?;
         }
