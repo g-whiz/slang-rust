@@ -1286,6 +1286,58 @@ struct IConvention : public IRoot
     }
 
     #[test]
+    fn generate_refuses_an_anonymous_record_outside_a_record() {
+        let header = "\nstatic union\n{\n    int32_t number;\n    float real;\n};\n";
+        let error = fail("anonymous_outside", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "static union"),
+            &["is an anonymous record outside a record, which the bindings cannot express"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_class_with_virtual_methods_and_no_uuid() {
+        let header = "\nstruct Virtual\n{\n    virtual void act() = 0;\n};\n";
+        let error = fail("virtual_without_uuid", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct Virtual"),
+            &[
+                "Virtual is a class with virtual methods and no UUID, which the bindings cannot express",
+            ],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_variable_that_is_not_a_compile_time_constant() {
+        let header = "\nextern \"C\" int32_t counter;\n";
+        let error = fail("mutable_variable", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "counter"),
+            &[
+                "counter is a variable that is not a compile-time constant, which the bindings cannot express",
+            ],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_a_declaration_of_another_kind() {
+        let header = "\ntemplate <typename T>\nstruct Box\n{\n    T value;\n};\n";
+        let error = fail("template", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct Box"),
+            &["Box is a declaration of kind ClassTemplate, which the bindings cannot express"],
+        );
+    }
+
+    #[test]
     fn generate_refuses_an_interface_with_a_data_member() {
         let header = r"
 struct IData : public IRoot
