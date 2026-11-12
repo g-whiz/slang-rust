@@ -8,13 +8,17 @@
 
 ## Abstract
 
-This document defines how documentation in this repository is written. It covers the requirements language, the structure of documents, the rules for prose, examples, diagrams, and formal notation, the properties that make a document dependable for a coding agent, the rules for API documentation written with rustdoc, the conventions for spelling and punctuation, and the maintenance of documentation as the code changes. The primary readers of Markdown documents are coding agents. The primary readers of API documentation are Rust developers who use the crates. The rules exist so that every reader reaches the same understanding of a document, and each rule says whether a tool or a reviewer checks it.
+This document defines how documentation in this repository is written, so that every reader reaches the same understanding of a document, and each rule says whether a tool or a reviewer checks it. It covers Markdown documents and API documentation written with rustdoc. The primary readers of Markdown documents are coding agents, and those of API documentation are Rust developers who use the crates.
 
 ## 1. Introduction
 
-This repository contains Rust crates for using the Slang shader language. Its Markdown documentation is human readable, but its primary audience is coding agents. An agent reads a document to plan a change, then implements the change from what the document says. The secondary audience is the humans who review those changes. The API documentation has a different primary audience, which Section 7.1 defines. Section 2.2 defines the terms that every document uses.
+This repository contains Rust crates for using the Slang shader language. Its Markdown documentation is human readable, but its primary audience is coding agents. An agent reads a document to plan a change, then implements the change from what the document says.
 
-A human who finds a gap or an ambiguity in a document usually asks someone. An agent usually resolves it by guessing, and the guess becomes code. Documents must therefore be unambiguous, complete, and consistent in their terminology. The goal that the Guide for Internet Standards Writers sets for standards applies to every document here: "It is important that multiple readers and implementers of a standard have the same understanding of a document" [RFC2360].
+The secondary audience is the humans who review those changes. The API documentation has a different primary audience, which Section 7.1 defines. Section 2.2 defines the terms that every document uses.
+
+A human who finds a gap or an ambiguity in a document usually asks someone. An agent usually resolves it by guessing, and the guess becomes code.
+
+Documents must therefore be unambiguous, complete, and consistent in their terminology. The goal that the Guide for Internet Standards Writers sets for standards applies to every document here: "It is important that multiple readers and implementers of a standard have the same understanding of a document" [RFC2360].
 
 The conventions here adapt to Markdown the documents that govern how Requests for Comments (RFCs) are written: [RFC2119], [RFC8174], [RFC7322], and [RFC2360]. They add practices from RFCs that are widely regarded as readable. Section 7 adds the conventions of the Rust ecosystem for API documentation [RUSTDOC] [RUST-API].
 
@@ -55,11 +59,17 @@ Each term in this section keeps exactly this meaning in every document in the re
 
 ### 2.3. Using the Key Words
 
-An author uses key words only where a requirement matters for correctness, for interoperability between components, or to limit harmful behaviour, as Section 6 of [RFC2119] advises. An author MUST NOT use a key word to impose a method where the method does not matter, because agents treat every key word as binding, and a needless requirement constrains every later change. Lowercase "must" and "should" are ordinary English and carry no requirement level [RFC8174]. Normative text can also be written without key words.
+An author uses key words only where a requirement matters for correctness, for interoperability between components, or to limit harmful behaviour, as Section 6 of [RFC2119] advises. An author MUST NOT use a key word to impose a method where the method does not matter. Agents treat every key word as binding, and a needless requirement constrains every later change.
 
-An author MUST follow every MUST, MUST NOT, SHOULD, and SHOULD NOT in the same paragraph with the consequence of violating it, because without the consequence an agent has no basis for judging an edge case or for deciding whether an exception to a SHOULD is justified. The TCP specification shows the form: "The window size MUST be treated as an unsigned number, or else large window sizes will appear like negative windows and TCP will not work (MUST-1)" [RFC9293]. The JavaScript Object Notation (JSON) specification follows the same practice for SHOULD [RFC8259].
+Lowercase "must" and "should" are ordinary English and carry no requirement level [RFC8174]. Normative text can also be written without key words.
 
-An author MUST write the role that a requirement binds as the subject of the sentence, following Section 2.2 of [RFC9110], because a requirement in the passive voice can be read as binding any component, and two agents then implement it in two places or in none. This example illustrates a requirement with its role and its consequence. It shows the form only and describes no existing behaviour:
+An author MUST follow every MUST, MUST NOT, SHOULD, and SHOULD NOT in the same paragraph with the consequence of violating it. Without the consequence an agent has no basis for judging an edge case or for deciding whether an exception to a SHOULD is justified.
+
+The TCP specification shows the form: "The window size MUST be treated as an unsigned number, or else large window sizes will appear like negative windows and TCP will not work (MUST-1)" [RFC9293]. The JavaScript Object Notation (JSON) specification follows the same practice for SHOULD [RFC8259].
+
+An author MUST write the role that a requirement binds as the subject of the sentence, following Section 2.2 of [RFC9110]. A requirement in the passive voice can be read as binding any component, and two agents then implement it in two places or in none.
+
+This example illustrates a requirement with its role and its consequence. It shows the form only and describes no existing behaviour:
 
 ```markdown
 The safe crate MUST return an error, and MUST NOT panic, when Slang reports that a shader fails to compile, or else one invalid shader stops the user's whole application.
@@ -87,7 +97,9 @@ An author MUST keep this order, because agents and reviewers find content by pos
 
 ### 3.2. Security Considerations
 
-A security considerations section never says "none" and never says only that security was not considered [RFC2360]. Following Section 5 of [RFC3552], it states the threat model, which is the set of capabilities an attacker is assumed to have. It then states which attacks are out of scope and why, and the residual risk to the user after the mitigations. A reviewer MUST reject a security considerations section that omits any of these three parts, because an agent that reads an empty or partial section concludes that there is no security property to preserve.
+A security considerations section never says "none" and never says only that security was not considered [RFC2360]. Following Section 5 of [RFC3552], it states the threat model, which is the set of capabilities an attacker is assumed to have. It then states which attacks are out of scope and why, and the residual risk to the user after the mitigations.
+
+A reviewer MUST reject a security considerations section that omits any of these three parts, because an agent that reads an empty or partial section concludes that there is no security property to preserve.
 
 For a crate in this repository, the section covers each of these topics, or states why a topic does not apply:
 
@@ -131,7 +143,9 @@ An author omits an optional section that would be empty, because a section that 
 
 ### 3.5. Enforced and Judgement Rules
 
-A guide or a standards document states, for each rule, the tool or lint that enforces it, or that the rule is a judgement rule. An author MUST assign every rule that a deterministic tool can check to that tool and MUST NOT leave it to a reviewer, because a reviewer misses findings that a tool reports every time, and a reviewer's effort is better spent on what only a reviewer can judge. When a tool could check a rule but no tool in the repository does yet, the document calls the rule a judgement rule until a tool covers it. In this guide, a rule that names no tool is a judgement rule.
+A guide or a standards document states, for each rule, the tool or lint that enforces it, or that the rule is a judgement rule. An author MUST assign every rule that a deterministic tool can check to that tool and MUST NOT leave it to a reviewer. A reviewer misses findings that a tool reports every time, and a reviewer's effort is better spent on what only a reviewer can judge.
+
+When a tool could check a rule but no tool in the repository does yet, the document calls the rule a judgement rule until a tool covers it. In this guide, a rule that names no tool is a judgement rule.
 
 ### 3.6. Design, Not Progress
 
@@ -143,7 +157,11 @@ Progress records include what works and what does not as a status, what was trie
 
 ### 4.1. Narrative and Lists
 
-Lists are for enumeration only. A list is permitted for the steps of a procedure, for term and definition entries, for field or parameter definitions, and for enumerations of concrete items such as files, options, or states. Everything else is prose, in paragraphs of one to three sentences that together form one coherent point. An author SHOULD NOT write a longer paragraph, because a long paragraph mixes several points, and the reader then has to work out which sentence each condition or reason belongs to. An author MUST NOT use a list for rationale, design discussion, consequences, or any other connected argument, because a list drops the words that connect ideas, such as "because", "unless", and "therefore", and the agent then has to guess how the items relate. Tables are permitted for comparisons across options and for summaries, as Section 3.4 shows.
+Lists are for enumeration only. A list is permitted for the steps of a procedure, for term and definition entries, for field or parameter definitions, and for enumerations of concrete items such as files, options, or states. Everything else is prose, in paragraphs of one to three sentences that together form one coherent point.
+
+An author SHOULD NOT write a longer paragraph, because a long paragraph mixes several points, and the reader then has to work out which sentence each condition or reason belongs to.
+
+An author MUST NOT use a list for rationale, design discussion, consequences, or any other connected argument. A list drops the words that connect ideas, such as "because", "unless", and "therefore", and the agent then has to guess how the items relate. Tables are permitted for comparisons across options and for summaries, as Section 3.4 shows.
 
 ### 4.2. Sentences
 
@@ -153,7 +171,9 @@ Sentences are short, in the active voice, and in the present tense. An author MU
 
 A document states the problem before the design, as Section 2.1 of [RFC1034] describes the limits of the host table before it introduces the Domain Name System. A section states the rule before the rationale.
 
-Normative text is concise, and an author keeps it apart from explanatory text, as Section 2.4 of [RFC2360] recommends. Rationale goes in its own paragraph or subsection. A subsection that holds only explanatory text says so in its first sentence, as each subsection of Section 1 of [RFC6455] does with the sentence "This section is non-normative". Concise normative text leaves fewer places where two statements can conflict.
+Normative text is concise, and an author keeps it apart from explanatory text, as Section 2.4 of [RFC2360] recommends. Rationale goes in its own paragraph or subsection.
+
+A subsection that holds only explanatory text says so in its first sentence, as each subsection of Section 1 of [RFC6455] does with the sentence "This section is non-normative". Concise normative text leaves fewer places where two statements can conflict.
 
 ### 4.4. Terms and Abbreviations
 
@@ -169,7 +189,9 @@ The HTTP/1.1 specification [RFC2616] is the standard example of repetition. Its 
 
 ### 5.1. Examples
 
-Every behaviour that a document describes in abstract terms has a complete example that a reader can run or verify. The examples include abnormal cases, as Section 5.4 of [RFC3986] does with its separate normal and abnormal examples. Each example has a one-line lead-in that says what it shows. Code and commands go in fenced code blocks with a language tag. An example that shows a form, such as an API that does not exist yet, says in its lead-in that it is an illustration, because an agent otherwise takes the names in it as real.
+Every behaviour that a document describes in abstract terms has a complete example that a reader can run or verify. The examples include abnormal cases, as Section 5.4 of [RFC3986] does with its separate normal and abnormal examples. Each example has a one-line lead-in that says what it shows.
+
+Code and commands go in fenced code blocks with a language tag. An example that shows a form, such as an API that does not exist yet, says in its lead-in that it is an illustration, because an agent otherwise takes the names in it as real.
 
 This example shows a lead-in followed by a command in a fenced code block, as it appears in the Markdown source:
 
@@ -187,13 +209,17 @@ Diagrams, in American Standard Code for Information Interchange (ASCII) text or 
 
 ### 5.3. Formal Notation
 
-A format that software parses, such as a configuration file, a file that a build script reads, or the input of a code generator, has its authoritative definition in a schema or a formal grammar, such as JSON Schema or Augmented Backus-Naur Form (ABNF) [RFC5234]. The schema lives in the repository, and the prose cites it by path. The prose explains purpose and meaning that the schema cannot express. An author MUST NOT restate a schema field by field in prose, because the restatement diverges from the schema, and an agent may then implement the prose instead of the schema.
+A format that software parses, such as a configuration file, a file that a build script reads, or the input of a code generator, has its authoritative definition in a schema or a formal grammar, such as JSON Schema or Augmented Backus-Naur Form (ABNF) [RFC5234]. The schema lives in the repository, and the prose cites it by path. The prose explains purpose and meaning that the schema cannot express.
+
+An author MUST NOT restate a schema field by field in prose, because the restatement diverges from the schema, and an agent may then implement the prose instead of the schema.
 
 ## 6. Writing for Agents
 
 ### 6.1. Citable Structure
 
-Sections are numbered so that an agent can cite them, as in "Section 4.5". Each section covers one concept. A document refers to other content by section number, never by phrases such as "see above" or "as mentioned". The instruction file and the README are the exceptions, because their headings are unnumbered and agents cite them by heading.
+Sections are numbered so that an agent can cite them, as in "Section 4.5". Each section covers one concept. A document refers to other content by section number, never by phrases such as "see above" or "as mentioned".
+
+The instruction file and the README are the exceptions, because their headings are unnumbered and agents cite them by heading.
 
 An author SHOULD NOT renumber or rename an existing section, because other documents cite it, and each citation then points to the wrong place. A change that renumbers a section updates every citation to it.
 
@@ -211,7 +237,9 @@ A document avoids humour, idiom, and metaphor, because an agent can read figurat
 
 ### 6.5. Labelled Requirements
 
-The TCP specification labels each requirement with an identifier, such as MUST-1 or SHLD-2, and summarizes all of them in a table in an appendix [RFC9293]. An author SHOULD label every requirement in a design document longer than about 3,000 words and summarize the labels in a table in an appendix, because without labels a reviewer cannot check an implementation requirement by requirement, and an agent cannot cite the requirement that its change satisfies. A label is never reused for a different requirement.
+The TCP specification labels each requirement with an identifier, such as MUST-1 or SHLD-2, and summarizes all of them in a table in an appendix [RFC9293]. An author SHOULD label every requirement in a design document longer than about 3,000 words and summarize the labels in a table in an appendix. Without labels a reviewer cannot check an implementation requirement by requirement, and an agent cannot cite the requirement that its change satisfies.
+
+A label is never reused for a different requirement.
 
 ## 7. API Documentation
 
@@ -241,13 +269,23 @@ Rust source files in this repository contain only these comments:
 
 In other files, such as the `justfile`, scripts, and configuration files, the only comments are text addressed to a human, such as the help comment of a recipe, the usage text of a script, or the description of a setting.
 
-An author MUST NOT write any other comment in Rust source, including a line comment that explains code, a `TODO`, or a `FIXME`, because the compiler does not check a comment, so a stale comment contradicts the code, and an agent that reads both tends to trust the comment.
+An author MUST NOT write any other comment in Rust source, including a line comment that explains code, a `TODO`, or a `FIXME`. The compiler does not check a comment, so a stale comment contradicts the code, and an agent that reads both tends to trust the comment.
 
-Checked by: rustc `missing_docs` for API documentation on public items. `clippy::undocumented_unsafe_blocks` for safety comments. `check-rust-comments` for the absence of other comments in Rust source: it reports every line comment other than a `///` comment, a `//!` comment, or a safety comment, every block comment, including `/** */` and `/*! */`, and every comment that contains `TODO` or `FIXME`. It checks generated files like any other file. The comments in other files are a judgement rule.
+Checked by: rustc `missing_docs` for API documentation on public items. `clippy::undocumented_unsafe_blocks` for safety comments.
+
+Also checked by: `check-rust-comments` for the absence of other comments in Rust source. It reports these comments:
+
+- Every line comment other than a `///` comment, a `//!` comment, or a safety comment.
+- Every block comment, including `/** */` and `/*! */`.
+- Every comment that contains `TODO` or `FIXME`.
+
+It checks generated files like any other file. The comments in other files are a judgement rule.
 
 ### 7.3. Shape of an Item's Documentation
 
-The API documentation of an item starts with a one-line summary sentence, then a blank line, then the body. The summary sentence says what the item does. The first paragraph of the body says when to use the item. An author MUST keep the summary to one sentence in its own paragraph, because rustdoc shows the first paragraph in module listings and search results, and a long or vague first paragraph hides what the item is for.
+The API documentation of an item starts with a one-line summary sentence, then a blank line, then the body. The summary sentence says what the item does. The first paragraph of the body says when to use the item.
+
+An author MUST keep the summary to one sentence in its own paragraph, because rustdoc shows the first paragraph in module listings and search results, and a long or vague first paragraph hides what the item is for.
 
 The body uses these standard sections, in this order, and omits a section that has nothing to say:
 
@@ -257,7 +295,9 @@ The body uses these standard sections, in this order, and omits a section that h
 4. `# Safety`: the contract that Section 7.6 defines.
 5. `# Platform support`: the platforms or backends on which the item is unavailable or behaves differently, as Section 7.8 defines.
 
-An author MUST use these headings exactly, as level-one headings, each at most once and in this order, and MUST NOT give one of these topics another heading, such as `# Failures`, because readers look for the standard names, and the Clippy lints in Section 7.6 find the `# Errors`, `# Panics`, and `# Safety` sections by their headings. An author MUST NOT add any other heading, of any level, to the documentation of an item, because a reader who knows the standard sections then has to read every heading to find the contract. These heading rules do not apply to crate-level and module-level documentation, which is written with `//!`, and Section 7.4 defines the headings of crate-level documentation.
+An author MUST use these headings exactly, as level-one headings, each at most once and in this order. An author MUST NOT give one of these topics another heading, such as `# Failures`. Readers look for the standard names, and the Clippy lints in Section 7.6 find the `# Errors`, `# Panics`, and `# Safety` sections by their headings.
+
+An author MUST NOT add any other heading, of any level, to the documentation of an item, because a reader who knows the standard sections then has to read every heading to find the contract. These heading rules do not apply to crate-level and module-level documentation, which is written with `//!`. Section 7.4 defines the headings of crate-level documentation.
 
 This illustration shows the shape. The names in it are examples of the form and do not describe an existing API:
 
@@ -290,7 +330,9 @@ impl Session {
 }
 ````
 
-Checked by: the summary sentence and the first paragraph are judgement rules. `clippy::too_long_first_doc_paragraph` is in the Clippy `nursery` group, which this repository does not enable. `clippy::unnecessary_safety_doc` rejects a `# Safety` section on a safe item. `check-doc-headings` checks the headings in the `///` documentation of every item: it reports a heading that is not a standard heading, including a standard heading with the wrong case or level, a standard heading out of order, and a standard heading that appears twice. It ignores lines inside fenced code blocks, so a hidden doctest line that starts with `#` is not a heading.
+Checked by: the summary sentence and the first paragraph are judgement rules. `clippy::too_long_first_doc_paragraph` is in the Clippy `nursery` group, which this repository does not enable. `clippy::unnecessary_safety_doc` rejects a `# Safety` section on a safe item.
+
+`check-doc-headings` checks the headings in the `///` documentation of every item. It reports a heading that is not a standard heading, including a standard heading with the wrong case or level, a standard heading out of order, and a standard heading that appears twice. It ignores lines inside fenced code blocks, so a hidden doctest line that starts with `#` is not a heading.
 
 ### 7.4. Crate-Level and Module-Level Documentation
 
@@ -307,21 +349,37 @@ Every public module has module-level documentation, written with `//!` at the to
 
 An author MUST write crate-level documentation with this content, because it is the first page a user sees on docs.rs, and a user who cannot tell from it which crate to use picks one by trial.
 
-Checked by: `rustdoc::missing_crate_level_docs` for the presence of crate-level documentation. Rustc `missing_docs` for the presence of documentation on public modules. `check-feature-docs` for the presence of the `# Features` section in the crate-level documentation of every library, as Section 7.8 describes. The rest of the content is a judgement rule.
+Checked by: `rustdoc::missing_crate_level_docs` for the presence of crate-level documentation. Rustc `missing_docs` for the presence of documentation on public modules.
+
+`check-feature-docs` checks the presence of the `# Features` section in the crate-level documentation of every library, as Section 7.8 describes. The rest of the content is a judgement rule.
 
 ### 7.5. Examples and Doctests
 
 An author SHOULD give every public item an example that shows why a user calls it, not only how, because without an example a user has to infer the intended use from the signature alone. An author MAY link to the example of a related item instead of repeating it, because repeated examples diverge (Section 4.5).
 
-Every example is a doctest that `cargo test --doc` compiles and, unless the example is marked `no_run`, runs. An author MUST write examples with the `?` operator and MUST NOT use `unwrap` or `expect` in them, because users copy examples into their programs, and a copied `unwrap` turns a recoverable error into a panic. The example ends with a hidden line that returns `Ok`, such as `# Ok::<(), Box<dyn std::error::Error>>(())`, and has no visible `fn main`. Hidden lines, which start with `# `, hold only setup that does not help the reader, such as `use` declarations.
+Every example is a doctest that `cargo test --doc` compiles and, unless the example is marked `no_run`, runs. An author MUST write examples with the `?` operator and MUST NOT use `unwrap` or `expect` in them, because users copy examples into their programs, and a copied `unwrap` turns a recoverable error into a panic.
 
-When an example needs something that exists only when the example runs, such as a GPU, a display, a file, or a shared library that the dynamic loader must find, an author MUST mark the example `no_run` and MUST NOT mark it `ignore`, because rustdoc still compiles a `no_run` example, so a renamed or removed item breaks the build, while an `ignore` example is never compiled and becomes wrong without any warning. The lead-in sentence of the example states the reason, as the illustration in Section 7.3 does. A `no_run` example cannot avoid a failed build of the crate itself, such as when the native Slang library is missing at build time, because rustdoc still compiles and links the example against the crate.
+The example ends with a hidden line that returns `Ok`, such as `# Ok::<(), Box<dyn std::error::Error>>(())`, and has no visible `fn main`. Hidden lines, which start with `# `, hold only setup that does not help the reader, such as `use` declarations.
 
-The one exception is an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against the directory of the Rust file that calls it, because in a doctest that file is the source file that holds the documentation, where the path of the example does not resolve. An author MAY write such an example as a `text` block and MUST state the reason in its lead-in sentence, because a doctest of it would fail on every build. A compiled example of the same use, such as an example program, SHOULD exist, because nothing checks the `text` block.
+When an example needs something that exists only when the example runs, such as a GPU, a display, a file, or a shared library that the dynamic loader must find, an author MUST mark the example `no_run` and MUST NOT mark it `ignore`. Rustdoc still compiles a `no_run` example, so a renamed or removed item breaks the build. An `ignore` example is never compiled and becomes wrong without any warning.
+
+The lead-in sentence of the example states the reason, as the illustration in Section 7.3 does. A `no_run` example cannot avoid a failed build of the crate itself, such as when the native Slang library is missing at build time, because rustdoc still compiles and links the example against the crate.
+
+The one exception is an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against the directory of the Rust file that calls it. In a doctest that file is the source file that holds the documentation, where the path of the example does not resolve.
+
+An author MAY write such an example as a `text` block and MUST state the reason in its lead-in sentence, because a doctest of it would fail on every build. A compiled example of the same use, such as an example program, SHOULD exist, because nothing checks the `text` block.
 
 A code block that is not Rust names its language, such as `toml`, `slang`, or `text`, because rustdoc compiles a code block with no language tag as Rust.
 
-Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately. `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`. Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules. `check-doctest-attributes` reports a code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows`, in the `///` and `//!` comments of every Rust file and in every `README.md` file. It splits the info string of a code block into attributes the way rustdoc does, at commas, spaces, and tabs, so a variant such as `rust,ignore` is found. Whether the lead-in of a `no_run` example states the reason, and whether that reason is correct, are judgement rules.
+Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately.
+
+Also checked by: `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`.
+
+Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules.
+
+`check-doctest-attributes` reports a code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows`, in the `///` and `//!` comments of every Rust file and in every `README.md` file. It splits the info string of a code block into attributes the way rustdoc does, at commas, spaces, and tabs, so a variant such as `rust,ignore` is found.
+
+Whether the lead-in of a `no_run` example states the reason, and whether that reason is correct, are judgement rules.
 
 ### 7.6. Errors, Panics, and Safety
 
@@ -331,13 +389,15 @@ These sections state the contract of an item:
 - `# Panics`: Every public function that can panic lists each condition that causes the panic.
 - `# Safety`: Every unsafe function and every unsafe trait, whatever its visibility, lists each condition that the caller, or the implementer of the trait, must uphold. The section says that breaking any of the conditions is undefined behaviour.
 
-A function that can stop the process on purpose, such as a function that aborts when a foreign exception reaches it, states this in a paragraph of the body of its documentation. The paragraph begins with the word "Aborts". It states each condition under which the process aborts, that the process aborts instead of returning an error, and what it writes before it aborts. Section 7.3 has no standard heading for an abort, and `check-doc-headings` rejects every other heading, so an author MUST NOT give the abort a heading of its own, or the check fails.
+A function that can stop the process on purpose, such as a function that aborts when a foreign exception reaches it, states this in a paragraph of the body of its documentation. The paragraph begins with the word "Aborts". It states each condition under which the process aborts, that the process aborts instead of returning an error, and what it writes before it aborts.
+
+Section 7.3 has no standard heading for an abort, and `check-doc-headings` rejects every other heading, so an author MUST NOT give the abort a heading of its own, or the check fails.
 
 When every call of a crate into a foreign library can abort for the same reason, the crate-level documentation states that general case once, in a paragraph that begins with "Aborts". A function then carries its own paragraph only when the abort has been observed for its call, because a reader who reaches that function from a search does not read the crate page and needs to know that this call aborts.
 
 A safety comment sits directly above every `unsafe` block and every `unsafe impl`. It names each condition that the unsafe operation requires, citing the `# Safety` section of the function it calls or the documented contract of the Slang API, and states why each condition holds at that point in the code. It does not restate what the code does.
 
-An author MUST write these sections and comments with this content, because a caller who does not know an error or panic condition cannot handle it, and a caller or maintainer who does not know a safety condition can cause undefined behaviour that no test detects. Generated raw bindings are the one exception to the `# Safety` sections and safety comments, under the conditions of Section 7.9.
+An author MUST write these sections and comments with this content. A caller who does not know an error or panic condition cannot handle it, and a caller or maintainer who does not know a safety condition can cause undefined behaviour that no test detects. Generated raw bindings are the one exception to the `# Safety` sections and safety comments, under the conditions of Section 7.9.
 
 This illustration shows a safety comment. The names in it are examples of the form:
 
@@ -349,7 +409,11 @@ This illustration shows a safety comment. The names in it are examples of the fo
 unsafe { release(self.raw) }
 ```
 
-Checked by: `clippy::missing_errors_doc` and `clippy::missing_panics_doc` for the presence of `# Errors` and `# Panics`. `clippy::missing_safety_doc` for the presence of `# Safety` on public unsafe functions. `clippy::undocumented_unsafe_blocks` for the presence of safety comments. `check-doc-headings` for the absence of a heading for an abort. The sentence that states an abort, the `# Safety` section on a private unsafe function and on an unsafe trait, and the content of every section and safety comment, are judgement rules, because the repository leaves the Clippy option `check-private-items` off (Section 4.3 of the standards document).
+Checked by: `clippy::missing_errors_doc` and `clippy::missing_panics_doc` for the presence of `# Errors` and `# Panics`. `clippy::missing_safety_doc` for the presence of `# Safety` on public unsafe functions.
+
+Also checked by: `clippy::undocumented_unsafe_blocks` for the presence of safety comments. `check-doc-headings` for the absence of a heading for an abort.
+
+The sentence that states an abort, the `# Safety` section on a private unsafe function and on an unsafe trait, and the content of every section and safety comment, are judgement rules. The repository leaves the Clippy option `check-private-items` off (Section 4.3 of the standards document).
 
 ### 7.7. Intra-Doc Links
 
@@ -359,11 +423,19 @@ Checked by: `rustdoc::broken_intra_doc_links`, `rustdoc::private_intra_doc_links
 
 ### 7.8. Cargo Features and Platform Support
 
-The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. It names each feature in a code span. A crate that has no features still has the section, and the section says so. An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `example-feature` feature." The name `example-feature` is an illustration and names no planned feature. An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
+The `# Features` section of the crate-level documentation lists every Cargo feature of the crate, with whether it is on by default and what it enables. It names each feature in a code span. A crate that has no features still has the section, and the section says so.
+
+An item that exists only when a feature is enabled says so in its body, in the form "Available only with the `example-feature` feature." The name `example-feature` is an illustration and names no planned feature. An author MUST document every feature this way, because a user who cannot find what a feature does enables features by trial, and an agent that finds no default chooses one (Section 3.3).
 
 An item that is unavailable or behaves differently on a platform or a graphics backend has a `# Platform support` section that names each such platform or backend and the difference.
 
-Checked by: `check-feature-docs`, which reads the features of each library from `cargo metadata`, including the feature that an optional dependency defines. It reports a library whose crate-level documentation has no `# Features` section, a feature other than `default` that the section does not name in a code span, and a code span in the section that looks like a feature name but names no feature of the package. What the section says about each feature, including its default and what it enables, the sentence on an item that needs a feature, and the content of each `# Platform support` section are judgement rules.
+Checked by: `check-feature-docs`, which reads the features of each library from `cargo metadata`, including the feature that an optional dependency defines. It reports these cases:
+
+- A library whose crate-level documentation has no `# Features` section.
+- A feature other than `default` that the section does not name in a code span.
+- A code span in the section that looks like a feature name but names no feature of the package.
+
+What the section says about each feature, including its default and what it enables, the sentence on an item that needs a feature, and the content of each `# Platform support` section are judgement rules.
 
 ### 7.9. Generated Raw Bindings
 
@@ -371,9 +443,15 @@ A crate of generated raw bindings, such as `slang-compiler-sys`, has full crate-
 
 The generated items are exempt from item documentation, from `# Safety` sections and safety comments, and from the naming and API lints that generated code cannot meet.
 
-The exemption from `# Safety` sections and safety comments holds only when the crate-level documentation states one safety contract that applies to every generated function and thunk. The contract says what the caller must guarantee, which is that every pointer it passes is valid, correctly typed, live, and obtained from Slang. It states the threading and lifetime rules of Slang that a caller follows. It says that a call that breaks the contract is undefined behaviour. An author MUST write this contract before the exception lists a lint of safety documentation, because the generated unsafe code has no safety documentation of its own, so without the contract a caller has no statement of what makes a call sound. The exemption exists because the generator cannot write a contract for each item, since the headers state none, and the generator emits no comments at all.
+The exemption from `# Safety` sections and safety comments holds only when the crate-level documentation states one safety contract that applies to every generated function and thunk.
 
-The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined at each regeneration. An author MUST NOT list a lint that does not fire, because rustc reports such an expectation through `unfulfilled_lint_expectations`, which fails the check. An author MUST NOT apply the exemption to the whole crate or to hand-written code, because a broad exemption hides every undocumented hand-written item from the lints. Hand-written items in the same crate follow Sections 7.2 to 7.8 in full.
+The contract says what the caller must guarantee, which is that every pointer it passes is valid, correctly typed, live, and obtained from Slang. It states the threading and lifetime rules of Slang that a caller follows. It says that a call that breaks the contract is undefined behaviour.
+
+An author MUST write this contract before the exception lists a lint of safety documentation, because the generated unsafe code has no safety documentation of its own, so without the contract a caller has no statement of what makes a call sound. The exemption exists because the generator cannot write a contract for each item, since the headers state none, and the generator emits no comments at all.
+
+The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined at each regeneration.
+
+An author MUST NOT list a lint that does not fire, because rustc reports such an expectation through `unfulfilled_lint_expectations`, which fails the check. An author MUST NOT apply the exemption to the whole crate or to hand-written code, because a broad exemption hides every undocumented hand-written item from the lints. Hand-written items in the same crate follow Sections 7.2 to 7.8 in full.
 
 This illustration shows the form of the exemption, with a typical set of lints for bindings that contain thunks:
 
@@ -396,7 +474,9 @@ Checked by: `clippy::allow_attributes` and `clippy::allow_attributes_without_rea
 
 ### 7.10. README and Crate Documentation
 
-The README describes the project as a whole: what it is, the list of crates with one sentence and a documentation link for each, how to obtain the native Slang library, the build requirements, and the licence. Crate-level documentation is the API reference of one crate. Each fact lives in one of the two places, and the other links to it (Section 4.5). An author MUST NOT copy API reference material into the README, because rustdoc does not check the copy, so it diverges from the code.
+The README describes the project as a whole: what it is, the list of crates with one sentence and a documentation link for each, how to obtain the native Slang library, the build requirements, and the licence. Crate-level documentation is the API reference of one crate.
+
+Each fact lives in one of the two places, and the other links to it (Section 4.5). An author MUST NOT copy API reference material into the README, because rustdoc does not check the copy, so it diverges from the code.
 
 Rust code in the README is compiled as a doctest by including the README in a crate. This illustration shows the form, with a path that depends on where the crate lives:
 
@@ -501,11 +581,28 @@ just check-doc-references
 
 Prose uses Canadian English spelling, as in colour, behaviour, organize, and licence as a noun. Consistent spelling lets an agent find every occurrence of a word with a single search.
 
-Punctuation is ASCII. Prose uses no em dashes or en dashes, and an author writes a hyphen or a full stop instead. Prose uses no semicolons, and an author uses a full stop or a joining word instead. Code is exempt from this rule. Quotation marks are straight, never smart quotes. Non-ASCII characters appear only in code blocks and code spans where an example needs them [RFC7997]. Lists of three or more items take the serial comma, following Section 3.2 of [RFC7322].
+Punctuation is ASCII. Prose uses no em dashes or en dashes, and an author writes a hyphen or a full stop instead.
 
-Headings are in title case. A citation tag has square brackets with no space, such as [RFC2119], and a matching entry in the References section. A document may instead resolve a whole family of tags through one pointer, stated in its References section, to the reference list. Section 21 of `docs/rust-coding-standards.md` does this for its `[IR-<n>]` and `[S-<n>]` tags. A citation of a section reads "Section 6 of [RFC2119]". A Uniform Resource Identifier (URI) in a reference entry is enclosed in angle brackets. Dates use the International Organization for Standardization (ISO) 8601 format, such as 2026-10-30.
+Prose uses no semicolons, and an author uses a full stop or a joining word instead. Code is exempt from this rule.
 
-The script `scripts/check-prose` checks every Markdown file, and the `///` and `//!` documentation comments of every Rust file, for non-ASCII characters, which include em dashes, en dashes, and smart quotes, for a UTF-8 byte order mark, for semicolons, and for the non-Canadian spellings listed in `scripts/prose-wordlist.txt`. It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file or a Rust file. Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
+Quotation marks are straight, never smart quotes. Non-ASCII characters appear only in code blocks and code spans where an example needs them [RFC7997]. Lists of three or more items take the serial comma, following Section 3.2 of [RFC7322].
+
+Headings are in title case. A citation tag has square brackets with no space, such as [RFC2119], and a matching entry in the References section.
+
+A document may instead resolve a whole family of tags through one pointer, stated in its References section, to the reference list. Section 21 of `docs/rust-coding-standards.md` does this for its `[IR-<n>]` and `[S-<n>]` tags.
+
+A citation of a section reads "Section 6 of [RFC2119]". A Uniform Resource Identifier (URI) in a reference entry is enclosed in angle brackets. Dates use the International Organization for Standardization (ISO) 8601 format, such as 2026-10-30.
+
+The script `scripts/check-prose` checks every Markdown file, and the `///` and `//!` documentation comments of every Rust file. It checks for these items:
+
+- Non-ASCII characters, which include em dashes, en dashes, and smart quotes.
+- A UTF-8 byte order mark.
+- Semicolons.
+- The non-Canadian spellings listed in `scripts/prose-wordlist.txt`.
+
+It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file or a Rust file.
+
+Spelling outside the word list, the serial comma, title case, and the citation and date formats are judgement rules.
 
 This command checks one file:
 
@@ -532,7 +629,13 @@ A reviewer checks only judgement rules, because the tools in Section 7.12 and Se
 
 ## 10. Security Considerations
 
-This document is procedural and defines no component. Its first security consideration is that an agent fills a gap in an ambiguous document by guessing, and a guess about a security setting can produce an insecure default. The requirements in Section 3.3, that every option states its default and that every security check defaults to on, prevent this. Its second security consideration is that an incomplete `# Safety` section or safety comment lets a caller or a later maintainer break a condition that unsafe code relies on, which causes undefined behaviour. The requirements in Section 7.6 prevent this. The threat model is an author who leaves a setting or a safety condition unspecified, not an attacker. Attacks on the repository itself, such as a malicious change to a document, are out of scope because this guide governs writing and not access control. The residual risk is a document or an item of API documentation that a reviewer accepts without these requirements, and the content of a safety contract, which no tool checks.
+This document is procedural and defines no component. Its first security consideration is that an agent fills a gap in an ambiguous document by guessing, and a guess about a security setting can produce an insecure default. The requirements in Section 3.3, that every option states its default and that every security check defaults to on, prevent this.
+
+Its second security consideration is that an incomplete `# Safety` section or safety comment lets a caller or a later maintainer break a condition that unsafe code relies on, which causes undefined behaviour. The requirements in Section 7.6 prevent this.
+
+The threat model is an author who leaves a setting or a safety condition unspecified, not an attacker. Attacks on the repository itself, such as a malicious change to a document, are out of scope because this guide governs writing and not access control.
+
+The residual risk is a document or an item of API documentation that a reviewer accepts without these requirements, and the content of a safety contract, which no tool checks.
 
 ## 11. References
 

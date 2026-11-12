@@ -8,11 +8,13 @@
 
 ## Abstract
 
-This document lists the external sources behind the Rust coding standards of this repository and organizes them for lookup by topic. It holds a topic index, a catalogue of 106 sources with the tier, currency, and relevance of each and the rules derived from it, the topics that no source covers well, the sources that could not be fully read, and the procedure for maintaining the list. When a change introduces a design pattern or raises a design question, an agent uses it to find what the sources say and to check whether the standards already cover the case.
+This document lists the external sources behind the Rust coding standards of this repository and organizes them for lookup by topic, with the tier, currency, and relevance of each source. An agent uses it when a change introduces a design pattern or raises a design question, to find what the sources say and to check whether the standards already cover the case.
 
 ## 1. Introduction
 
-The standards document `docs/rust-coding-standards.md` draws its judgement rules from a curated list of Rust writing and from supplementary sources. Its rules cover the topics that the project needed when it was written. A later change can use a pattern that no rule covers, such as a new kind of builder, a graph of foreign objects, or an async entry point. This list lets an agent find the sources for that pattern, judge how far to trust each one, and see which rules each source already supports. The agent then finds and fills a gap in the standard before code depends on it.
+The standards document `docs/rust-coding-standards.md` draws its judgement rules from a curated list of Rust writing and from supplementary sources. Its rules cover the topics that the project needed when it was written.
+
+A later change can use a pattern that no rule covers, such as a new kind of builder, a graph of foreign objects, or an async entry point. This list lets an agent find the sources for that pattern, judge how far to trust each one, and see which rules each source already supports. The agent then finds and fills a gap in the standard before code depends on it.
 
 This document states no requirement on code. Section 6 states how to maintain the list.
 
@@ -30,7 +32,7 @@ An agent that is about to use a design pattern, or that faces a design question,
 Every source has one identifier, used in this document and in `docs/rust-coding-standards.md` alike:
 
 - `[IR-<n>]`: the entry at zero-based index n of the file `resources.json` in the curated list at <https://github.com/mre/idiomatic-rust>, as of the snapshot that Section 6.2 records.
-- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly. Some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary.
+- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly, and some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary.
 
 An identifier is never reused or renumbered (Section 6). The catalogue in Section 3 holds the entry for every identifier that this document cites, so it takes the place of a References section. Section 21 of `docs/rust-coding-standards.md` points to the catalogue in the same way.
 
@@ -426,7 +428,9 @@ Rules: FFI-7, together with the guard that ERR-5 and ERR-6 permit. Section 4.4 r
 
 ### 2.23. COM-Style and Reference-Counted Foreign Objects
 
-No source in this list covers COM-style interfaces, `AddRef` and `Release` pairing, `QueryInterface` with universally unique identifiers (UUIDs), or the generation of vtables. The rules in Section 12 of `docs/rust-coding-standards.md`, COM-1 to COM-13, cite no source from this list. They are project decisions. Section 4.1 and Section 4.2 describe the gap. These sources cover neighbouring ideas:
+No source in this list covers COM-style interfaces, `AddRef` and `Release` pairing, `QueryInterface` with universally unique identifiers (UUIDs), or the generation of vtables. The rules in Section 12 of `docs/rust-coding-standards.md`, COM-1 to COM-13, cite no source from this list, because they are project decisions.
+
+Sections 4.1 and 4.2 describe the gap. These sources cover neighbouring ideas:
 
 | Source | Tier | What it contributes |
 | --- | --- | --- |
@@ -1266,7 +1270,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - URL: <http://xion.io/post/code/rust-string-args.html>.
 - Kind: article.
 - Tier: 3.
-- Read status: full. Read on a retry. The page as served ends after the section "Own it" and a footnote on `AsRef<Path>`. A follow-on section on `impl Into<String>` was not served, so that common practice is not backed by this source.
+- Read status: full, read on a retry. The page as served ends after the section "Own it" and a footnote on `AsRef<Path>`. A follow-on section on `impl Into<String>` was not served, so that common practice is not backed by this source.
 - Current: mostly. `impl AsRef<str>` is now the common spelling, and the example code has typos.
 - Relevance: medium. It governs how the safe wrappers take strings and paths for Slang names, entry points, and file paths.
 - Consult when: designing a public function that takes a string or path, or choosing between `&str`, `String`, `impl AsRef<str>`, and `impl Into<String>`.
@@ -1345,7 +1349,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Kind: article.
 - Tier: 3.
 - Read status: full. Read through the archive copy.
-- Current: mostly. The design lessons hold. It predates `std::thread::scope`, `&raw`, and the edition 2024 unsafe rules. Its `Rc` flag technique is to be avoided, and its first guard-based design was withdrawn by its own update.
+- Current: mostly. The design lessons hold, but it predates `std::thread::scope`, `&raw`, and the edition 2024 unsafe rules. Its `Rc` flag technique is to be avoided, and its first guard-based design was withdrawn by its own update.
 - Relevance: high. It addresses the same problem as Slang: a native object graph with destroy-order constraints, wrapped soundly and without runtime cost.
 - Consult when: designing parent and child handles, choosing between `Rc` or `Arc` liveness tracking and lifetimes, splitting a large wrapper object, or being tempted to rely on a guard's `Drop` for soundness.
 - Cited by: OWN-4, UNS-4. Sections 17 and 18.
@@ -2051,7 +2055,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - URL: <https://doc.rust-lang.org/std/keyword.unsafe.html> and <https://rust-lang.github.io/unsafe-code-guidelines/>. The documentation of `catch_unwind` and of the primitive type `fn` is under <https://doc.rust-lang.org/std/>.
 - Kind: documentation.
 - Tier: 1, named in Section 1.3 of the standards document.
-- Read status: partial. The keyword page and the glossary were read in full, together with the documentation of `CStr` and `NonNull`. Of `std::panic::catch_unwind`, its notes on foreign exceptions were read, and of the primitive type `fn`, its section on ABI compatibility. The data layout and validity chapters of the guidelines were not read.
+- Read status: partial. The keyword page and the glossary were read in full, together with the documentation of `CStr` and `NonNull`, the notes of `std::panic::catch_unwind` on foreign exceptions, and the section of the primitive type `fn` on ABI compatibility. The data layout and validity chapters of the guidelines were not read.
 - Current: yes. The guidelines describe themselves as largely abandoned and non-normative, but the glossary is maintained, and the layout chapters may be stale.
 - Relevance: high. It defines how to document unsafe contracts and the vocabulary used in review: soundness, validity and safety invariants, and provenance. It also states what `catch_unwind` does with a foreign exception, and that a function whose ABI string is `X` may be called through a function pointer whose ABI string is `X-unwind`.
 - Consult when: writing a `# Safety` section or a safety comment, deciding whether an API is sound or merely valid, deciding whether `catch_unwind` can handle an exception from foreign code, or storing a non-unwinding function in a field whose type has an `-unwind` ABI.
@@ -2133,19 +2137,33 @@ This section lists topics that the project needs and that the sources in Section
 
 ### 4.1. COM Interfaces and QueryInterface
 
-No source covers COM-style interfaces: owning interface pointers that pair `AddRef` with `Release`, borrowed interface pointers, `QueryInterface` with UUIDs, or `Send` and `Sync` for reference-counted foreign handles. The notes say that the Rustonomicon's chapter on ownership-based resource management [S-1] is only a stub, and that the `windows` and `com` crates would teach an owning COM pointer design. Section 2.23 lists the neighbouring sources. COM-5 of the standards document cites the issue `[SLANG-RS-26]` on a third-party binding as evidence of the parent-lifetime problem, and Section 21.2 of that document lists the issue. A source that fills this gap is the documentation and source of a maintained Rust crate that binds COM interfaces, together with Slang's own documentation of its interface conventions.
+No source covers COM-style interfaces: owning interface pointers that pair `AddRef` with `Release`, borrowed interface pointers, `QueryInterface` with UUIDs, or `Send` and `Sync` for reference-counted foreign handles. The notes say that the Rustonomicon's chapter on ownership-based resource management [S-1] is only a stub, and that the `windows` and `com` crates would teach an owning COM pointer design. Section 2.23 lists the neighbouring sources.
+
+COM-5 of the standards document cites the issue `[SLANG-RS-26]` on a third-party binding as evidence of the parent-lifetime problem, and Section 21.2 of that document lists the issue. A source that fills this gap is the documentation and source of a maintained Rust crate that binds COM interfaces, together with Slang's own documentation of its interface conventions.
 
 ### 4.2. Vtable Generation
 
-The `bindgen` guide [S-2] has no page on vtables or virtual methods. Only its `Builder` reference documents `vtable_generation`, and calls it experimental. No source describes how a generator emits `#[repr(C)]` vtable structs, UUID constants, and thunks from C++ headers, which COM-9 relies on. A source that fills this gap is the reference documentation of the header parser that the binding generator uses, or a published binding generator for a COM-style C++ API.
+The `bindgen` guide [S-2] has no page on vtables or virtual methods. Only its `Builder` reference documents `vtable_generation`, and calls it experimental.
+
+No source describes how a generator emits `#[repr(C)]` vtable structs, UUID constants, and thunks from C++ headers, which COM-9 relies on. A source that fills this gap is the reference documentation of the header parser that the binding generator uses, or a published binding generator for a COM-style C++ API.
 
 ### 4.3. Mapping Result Codes to Errors
 
-Only [IR-5] treats error codes at the FFI boundary, and its examples cover outbound FFI, from Rust to C. [S-10] touches the topic through canonical error structs. The mapping of Slang result codes, and of `HRESULT`-style codes in general, to a Rust error type is the notes' own inference. COM-7 and COM-8 rest on project decisions. A source that fills this gap is Slang's documentation of its result codes and diagnostics, or a maintained binding crate that maps such codes.
+Only [IR-5] treats error codes at the FFI boundary, and its examples cover outbound FFI, from Rust to C. [S-10] touches the topic through canonical error structs.
+
+The mapping of Slang result codes, and of `HRESULT`-style codes in general, to a Rust error type is the notes' own inference. COM-7 and COM-8 rest on project decisions. A source that fills this gap is Slang's documentation of its result codes and diagnostics, or a maintained binding crate that maps such codes.
 
 ### 4.4. Panics Across FFI in Edition 2024 Forms
 
-This gap was filled on 2026-11-11. Before then, [S-5], [S-1], and [S-7] covered panics at the boundary only weakly. The unwinding page of [S-1] is outdated, [IR-13] still calls unwinding across `extern "C"` undefined behaviour, and [S-7] does not cover `extern "C-unwind"`. The rules of [S-5] on unwinding across an FFI boundary, on the unwinding table of `extern` functions, and on the `-unwind` ABI strings, the documentation of `catch_unwind` and of the primitive type `fn` in [S-6], and RFC 2945 [S-11] now describe the current behaviour, and FFI-7 cites them. The section keeps its number so that existing citations still resolve.
+This gap was filled on 2026-11-11. Before then, [S-5], [S-1], and [S-7] covered panics at the boundary only weakly. The unwinding page of [S-1] is outdated, [IR-13] still calls unwinding across `extern "C"` undefined behaviour, and [S-7] does not cover `extern "C-unwind"`.
+
+Three sources now describe the current behaviour, and FFI-7 cites them:
+
+- The rules of [S-5] on unwinding across an FFI boundary, on the unwinding table of `extern` functions, and on the `-unwind` ABI strings.
+- The documentation of `catch_unwind` and of the primitive type `fn` in [S-6].
+- RFC 2945 [S-11].
+
+The section keeps its number so that existing citations still resolve.
 
 ### 4.5. wgpu-Specific Patterns
 
@@ -2153,7 +2171,9 @@ No source covers wgpu, and [IR-1] does not list it. DEP-3 and SIMP-2 rest on pro
 
 ### 4.6. GPU Resource Lifetime Design
 
-No source covers the lifetimes of GPU resources, such as devices, queues, buffers, and pipelines. [IR-46] shows parent and child handles with a native destroy order, [IR-50] and [IR-42] show typestate for resource states, and [IR-54] shows arenas for graphs. The notes point to vulkano references in the curated list, but the curated list contains none. A source that fills this gap is the design documentation of an established Rust GPU library, such as vulkano or wgpu.
+No source covers the lifetimes of GPU resources, such as devices, queues, buffers, and pipelines. [IR-46] shows parent and child handles with a native destroy order, [IR-50] and [IR-42] show typestate for resource states, and [IR-54] shows arenas for graphs.
+
+The notes point to vulkano references in the curated list, but the curated list contains none. A source that fills this gap is the design documentation of an established Rust GPU library, such as vulkano or wgpu.
 
 ### 4.7. Slint Integration
 
@@ -2165,7 +2185,9 @@ FFI-5 builds slices from pointers and lengths that Slang returns. [S-5] implies 
 
 ## 5. Sources That Could Not Be Fully Read
 
-Most sources were read through a summarizing fetch tool, which returns a summary made by a small model rather than the page text. A read status of "full" therefore means that the whole page was read in summary form, not verbatim. The rules in `docs/rust-coding-standards.md` paraphrase their sources, and some lint names in the sources were found to be stale. An agent opens the source itself before relying on fine detail, such as an exact API name, a quoted rule, or a lint name.
+Most sources were read through a summarizing fetch tool, which returns a summary made by a small model rather than the page text. A read status of "full" therefore means that the whole page was read in summary form, not verbatim.
+
+The rules in `docs/rust-coding-standards.md` paraphrase their sources, and some lint names in the sources were found to be stale. An agent opens the source itself before relying on fine detail, such as an exact API name, a quoted rule, or a lint name.
 
 This table lists every entry whose read status is partial or unreachable, with what was read or tried and the rules that cite it, so that an agent knows which rules rest on weak evidence.
 

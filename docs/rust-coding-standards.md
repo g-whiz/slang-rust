@@ -8,11 +8,15 @@
 
 ## Abstract
 
-This document sets the rules that all Rust code in this repository follows. It separates enforced rules, which a lint or tool checks on every change, from judgement rules, which a reviewer checks because no tool can. For the enforced rules, it specifies the workspace lint configuration and the other tools, and it explains what a failing check means and how to fix it or record an exception. For the judgement rules, it gives each rule a stable identifier, an imperative statement, and the reason, grouped by topic: API design, type-driven design, errors and panics, ownership, unsafe code, the foreign function interface, build scripts, COM-style interfaces, concurrency and async, testing, dependencies, and simplicity. It also records how conflicts between sources were resolved, lists outdated advice to avoid, and says how to extend the standard. The primary readers are the coding agents that write Rust here and the review agents that check their work.
+This document sets the rules that all Rust code in this repository follows, for the coding agents that write Rust here and the review agents that check their work. It separates enforced rules, which a lint or tool checks on every change, from judgement rules, which a reviewer checks because no tool can. Each judgement rule has a stable identifier, an imperative statement, and the reason for it.
 
 ## 1. Introduction
 
-The crates in this repository wrap the Slang shader compiler, a C++ library with an interface in the style of the Component Object Model (COM), and build higher-level libraries on top of it. Defects in such code fall into two classes. The first class is mechanical, such as an `unwrap` on a fallible path, a missing safety comment, or a lossy cast, and a deterministic tool finds it every time. The second class is a design defect, such as a child object that can outlive its parent, an error that loses the failed operation, or a `Send` implementation that the native library does not support, and only a reviewer can find it. This document assigns every rule to one of the two classes, following Section 3.5 of the writing guide: a rule that a deterministic tool can check is checked by that tool and never by a reviewer.
+The crates in this repository wrap the Slang shader compiler, a C++ library with an interface in the style of the Component Object Model (COM), and build higher-level libraries on top of it. Defects in such code fall into two classes. The first class is mechanical, such as an `unwrap` on a fallible path, a missing safety comment, or a lossy cast, and a deterministic tool finds it every time.
+
+The second class is a design defect, such as a child object that can outlive its parent, an error that loses the failed operation, or a `Send` implementation that the native library does not support, and only a reviewer can find it.
+
+This document assigns every rule to one of the two classes, following Section 3.5 of the writing guide: a rule that a deterministic tool can check is checked by that tool and never by a reviewer.
 
 ### 1.1. Scope
 
@@ -27,19 +31,31 @@ This document applies to every Rust crate, build script, example, test, and tool
 
 Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are deferred and out of scope. Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
 
-This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate. This document does not define `just` recipes or continuous integration (CI) workflows. `docs/design/tooling.md` specifies them.
+This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate.
 
-Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3, unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint. The commands of Section 4.8 for the other tools were run on a scratch workspace with cargo-semver-checks 0.51.0, cargo-hack 0.6.46, cargo-machete 0.9.2, cargo-llvm-cov 0.9.1, typos 1.52.1, taplo 0.10.0, actionlint 1.7.12, and the nightly toolchain 1.102.0 of 2026-11-09 with Miri. Statements in this document that describe what a lint or a tool reported come from those runs. CI installs the latest version of each tool when it runs, so its versions can differ from these (Section 7.1 of `docs/design/tooling.md`).
+This document does not define `just` recipes or continuous integration (CI) workflows. `docs/design/tooling.md` specifies them.
+
+Every lint name, lint group, and default level in this document was verified against the Rust 1.99.1 stable toolchain, including Cargo and Clippy, for crates on edition 2024 with Cargo resolver 3. This holds unless Section 4.7 says otherwise or the text says that a statement is not yet verified. The whole configuration of Sections 4.2 and 4.3 was run on a scratch workspace with that toolchain, cargo-nextest 0.9.151, and cargo-deny 0.20.2, and it produced no diagnostic for an unknown, renamed, or removed lint.
+
+The commands of Section 4.8 for the other tools were run on a scratch workspace with cargo-semver-checks 0.51.0, cargo-hack 0.6.46, cargo-machete 0.9.2, cargo-llvm-cov 0.9.1, typos 1.52.1, taplo 0.10.0, actionlint 1.7.12, and the nightly toolchain 1.102.0 of 2026-11-09 with Miri. Statements in this document that describe what a lint or a tool reported come from those runs. CI installs the latest version of each tool when it runs, so its versions can differ from these (Section 7.1 of `docs/design/tooling.md`).
 
 ### 1.2. How to Use This Document
 
-An agent that writes code reads Sections 3 and 4 once, and then the sections for the topics its change touches. An agent whose check fails reads the row for the failing lint in Section 4.5 and the procedure in Section 4.4. A reviewer loads Appendix A, which lists every judgement rule with its identifier and a one-line statement, and reads the full rule in Sections 4.4 to 16 when a finding needs it. Section 19 says what to do when a design question falls outside every rule.
+An agent that writes code reads Sections 3 and 4 once, and then the sections for the topics its change touches. An agent whose check fails reads the row for the failing lint in Section 4.5 and the procedure in Section 4.4.
+
+A reviewer loads Appendix A, which lists every judgement rule with its identifier and a one-line statement, and reads the full rule in Sections 4.4 to 16 when a finding needs it. Section 19 says what to do when a design question falls outside every rule.
 
 Code contains only the comments that Section 7.2 of the writing guide lists, which `scripts/check-rust-comments` enforces, and API documentation follows Section 7 of the writing guide. This document does not repeat those rules.
 
 ### 1.3. Sources and Precedence
 
-A judgement rule cites the sources that support it, when it has any. The reference list, `docs/rust-references.md`, defines every source identifier, holds the catalogue entry of every source, and indexes the sources by topic. A citation of the form `[IR-<n>]` names an entry of the curated list of idiomatic Rust resources, frozen at the upstream commit that Section 6.2 of the reference list records, so a later change to the upstream list does not move a citation. A citation of the form `[S-<n>]` names a supplementary source outside that list, such as a Rust project book, a guide to `-sys` crates, or an organizational guideline, chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code. Section 1.2 of the reference list defines both forms, and Section 21 says where the entry of every cited source is. Every rule is written in this document's own words, and none is a quotation.
+A judgement rule cites the sources that support it, when it has any. The reference list, `docs/rust-references.md`, defines every source identifier, holds the catalogue entry of every source, and indexes the sources by topic.
+
+A citation of the form `[IR-<n>]` names an entry of the curated list of idiomatic Rust resources, frozen at the upstream commit that Section 6.2 of the reference list records. A later change to the upstream list therefore does not move a citation.
+
+A citation of the form `[S-<n>]` names a supplementary source outside that list. Such a source is, for example, a Rust project book, a guide to `-sys` crates, or an organizational guideline, chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code. Section 1.2 of the reference list defines both forms, and Section 21 says where the entry of every cited source is.
+
+Every rule is written in this document's own words, and none is a quotation.
 
 When sources disagree, the source in the higher tier wins:
 
@@ -104,17 +120,27 @@ Every judgement rule has a rule identifier made of a topic prefix and a number. 
 | DEP | Dependencies and Cargo features | 15 |
 | SIMP | Simplicity | 16 |
 
-Identifiers are never reused or renumbered. A withdrawn rule keeps its identifier, and its statement is replaced by the word "Withdrawn" and the date. A new rule takes the next unused number in its topic. This matters because commits, reviews, and other documents cite rules by identifier, and a reused or renumbered identifier makes an old citation point to a different rule.
+Identifiers are never reused or renumbered. A withdrawn rule keeps its identifier, and its statement is replaced by the word "Withdrawn" and the date.
 
-Each rule has an imperative statement, the reason, and the sources that support it, if any. The statement is normative and binds the agent that writes or changes the code, and a reviewer checks each change against it and cites the identifier in each finding. Where a tool enforces part of a rule, the rule covers only the part that the tool cannot check. A code snippet in a rule is an illustration of the form, and its names do not describe an existing API.
+A new rule takes the next unused number in its topic. This matters because commits, reviews, and other documents cite rules by identifier, and a reused or renumbered identifier makes an old citation point to a different rule.
+
+Each rule has an imperative statement, the reason, and the sources that support it, if any. The statement is normative and binds the agent that writes or changes the code, and a reviewer checks each change against it and cites the identifier in each finding.
+
+Where a tool enforces part of a rule, the rule covers only the part that the tool cannot check. A code snippet in a rule is an illustration of the form, and its names do not describe an existing API.
 
 ## 4. Lint and Tool Configuration
 
 ### 4.1. Status of the Configuration
 
-The configuration in this section exists in the repository. The root `Cargo.toml` holds the workspace lint table of Section 4.2, and `clippy.toml` holds the configuration of Section 4.3. `deny.toml` and the recipes that run the tools of Section 4.8 exist as well, and Section 3.2 of `docs/design/tooling.md` lists those recipes and which of them the check runs. An agent that changes the workspace manifest or `clippy.toml` MUST keep the tables of Sections 4.2 and 4.3 identical to the files, or update this section in the same change, because an agent that reads a rule here assumes that a tool enforces it.
+The configuration in this section exists in the repository. The root `Cargo.toml` holds the workspace lint table of Section 4.2, and `clippy.toml` holds the configuration of Section 4.3. `deny.toml` and the recipes that run the tools of Section 4.8 exist as well, and Section 3.2 of `docs/design/tooling.md` lists those recipes and which of them the check runs.
 
-As Section 7.12 of the writing guide states, a lint enforces a rule only when the configuration enables it and the check treats its warnings as errors. A rule that no configured lint or tool checks is a judgement rule, as Section 3.5 of the writing guide requires. The custom checkers of Section 6 of `docs/design/tooling.md`, which enforce rules of the writing guide, the security rules of the CI workflow, and the placement of the guard of FFI-7 in `slang-compiler`, exist, and the check runs them. The CI workflow `.github/workflows/ci.yml` exists and runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request, as Section 7 of `docs/design/tooling.md` specifies. The recipe `check-doc-without-slang` exists, and the check runs it. The recipe `test-static` exists, and the check does not run it, because it builds Slang from source. The recipe that checks for breaking changes does not exist yet, and arrives with the first release.
+An agent that changes the workspace manifest or `clippy.toml` MUST keep the tables of Sections 4.2 and 4.3 identical to the files, or update this section in the same change, because an agent that reads a rule here assumes that a tool enforces it.
+
+As Section 7.12 of the writing guide states, a lint enforces a rule only when the configuration enables it and the check treats its warnings as errors. A rule that no configured lint or tool checks is a judgement rule, as Section 3.5 of the writing guide requires.
+
+The custom checkers of Section 6 of `docs/design/tooling.md`, which enforce rules of the writing guide, the security rules of the CI workflow, and the placement of the guard of FFI-7 in `slang-compiler`, exist, and the check runs them. The CI workflow `.github/workflows/ci.yml` exists and runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request, as Section 7 of `docs/design/tooling.md` specifies.
+
+The recipe `check-doc-without-slang` exists, and the check runs it. The recipe `test-static` exists, and the check does not run it, because it builds Slang from source. The recipe that checks for breaking changes does not exist yet, and arrives with the first release.
 
 ### 4.2. Workspace Lint Table
 
@@ -187,13 +213,15 @@ Every member crate's `Cargo.toml` contains this table and no other lint keys, be
 workspace = true
 ```
 
-The baseline is the Clippy group `all`, which contains the groups `correctness`, `suspicious`, `complexity`, `perf`, and `style`, together with the groups `pedantic` and `cargo`. The `nursery` group is off. The `restriction` group is never enabled as a whole, and Section 4.5 gives the purpose of each restriction lint in the table. The rustdoc group `all` already contains `rustdoc::missing_crate_level_docs`, `rustdoc::unescaped_backticks`, and `rustdoc::private_doc_tests`, so the table names no rustdoc lint individually.
+The baseline is the Clippy group `all`, which contains the groups `correctness`, `suspicious`, `complexity`, `perf`, and `style`, together with the groups `pedantic` and `cargo`. The `nursery` group is off. The `restriction` group is never enabled as a whole, and Section 4.5 gives the purpose of each restriction lint in the table.
+
+The rustdoc group `all` already contains `rustdoc::missing_crate_level_docs`, `rustdoc::unescaped_backticks`, and `rustdoc::private_doc_tests`, so the table names no rustdoc lint individually.
 
 The groups have priority -1, so each individual lint, at the default priority 0, overrides its group. Without the lower priority, `clippy::lint_groups_priority` reports the table and the check fails. The lint is in the `correctness` group, so it reports as a warning here, as the next paragraph explains.
 
 The levels are `warn`, and the check runs with `CARGO_BUILD_WARNINGS=deny`, so every warning fails the check. Setting `clippy::all` to `warn` lowers the `correctness` group from its default `deny` to `warn`, which the check still treats as a failure. The two `deny` entries are soundness rules that also stop a plain `cargo build`.
 
-An agent MUST NOT add `#![deny(warnings)]` to source and MUST NOT pass `-D warnings` through `RUSTFLAGS` or after `--` on the Clippy command line, because a new compiler release adds warnings and then breaks the build for users, and `-D warnings` in the compiler flags invalidates the build cache.
+An agent MUST NOT add `#![deny(warnings)]` to source and MUST NOT pass `-D warnings` through `RUSTFLAGS` or after `--` on the Clippy command line. The reason is that a new compiler release adds warnings and then breaks the build for users, and `-D warnings` in the compiler flags invalidates the build cache.
 
 ### 4.3. Clippy Configuration File
 
@@ -247,7 +275,9 @@ A lint exception has to be fulfilled in every target and feature combination tha
 
 Nine kinds of lint exception are expected and follow fixed forms:
 
-- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys` and `slang-compiler`. Any other crate that needs `unsafe` records the reason in its design document first. The workspace denies `unsafe_code` instead of forbidding it, because `forbid` cannot be overridden even by `#[expect]`. A crate adds the opt-out together with its first `unsafe` code, because the expectation is unfulfilled, and fails the check, in a crate that contains none.
+- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys` and `slang-compiler`. Any other crate that needs `unsafe` records the reason in its design document first.
+
+  The workspace denies `unsafe_code` instead of forbidding it, because `forbid` cannot be overridden even by `#[expect]`. A crate adds the opt-out together with its first `unsafe` code, because the expectation is unfulfilled, and fails the check, in a crate that contains none.
 - The integration-test binary of such a crate is a crate of its own and inherits the workspace lints, so a test that calls native code needs its own exception. The module that holds such tests, which is named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), carries `#[expect(unsafe_code, reason = "...")]` on its declaration in `main.rs`, such as `mod ffi;` in `crates/slang-compiler-sys/tests/sys/main.rs`, and not on the root of the test binary, so the other test modules keep the denial of `unsafe_code` (LINT-1).
 - The module of generated bindings carries an `#[expect]` with a reason that lists each lint that fires on it, as Section 7.9 of the writing guide defines and the next paragraph describes.
 - An example or the binding generator that prints to the terminal opts out of `clippy::print_stdout` or `clippy::print_stderr` at its crate root. A build script carries no exception for `clippy::print_stdout`, because Clippy does not apply that lint to build scripts, so the expectation would be unfulfilled and fail the check.
@@ -263,7 +293,19 @@ Nine kinds of lint exception are expected and follow fixed forms:
   The reason describes in words each of the two that the module's shader generates, and names no rule identifier. In `slango-macros`, the modules of `tests/macros/` that call the macro carry it.
 - Each `new` that `slango-macros` generates with more than seven arguments carries `#[expect(clippy::too_many_arguments, reason = "...")]`, whose reason says that `new` takes one argument for each field of the Slang structure, because Clippy's default limit of seven arguments would otherwise fire in every crate that calls the macro. A crate that raises `too-many-arguments-threshold` sees `unfulfilled_lint_expectations` from Clippy on such a `new` instead, which Section 7.3 of `docs/design/slango-macros.md` records as the cost.
 
-An `#[expect]` on the `mod` declaration of the generated module covers every lint that fires in the module's file, including the lints that fire on `#[allow]` attributes inside the file. On generated code in the style of bindgen, these lints fired: `non_camel_case_types`, `non_snake_case`, `non_upper_case_globals`, `missing_docs`, `clippy::exhaustive_structs`, and `clippy::exhaustive_enums`. When the generated code contains its own `#[allow(...)]` attributes, `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` fire as well, and when the module brings in its code with `include!`, `missing_debug_implementations` fires as well. It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The binding generator of this repository writes bindings from the pinned Slang headers, and they are checked in as `crates/slang-compiler-sys/src/bindings.rs`. Compiled as the module `bindings` with the workspace lint tables and warnings denied, exactly nine lints fire on that file, the same on the four supported targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS. Section 5.10 of `docs/design/slang-compiler-sys.md` lists them with the number of findings of each. The exception on `mod bindings;` lists exactly these lints, so no expectation is unfulfilled on any of the four targets. Since 2026-11-11, the declaration carries a second exception, for `ffi_unwind_calls`, because the thunks call vtable entries that FFI-7 requires to be declared with an unwinding ABI. It is a separate attribute with its own reason, which says that Slang is C++ and that some of its calls let an exception escape, which is undefined behaviour through a non-unwinding ABI. `clippy::exhaustive_enums` and `missing_debug_implementations` do not fire on them, because they hold no Rust `enum` and every generated type implements `Debug`. An agent MAY list the three lints of safety documentation among them only when the crate-level documentation states the shared safety contract that UNS-6 and Section 7.9 of the writing guide require, because without that contract the generated unsafe code has no safety documentation at all. The set changes when the Slang headers change, so the agent that regenerates the bindings runs the check and sets the list to the lints that fire. Code that `slint::include_modules!` generates probably needs the same kind of exception, which is not yet verified.
+An `#[expect]` on the `mod` declaration of the generated module covers every lint that fires in the module's file, including the lints that fire on `#[allow]` attributes inside the file. On generated code in the style of bindgen, these lints fired: `non_camel_case_types`, `non_snake_case`, `non_upper_case_globals`, `missing_docs`, `clippy::exhaustive_structs`, and `clippy::exhaustive_enums`. When the generated code contains its own `#[allow(...)]` attributes, `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` fire as well, and when the module brings in its code with `include!`, `missing_debug_implementations` fires as well.
+
+It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The binding generator of this repository writes bindings from the pinned Slang headers, and they are checked in as `crates/slang-compiler-sys/src/bindings.rs`. Compiled as the module `bindings` with the workspace lint tables and warnings denied, exactly nine lints fire on that file, the same on the four supported targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS.
+
+Section 5.10 of `docs/design/slang-compiler-sys.md` lists them with the number of findings of each. The exception on `mod bindings;` lists exactly these lints, so no expectation is unfulfilled on any of the four targets.
+
+Since 2026-11-11, the declaration carries a second exception, for `ffi_unwind_calls`, because the thunks call vtable entries that FFI-7 requires to be declared with an unwinding ABI. It is a separate attribute with its own reason, which says that Slang is C++ and that some of its calls let an exception escape, which is undefined behaviour through a non-unwinding ABI.
+
+`clippy::exhaustive_enums` and `missing_debug_implementations` do not fire on them, because they hold no Rust `enum` and every generated type implements `Debug`.
+
+An agent MAY list the three lints of safety documentation among them only when the crate-level documentation states the shared safety contract that UNS-6 and Section 7.9 of the writing guide require. Without that contract the generated unsafe code has no safety documentation at all.
+
+The set changes when the Slang headers change, so the agent that regenerates the bindings runs the check and sets the list to the lints that fire. Code that `slint::include_modules!` generates probably needs the same kind of exception, which is not yet verified.
 
 ### 4.5. Enforced Lints by Purpose
 
@@ -449,7 +491,7 @@ These lints exist and were verified, and this standard leaves them off for the r
 
 ### 4.7. Lints to Verify Before Adoption
 
-This section records the outcome of checking each lint fact that was first unverified. An agent that wants to adopt a lint that this document does not list as verified MUST first check it on the current toolchain, because a lint name that does not exist, or a lint that the stable toolchain does not support, checks nothing, and the document then promises a check that never runs.
+This section records the outcome of checking each lint fact that was first unverified. An agent that wants to adopt a lint that this document does not list as verified MUST first check it on the current toolchain. A lint name that does not exist, or a lint that the stable toolchain does not support, checks nothing, and the document then promises a check that never runs.
 
 Each entry that this section first recorded was run on the toolchain of Section 1.1. Each outcome is recorded where it applies:
 
@@ -468,7 +510,11 @@ Each entry that this section first recorded was run on the toolchain of Section 
 
 ### 4.8. Other Tools
 
-Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, except the custom checkers, which are scripts under `scripts/` that run on its Python 3. The Status column says whether the check runs the tool. A recipe runs each command of this section that the check runs, and Section 3.2 of `docs/design/tooling.md` lists those recipes. The CI workflow runs the check on Linux, Clippy, the doctests, and the tests on Windows and macOS, the feature and MSRV checks of `cargo hack` on Linux, and the coverage command of `cargo llvm-cov` on Linux, as Section 7.1 of `docs/design/tooling.md` specifies. The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
+Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, except the custom checkers, which are scripts under `scripts/` that run on its Python 3. The Status column says whether the check runs the tool.
+
+A recipe runs each command of this section that the check runs, and Section 3.2 of `docs/design/tooling.md` lists those recipes. The CI workflow runs the check on Linux, Clippy, the doctests, and the tests on Windows and macOS, the feature and MSRV checks of `cargo hack` on Linux, and the coverage command of `cargo llvm-cov` on Linux, as Section 7.1 of `docs/design/tooling.md` specifies.
+
+The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
 
 | Tool | What it owns | Status |
 | --- | --- | --- |
@@ -520,47 +566,95 @@ taplo fmt --check
 actionlint
 ```
 
-The command for `cargo semver-checks` is chosen with the first release, because the tool fails on a crate that has no published version. The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary. The CI job `coverage` runs the recipe on Linux and uploads the report as an artifact, which is the only result of the job (Section 7.1 of `docs/design/tooling.md`). Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that. One recipe departs from this, as TOOL-7 of `docs/design/tooling.md` permits for a recipe that selects named tests and has to fail when it selects none: `check-bindings` adds a filter expression that selects the regeneration test of TEST-8 and passes `--no-tests=fail` in its place, for the reason that TOOL-7 gives. `test-static` also passes `--no-tests=fail`, as the next section describes. Miri runs through nextest, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call that Miri does not support.
+The command for `cargo semver-checks` is chosen with the first release, because the tool fails on a crate that has no published version. The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.
 
-The recipes that run compiled code which loads Slang, which are the recipes of the nextest command, the doctest command, `check-bindings`, and `coverage`, put the assignment of the library path of the Vulkan SDK in front of the command, as TOOL-7 of `docs/design/tooling.md` permits and SCS-32 of `docs/design/slang-compiler-sys.md` requires, so that the test binaries find the Slang shared library when they start. The recipe `check-doc-without-slang` runs the documentation command with `DOCS_RS` set and `VULKAN_SDK` removed from the environment, as Section 9 of `docs/design/tooling.md` defines, so the check also builds the documentation without Slang. The recipe `test-static` runs the nextest command for `slang-compiler-sys` alone, on the static route, without `VULKAN_SDK` and the loader path variables, in the target directory `target/static`, as TOOL-7 of `docs/design/tooling.md` permits. The check does not run it.
+The CI job `coverage` runs the recipe on Linux and uploads the report as an artifact, which is the only result of the job (Section 7.1 of `docs/design/tooling.md`). Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that.
+
+One recipe departs from this, as TOOL-7 of `docs/design/tooling.md` permits for a recipe that selects named tests and has to fail when it selects none. `check-bindings` adds a filter expression that selects the regeneration test of TEST-8 and passes `--no-tests=fail` in its place, for the reason that TOOL-7 gives. `test-static` also passes `--no-tests=fail`, as the next section describes.
+
+Miri runs through nextest, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call that Miri does not support.
+
+The recipes that run compiled code which loads Slang put the assignment of the library path of the Vulkan SDK in front of the command. These are the recipes of the nextest command, the doctest command, `check-bindings`, and `coverage`. TOOL-7 of `docs/design/tooling.md` permits this and SCS-32 of `docs/design/slang-compiler-sys.md` requires it, so that the test binaries find the Slang shared library when they start.
+
+The recipe `check-doc-without-slang` runs the documentation command with `DOCS_RS` set and `VULKAN_SDK` removed from the environment, as Section 9 of `docs/design/tooling.md` defines, so the check also builds the documentation without Slang. The recipe `test-static` runs the nextest command for `slang-compiler-sys` alone, on the static route, without `VULKAN_SDK` and the loader path variables, in the target directory `target/static`, as TOOL-7 of `docs/design/tooling.md` permits. The check does not run it.
 
 `cargo fmt --all` alone formats only the files that the module tree of each crate reaches, so it skips a file that a crate includes with `include!`, such as `pin.rs`, `route.rs`, and `system.rs` of `slang-compiler-sys`. The file list after `--` makes rustfmt read every Rust file of the repository, including those. The recipes `fmt` and `check-fmt` compute the list, and each fails with its own message when `git ls-files` fails or lists no Rust file.
 
-`CARGO_BUILD_WARNINGS=deny` is stable and needs no `-Z` flag. It fails `cargo check`, `cargo hack check`, `cargo clippy`, and `cargo nextest run` on any warning. It fails `cargo doc` on any rustdoc lint warning, so the documentation command needs no `RUSTDOCFLAGS` setting. It fails `cargo test --doc` on warnings in the library build, but not on warnings in the code inside a doctest, which no tool reports (Section 7.5 of the writing guide).
+`CARGO_BUILD_WARNINGS=deny` is stable and needs no `-Z` flag. It fails `cargo check`, `cargo hack check`, `cargo clippy`, and `cargo nextest run` on any warning.
+
+It fails `cargo doc` on any rustdoc lint warning, so the documentation command needs no `RUSTDOCFLAGS` setting. It fails `cargo test --doc` on warnings in the library build, but not on warnings in the code inside a doctest, which no tool reports (Section 7.5 of the writing guide).
 
 The doctest command runs on the whole workspace, which skips packages without a library target. The form `cargo test --doc -p <package>` fails with "no library targets found" on a package that has only binary targets.
 
-An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence, and MUST give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
+An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence. It MUST also give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
 
-Each custom checker runs through the recipe of the same name, such as `just check-rust-comments`, and takes optional paths. With no paths, it checks every relevant file in the repository, as Section 6 of `docs/design/tooling.md` specifies. Apart from these, this section names no `just` recipes other than `coverage`, `check-bindings`, `check-doc-without-slang`, `test-static`, `fmt`, and `check-fmt`. Section 3.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 7 specifies the CI workflow.
+Each custom checker runs through the recipe of the same name, such as `just check-rust-comments`, and takes optional paths. With no paths, it checks every relevant file in the repository, as Section 6 of `docs/design/tooling.md` specifies.
+
+Apart from these, this section names no `just` recipes other than `coverage`, `check-bindings`, `check-doc-without-slang`, `test-static`, `fmt`, and `check-fmt`. Section 3.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 7 specifies the CI workflow.
 
 ## 5. API Design
 
-**API-1.** Name a conversion method by its cost and ownership: `as_` for a free view from borrowed to borrowed, `to_` for an expensive conversion or a by-value conversion of a `Copy` type, and `into_` for a conversion that consumes `self`. Name a getter after its field, without a `get_` prefix, and use `get` alone only when the type has one obvious thing to return. Reason: the name then tells the caller the cost and the ownership without the documentation, and `clippy::wrong_self_convention` checks only the receiver, not the cost. [IR-8] [IR-17]
+**API-1.** Name a conversion method by its cost and ownership: `as_` for a free view from borrowed to borrowed, `to_` for an expensive conversion or a by-value conversion of a `Copy` type, and `into_` for a conversion that consumes `self`. Name a getter after its field, without a `get_` prefix, and use `get` alone only when the type has one obvious thing to return.
 
-**API-2.** Give a collection-like type the methods `iter`, `iter_mut`, and `into_iter`, and name each iterator type after the method that returns it, such as `entry_points()` returning `EntryPoints`. Return a named iterator type from a public function, and implement `FusedIterator`, `DoubleEndedIterator`, and `ExactSizeIterator` on it whenever they hold. Return `impl Iterator` only from crate-private functions, and return a `Vec` when the function computes every element anyway. Reason: a named type is a stable part of the API that can gain trait implementations later, while an `impl Iterator` return cannot gain `Clone` or `Debug` without a breaking change. [IR-8] [IR-17] [IR-83] [IR-93]
+Reason: the name then tells the caller the cost and the ownership without the documentation, and `clippy::wrong_self_convention` checks only the receiver, not the cost. [IR-8] [IR-17]
 
-**API-3.** Keep one name for each concept across all crates, keep one word order in compound names as the standard library does, such as `ParseTargetError` after `ParseBoolError` and not `TargetParseError`, and give a Slang concept the name it has in the Slang API, converted to Rust case. Reason: two names read as two concepts, and a reader who knows Slang finds items by their Slang names. [IR-8] [IR-2]
+**API-2.** Give a collection-like type the methods `iter`, `iter_mut`, and `into_iter`, and name each iterator type after the method that returns it, such as `entry_points()` returning `EntryPoints`. Return a named iterator type from a public function, and implement `FusedIterator`, `DoubleEndedIterator`, and `ExactSizeIterator` on it whenever they hold.
 
-**API-4.** Implement `From` only for a conversion that is lossless, infallible, and never panics, and `TryFrom` for every other conversion. Do not implement an infallible `From` from a raw type into a type that carries an invariant. Put a conversion on the more specific of the two types. Reason: a `From` that panics or substitutes a fallback hides a failure from the caller, and the lint that would catch a panicking `From` is in the disabled nursery group (Section 4.6). [IR-8] [IR-53] [IR-90] [S-10]
+Return `impl Iterator` only from crate-private functions, and return a `Vec` when the function computes every element anyway.
 
-**API-5.** Write constructors as static inherent methods: `new` for the primary constructor, names such as `with_capacity` for secondary ones, `from_` for a conversion that is `unsafe` or takes extra arguments, and a domain verb such as `open` where one is idiomatic. Implement `Default` only when a default value is valid and meaningful. Reason: users look for constructors under these names, and a `Default` that produces an invalid value bypasses the validating constructor. [IR-8] [IR-5] [IR-82] [IR-92]
+Reason: a named type is a stable part of the API that can gain trait implementations later, while an `impl Iterator` return cannot gain `Clone` or `Debug` without a breaking change. [IR-8] [IR-17] [IR-83] [IR-93]
 
-**API-6.** Use a builder for a type with four or more construction options or with optional configuration: `Foo::builder()` returns `FooBuilder`, its setters are infallible, and its `build()` validates and returns a `Result`. Make setters take `&mut self` and return `&mut Self`, and make the builder consuming, with setters that take and return `self`, when `build` must take ownership of what the builder holds, such as an owning interface pointer. For a small set of independent options, use a `#[non_exhaustive]` options struct with public fields and a `Default` implementation instead. Reason: Rust has no keyword arguments, a builder can gain options without a breaking change, and a validating `build` reports every error in one place. Section 17 records the choice between consuming and non-consuming builders. [IR-8] [IR-2] [IR-44] [IR-63] [S-10]
+**API-3.** Keep one name for each concept across all crates. Keep one word order in compound names as the standard library does, such as `ParseTargetError` after `ParseBoolError` and not `TargetParseError`.
 
-**API-7.** Implement the common traits on every public type where they apply. Implement `Debug` with output that is never empty, and show a handle's identity, not its internals, through `finish_non_exhaustive`. Implement `Clone` where a copy is meaningful, `Copy` only for plain values and never for a type that owns a resource, `PartialEq`, `Eq`, `Hash`, and `Ord` where the type has a natural equality or order, and `Display` for a type that a user reads. Reason: the orphan rule stops users from adding these implementations later, and a `Copy` resource handle lets two values release one resource. [IR-8] [IR-82] [S-10]
+Give a Slang concept the name it has in the Slang API, converted to Rust case. Reason: two names read as two concepts, and a reader who knows Slang finds items by their Slang names. [IR-8] [IR-2]
+
+**API-4.** Implement `From` only for a conversion that is lossless, infallible, and never panics, and `TryFrom` for every other conversion. Do not implement an infallible `From` from a raw type into a type that carries an invariant.
+
+Put a conversion on the more specific of the two types. Reason: a `From` that panics or substitutes a fallback hides a failure from the caller, and the lint that would catch a panicking `From` is in the disabled nursery group (Section 4.6). [IR-8] [IR-53] [IR-90] [S-10]
+
+**API-5.** Write constructors as static inherent methods: `new` for the primary constructor, names such as `with_capacity` for secondary ones, `from_` for a conversion that is `unsafe` or takes extra arguments, and a domain verb such as `open` where one is idiomatic. Implement `Default` only when a default value is valid and meaningful.
+
+Reason: users look for constructors under these names, and a `Default` that produces an invalid value bypasses the validating constructor. [IR-8] [IR-5] [IR-82] [IR-92]
+
+**API-6.** Use a builder for a type with four or more construction options or with optional configuration: `Foo::builder()` returns `FooBuilder`, its setters are infallible, and its `build()` validates and returns a `Result`. Make setters take `&mut self` and return `&mut Self`, and make the builder consuming, with setters that take and return `self`, when `build` must take ownership of what the builder holds, such as an owning interface pointer.
+
+For a small set of independent options, use a `#[non_exhaustive]` options struct with public fields and a `Default` implementation instead.
+
+Reason: Rust has no keyword arguments, a builder can gain options without a breaking change, and a validating `build` reports every error in one place. Section 17 records the choice between consuming and non-consuming builders. [IR-8] [IR-2] [IR-44] [IR-63] [S-10]
+
+**API-7.** Implement the common traits on every public type where they apply. Implement `Debug` with output that is never empty, and show a handle's identity, not its internals, through `finish_non_exhaustive`.
+
+Implement `Clone` where a copy is meaningful, `Copy` only for plain values and never for a type that owns a resource, `PartialEq`, `Eq`, `Hash`, and `Ord` where the type has a natural equality or order, and `Display` for a type that a user reads.
+
+Reason: the orphan rule stops users from adding these implementations later, and a `Copy` resource handle lets two values release one resource. [IR-8] [IR-82] [S-10]
 
 **API-8.** Seal every public trait that users are not meant to implement, with a private supertrait in a private module, and say in the trait's documentation that it is sealed. Reason: a sealed trait can gain methods without a breaking change, and an unsealed one cannot. [IR-8] [IR-10]
 
-**API-9.** When `clippy::exhaustive_enums` or `clippy::exhaustive_structs` asks for a decision, add `#[non_exhaustive]` to every public enum or struct that mirrors a Slang type, describes errors, or holds options. Add a lint exception instead only to a type whose set of values its meaning closes, such as a choice between two directions, or to a struct that other crates must construct with a struct literal, such as a hand-written `#[repr(C)]` vtable for an interface that Rust code implements. Reason: Slang adds enum values and options between releases, and `#[non_exhaustive]` lets the crates follow without a breaking release, at the cost of a wildcard arm in users' matches, while on a struct it stops every other crate from writing a struct literal of it. [IR-5] [IR-3] [IR-90]
+**API-9.** When `clippy::exhaustive_enums` or `clippy::exhaustive_structs` asks for a decision, add `#[non_exhaustive]` to every public enum or struct that mirrors a Slang type, describes errors, or holds options. Add a lint exception instead only in two cases.
 
-**API-10.** Keep struct fields private unless the struct is a passive record of data, keep each public item reachable through exactly one path, and do not write glob re-exports or preludes. The one exception is the module of generated bindings: a `-sys` crate MAY re-export that module at its crate root with one glob, such as `pub use bindings::*;`, as long as the module itself stays private, so that each generated item still has exactly one public path. Share code between modules with `pub(crate)`, not `pub`. Reason: every public field and path is a promise that holds until the next breaking release, and `#[doc(hidden)]` hides an item from the documentation without withdrawing that promise. The generated module is exempt from the ban on globs because the set of generated items changes with every regeneration, and a hand-kept list of their names would diverge from it. [IR-8] [IR-36] [S-10]
+One is a type whose set of values its meaning closes, such as a choice between two directions. The other is a struct that other crates must construct with a struct literal, such as a hand-written `#[repr(C)]` vtable for an interface that Rust code implements.
 
-**API-11.** Decide for each public trait whether it serves as a trait object or only as a generic bound, and record the decision in the trait's documentation. For a trait meant for `dyn`, keep it object-safe, exclude generic methods with `where Self: Sized`, and add a test that compiles a `&dyn Trait`. Otherwise, do not constrain its design for object safety. Reason: object safety is hard to add later without a breaking change, and a trait that never needs `dyn` loses useful generic methods if it is designed for it. [IR-8] [IR-81] [IR-7]
+Reason: Slang adds enum values and options between releases, and `#[non_exhaustive]` lets the crates follow without a breaking release, at the cost of a wildcard arm in users' matches, while on a struct it stops every other crate from writing a struct literal of it. [IR-5] [IR-3] [IR-90]
 
-**API-12.** Express an abstraction as a generic bound in a function signature, not as a stored `Box<dyn Trait>`, and keep trait objects for small behaviours such as callbacks. Do not put derivable trait bounds such as `Clone` or `Debug` on a struct definition. Ask for the least restrictive closure bound, in the order `FnOnce`, `FnMut`, `Fn`. Reason: a generic bound keeps static dispatch, a bound on a struct definition spreads to every user and adding one later is a breaking change, and a stricter closure bound rejects closures that would work. [IR-8] [IR-81] [IR-3]
+**API-10.** Keep struct fields private unless the struct is a passive record of data, keep each public item reachable through exactly one path, and do not write glob re-exports or preludes.
 
-**API-13.** Use generic parameter types only at the public edge: `impl AsRef<Path>` for a path, `&str` for text that the function only reads, and `impl Into<String>` for text that the function stores. Make the generic function a thin wrapper that converts its arguments and calls a private non-generic function, and take `&Path`, `&str`, or `String` inside the crate. Reason: the generic form spares callers a conversion, and the non-generic inner function is compiled once instead of once for each argument type. Section 17 records the resolution between the sources. [IR-48] [IR-69] [IR-40] [IR-63] [IR-7]
+The one exception is the module of generated bindings. A `-sys` crate MAY re-export that module at its crate root with one glob, such as `pub use bindings::*;`, as long as the module itself stays private, so that each generated item still has exactly one public path. Share code between modules with `pub(crate)`, not `pub`.
+
+Reason: every public field and path is a promise that holds until the next breaking release, and `#[doc(hidden)]` hides an item from the documentation without withdrawing that promise.
+
+The generated module is exempt from the ban on globs because the set of generated items changes with every regeneration, and a hand-kept list of their names would diverge from it. [IR-8] [IR-36] [S-10]
+
+**API-11.** Decide for each public trait whether it serves as a trait object or only as a generic bound, and record the decision in the trait's documentation. For a trait meant for `dyn`, keep it object-safe, exclude generic methods with `where Self: Sized`, and add a test that compiles a `&dyn Trait`. Otherwise, do not constrain its design for object safety.
+
+Reason: object safety is hard to add later without a breaking change, and a trait that never needs `dyn` loses useful generic methods if it is designed for it. [IR-8] [IR-81] [IR-7]
+
+**API-12.** Express an abstraction as a generic bound in a function signature, not as a stored `Box<dyn Trait>`, and keep trait objects for small behaviours such as callbacks. Do not put derivable trait bounds such as `Clone` or `Debug` on a struct definition. Ask for the least restrictive closure bound, in the order `FnOnce`, `FnMut`, `Fn`.
+
+Reason: a generic bound keeps static dispatch, a bound on a struct definition spreads to every user and adding one later is a breaking change, and a stricter closure bound rejects closures that would work. [IR-8] [IR-81] [IR-3]
+
+**API-13.** Use generic parameter types only at the public edge: `impl AsRef<Path>` for a path, `&str` for text that the function only reads, and `impl Into<String>` for text that the function stores. Make the generic function a thin wrapper that converts its arguments and calls a private non-generic function, and take `&Path`, `&str`, or `String` inside the crate.
+
+Reason: the generic form spares callers a conversion, and the non-generic inner function is compiled once instead of once for each argument type. Section 17 records the resolution between the sources. [IR-48] [IR-69] [IR-40] [IR-63] [IR-7]
 
 This illustration shows a thin public wrapper over a concrete inner function:
 
@@ -577,35 +671,73 @@ fn read_source_inner(path: &Path) -> io::Result<String> {
 }
 ```
 
-**API-14.** Return results as values, and return a tuple or a struct for several results, instead of filling `&mut` out-parameters. Convert every out-parameter of the Slang API into a return value in the safe crate. Take a caller's `&mut` buffer only when the caller reuses it across calls, and then also provide a function that returns a new value. Reason: a returned value states its ownership in the signature and costs no more in most cases, and the buffer form exists only for measured reuse. [IR-8] [IR-38]
+**API-14.** Return results as values, and return a tuple or a struct for several results, instead of filling `&mut` out-parameters. Convert every out-parameter of the Slang API into a return value in the safe crate. Take a caller's `&mut` buffer only when the caller reuses it across calls, and then also provide a function that returns a new value.
 
-**API-15.** Implement `Deref` and `DerefMut` only on smart pointers. Never implement them to reuse the methods of an inner type, and never on a type that carries an invariant over its inner value. Reason: `Deref` changes method resolution implicitly, gives no subtyping, and exposes every method of the target, including the ones that break the wrapper's invariant. [IR-8] [IR-5] [IR-28]
+Reason: a returned value states its ownership in the signature and costs no more in most cases, and the buffer form exists only for measured reuse. [IR-8] [IR-38]
 
-**API-16.** Keep `Drop` infallible and non-blocking: release resources on a best-effort basis and ignore errors there. Provide a consuming `close(self)` that returns a `Result` for teardown whose errors matter, and an explicit method for a wait, such as a wait for the GPU to finish. Put cleanup that must `.await` in an explicit async method, because `Drop` cannot be async. Reason: a panic in `Drop` during unwinding aborts the process, and a destructor that blocks stalls the caller at an unpredictable point. [IR-8] [IR-13] [IR-88]
+**API-15.** Implement `Deref` and `DerefMut` only on smart pointers. Never implement them to reuse the methods of an inner type, and never on a type that carries an invariant over its inner value.
+
+Reason: `Deref` changes method resolution implicitly, gives no subtyping, and exposes every method of the target, including the ones that break the wrapper's invariant. [IR-8] [IR-5] [IR-28]
+
+**API-16.** Keep `Drop` infallible and non-blocking: release resources on a best-effort basis and ignore errors there. Provide a consuming `close(self)` that returns a `Result` for teardown whose errors matter, and an explicit method for a wait, such as a wait for the GPU to finish. Put cleanup that must `.await` in an explicit async method, because `Drop` cannot be async.
+
+Reason: a panic in `Drop` during unwinding aborts the process, and a destructor that blocks stalls the caller at an unpredictable point. [IR-8] [IR-13] [IR-88]
 
 ## 6. Type-Driven Design
 
-**TYPE-1.** Validate a value once, in the one constructor of a newtype with a private field, which returns a `Result`, and implement `TryFrom` and `FromStr` by calling that constructor. Normalize the value in the constructor, so that derived `Eq` and `Hash` see one representation, and keep every mutating method invariant-preserving. Offer construction without validation only when an invalid value can cause undefined behaviour and the check is too costly for a measured hot path, and then only as an `unsafe fn` whose name ends in `_unchecked`. Reason: a value that is valid by construction cannot reach code that forgot to check it. [IR-82] [IR-28] [IR-10] [S-10]
+**TYPE-1.** Validate a value once, in the one constructor of a newtype with a private field, which returns a `Result`, and implement `TryFrom` and `FromStr` by calling that constructor. Normalize the value in the constructor, so that derived `Eq` and `Hash` see one representation, and keep every mutating method invariant-preserving.
+
+Offer construction without validation only when an invalid value can cause undefined behaviour and the check is too costly for a measured hot path, and then only as an `unsafe fn` whose name ends in `_unchecked`.
+
+Reason: a value that is valid by construction cannot reach code that forgot to check it. [IR-82] [IR-28] [IR-10] [S-10]
 
 **TYPE-2.** Replace a `bool` parameter or field that carries meaning with a two-variant enum, even when it is the only one, and replace a string that selects among fixed options with an enum that implements `FromStr`. Reason: a call such as `compile(source, true)` hides its meaning, an enum can gain a third state, and the pedantic lints flag only functions and structs with several `bool` values. [IR-41] [IR-68] [IR-48] [IR-90]
 
-**TYPE-3.** Model fields that depend on each other as one enum, so that an invalid combination cannot be written. Use bounded types such as `NonZeroU32` for values with a restricted range, and do not store a value that can be derived from other fields. Reason: an invalid combination that compiles is eventually built, and a stored derived value diverges from its source after a later change. [IR-92] [IR-29] [IR-28] [IR-93]
+**TYPE-3.** Model fields that depend on each other as one enum, so that an invalid combination cannot be written. Use bounded types such as `NonZeroU32` for values with a restricted range, and do not store a value that can be derived from other fields.
 
-**TYPE-4.** Use typestate, with a state type parameter and transitions that consume `self`, for a lifecycle in which some operations are valid only in some states and misuse is a programming error, such as a command encoder that becomes a finished command buffer. Return a `Result` from a fallible transition, offer constructors only for the start state, mark state types `#[must_use]`, and do not derive `Clone` or `Copy` on them. Use a run-time state check instead when the state depends on data known only at run time, or when typestate would add type parameters to more than a few public items. Use two distinct types instead of a state type parameter when the operation that leads to the later state does not consume its input and the foreign library may return the input object itself, such as a link that leaves the component type usable. The first type then offers that operation, which returns the second type, and only the second type offers the operations of the later state. This form is project-defined and derives from no external source. Reason: typestate turns a wrong call order into a compile error, but its type parameters spread through signatures, so it is worthwhile only where misuse is likely and the states are few. A transition that consumes `self` would take away an object that stays usable, and a state parameter cannot describe one native object that is both the input and the result, while two types keep the compile-time check without either. [IR-50] [IR-10] [IR-23] [IR-42]
+Reason: an invalid combination that compiles is eventually built, and a stored derived value diverges from its source after a later change. [IR-92] [IR-29] [IR-28] [IR-93]
 
-**TYPE-5.** Convert integers with `From` when the value always fits and with `TryFrom` when it may not, and handle the `TryFromIntError`. Use `as` only for an intended truncation or a pointer cast, under a lint exception on the pedantic cast lint that fires. Convert between `usize` and a fixed-width integer with `try_from`, never with `as` under a lint exception. Write intended wrapping with `wrapping_*` methods, and use `checked_*` arithmetic for every size, count, or offset that comes from Slang, from a shader, or from a user. Reason: `as` truncates and wraps silently, and integer overflow wraps silently in release builds, which turns a malformed size into an out-of-bounds access in unsafe code. A lint exception on a `usize` cast must hold on every checked target (Section 4.4). `clippy::cast_possible_truncation` fires on `usize as u32` on 64-bit targets, which was verified on x86_64, and it is not yet verified whether it fires on 32-bit targets. [IR-74] [IR-92] [IR-3] [IR-22]
+**TYPE-4.** Use typestate, with a state type parameter and transitions that consume `self`, for a lifecycle in which some operations are valid only in some states and misuse is a programming error, such as a command encoder that becomes a finished command buffer. Return a `Result` from a fallible transition, offer constructors only for the start state, mark state types `#[must_use]`, and do not derive `Clone` or `Copy` on them. Use a run-time state check instead when the state depends on data known only at run time, or when typestate would add type parameters to more than a few public items.
 
-**TYPE-6.** Convert an integer to an enum with an explicit `match` inside a `TryFrom` implementation that returns an error for an unknown value, and convert an enum to an integer with an explicit `match`. Never use `transmute` or `as` in either direction. Reason: an integer with no matching variant is undefined behaviour as a Rust enum, and `as` silently changes the integer value when the order of the variants changes. [IR-53] [S-4]
+Use two distinct types instead of a state type parameter when the operation that leads to the later state does not consume its input and the foreign library may return the input object itself, such as a link that leaves the component type usable. The first type then offers that operation, which returns the second type, and only the second type offers the operations of the later state. This form is project-defined and derives from no external source.
 
-**TYPE-7.** Match every enum that the same crate defines without a `_` arm, grouping variants with `|`. In a hand-written `PartialEq`, `Hash`, `Debug`, or `Clone`, destructure `self` fully and name each ignored field as `field: _`. Reason: a new variant or field then fails to compile at every site that must handle it. Section 17 records why `clippy::unneeded_field_pattern` is off. [IR-90] [IR-41] [IR-2]
+Reason: typestate turns a wrong call order into a compile error, but its type parameters spread through signatures, so it is worthwhile only where misuse is likely and the states are few.
 
-**TYPE-8.** Give quantities with different units different newtypes, such as a byte size and an element count, store each as an integer in one base unit, and convert only at the boundary. Use an enum for a choice of exactly one value, and the `bitflags` crate for a set of flags that a caller combines and passes in. A flag value that only the foreign library combines and the crate only reads, such as a base shape combined with flag bits, MAY instead be a newtype with one method that tests each flag. Reason: a byte count passed where an element count is expected reads past the end of a buffer, and a newtype makes that mistake a compile error at no run-time cost. A caller who combines flags needs the set operations that `bitflags` provides, while a value that the crate only reads needs no set operations, so a dependency for it adds cost without a check. [IR-45] [IR-82] [IR-8] [IR-10]
+A transition that consumes `self` would take away an object that stays usable, and a state parameter cannot describe one native object that is both the input and the result, while two types keep the compile-time check without either. [IR-50] [IR-10] [IR-23] [IR-42]
 
-**TYPE-9.** Read from a slice with `get`, slice patterns, or iterators when the index or the length comes from Slang, from a shader, or from a user, and index directly only where a check in the same function proves the bound. Reason: an index from outside the crate can be out of range, and the resulting panic violates ERR-5. `clippy::indexing_slicing` is off because it also flags the many safe indexing sites in numeric code (Section 4.6). [IR-90] [IR-92] [IR-87]
+**TYPE-5.** Convert integers with `From` when the value always fits and with `TryFrom` when it may not, and handle the `TryFromIntError`. Use `as` only for an intended truncation or a pointer cast, under a lint exception on the pedantic cast lint that fires.
+
+Convert between `usize` and a fixed-width integer with `try_from`, never with `as` under a lint exception. Write intended wrapping with `wrapping_*` methods, and use `checked_*` arithmetic for every size, count, or offset that comes from Slang, from a shader, or from a user.
+
+Reason: `as` truncates and wraps silently, and integer overflow wraps silently in release builds, which turns a malformed size into an out-of-bounds access in unsafe code.
+
+A lint exception on a `usize` cast must hold on every checked target (Section 4.4). `clippy::cast_possible_truncation` fires on `usize as u32` on 64-bit targets, which was verified on x86_64, and it is not yet verified whether it fires on 32-bit targets. [IR-74] [IR-92] [IR-3] [IR-22]
+
+**TYPE-6.** Convert an integer to an enum with an explicit `match` inside a `TryFrom` implementation that returns an error for an unknown value, and convert an enum to an integer with an explicit `match`. Never use `transmute` or `as` in either direction.
+
+Reason: an integer with no matching variant is undefined behaviour as a Rust enum, and `as` silently changes the integer value when the order of the variants changes. [IR-53] [S-4]
+
+**TYPE-7.** Match every enum that the same crate defines without a `_` arm, grouping variants with `|`. In a hand-written `PartialEq`, `Hash`, `Debug`, or `Clone`, destructure `self` fully and name each ignored field as `field: _`.
+
+Reason: a new variant or field then fails to compile at every site that must handle it. Section 17 records why `clippy::unneeded_field_pattern` is off. [IR-90] [IR-41] [IR-2]
+
+**TYPE-8.** Give quantities with different units different newtypes, such as a byte size and an element count, store each as an integer in one base unit, and convert only at the boundary. Use an enum for a choice of exactly one value, and the `bitflags` crate for a set of flags that a caller combines and passes in. A flag value that only the foreign library combines and the crate only reads, such as a base shape combined with flag bits, MAY instead be a newtype with one method that tests each flag.
+
+Reason: a byte count passed where an element count is expected reads past the end of a buffer, and a newtype makes that mistake a compile error at no run-time cost.
+
+A caller who combines flags needs the set operations that `bitflags` provides, while a value that the crate only reads needs no set operations, so a dependency for it adds cost without a check. [IR-45] [IR-82] [IR-8] [IR-10]
+
+**TYPE-9.** Read from a slice with `get`, slice patterns, or iterators when the index or the length comes from Slang, from a shader, or from a user, and index directly only where a check in the same function proves the bound.
+
+Reason: an index from outside the crate can be out of range, and the resulting panic violates ERR-5. `clippy::indexing_slicing` is off because it also flags the many safe indexing sites in numeric code (Section 4.6). [IR-90] [IR-92] [IR-87]
 
 ## 7. Errors and Panics
 
-**ERR-1.** Give each library crate one public error type, designed like `std::io::Error`: an opaque struct named `Error` with private fields, a method `kind()` that returns a `Copy`, `#[non_exhaustive]` enum named `ErrorKind`, and the alias `pub type Result<T> = std::result::Result<T, Error>`. When the error comes from Slang, the struct carries the result code and the diagnostic text, with an accessor for each. It also carries the operation that failed and, when another error caused it, that error as its `source()`. The type implements `std::error::Error`, `Debug`, and `Display`, and it is `Send`, `Sync`, and `'static`. Reason: the struct can gain fields and the kind can gain variants without a breaking change, callers match on the kind and not on text, and Slang reports one result code from many calls, so the struct, not a variant per cause, carries the context of the call. [IR-86] [IR-56] [IR-8] [S-10]
+**ERR-1.** Give each library crate one public error type, designed like `std::io::Error`. It is an opaque struct named `Error` with private fields, a method `kind()` that returns a `Copy`, `#[non_exhaustive]` enum named `ErrorKind`, and the alias `pub type Result<T> = std::result::Result<T, Error>`.
+
+When the error comes from Slang, the struct carries the result code and the diagnostic text, with an accessor for each. It also carries the operation that failed and, when another error caused it, that error as its `source()`. The type implements `std::error::Error`, `Debug`, and `Display`, and it is `Send`, `Sync`, and `'static`.
+
+Reason: the struct can gain fields and the kind can gain variants without a breaking change, callers match on the kind and not on text. Slang reports one result code from many calls, so the struct, not a variant per cause, carries the context of the call. [IR-86] [IR-56] [IR-8] [S-10]
 
 This illustration shows the shape of ERR-1. The kinds and the field types are examples of the form:
 
@@ -731,19 +863,31 @@ fn default_sample_count() -> NonZeroU32 {
 
 ## 8. Ownership and Signatures
 
-**OWN-1.** Take a parameter by reference, as `&str`, `&[T]`, `&Path`, or `&T`, when the function only reads it, and by value when the function stores or consumes it. Do not take a reference and clone it inside to store it. Reason: the caller then decides where copies happen, and a hidden clone puts an allocation behind a signature that promises only a read. [IR-8] [IR-40] [IR-79] [IR-57]
+**OWN-1.** Take a parameter by reference, as `&str`, `&[T]`, `&Path`, or `&T`, when the function only reads it, and by value when the function stores or consumes it. Do not take a reference and clone it inside to store it.
+
+Reason: the caller then decides where copies happen, and a hidden clone puts an allocation behind a signature that promises only a read. [IR-8] [IR-40] [IR-79] [IR-57]
 
 **OWN-2.** Return an owned value when the function builds new data, a borrow when the result is part of `self` or of an argument, and `Cow<'_, str>` when the function changes its input only on some paths. Reason: a borrow avoids a copy, an owned value avoids tying the result to a temporary, and `Cow` allocates only on the path that changes the data. [IR-79] [IR-58]
 
-**OWN-3.** Rely on lifetime elision, and do not add a lifetime parameter to a public type unless the type is a short-lived view, such as a borrowing iterator or a mapped range of a buffer. When a signature has two or more borrow sources, name each lifetime after its owner, such as `'session` and `'module`. Reason: a lifetime parameter on a type spreads to every type and function that uses it, and a descriptive name shows which value a borrow must not outlive. Section 17 records why `clippy::single_char_lifetime_names` is off. [IR-80] [IR-30] [IR-2]
+**OWN-3.** Rely on lifetime elision, and do not add a lifetime parameter to a public type unless the type is a short-lived view, such as a borrowing iterator or a mapped range of a buffer. When a signature has two or more borrow sources, name each lifetime after its owner, such as `'session` and `'module`.
 
-**OWN-4.** Model every rule of the native API of the form "X must not be destroyed while Y lives" in the types. Tie a short-lived child to its parent with a lifetime, such as a `PhantomData<&'a Parent>` field, and make a long-lived child, which users store, hold a counted reference to its parent, as vulkano-style handles do. Never track whether the parent is alive with a run-time flag. Reason: a child that outlives its parent is a use after free that the borrow checker cannot see through a raw pointer, and a lifetime costs nothing at run time, while a counted reference costs one count change per child. [IR-46] [IR-5] [IR-10] [S-1]
+Reason: a lifetime parameter on a type spreads to every type and function that uses it, and a descriptive name shows which value a borrow must not outlive. Section 17 records why `clippy::single_char_lifetime_names` is off. [IR-80] [IR-30] [IR-2]
 
-**OWN-5.** Use `Arc` for a heavyweight object that many others keep alive, such as a device or a session, and for state that threads share, but not for per-frame data. Prefer `Arc<str>` and `Arc<[T]>` to `Arc<String>` and `Arc<Vec<T>>`. Represent a tree or a graph with an arena and copyable index identifiers, guarded against stale identifiers where nodes are removed, and not with `Rc<RefCell<...>>` links. Reason: shared ownership removes lifetime parameters where the sharing is real, but its counting costs on hot paths, and `Rc<RefCell>` graphs move borrow checks to run time and leak through cycles. [IR-80] [IR-54] [S-10]
+**OWN-4.** Model every rule of the native API of the form "X must not be destroyed while Y lives" in the types. Tie a short-lived child to its parent with a lifetime, such as a `PhantomData<&'a Parent>` field, and make a long-lived child, which users store, hold a counted reference to its parent, as vulkano-style handles do. Never track whether the parent is alive with a run-time flag.
 
-**OWN-6.** Do not call `.clone()` to satisfy the borrow checker. Restructure the code, split a struct into parts that can be borrowed separately, or move a value out with `mem::take`, `mem::replace`, or `Option::take`. Reason: the clone costs an allocation and the copies diverge silently, and the conflict usually shows that the struct groups unrelated data. [IR-5] [IR-60]
+Reason: a child that outlives its parent is a use after free that the borrow checker cannot see through a raw pointer, and a lifetime costs nothing at run time, while a counted reference costs one count change per child. [IR-46] [IR-5] [IR-10] [S-1]
 
-**OWN-7.** Prefer iterator adapters to index loops, collect an iterator of `Result` into `Result<Vec<_>, _>`, and accept `impl IntoIterator` for an input sequence that the function only iterates. Write a `for` loop instead when the body needs an early return or the chain becomes hard to read, and split a long chain into named functions. Reason: adapters avoid off-by-one errors, but readability is the goal, and a rewrite from one form to the other for speed needs a measurement first. [IR-23] [IR-43] [IR-83]
+**OWN-5.** Use `Arc` for a heavyweight object that many others keep alive, such as a device or a session, and for state that threads share, but not for per-frame data. Prefer `Arc<str>` and `Arc<[T]>` to `Arc<String>` and `Arc<Vec<T>>`. Represent a tree or a graph with an arena and copyable index identifiers, guarded against stale identifiers where nodes are removed, and not with `Rc<RefCell<...>>` links.
+
+Reason: shared ownership removes lifetime parameters where the sharing is real, but its counting costs on hot paths, and `Rc<RefCell>` graphs move borrow checks to run time and leak through cycles. [IR-80] [IR-54] [S-10]
+
+**OWN-6.** Do not call `.clone()` to satisfy the borrow checker. Restructure the code, split a struct into parts that can be borrowed separately, or move a value out with `mem::take`, `mem::replace`, or `Option::take`.
+
+Reason: the clone costs an allocation and the copies diverge silently, and the conflict usually shows that the struct groups unrelated data. [IR-5] [IR-60]
+
+**OWN-7.** Prefer iterator adapters to index loops, collect an iterator of `Result` into `Result<Vec<_>, _>`, and accept `impl IntoIterator` for an input sequence that the function only iterates. Write a `for` loop instead when the body needs an early return or the chain becomes hard to read, and split a long chain into named functions.
+
+Reason: adapters avoid off-by-one errors, but readability is the goal, and a rewrite from one form to the other for speed needs a measurement first. [IR-23] [IR-43] [IR-83]
 
 ## 9. Unsafe Code
 
@@ -779,19 +923,60 @@ Reason: a reference must be valid when it is created, not only when it is used, 
 
 ## 10. Foreign Function Interface
 
-**FFI-1.** Keep `slang-compiler-sys` to generated declarations, constants, vtable structs, UUID constants, and thunks, plus the build script that links the native library, with no higher-level abstraction. Give the safe crate its own Rust types, and do not re-export `-sys` types from it except through the raw-pointer methods of COM-11. Reason: the `-sys` crate then changes only when Slang changes, and every decision about ownership, lifetimes, and errors lives in the one crate that users depend on. [S-3] [S-4] [S-10] [IR-7] [IR-13]
+**FFI-1.** Keep `slang-compiler-sys` to generated declarations, constants, vtable structs, UUID constants, and thunks, plus the build script that links the native library, with no higher-level abstraction. Give the safe crate its own Rust types, and do not re-export `-sys` types from it except through the raw-pointer methods of COM-11.
+
+Reason: the `-sys` crate then changes only when Slang changes, and every decision about ownership, lifetimes, and errors lives in the one crate that users depend on. [S-3] [S-4] [S-10] [IR-7] [IR-13]
 
 **FFI-2.** Declare `links = "slang-compiler"` in the manifest of the `-sys` crate, emit every link directive from its build script, and do not write `#[link]` attributes in Rust source. Reason: Cargo allows one package for each `links` value, which prevents two copies of the native library in one build, and the build script alone then decides between static and dynamic linking and sets the search paths. [S-3]
 
-**FFI-3.** Declare foreign functions in `unsafe extern "C"` blocks, or in `unsafe extern "C-unwind"` blocks where FFI-7 requires an unwinding ABI, with the ABI string written out, mark an item `safe fn` only if every possible argument is sound, use `#[repr(C)]` on every type that crosses the boundary, and use the C types of `core::ffi`, such as `c_char` and `c_int`. Use `Option<unsafe extern "C" fn(...)>` for a function pointer that may be null. In hand-written signatures, which are those of the safe wrapper crates, use `Option<NonNull<T>>` for a pointer that may be null. Generated raw bindings use the raw pointers `*const T` and `*mut T` instead, and the safe crate converts each one at the boundary, as FFI-6 requires. The binding generator emits the forms of this rule, so this rule binds the generator as well. Reason: the compiler trusts these declarations without checking them against the C++ headers, so a wrong one is undefined behaviour at run time, and only the `Option` forms carry the null case in the type. Generated bindings keep raw pointers because the Slang headers do not say which pointers may be null, and a generator that guessed would declare a non-null type for a pointer that Slang can return as null, which is undefined behaviour. A raw pointer asserts nothing, so the safe crate, which knows the contract of each function, decides there. [S-1] [S-5] [S-7] [IR-10] [IR-13]
+**FFI-3.** Declare foreign functions in `unsafe extern "C"` blocks, or in `unsafe extern "C-unwind"` blocks where FFI-7 requires an unwinding ABI, with the ABI string written out. Mark an item `safe fn` only if every possible argument is sound, use `#[repr(C)]` on every type that crosses the boundary, and use the C types of `core::ffi`, such as `c_char` and `c_int`.
 
-**FFI-4.** Read a string from Slang as `&CStr`, and at once tie its lifetime to the object that owns the memory or copy it into an owned `String`. Handle invalid UTF-8 as an error or as a documented lossy conversion. Pass a string to Slang as a `CString` bound to a variable that lives until the call returns, report an interior NUL byte as an error, and use `c"..."` literals for constant strings. Reason: `CStr::from_ptr` returns a reference with an unbounded lifetime, so the compiler cannot prevent a use after Slang frees the string, and `dangling_pointers_from_temporaries` catches only a pointer taken from a temporary. [IR-5] [S-6] [S-1]
+Use `Option<unsafe extern "C" fn(...)>` for a function pointer that may be null. In hand-written signatures, which are those of the safe wrapper crates, use `Option<NonNull<T>>` for a pointer that may be null. Generated raw bindings use the raw pointers `*const T` and `*mut T` instead, and the safe crate converts each one at the boundary, as FFI-6 requires.
 
-**FFI-5.** Build a slice from a pointer and a length that Slang returns only after a null check: treat a null pointer with a zero length as an empty slice and a null pointer with any other length as an error. Interpret the length as a count of elements, not bytes, unless the Slang documentation says otherwise, and tie the slice's lifetime to the object that owns the memory. Reason: a slice is a reference, so a null or dangling pointer is undefined behaviour as soon as the slice exists, and a byte count used as an element count reads past the end of the buffer. [S-5] [IR-10] [IR-35]
+The binding generator emits the forms of this rule, so this rule binds the generator as well.
 
-**FFI-6.** Check every pointer that Slang returns for null before using it, with `NonNull::new`, and use `NonNull::new_unchecked` only where the Slang documentation guarantees a non-null value. Turn a null that signals absence or failure into `None` or an error. Reason: dereferencing a null pointer is undefined behaviour, not a crash that a test reliably shows. [IR-13] [S-6] [S-1]
+Reason: the compiler trusts these declarations without checking them against the C++ headers, so a wrong one is undefined behaviour at run time, and only the `Option` forms carry the null case in the type.
 
-**FFI-7.** Never let a panic leave Rust through a foreign call or a callback, and never let a foreign exception enter Rust through a non-unwinding ABI. Declare every function of a C++ library whose functions can throw with an unwinding ABI: `"C-unwind"` for a C function and `"system-unwind"` for an entry of a vtable, as the binding generator declares every function of Slang. In a safe crate, make every call into such a library inside one crate-private guard. The guard is a value whose destructor writes one line to standard error that names the call and then aborts the process. Keep the guard the innermost value with a destructor around exactly one foreign call, so that a foreign exception that reaches it stops the process before any other destructor runs. Declare every callback that the library calls with a non-unwinding ABI: `extern "C"` for a C function pointer, whose generated type stays `"C"`, and `extern "system"` for a function of a Rust-implemented vtable. Store such a function in a vtable field whose generated type is `"system-unwind"` through a conversion of the function pointer to the type of the field. The standard library documentation of the `fn` type states that this is ABI-compatible when the caller's ABI is the `-unwind` form of the callee's ABI. In a callback that reports failure through a result code, catch a panic with `catch_unwind`, return a failure code, and make the next call into the owning object fail. Otherwise, let the abort of the non-unwinding callback stop the process. State in the crate documentation that `catch_unwind` does nothing when the application builds with `panic = "abort"`, and that a foreign exception that escapes the library aborts the process. In `slang-compiler`, `scripts/check-slang-call-guard` checks the placement of the guard: that every call into Slang sits alone in the closure of the guard with no closure or `fn` between them, and that the closure is not a `move` closure (Section 6.9 of `docs/design/tooling.md`). There, this rule covers only what the checker cannot see, which is whether the closure owns a value with a destructor in another way, a call that a macro defined outside the crate's sources makes, and a call through a function pointer read from a vtable, together with the other cases that Section 6.9 of `docs/design/tooling.md` lists. In this project the guard is frozen: it is not extended, and a change that would have to modify it removes it instead, as the Technology Decisions section of `AGENTS.md` states. Reason: since Rust 1.81 a panic that reaches a non-unwinding boundary aborts the process. A foreign exception that enters Rust through a non-unwinding ABI is undefined behaviour. Through an unwinding ABI it is defined: it unwinds through the Rust frames and runs their destructors, or, when the program builds with `panic = "abort"`, it aborts the process at the boundary. Rust offers no defined way to turn a foreign exception into an error, because `catch_unwind` either aborts the process or returns an opaque value, and which one happens is unspecified. The guard therefore aborts before a destructor can call the library again while it is in the middle of unwinding. Callbacks stay non-unwinding because a Rust panic that unwound into C++ frames could meet a `catch (...)`, and Rust gives no guarantee about a Rust panic that foreign code catches. Continuing after a caught panic can leave state inconsistent. A function whose ABI differs from the declared function pointer type does not coerce to it, and `"C"`, `"system"`, and their `-unwind` forms name the same calling convention on every supported 64-bit target. The guard is project-defined. [S-1] [S-5] [S-6] [S-9] [S-10] [S-11] [IR-13] [IR-87]
+Generated bindings keep raw pointers because the Slang headers do not say which pointers may be null, and a generator that guessed would declare a non-null type for a pointer that Slang can return as null, which is undefined behaviour. A raw pointer asserts nothing, so the safe crate, which knows the contract of each function, decides there. [S-1] [S-5] [S-7] [IR-10] [IR-13]
+
+**FFI-4.** Read a string from Slang as `&CStr`, and at once tie its lifetime to the object that owns the memory or copy it into an owned `String`. Handle invalid UTF-8 as an error or as a documented lossy conversion. Pass a string to Slang as a `CString` bound to a variable that lives until the call returns, report an interior NUL byte as an error, and use `c"..."` literals for constant strings.
+
+Reason: `CStr::from_ptr` returns a reference with an unbounded lifetime, so the compiler cannot prevent a use after Slang frees the string, and `dangling_pointers_from_temporaries` catches only a pointer taken from a temporary. [IR-5] [S-6] [S-1]
+
+**FFI-5.** Build a slice from a pointer and a length that Slang returns only after a null check: treat a null pointer with a zero length as an empty slice and a null pointer with any other length as an error. Interpret the length as a count of elements, not bytes, unless the Slang documentation says otherwise, and tie the slice's lifetime to the object that owns the memory.
+
+Reason: a slice is a reference, so a null or dangling pointer is undefined behaviour as soon as the slice exists, and a byte count used as an element count reads past the end of the buffer. [S-5] [IR-10] [IR-35]
+
+**FFI-6.** Check every pointer that Slang returns for null before using it, with `NonNull::new`, and use `NonNull::new_unchecked` only where the Slang documentation guarantees a non-null value. Turn a null that signals absence or failure into `None` or an error.
+
+Reason: dereferencing a null pointer is undefined behaviour, not a crash that a test reliably shows. [IR-13] [S-6] [S-1]
+
+**FFI-7.** Never let a panic leave Rust through a foreign call or a callback, and never let a foreign exception enter Rust through a non-unwinding ABI. Declare every function of a C++ library whose functions can throw with an unwinding ABI: `"C-unwind"` for a C function and `"system-unwind"` for an entry of a vtable, as the binding generator declares every function of Slang.
+
+In a safe crate, make every call into such a library inside one crate-private guard. The guard is a value whose destructor writes one line to standard error that names the call and then aborts the process. Keep the guard the innermost value with a destructor around exactly one foreign call, so that a foreign exception that reaches it stops the process before any other destructor runs.
+
+Declare every callback that the library calls with a non-unwinding ABI: `extern "C"` for a C function pointer, whose generated type stays `"C"`, and `extern "system"` for a function of a Rust-implemented vtable. Store such a function in a vtable field whose generated type is `"system-unwind"` through a conversion of the function pointer to the type of the field. The standard library documentation of the `fn` type states that this is ABI-compatible when the caller's ABI is the `-unwind` form of the callee's ABI.
+
+In a callback that reports failure through a result code, catch a panic with `catch_unwind`, return a failure code, and make the next call into the owning object fail. Otherwise, let the abort of the non-unwinding callback stop the process. State in the crate documentation that `catch_unwind` does nothing when the application builds with `panic = "abort"`, and that a foreign exception that escapes the library aborts the process.
+
+In `slang-compiler`, `scripts/check-slang-call-guard` checks the placement of the guard. It checks that every call into Slang sits alone in the closure of the guard with no closure or `fn` between them, and that the closure is not a `move` closure (Section 6.9 of `docs/design/tooling.md`).
+
+There, this rule covers only what the checker cannot see, which is:
+
+- Whether the closure owns a value with a destructor in another way.
+- A call that a macro defined outside the crate's sources makes.
+- A call through a function pointer read from a vtable.
+- The other cases that Section 6.9 of `docs/design/tooling.md` lists.
+
+In this project the guard is frozen: it is not extended, and a change that would have to modify it removes it instead, as the Technology Decisions section of `AGENTS.md` states.
+
+Reason: since Rust 1.81 a panic that reaches a non-unwinding boundary aborts the process. A foreign exception that enters Rust through a non-unwinding ABI is undefined behaviour. Through an unwinding ABI it is defined: it unwinds through the Rust frames and runs their destructors, or, when the program builds with `panic = "abort"`, it aborts the process at the boundary.
+
+Rust offers no defined way to turn a foreign exception into an error, because `catch_unwind` either aborts the process or returns an opaque value, and which one happens is unspecified. The guard therefore aborts before a destructor can call the library again while it is in the middle of unwinding.
+
+Callbacks stay non-unwinding because a Rust panic that unwound into C++ frames could meet a `catch (...)`, and Rust gives no guarantee about a Rust panic that foreign code catches. Continuing after a caught panic can leave state inconsistent.
+
+A function whose ABI differs from the declared function pointer type does not coerce to it, and `"C"`, `"system"`, and their `-unwind` forms name the same calling convention on every supported 64-bit target. The guard is project-defined. [S-1] [S-5] [S-6] [S-9] [S-10] [S-11] [IR-13] [IR-87]
 
 This illustration shows a callback that turns a panic into a failure code. It does not show how the owning object records the failure:
 
@@ -815,15 +1000,27 @@ unsafe extern "C" fn on_message(user_data: *mut c_void, len: usize) -> i32 {
 
 **FFI-8.** Pass the context of a callback as a user-data pointer, keep the context alive until the callback is unregistered, unregister it in the `Drop` of the value that registered it, and synchronize access when Slang can call it from another thread. Reason: a callback that fires after its context is freed dereferences freed memory, and Miri cannot see calls that come from native code. [S-1]
 
-**FFI-9.** Make a type that wraps a foreign handle neither `Send` nor `Sync` by default, which its raw pointer or `NonNull` field already ensures. Add `unsafe impl Send` or `unsafe impl Sync` to one specific type only after the Slang documentation establishes that the object tolerates that use, and never write a generic wrapper that makes any type `Send`. Reason: the compiler cannot check an `unsafe impl Send`, a native object that is not thread-safe corrupts its state when two threads call it, and the nursery lint that flags `Send` over fields that are not `Send` is off. [S-1] [IR-27] [S-10] [IR-13]
+**FFI-9.** Make a type that wraps a foreign handle neither `Send` nor `Sync` by default, which its raw pointer or `NonNull` field already ensures. Add `unsafe impl Send` or `unsafe impl Sync` to one specific type only after the Slang documentation establishes that the object tolerates that use, and never write a generic wrapper that makes any type `Send`.
+
+Reason: the compiler cannot check an `unsafe impl Send`, a native object that is not thread-safe corrupts its state when two threads call it, and the nursery lint that flags `Send` over fields that are not `Send` is off. [S-1] [IR-27] [S-10] [IR-13]
 
 **FFI-10.** Represent an open-ended set of C values, such as result codes and flags, as a `#[repr(transparent)]` integer newtype with associated constants in the `-sys` crate, never as a Rust `enum`, and convert it in the safe crate with an explicit `match` that handles unknown values. Reason: Slang can return a value that the bindings do not declare, and such a value in a Rust `enum` is undefined behaviour. [S-4] [S-2]
 
-**FFI-11.** Free memory with the library that allocated it. Never build a `Vec`, `String`, or `Box` over memory that Slang allocated, and never pass memory that Rust allocated to Slang for Slang to free. Reason: two allocators that free each other's memory cause double frees and heap corruption. [IR-10] [IR-13] [IR-5]
+**FFI-11.** Free memory with the library that allocated it. Never build a `Vec`, `String`, or `Box` over memory that Slang allocated, and never pass memory that Rust allocated to Slang for Slang to free.
+
+Reason: two allocators that free each other's memory cause double frees and heap corruption. [IR-10] [IR-13] [IR-5]
 
 ## 11. Build Scripts
 
-**SYS-1.** Emit `cargo::rerun-if-changed` for every file that the build script reads and `cargo::rerun-if-env-changed` for every environment variable that it reads, using the `cargo::` form of the instructions. Declare every custom `cfg` with `cargo::rustc-check-cfg` next to the instruction that sets it. When the script reads a large tree whose content a version-control commit fixes, it may instead emit `cargo::rerun-if-changed` only for the files that record that commit and the state of the working tree, such as the `HEAD` and `index` files of a git checkout. This holds only if the script verifies on every run, through the version-control tool, that the tree is at that commit and unmodified, and stops the build when it is not. Reason: a script that emits no rerun instruction reruns whenever any file of the package changes. A missing instruction leaves a stale build after its input changes, and an undeclared `cfg` triggers `unexpected_cfgs`. A tree of thousands of files is too large to watch on every build. A checkout or a commit rewrites the files that record its state, and the verification on every run stops a build from a tree that differs from the commit. The exception leaves one gap: an edit of a tracked file that no version-control operation follows does not rerun the script, so the design document of a build script that uses the exception states that gap. [S-3]
+**SYS-1.** Emit `cargo::rerun-if-changed` for every file that the build script reads and `cargo::rerun-if-env-changed` for every environment variable that it reads, using the `cargo::` form of the instructions. Declare every custom `cfg` with `cargo::rustc-check-cfg` next to the instruction that sets it.
+
+When the script reads a large tree whose content a version-control commit fixes, it may instead emit `cargo::rerun-if-changed` only for the files that record that commit and the state of the working tree, such as the `HEAD` and `index` files of a git checkout. This holds only if the script verifies on every run, through the version-control tool, that the tree is at that commit and unmodified, and stops the build when it is not.
+
+Reason: a script that emits no rerun instruction reruns whenever any file of the package changes. A missing instruction leaves a stale build after its input changes, and an undeclared `cfg` triggers `unexpected_cfgs`.
+
+A tree of thousands of files is too large to watch on every build. A checkout or a commit rewrites the files that record its state, and the verification on every run stops a build from a tree that differs from the commit.
+
+The exception leaves one gap: an edit of a tracked file that no version-control operation follows does not rerun the script, so the design document of a build script that uses the exception states that gap. [S-3]
 
 **SYS-2.** Read environment variables in the build script when it runs, with `std::env::var` or `std::env::var_os`, and never with `env!` or `option_env!`. Reason: `env!` and `option_env!` read the value when the build script itself is compiled, so a later change of the variable has no effect until the script is rebuilt.
 
@@ -835,13 +1032,33 @@ unsafe extern "C" fn on_message(user_data: *mut c_void, len: usize) -> i32 {
 
 **SYS-6.** Check that the Slang the build finds matches the pinned version, which is a Vulkan software development kit (SDK) version together with a Slang commit, and stop the build with a message that names both versions when it does not. The design document defines how the build script reads the version. Reason: the checked-in bindings describe one version of the headers, and a different library behind them gives mismatched layouts and undefined behaviour at run time.
 
-**SYS-7.** Obtain Slang in exactly one of two ways. By default, link dynamically to the Slang of an installed Vulkan SDK. When the environment variable `SLANG_SOURCE_DIR` is present, build Slang from the source tree that it names and link it statically. Select the static build through that variable only, never through a Cargo feature, and do not add a prebuilt download or any other way to find the library. Reason: two documented paths can be tested on every CI platform, and a download in a build script runs unreviewed code and breaks offline builds. The static build is not a Cargo feature for three reasons. Every check passes `--all-features`, so a feature would force a long native build of Slang from source into routine checks. Cargo features must be additive (DEP-1), and how the native library is linked is a choice between options that exclude each other, not an addition. The choice belongs to whoever builds the final program, who controls the environment, and not to an intermediate dependency that would request a feature in its manifest. [S-4] [S-10]
+**SYS-7.** Obtain Slang in exactly one of two ways. By default, link dynamically to the Slang of an installed Vulkan SDK, and when the environment variable `SLANG_SOURCE_DIR` is present, build Slang from the source tree that it names and link it statically. Select the static build through that variable only, never through a Cargo feature, and do not add a prebuilt download or any other way to find the library.
 
-**SYS-8.** Put the logic of a build script in a file of plain functions without `main` that `build.rs` and a test of the crate both include with `include!`. Route everything that the logic reads from or does to its environment through a small private trait: environment variables, files, the kind of a path, the operating system of the host, the programs it runs, and the files it writes. Implement the trait on the real system either in `build.rs` or in a second file that `build.rs` includes. A second file may also be included by a test that exercises the real implementation, in a module named `ffi` when that test starts a process, so that Miri skips it (SCS-33 of `docs/design/slang-compiler-sys.md`). `build.rs` only prints the instructions that the logic returns and returns its result from `main`. Implement the trait on a fake in the test of the logic. Give every route and every failure that the build script can raise a test that asserts its message and the instructions it emits. Reason: Cargo runs no test inside a build script, and a build script runs first on a user's machine, so a route or a failure that no test exercised fails there, where the user can only read its message. The trait lets a test choose each environment without changing the environment of the test process, which edition 2024 allows only in unsafe code and which can race with other tests in the same process, and the shared files make the tests check the code that runs, not a copy. No source in the reference list covers testing the logic of a build script, so this rule is project-defined and cites no source, as the rules of Section 12 are. Section 9.7 of `docs/design/slang-compiler-sys.md` describes the first build script that follows it, whose real implementation is in the included file `system.rs`.
+Reason: two documented paths can be tested on every CI platform, and a download in a build script runs unreviewed code and breaks offline builds.
+
+The static build is not a Cargo feature for three reasons:
+
+- Every check passes `--all-features`, so a feature would force a long native build of Slang from source into routine checks.
+- Cargo features must be additive (DEP-1), and how the native library is linked is a choice between options that exclude each other, not an addition.
+- The choice belongs to whoever builds the final program, who controls the environment, and not to an intermediate dependency that would request a feature in its manifest. [S-4] [S-10]
+
+**SYS-8.** Put the logic of a build script in a file of plain functions without `main` that `build.rs` and a test of the crate both include with `include!`. Route everything that the logic reads from or does to its environment through a small private trait, which covers environment variables, files, the kind of a path, the operating system of the host, the programs it runs, and the files it writes. Implement the trait on the real system either in `build.rs` or in a second file that `build.rs` includes.
+
+A second file may also be included by a test that exercises the real implementation, in a module named `ffi` when that test starts a process, so that Miri skips it (SCS-33 of `docs/design/slang-compiler-sys.md`). `build.rs` only prints the instructions that the logic returns and returns its result from `main`.
+
+Implement the trait on a fake in the test of the logic. Give every route and every failure that the build script can raise a test that asserts its message and the instructions it emits.
+
+Reason: Cargo runs no test inside a build script, and a build script runs first on a user's machine, so a route or a failure that no test exercised fails there, where the user can only read its message.
+
+The trait lets a test choose each environment without changing the environment of the test process. Edition 2024 allows that change only in unsafe code, and it can race with other tests in the same process. The shared files make the tests check the code that runs, not a copy.
+
+No source in the reference list covers testing the logic of a build script, so this rule is project-defined and cites no source, as the rules of Section 12 are. Section 9.7 of `docs/design/slang-compiler-sys.md` describes the first build script that follows it, whose real implementation is in the included file `system.rs`.
 
 ## 12. COM-Style Interfaces
 
-No published source covers reference-counted COM-style interfaces from Rust. The rules in this section are therefore project-defined and derive from no external source. COM-5 cites a defect report only as evidence of the failure that the rule prevents. Where a rule applies a rule from another section, it names that rule.
+No published source covers reference-counted COM-style interfaces from Rust. The rules in this section are therefore project-defined and derive from no external source.
+
+COM-5 cites a defect report only as evidence of the failure that the rule prevents. Where a rule applies a rule from another section, it names that rule.
 
 **COM-1.** Hold every interface in one owning interface pointer type, generic over the interface, that owns exactly one reference: its `Clone` calls `AddRef` and returns a new owner, and its `Drop` calls `Release` once. No other code calls `AddRef` or `Release`. Reason: one type that pairs every `AddRef` with one `Release` makes a leaked or double-released reference impossible in safe code, and a reviewer audits the pairing in one place.
 
@@ -907,13 +1124,21 @@ impl Drop for Owned {
 }
 ```
 
-**COM-2.** Distinguish owned from borrowed interface pointers at every boundary. Adopt a pointer that Slang returns with a reference already added without calling `AddRef`, call `AddRef` on a pointer that Slang returns without a reference before the safe crate keeps it, and take an interface that a function only uses during a call as a borrow of its owning pointer, without changing the count. The design document records, for each Slang function that the safe crate calls, which of these cases applies. Reason: one wrong assumption about who owns a reference either leaks the object or frees it while it is still in use.
+**COM-2.** Distinguish owned from borrowed interface pointers at every boundary. Adopt a pointer that Slang returns with a reference already added without calling `AddRef`.
+
+Call `AddRef` on a pointer that Slang returns without a reference before the safe crate keeps it. Take an interface that a function only uses during a call as a borrow of its owning pointer, without changing the count.
+
+The design document records, for each Slang function that the safe crate calls, which of these cases applies.
+
+Reason: one wrong assumption about who owns a reference either leaks the object or frees it while it is still in use.
 
 **COM-3.** Wrap `QueryInterface` as a checked cast that takes the UUID of the target interface from its type and returns an owning interface pointer to the target or an error. Never convert between interface pointer types with a pointer cast. Reason: a pointer cast to an interface that the object does not implement calls the wrong vtable entries, which is undefined behaviour.
 
 **COM-4.** Take every interface UUID from a constant that the binding generator produces from the Slang headers and attaches to the interface type through a trait, and never type a UUID by hand. Reason: a mistyped UUID compiles and then fails only at run time, or selects the wrong interface.
 
-**COM-5.** Make every object that Slang creates from a parent hold an owning interface pointer to that parent, such as a module to its session, so that the parent lives as long as any child. Declare the child's own pointer field before the parent field, so that the child is released first. Reason: an existing third-party binding segfaults when a session is dropped while objects created from it are still alive [SLANG-RS-26], and Rust drops fields in declaration order. This rule applies OWN-4 to interfaces.
+**COM-5.** Make every object that Slang creates from a parent hold an owning interface pointer to that parent, such as a module to its session, so that the parent lives as long as any child. Declare the child's own pointer field before the parent field, so that the child is released first.
+
+Reason: an existing third-party binding segfaults when a session is dropped while objects created from it are still alive [SLANG-RS-26], and Rust drops fields in declaration order. This rule applies OWN-4 to interfaces.
 
 This illustration shows the field order, with `Arc` standing in for the owning interface pointer:
 
@@ -938,11 +1163,15 @@ pub struct Module {
 }
 ```
 
-**COM-6.** Expose the contents of a blob as `&[u8]` borrowed from the owning interface pointer to the blob, so that the slice cannot outlive the blob, and copy into an owned buffer only when the caller asks. Decode a text blob with explicit handling of invalid UTF-8. Reason: a slice that outlives its blob points to freed memory, and a copy on every access wastes the allocation that a borrow avoids. This rule applies FFI-4 and FFI-5 to blobs.
+**COM-6.** Expose the contents of a blob as `&[u8]` borrowed from the owning interface pointer to the blob, so that the slice cannot outlive the blob, and copy into an owned buffer only when the caller asks. Decode a text blob with explicit handling of invalid UTF-8.
+
+Reason: a slice that outlives its blob points to freed memory, and a copy on every access wastes the allocation that a borrow avoids. This rule applies FFI-4 and FFI-5 to blobs.
 
 **COM-7.** Map Slang result codes to the crate's `Error` in exactly one function, pass every result code that the crate receives through it, and keep the raw code in the error. Map a code that the function does not recognize to a kind that says so, never to success, and do not compare raw result codes anywhere else. Reason: one mapping keeps the classification of codes consistent, and a code compared by hand in a second place diverges from the mapping when it changes.
 
-**COM-8.** Pass an out-parameter for the diagnostics blob to every Slang function that accepts one, and always collect the blob. On failure, put its text into the returned `Error`. On success, return any warnings it holds to the caller with the value. Never drop the blob unread or print it. Reason: the diagnostics are the only explanation that Slang gives for a failure, and warnings on success are information that the user needs.
+**COM-8.** Pass an out-parameter for the diagnostics blob to every Slang function that accepts one, and always collect the blob. On failure, put its text into the returned `Error`, and on success, return any warnings it holds to the caller with the value. Never drop the blob unread or print it.
+
+Reason: the diagnostics are the only explanation that Slang gives for a failure, and warnings on success are information that the user needs.
 
 **COM-9.** Never edit the generated vtable structs, UUID constants, or thunks by hand. Change the binding generator, regenerate, and commit both. Reason: a hand edit disappears at the next regeneration, and the test of TEST-8 that regenerates and compares the bindings fails on it.
 
@@ -952,13 +1181,23 @@ pub struct Module {
 
 **COM-12.** Design the safe API around Rust types and ownership, not around the interface hierarchy. Do not mirror interface inheritance as a trait hierarchy, and reach the methods of a base interface through the checked cast of COM-3 or through explicit methods. Reason: a mirrored hierarchy brings in C++ patterns that Rust expresses poorly, such as downcasts and implicit upcasts, while users of the safe crate need the operations, not the hierarchy.
 
-**COM-13.** Call every vtable entry so that each call is one unsafe operation in its own `unsafe` block. For an interface of `slang-compiler-sys`, call the entry through the generated thunk of the interface, which is the one helper that reaches the vtable, generated instead of written by hand (COM-9). For a vtable that has no generated thunk, give the interface wrapper one small helper method that returns a reference to its vtable, such as the `vtable` method in the illustration of COM-1, and call every entry through it. Reason: a direct call such as `((*(*this).vtable).method)(this)` is three unsafe operations, two dereferences and a call, which `clippy::multiple_unsafe_ops_per_block` rejects, and splitting it at every call site repeats the same safety comments in every method.
+**COM-13.** Call every vtable entry so that each call is one unsafe operation in its own `unsafe` block. For an interface of `slang-compiler-sys`, call the entry through the generated thunk of the interface, which is the one helper that reaches the vtable, generated instead of written by hand (COM-9).
+
+For a vtable that has no generated thunk, give the interface wrapper one small helper method that returns a reference to its vtable, such as the `vtable` method in the illustration of COM-1, and call every entry through it.
+
+Reason: a direct call such as `((*(*this).vtable).method)(this)` is three unsafe operations, two dereferences and a call, which `clippy::multiple_unsafe_ops_per_block` rejects, and splitting it at every call site repeats the same safety comments in every method.
 
 ## 13. Concurrency and Async
 
-**CONC-1.** Decide for each public type whether it is `Send` and `Sync`, state the decision in its documentation when it is not both, and add a compile-time assertion test for each auto trait that it does implement. A type that holds no foreign handle is `Send` and `Sync` unless it holds a value tied to one thread, and a type that holds a foreign handle follows FFI-9. Reason: auto traits change silently when a field changes, and a lost `Send` is a breaking change that no other test detects. [IR-8] [S-10] [IR-13]
+**CONC-1.** Decide for each public type whether it is `Send` and `Sync`, state the decision in its documentation when it is not both, and add a compile-time assertion test for each auto trait that it does implement. A type that holds no foreign handle is `Send` and `Sync` unless it holds a value tied to one thread, and a type that holds a foreign handle follows FFI-9.
 
-**CONC-2.** Bind a lock guard to its own `let` with the shortest scope that covers the protected work, and never call a lock method in the scrutinee of a `match` or `while let`. Do not lock a `Mutex` again, or take the write lock of an `RwLock`, while a guard from the same lock is alive. Reason: a temporary in the scrutinee of a `match` or `while let` lives until the end of the whole statement, so a guard taken there is held in every arm. Edition 2024 shortened only the lifetime of an `if let` scrutinee, and the nursery lints that detect this case are off. [IR-27] [IR-84] [S-7]
+Reason: auto traits change silently when a field changes, and a lost `Send` is a breaking change that no other test detects. [IR-8] [S-10] [IR-13]
+
+**CONC-2.** Bind a lock guard to its own `let` with the shortest scope that covers the protected work, and never call a lock method in the scrutinee of a `match` or `while let`. Do not lock a `Mutex` again, or take the write lock of an `RwLock`, while a guard from the same lock is alive.
+
+Reason: a temporary in the scrutinee of a `match` or `while let` lives until the end of the whole statement, so a guard taken there is held in every arm.
+
+Edition 2024 shortened only the lifetime of an `if let` scrutinee, and the nursery lints that detect this case are off. [IR-27] [IR-84] [S-7]
 
 This illustration shows the form to avoid. The second lock in the `None` arm waits for the guard that the scrutinee still holds:
 
@@ -991,39 +1230,79 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 **CONC-3.** Handle a poisoned lock on purpose: recover the guard with `PoisonError::into_inner` when a panic cannot leave the protected state invalid, and otherwise return an error. Reason: an `unwrap` on the result of `lock()` turns one panic into a panic in every later caller. [IR-27] [IR-2]
 
-**CONC-4.** Do not start threads that the caller cannot see. Accept work in batches and let the caller choose the parallelism. Keep library state out of `static` items, initialize state that must exist once with `OnceLock` or `LazyLock`, and never call `std::env::set_var` or `std::env::remove_var`. Per-thread state in a `thread_local!` is permitted for a guard that protects calls into a native library that is not reentrant or that keeps per-thread state of its own. The exception applies when the design document of the crate states the invariant that the guard upholds and states that the guard holds within one version of the crate only. This exception is project-defined and derives from no external source. Reason: hidden threads impose the library's concurrency policy on the application, two versions of a crate in one build each get their own statics, and changing the environment while other threads run is unsound on some platforms. Such a guard cannot live in a value that the caller holds, because a reentrant call reaches the native library through a value that a callback took from its own storage, with no path to the values of the outer call. The per-thread state of the native library belongs to the thread, not to any value. [IR-3] [S-10] [S-7] [IR-27]
+**CONC-4.** Do not start threads that the caller cannot see. Accept work in batches and let the caller choose the parallelism. Keep library state out of `static` items, initialize state that must exist once with `OnceLock` or `LazyLock`, and never call `std::env::set_var` or `std::env::remove_var`.
 
-**CONC-5.** Use `Relaxed` atomics only for counters and flags that guard no other data, use `Release` stores with `Acquire` loads to publish data through a flag or a pointer, and treat `SeqCst` as a reason to re-examine the algorithm. Do not read two atomics as one consistent snapshot. Reason: `Relaxed` creates no ordering between threads, and `SeqCst` is correct only where some weaker ordering already is. [IR-27]
+Per-thread state in a `thread_local!` is permitted for a guard that protects calls into a native library that is not reentrant or that keeps per-thread state of its own. The exception applies when the design document of the crate states the invariant that the guard upholds and states that the guard holds within one version of the crate only. This exception is project-defined and derives from no external source.
 
-**CONC-6.** Keep the core API blocking, and offer `async` functions only where the operation waits for something outside the process, such as a wgpu buffer mapping, device polling, or file input and output. Do not put `Send + 'static` bounds on library traits or futures unless the library itself spawns tasks, and use native `async fn` in traits instead of the `async-trait` crate unless dynamic dispatch requires it. A trait whose implementations a foreign library keeps and calls MAY carry `Send + Sync + 'static` bounds. The design document of the crate then states the reason for each bound, such as `'static` because the foreign library keeps the object beyond any borrow. This exception is project-defined and derives from no external source. Reason: compiling a shader is work for the central processing unit (CPU), the bounds come from the `spawn` function of a runtime and shut out single-threaded applications, and native async traits need no boxing. An object that a foreign library keeps outlives every borrow of the caller. A foreign library that states no threading rule for its calls can call the object from a thread that the crate does not choose, so those bounds come from the foreign library, not from a runtime. [IR-77] [IR-78] [IR-17]
+Reason: hidden threads impose the library's concurrency policy on the application, two versions of a crate in one build each get their own statics, and changing the environment while other threads run is unsound on some platforms.
 
-**CONC-7.** Document the cancel safety of every public `async fn`: what is lost, or still in flight in wgpu or on the GPU, when the future is dropped at each `.await`. Design each one so that a drop at any `.await` leaves every handle usable, and do not hold a lock guard or temporarily invalid state across an `.await`. Reason: dropping a future is how async Rust cancels, so every `.await` is a point where the operation can stop, and the lints of Section 4.5 catch only guards of known types. [IR-88]
+Such a guard cannot live in a value that the caller holds, because a reentrant call reaches the native library through a value that a callback took from its own storage, with no path to the values of the outer call. The per-thread state of the native library belongs to the thread, not to any value. [IR-3] [S-10] [S-7] [IR-27]
+
+**CONC-5.** Use `Relaxed` atomics only for counters and flags that guard no other data, use `Release` stores with `Acquire` loads to publish data through a flag or a pointer, and treat `SeqCst` as a reason to re-examine the algorithm. Do not read two atomics as one consistent snapshot.
+
+Reason: `Relaxed` creates no ordering between threads, and `SeqCst` is correct only where some weaker ordering already is. [IR-27]
+
+**CONC-6.** Keep the core API blocking, and offer `async` functions only where the operation waits for something outside the process, such as a wgpu buffer mapping, device polling, or file input and output. Do not put `Send + 'static` bounds on library traits or futures unless the library itself spawns tasks, and use native `async fn` in traits instead of the `async-trait` crate unless dynamic dispatch requires it.
+
+A trait whose implementations a foreign library keeps and calls MAY carry `Send + Sync + 'static` bounds. The design document of the crate then states the reason for each bound, such as `'static` because the foreign library keeps the object beyond any borrow. This exception is project-defined and derives from no external source.
+
+Reason: compiling a shader is work for the central processing unit (CPU), the bounds come from the `spawn` function of a runtime and shut out single-threaded applications, and native async traits need no boxing.
+
+An object that a foreign library keeps outlives every borrow of the caller. A foreign library that states no threading rule for its calls can call the object from a thread that the crate does not choose, so those bounds come from the foreign library, not from a runtime. [IR-77] [IR-78] [IR-17]
+
+**CONC-7.** Document the cancel safety of every public `async fn`: what is lost, or still in flight in wgpu or on the GPU, when the future is dropped at each `.await`. Design each one so that a drop at any `.await` leaves every handle usable, and do not hold a lock guard or temporarily invalid state across an `.await`.
+
+Reason: dropping a future is how async Rust cancels, so every `.await` is a point where the operation can stop, and the lints of Section 4.5 catch only guards of known types. [IR-88]
 
 ## 14. Testing
 
-**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute, when that module holds logic that needs a test, such as the scene of the windowed renderer (Section 13.5 of `docs/design/slango.md`). A module that several binaries of that package need MAY sit under `examples/src/shared/`, and each binary, and the integration-test binary when the module needs a test, includes it with a `#[path]` attribute. Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked. A package of example binaries has no library crate to hold code that its binaries share, and a library target would add public items that exist only for the examples. The shared module makes the test check the code that the binary runs, as SYS-8 does for a build script. No source in the reference list covers this part of the rule, so it is project-defined. [IR-17] [IR-10] [IR-63]
+**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute.
+
+This applies when that module holds logic that needs a test, such as the scene of the windowed renderer (Section 13.5 of `docs/design/slango.md`).
+
+A module that several binaries of that package need MAY sit under `examples/src/shared/`. Each binary, and the integration-test binary when the module needs a test, includes it with a `#[path]` attribute.
+
+Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked.
+
+A package of example binaries has no library crate to hold code that its binaries share, and a library target would add public items that exist only for the examples. The shared module makes the test check the code that the binary runs, as SYS-8 does for a build script.
+
+No source in the reference list covers this part of the rule, so it is project-defined. [IR-17] [IR-10] [IR-63]
 
 **TEST-2.** Cover text and structured output, such as diagnostic messages and reflection data, with `insta` snapshot tests, review their changes with `cargo insta review`, commit the snapshot files, and make the output under test deterministic. Reason: a snapshot shows a reviewer the exact change in output, and output that depends on hash order or timing makes the test flaky. [IR-17] [IR-1]
 
-**TEST-3.** Tag every test that needs the native Slang library, a GPU adapter, or a hardware GPU, so that a run can exclude it with a filter, using the mechanism that the design document defines. Run the tests that need a hardware GPU locally only. Reason: CI runs the tests on hosted runners for Linux, Windows, and macOS, which are not required to provide a hardware GPU, and the GPU tier is planned there on lavapipe, the Windows Advanced Rasterization Platform (WARP), and hosted Metal, as Section 7.1 of `docs/design/tooling.md` specifies. An untagged test that needs other hardware would fail there.
+**TEST-3.** Tag every test that needs the native Slang library, a GPU adapter, or a hardware GPU, so that a run can exclude it with a filter, using the mechanism that the design document defines. Run the tests that need a hardware GPU locally only.
+
+Reason: CI runs the tests on hosted runners for Linux, Windows, and macOS, which are not required to provide a hardware GPU. The GPU tier is planned there on lavapipe, the Windows Advanced Rasterization Platform (WARP), and hosted Metal, as Section 7.1 of `docs/design/tooling.md` specifies. An untagged test that needs other hardware would fail there.
 
 **TEST-4.** Add a regression test to every bug fix that fails without the fix and passes with it. Reason: a fix without a test can return at the next refactor, and the failing run proves that the test covers the bug.
 
 **TEST-5.** Write each example as a complete program that builds in every check, and run it in CI when its tags allow, so that the examples double as tests. Reason: an example that is only built can still fail when it runs, and the examples are the testbed of the project. [IR-49]
 
-**TEST-6.** Test the failure paths, not only success: malformed shader source, invalid UTF-8, interior NUL bytes, missing files, and each branch of code that takes a lock. Assert that each returns the documented error kind, and inject Slang failures through the fake implementation of TEST-7. Reason: failure paths rarely run in normal use, so users find their bugs, and a panic on malformed input violates ERR-5. [IR-36] [IR-84] [S-10]
+**TEST-6.** Test the failure paths, not only success: malformed shader source, invalid UTF-8, interior NUL bytes, missing files, and each branch of code that takes a lock. Assert that each returns the documented error kind, and inject Slang failures through the fake implementation of TEST-7.
 
-**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness. Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. The check runs Miri through nextest (Section 4.8). [S-8] [S-10] [IR-27]
+Reason: failure paths rarely run in normal use, so users find their bugs, and a panic on malformed input violates ERR-5. [IR-36] [IR-84] [S-10]
 
-**TEST-8.** Keep two tests for the bindings: one that regenerates the bindings with the binding generator, compares the result with the checked-in bindings, and fails if they differ, wherever it holds the regenerated text, and one that references the native symbols, so that a broken link fails a test instead of a user's build. Reason: checked-in bindings diverge silently from the generator and the headers, and the linker resolves a symbol only when code uses it. [S-3] [S-4]
+**TEST-7.** Test the unsafe code of the safe crate under Miri, with a fake implementation of the interfaces, written in Rust with its own vtables, in place of the native library. Do not treat a clean Miri run as a proof of soundness.
+
+Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. The check runs Miri through nextest (Section 4.8). [S-8] [S-10] [IR-27]
+
+**TEST-8.** Keep two tests for the bindings. The first regenerates the bindings with the binding generator, compares the result with the checked-in bindings, and fails if they differ, wherever it holds the regenerated text. The second references the native symbols, so that a broken link fails a test instead of a user's build.
+
+Reason: checked-in bindings diverge silently from the generator and the headers, and the linker resolves a symbol only when code uses it. [S-3] [S-4]
 
 **TEST-9.** Do not write tests that restate constants or mirror the implementation, and use property tests for conversions that round-trip, with their regression files in version control. Reason: a test that restates the implementation passes whatever the code does, and a property test that shrinks its failures finds inputs that the author did not think of. [S-10] [IR-13]
 
-**TEST-10.** Give each crate exactly one integration-test binary, `tests/<suite>/main.rs`, with the tests in sibling module files and the shared helpers in a module declared in `main.rs` as `#[cfg(test)] mod common;`, and put no other Rust file directly in `tests/`. Reason: each Rust file directly in `tests/` is a separate test binary, so a helper module shared by several of them is dead code in each binary that does not use a given helper. `dead_code` then fires in that binary, while an `#[expect(dead_code)]` is unfulfilled in the binary that uses the helper, so no lint exception passes the check. A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `unreachable_pub`, because the test options of Section 4.3 cover only `#[test]` functions and `#[cfg(test)]` code. The single-binary layout produced no findings in the run of Section 1.1.
+**TEST-10.** Give each crate exactly one integration-test binary, `tests/<suite>/main.rs`, with the tests in sibling module files and the shared helpers in a module declared in `main.rs` as `#[cfg(test)] mod common;`, and put no other Rust file directly in `tests/`.
+
+Reason: each Rust file directly in `tests/` is a separate test binary, so a helper module shared by several of them is dead code in each binary that does not use a given helper. `dead_code` then fires in that binary, while an `#[expect(dead_code)]` is unfulfilled in the binary that uses the helper, so no lint exception passes the check.
+
+A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `unreachable_pub`, because the test options of Section 4.3 cover only `#[test]` functions and `#[cfg(test)]` code. The single-binary layout produced no findings in the run of Section 1.1.
 
 ## 15. Dependencies and Cargo Features
 
-**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other. Section 7.8 of the writing guide defines how features are documented. Reason: Cargo unifies the features that different dependents request, so a subtractive or exclusive feature breaks a build that combines them. [IR-8] [S-10] [S-4]
+**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other. Section 7.8 of the writing guide defines how features are documented.
+
+Reason: Cargo unifies the features that different dependents request, so a subtractive or exclusive feature breaks a build that combines them. [IR-8] [S-10] [S-4]
 
 **DEP-2.** Add a dependency only when it replaces code or risk that outweighs its own cost, prefer the standard library, such as `std::sync::LazyLock`, and widely used crates, and declare every version once in `[workspace.dependencies]`. Reason: each dependency adds build time, licence obligations, and supply-chain risk, and two versions of one crate in a build have incompatible types. [IR-5] [IR-1] [S-10] [IR-3]
 
@@ -1039,9 +1318,13 @@ Reason: the declared version is a promise to users, and Clippy reads it to hold 
 
 ## 16. Simplicity
 
-**SIMP-1.** Start with concrete types, and add a generic parameter, a trait, or a layer of indirection only when two implementations exist now. Remove an abstraction that gives no benefit now. Reason: predictions of future needs rarely hold, and an abstraction built on a prediction fixes a design before its requirements are known. [IR-93] [IR-72] [IR-81]
+**SIMP-1.** Start with concrete types, and add a generic parameter, a trait, or a layer of indirection only when two implementations exist now. Remove an abstraction that gives no benefit now.
 
-**SIMP-2.** Do not add a backend abstraction to `slango` before a second backend exists. Keep the code that depends on wgpu behind a small number of module boundaries, so that extracting a trait for a slang-rhi backend later changes only those modules. Reason: the right shape of a backend trait is known only once two backends exist, and contained wgpu code keeps that later change local. [IR-81] [IR-93]
+Reason: predictions of future needs rarely hold, and an abstraction built on a prediction fixes a design before its requirements are known. [IR-93] [IR-72] [IR-81]
+
+**SIMP-2.** Do not add a backend abstraction to `slango` before a second backend exists. Keep the code that depends on wgpu behind a small number of module boundaries, so that extracting a trait for a slang-rhi backend later changes only those modules.
+
+Reason: the right shape of a backend trait is known only once two backends exist, and contained wgpu code keeps that later change local. [IR-81] [IR-93]
 
 **SIMP-3.** Write the examples of a new public API from the caller's side before implementing it, and rework the API until the common case is short and obvious. Reason: an API that is merely functional produces long and awkward examples, and the examples show the problem before other code depends on the API. [IR-63] [IR-44] [IR-93]
 
@@ -1132,13 +1415,25 @@ An agent MUST add the rule in the same change as the code that first relies on i
 
 ## 20. Security Considerations
 
-This document defines rules, not a component, but its rules decide the security properties of every crate in the repository. The threat model has four parts. First, an application passes shader source, module names, and file paths that an attacker controls to the safe crate, and the attacker chooses their content but not the code of the application or of this repository. Second, an agent introduces a defect into unsafe code or into an FFI declaration, which turns a malformed input or a misuse into undefined behaviour. Third, a build script runs on the user's machine with the user's permissions and, for the static build, runs a native build of Slang from source. Fourth, a dependency contains a defect or a published vulnerability.
+This document defines rules, not a component, but its rules decide the security properties of every crate in the repository. The threat model has four parts.
 
-The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep sizes and indexes from input in range, and ERR-5 turns malformed input into an error instead of a panic. The design document of the safe crate states which files Slang can read through include paths and module search paths, as Section 3.2 of the writing guide requires. For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids downloads, installs, and writes outside `OUT_DIR`, and SYS-6 and SYS-7 fix where the native library comes from. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
+First, an application passes shader source, module names, and file paths that an attacker controls to the safe crate, and the attacker chooses their content but not the code of the application or of this repository. Second, an agent introduces a defect into unsafe code or into an FFI declaration, which turns a malformed input or a misuse into undefined behaviour.
 
-These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it. Defects in GPU drivers lie below every crate here. Attacks on the repository itself, such as a malicious change, are a matter of access control, not of coding rules.
+Third, a build script runs on the user's machine with the user's permissions and, for the static build, runs a native build of Slang from source. Fourth, a dependency contains a defect or a published vulnerability.
 
-The residual risk has three parts. First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, the custom checkers of `docs/design/tooling.md` read files line by line or token by token and state their limits in their usage text, such as documentation written as a `#[doc = ...]` attribute, which they do not read, so a violation outside what a checker reads depends on review. Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
+The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep sizes and indexes from input in range, and ERR-5 turns malformed input into an error instead of a panic. The design document of the safe crate states which files Slang can read through include paths and module search paths, as Section 3.2 of the writing guide requires.
+
+For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids downloads, installs, and writes outside `OUT_DIR`, and SYS-6 and SYS-7 fix where the native library comes from. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
+
+These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it.
+
+Defects in GPU drivers lie below every crate here. Attacks on the repository itself, such as a malicious change, are a matter of access control, not of coding rules.
+
+The residual risk has three parts.
+
+First, the soundness of unsafe code rests on judgement rules and on the contracts that the Slang documentation states, which no tool verifies, and Miri cannot run the native library. Second, the custom checkers of `docs/design/tooling.md` read files line by line or token by token and state their limits in their usage text. One such limit is documentation written as a `#[doc = ...]` attribute, which they do not read, so a violation outside what a checker reads depends on review.
+
+Third, shader source from an attacker can make the native compiler use unbounded time or memory unless the application limits it, and no rule here prevents that.
 
 ## 21. References
 
