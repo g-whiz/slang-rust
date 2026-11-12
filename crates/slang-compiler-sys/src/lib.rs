@@ -60,9 +60,9 @@
 //! only record of the pin in the repository, and every tool that needs the pin
 //! reads them. For a user, the pin means that one version of this crate works
 //! with exactly one Slang build. The build script refuses any other, on both
-//! ways of obtaining Slang that [Linking Slang](#linking-slang) describes. To
-//! use another Slang build, a program needs a version of this crate whose pin
-//! names that build.
+//! routes by which it obtains Slang, which [Linking Slang](#linking-slang)
+//! describes. To use another Slang build, a program needs a version of this
+//! crate whose pin names that build.
 //!
 //! # Examples
 //!
@@ -153,14 +153,15 @@
 //!
 //! # Linking Slang
 //!
-//! The build script of this crate obtains Slang in one of two ways. By
-//! default, it links the Slang shared library of an installed LunarG Vulkan
-//! SDK. When the environment variable `SLANG_SOURCE_DIR` is present, whatever
-//! its value, it builds Slang from source instead and links it statically. No
-//! Cargo feature selects the way, and the build never falls back from one way
-//! to the other.
+//! The build script of this crate obtains Slang by one of two routes. By
+//! default, it takes the dynamic route and links the Slang shared library of
+//! an installed LunarG Vulkan SDK. When the environment variable
+//! `SLANG_SOURCE_DIR` is present, whatever its value, it takes the static
+//! route instead, which builds Slang from source and links it statically. No
+//! Cargo feature selects the route, and the build never falls back from one
+//! route to the other.
 //!
-//! On the default way, the SDK has to be the one that [`VULKAN_SDK_VERSION`]
+//! On the dynamic route, the SDK has to be the one that [`VULKAN_SDK_VERSION`]
 //! names. You can download it from <https://vulkan.lunarg.com>. When the
 //! build script runs, it reads the environment variable `VULKAN_SDK`, which
 //! holds the absolute path of the directory of the SDK that contains
@@ -195,7 +196,7 @@
 //! library of the host. Commands that do not link, such as `cargo check` and
 //! `cargo clippy`, then work, and a build that links fails in the linker.
 //!
-//! On the static way, the build script does not read `VULKAN_SDK`.
+//! On the static route, the build script does not read `VULKAN_SDK`.
 //! `SLANG_SOURCE_DIR` holds the absolute path of the top-level directory of a
 //! git clone of Slang at the commit [`SLANG_COMMIT`], with its submodules.
 //! The build script asks git about that directory, and it stops the build
@@ -263,14 +264,14 @@
 //! The manifest key `links` of this crate is `slang-compiler`, so the build
 //! script of a crate that depends on this one reads the directory of the
 //! Slang headers from `DEP_SLANG_COMPILER_INCLUDE` and the directory of the
-//! library from `DEP_SLANG_COMPILER_LIB`. On the default way, they are
+//! library from `DEP_SLANG_COMPILER_LIB`. On the dynamic route, they are
 //! `$VULKAN_SDK/include`, which holds the headers under `slang`, and
-//! `$VULKAN_SDK/lib`. On the static way, they are `slang/build/Release/include`
+//! `$VULKAN_SDK/lib`. On the static route, they are `slang/build/Release/include`
 //! and `slang/lib` in the output directory of the build script, and the
 //! former holds the headers and `slang-tag-version.h` directly. Neither is set
 //! when `DOCS_RS` is present.
 //!
-//! On the default way, the dynamic loader of the operating system finds the
+//! On the dynamic route, the dynamic loader of the operating system finds the
 //! shared library when the program starts, and the build script cannot tell
 //! it where the library is, so the environment of the program does:
 //!
