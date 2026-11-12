@@ -11,7 +11,7 @@ use slango::{Device, RenderPipeline, RenderPipelineOptions};
 use crate::watched::Watched;
 
 /// The values that the scene sets by name on the shader in each draw.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy)]
 pub(crate) struct Uniforms {
     /// The time in seconds, which shifts the colours.
     pub(crate) time: f32,
@@ -23,7 +23,6 @@ pub(crate) struct Uniforms {
 
 /// A full-screen triangle drawn into a [`View`] with the render pipeline of
 /// a Slang file, which the scene loads again when the file changes.
-#[derive(Debug)]
 pub(crate) struct Scene {
     device: Device,
     file: Watched,

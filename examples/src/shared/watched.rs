@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// A file with the modification time of its last load.
-#[derive(Debug)]
 pub(crate) struct Watched {
     path: PathBuf,
     modified: Option<SystemTime>,

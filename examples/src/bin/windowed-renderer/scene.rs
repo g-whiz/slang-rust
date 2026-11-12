@@ -15,7 +15,6 @@ const CLEAR: [f32; 4] = [0.05, 0.05, 0.08, 1.0];
 
 /// A quad with a checkerboard texture, drawn with the render pipeline of a
 /// Slang file that the scene loads again when the file changes.
-#[derive(Debug)]
 pub(crate) struct Scene {
     device: Device,
     file: Watched,
