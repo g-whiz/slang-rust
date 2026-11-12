@@ -9,5 +9,7 @@ mod ffi;
 #[cfg(test)]
 mod gpu;
 #[cfg(test)]
+mod unattended;
+#[cfg(test)]
 #[path = "../../src/shared/watched.rs"]
 mod watched;
