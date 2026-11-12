@@ -1413,6 +1413,28 @@ union Choice
     }
 
     #[test]
+    fn generate_refuses_a_default_member_initializer_in_an_unnamed_record() {
+        let header = r"
+struct Outer
+{
+    struct
+    {
+        int32_t x = 1;
+    };
+};
+";
+        let error = fail("unnamed_record_initializer", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "int32_t x"),
+            &[
+                "cannot evaluate the default member initializer of Outer::(anonymous 0)::x, because the record has no name",
+            ],
+        );
+    }
+
+    #[test]
     fn generate_refuses_an_array_parameter() {
         let header = "\nextern \"C\" void takeArray(int32_t values[4]);\n";
         let error = fail("array_parameter", header);
