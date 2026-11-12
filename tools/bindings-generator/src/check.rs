@@ -1194,6 +1194,56 @@ mod tests {
     }
 
     #[test]
+    fn compare_rejects_a_macro_value_that_differs_between_targets() {
+        let with_value = |value| Selection {
+            macros: vec![SelectedMacro {
+                name: "WIDTH".to_owned(),
+                location: Location::new("slang.h", 1),
+                action: MacroAction::Constant(Prim::I32),
+                reason: "a width",
+                value: Some(Value::Integer(value)),
+            }],
+            ..selection(Vec::new())
+        };
+        let error =
+            compare(&[("linux", with_value(1)), ("windows", with_value(2))]).expect_err("rejected");
+        assert_eq!(error.kind(), ErrorKind::TargetDifference);
+        assert_eq!(error.location(), None);
+        assert!(
+            error.message().starts_with(
+                "the macros or the excluded declarations differ between linux and windows: "
+            ),
+            "{error}"
+        );
+        assert!(error.message().contains("Integer(1)"), "{error}");
+        assert!(error.message().contains("Integer(2)"), "{error}");
+    }
+
+    #[test]
+    fn compare_rejects_an_excluded_declaration_that_differs_between_targets() {
+        let excluding = |name| Selection {
+            excluded: vec![item(name, ItemKind::Opaque)],
+            ..selection(Vec::new())
+        };
+        let error = compare(&[("linux", excluding("A")), ("windows", excluding("B"))])
+            .expect_err("rejected");
+        assert_eq!(error.kind(), ErrorKind::TargetDifference);
+        assert!(
+            error.message().starts_with(
+                "the macros or the excluded declarations differ between linux and windows: "
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn compare_rejects_an_empty_list_of_targets() {
+        let error = compare(&[]).expect_err("rejected");
+        assert_eq!(error.kind(), ErrorKind::TargetDifference);
+        assert_eq!(error.message(), "no target was parsed");
+    }
+
+    #[test]
     fn unfixed_prim_is_unsigned_unless_an_enumerator_is_negative() {
         assert_eq!(unfixed_prim(&unfixed_enum(true, &[0, 1])), Prim::U32);
         assert_eq!(unfixed_prim(&unfixed_enum(false, &[-1, 1])), Prim::I32);

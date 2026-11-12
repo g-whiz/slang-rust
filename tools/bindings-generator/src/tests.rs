@@ -842,6 +842,32 @@ struct Differs
     }
 
     #[test]
+    fn generate_rejects_a_macro_value_that_differs_between_targets() {
+        const MACROS: &[MacroRule] = &[
+            MacroRule {
+                pattern: "TEST_WIDTH",
+                action: MacroAction::Constant(Prim::I32),
+                reason: "a test width",
+            },
+            MacroRule {
+                pattern: "*",
+                action: MacroAction::Exclude,
+                reason: "a test macro",
+            },
+        ];
+        const RULES: RuleSet = rules(INCLUDE_ALL, MACROS);
+        let header = "\n#ifdef _WIN32\n#define TEST_WIDTH 2\n#else\n#define TEST_WIDTH 1\n#endif\n";
+        let error = fail_rules("macro_difference", header, &RULES);
+        assert_eq!(error.kind(), ErrorKind::TargetDifference, "{error}");
+        assert!(
+            error.message().starts_with(
+                "the macros or the excluded declarations differ between x86_64-unknown-linux-gnu and x86_64-pc-windows-msvc: "
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn generate_fails_on_an_error_diagnostic() {
         let header = "\n#include <missing_header.h>\n";
         let error = fail("diagnostic", header);
