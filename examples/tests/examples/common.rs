@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -7,7 +8,7 @@ use slango::{Device, DeviceOptions};
 
 /// Runs the example binary at `bin` with `args` in the directory of the
 /// examples package, where the paths of the shaders start.
-pub(crate) fn run(bin: &str, args: &[&str]) -> Output {
+pub(crate) fn run<S: AsRef<OsStr>>(bin: &str, args: &[S]) -> Output {
     Command::new(bin)
         .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))

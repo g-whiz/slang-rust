@@ -50,7 +50,7 @@ fn compute_kernel_reports_a_missing_file_on_standard_error() {
 
 #[test]
 fn typed_kernel_advances_the_particles_and_prints_the_checked_results() {
-    let output = run(env!("CARGO_BIN_EXE_typed-kernel"), &[]);
+    let output = run::<&str>(env!("CARGO_BIN_EXE_typed-kernel"), &[]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{}: {stderr}", output.status);
     assert!(stderr.starts_with("running on "), "{stderr}");

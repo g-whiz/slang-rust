@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Output;
 
-use crate::common::{assert_prints_usage, run};
+use crate::common::{assert_fails_with, assert_prints_usage, run};
 
 const COMPILE_AND_REFLECT: &str = env!("CARGO_BIN_EXE_compile-and-reflect");
 
@@ -116,4 +116,61 @@ fn compile_and_reflect_finds_an_imported_module_in_a_search_path() {
 
     let report = report_of(run(COMPILE_AND_REFLECT, &["--search-path", modules, main]));
     assert!(report.contains("entry point main (Compute)\n"), "{report}");
+}
+
+#[test]
+fn compile_and_reflect_rejects_each_bad_argument() {
+    let file = "shaders/scale.slang";
+    let cases: [(&[&str], &str); 7] = [
+        (&["--bogus", file], "unknown option --bogus, see --help"),
+        (
+            &["--target", "nope", file],
+            "unknown target \"nope\", see --help",
+        ),
+        (&[file, "--target"], "--target needs a value"),
+        (&[file, "--entry"], "--entry needs a value"),
+        (&[file, "--search-path"], "--search-path needs a directory"),
+        (
+            &[file, "shaders/broken.slang"],
+            "expected one Slang file, see --help",
+        ),
+        (&[], "missing the Slang file to compile, see --help"),
+    ];
+    for (args, message) in cases {
+        assert_fails_with(COMPILE_AND_REFLECT, args, message);
+    }
+}
+
+#[test]
+fn compile_and_reflect_reports_a_file_that_it_cannot_read() {
+    let output = compile_and_reflect("shaders/missing.slang");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(
+        stderr.starts_with("compile-and-reflect: cannot read shaders/missing.slang: "),
+        "{stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn compile_and_reflect_rejects_a_value_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let value = std::ffi::OsStr::from_bytes(b"main\xff");
+    let args = [
+        std::ffi::OsStr::new("--entry"),
+        value,
+        std::ffi::OsStr::new("shaders/scale.slang"),
+    ];
+    let output = run(COMPILE_AND_REFLECT, &args);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert_eq!(
+        stderr,
+        "compile-and-reflect: the value main\u{fffd} of --entry is not valid UTF-8\n"
+    );
 }
