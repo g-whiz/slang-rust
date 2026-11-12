@@ -512,21 +512,25 @@ fn clones_of_a_kernel_run_on_two_threads_at_once() -> slango::Result<()> {
 }
 
 #[test]
-fn a_dispatch_with_plain_values_on_a_destroyed_device_returns_instead_of_panicking()
--> slango::Result<()> {
+fn a_dispatch_with_plain_values_on_a_destroyed_device_is_a_backend_error() -> slango::Result<()> {
     let device = device();
     let module = device.load_module(shader("scale.slang"))?;
     let data = Buffer::from_slice(&device, &[1.0_f32, 2.0])?;
+    let kernel = module.kernel("scale")?;
     slango::wgpu::device(&device).destroy();
-    let result = module
-        .kernel("scale")?
+    let error = kernel
         .call()
         .set("factor", 2.0_f32)
         .set("count", 2_u32)
         .bind("data", &data)
-        .dispatch([2, 1, 1]);
-    if let Err(error) = result {
-        assert_eq!(error.kind(), slango::ErrorKind::Backend, "{error}");
-    }
+        .dispatch([2, 1, 1])
+        .expect_err("the device is destroyed");
+    assert_eq!(error.kind(), slango::ErrorKind::Backend, "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("wgpu rejected the dispatch of the kernel `scale`"),
+        "{error}"
+    );
     Ok(())
 }
