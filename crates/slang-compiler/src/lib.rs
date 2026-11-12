@@ -7,8 +7,8 @@
 //! that it describes the parameters and types that the code uses. This crate
 //! gives Rust programs a safe API for that, with no GPU dependency. It sits on
 //! [`slang-compiler-sys`](slang_compiler_sys), the raw bindings of Slang's
-//! native API, and the planned crate `slango` builds on it to run Slang code
-//! on a GPU. Use this crate to compile and reflect shaders, and
+//! native API, and the crate `slango` builds on it to run Slang code on a
+//! GPU. Use this crate to compile and reflect shaders, and
 //! `slang-compiler-sys` only to reach a part of Slang that this crate does not
 //! wrap.
 //!
