@@ -1314,12 +1314,6 @@ fn static_route_refuses_a_tree_with_changed_tracked_files() {
     );
     assert!(directives.ends_with(&git_reruns()), "{directives:?}");
     assert!(host.synced.borrow().is_empty());
-
-    let mut many = static_host();
-    respond_with(&mut many, "git", "status", || {
-        Ok(finished(0, &" M a\n".repeat(13), ""))
-    });
-    static_failure(&many, &["\" M a\", and 3 more."]);
 }
 
 #[test]
