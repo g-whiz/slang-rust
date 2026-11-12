@@ -505,11 +505,14 @@ pub(crate) fn bind_groups(
 /// A buffer that wgpu fails to create cannot be mapped, and wgpu reports the
 /// failure in the error scope around the work, so the bytes are then not
 /// written.
+#[expect(
+    clippy::expect_used,
+    reason = "slango builds for 64-bit targets only, where every usize fits in a u64"
+)]
 fn uniform_buffer(device: &::wgpu::Device, label: &str, bytes: &[u8]) -> ::wgpu::Buffer {
     let size = u64::try_from(bytes.len())
-        .ok()
-        .and_then(|len| len.checked_next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT))
-        .unwrap_or(u64::MAX)
+        .expect("internal error: a usize fits in a u64 on the 64-bit targets of slango")
+        .next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT)
         .max(::wgpu::COPY_BUFFER_ALIGNMENT);
     let buffer = device.create_buffer(&::wgpu::BufferDescriptor {
         label: Some(label),

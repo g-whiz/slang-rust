@@ -76,9 +76,7 @@ impl<T: VertexElement> Buffer<T> {
         let ((buffer, mapped), error) = scoped(wgpu_device, || {
             let buffer = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
                 label: Some("slango buffer"),
-                size: size
-                    .checked_next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT)
-                    .unwrap_or(size),
+                size: size.next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT),
                 usage: usages(),
                 mapped_at_creation: true,
             });
