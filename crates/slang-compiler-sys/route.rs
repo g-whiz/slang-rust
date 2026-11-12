@@ -635,11 +635,20 @@ fn source_files(host: &impl Host, source: &Path) -> Result<Vec<PathBuf>, BuildEr
     let (mut files, submodules) = tracked(host, source, Path::new(""))?;
     for submodule in REQUIRED_SUBMODULES {
         let directory = source.join(submodule);
+        let git_entry = directory.join(".git");
         let present = submodules.iter().any(|path| path == submodule)
-            && matches!(
-                host.kind(&directory.join(".git")),
-                Ok(EntryKind::Directory | EntryKind::File)
-            );
+            && match host.kind(&git_entry) {
+                Ok(EntryKind::Directory | EntryKind::File) => true,
+                Ok(EntryKind::Other) => false,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                Err(error) => {
+                    return Err(BuildError(format!(
+                        "cannot access {}: {error}, so the build cannot check that the submodule {submodule} of the Slang source tree at {} is checked out.",
+                        git_entry.display(),
+                        source.display()
+                    )));
+                }
+            };
         if !present {
             return Err(BuildError(format!(
                 "the submodule {submodule} of the Slang source tree at {} is missing or empty, and the build of Slang from source needs it. Fetch it with `git -C {} submodule update --init {submodule}`, which needs network access.",
