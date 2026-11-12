@@ -215,6 +215,7 @@ The module holds:
 - The encoder and the decoder of the snapshot (Section 5.3).
 - `load_precompiled`, which decodes an encoded snapshot and loads it with no call into Slang.
 - The trait for generated structs (Section 5.4).
+- `slang_type`, which names the Slang type of a scalar or a vector, such as `float3`, and which `slango` uses for the same type in its own errors, so the generator names a type exactly as the check of a bound buffer does.
 
 Generated code calls `slango` only through its public API and this module, so it compiles and dispatches through the same core as the runtime API (ARCH-17).
 

@@ -165,6 +165,26 @@ pub(crate) enum Scalar {
     Float32,
 }
 
+pub(crate) fn slang_scalar_name(scalar: Scalar) -> &'static str {
+    match scalar {
+        Scalar::Bool => "bool",
+        Scalar::Int32 => "int",
+        Scalar::Uint32 => "uint",
+        Scalar::Float32 => "float",
+    }
+}
+
+/// Returns the name of the Slang type of `components` scalars of the type
+/// `scalar`, such as `float2`, or `uint` for one component.
+pub(crate) fn slang_type(scalar: Scalar, components: u32) -> String {
+    let name = slang_scalar_name(scalar);
+    if components == 1 {
+        name.to_owned()
+    } else {
+        format!("{name}{components}")
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Shape {
     Scalar,

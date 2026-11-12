@@ -17,7 +17,7 @@ mod interface;
 
 pub use interface::{
     Access, ElementType, Field, FieldType, Interface, KernelInterface, Parameter, ParameterKind,
-    Scalar, Shape, Structure, UniformStructure, ValueType,
+    Scalar, Shape, Structure, UniformStructure, ValueType, slang_type,
 };
 
 /// The version of the encoding of a layout snapshot that this version of the

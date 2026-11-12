@@ -2,7 +2,7 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use slango::__private::{
     Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    UniformStructure,
+    UniformStructure, slang_type,
 };
 
 use crate::error::{Error, ErrorKind, Result};
@@ -393,15 +393,6 @@ fn inside<'a>(path: &'a str, outer: &str) -> Option<&'a str> {
     path.strip_prefix(outer)?.strip_prefix('.')
 }
 
-fn scalar_name(scalar: Scalar) -> &'static str {
-    match scalar {
-        Scalar::Bool => "bool",
-        Scalar::Int32 => "int",
-        Scalar::Uint32 => "uint",
-        Scalar::Float32 => "float",
-    }
-}
-
 /// Returns the Rust type of the elements of the structured buffer at `path`,
 /// or an error when no element type of `slango` and no generated struct
 /// matches them.
@@ -415,15 +406,7 @@ fn element_type(kernel: &str, path: &str, element: &ElementType) -> Result<Token
             match (rust, components) {
                 (Some(rust), 1) => return Ok(rust),
                 (Some(rust), 4) => return Ok(quote!([#rust; 4])),
-                _ => {
-                    let name = scalar_name(*scalar);
-                    let name = if *components == 1 {
-                        name.to_owned()
-                    } else {
-                        format!("{name}{components}")
-                    };
-                    no_element(&name)
-                }
+                _ => no_element(&slang_type(*scalar, *components)),
             }
         }
         ElementType::OtherPlain { name } => no_element(name),

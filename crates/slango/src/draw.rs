@@ -7,7 +7,7 @@ use crate::call::{
 };
 use crate::device::scoped;
 use crate::error::Result;
-use crate::layout::Scalar;
+use crate::layout::{Scalar, slang_type};
 use crate::marshal::{self, Element, Value, ValueType, VertexElement};
 use crate::render::{PipelineSnapshot, RenderPipeline};
 use crate::sampler::Sampler;
@@ -635,22 +635,6 @@ pub(crate) fn element_type<T: VertexElement>() -> Option<(Scalar, u32)> {
             Some((scalar, components))
         }
         ValueType::Structure { .. } => None,
-    }
-}
-
-/// Returns the name of the Slang type of a vertex attribute, such as `float2`
-/// or `uint`.
-fn slang_type(scalar: Scalar, components: u32) -> String {
-    let name = match scalar {
-        Scalar::Bool => "bool",
-        Scalar::Int32 => "int",
-        Scalar::Uint32 => "uint",
-        Scalar::Float32 => "float",
-    };
-    if components == 1 {
-        name.to_owned()
-    } else {
-        format!("{name}{components}")
     }
 }
 

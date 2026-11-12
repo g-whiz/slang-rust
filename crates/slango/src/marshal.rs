@@ -1,6 +1,6 @@
 use crate::__private::StructElement;
 use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{ElementType, PlainValue, Scalar, Shape};
+use crate::layout::{ElementType, PlainValue, Scalar, Shape, slang_scalar_name};
 
 const SET: &str = "set a plain value";
 
@@ -609,15 +609,6 @@ fn scalar_offsets(shape: &Shape, extent: u64, base: u64, out: &mut Vec<u64>) -> 
         }
     }
     Some(())
-}
-
-fn slang_scalar_name(scalar: Scalar) -> &'static str {
-    match scalar {
-        Scalar::Bool => "bool",
-        Scalar::Int32 => "int",
-        Scalar::Uint32 => "uint",
-        Scalar::Float32 => "float",
-    }
 }
 
 fn rust_scalar_name(scalar: Scalar) -> &'static str {

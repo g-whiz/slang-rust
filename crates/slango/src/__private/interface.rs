@@ -113,6 +113,14 @@ pub enum Scalar {
     Float32,
 }
 
+/// Returns the name of the Slang type of `components` scalars of the type
+/// `scalar`, such as `float3`, or `uint` for one component, as this crate
+/// names the type in its errors.
+#[must_use]
+pub fn slang_type(scalar: Scalar, components: u32) -> String {
+    layout::slang_type(layout_scalar(scalar), components)
+}
+
 /// How the scalars of a plain value are arranged.
 #[expect(
     clippy::exhaustive_enums,
@@ -332,6 +340,15 @@ fn scalar(scalar: layout::Scalar) -> Scalar {
         layout::Scalar::Int32 => Scalar::Int32,
         layout::Scalar::Uint32 => Scalar::Uint32,
         layout::Scalar::Float32 => Scalar::Float32,
+    }
+}
+
+fn layout_scalar(scalar: Scalar) -> layout::Scalar {
+    match scalar {
+        Scalar::Bool => layout::Scalar::Bool,
+        Scalar::Int32 => layout::Scalar::Int32,
+        Scalar::Uint32 => layout::Scalar::Uint32,
+        Scalar::Float32 => layout::Scalar::Float32,
     }
 }
 
