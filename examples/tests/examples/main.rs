@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod colour_format;
 #[cfg(test)]
+mod common;
+#[cfg(test)]
 mod ffi;
 #[cfg(test)]
 mod gpu;

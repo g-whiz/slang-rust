@@ -1,14 +1,12 @@
 mod shader_playground;
 mod windowed_renderer;
 
-use std::process::{Command, Output};
+use std::process::Output;
+
+use crate::common::run;
 
 fn compute_kernel(file: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_compute-kernel"))
-        .arg(file)
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("the example starts")
+    run(env!("CARGO_BIN_EXE_compute-kernel"), &[file])
 }
 
 #[test]
@@ -52,10 +50,7 @@ fn compute_kernel_reports_a_missing_file_on_standard_error() {
 
 #[test]
 fn typed_kernel_advances_the_particles_and_prints_the_checked_results() {
-    let output = Command::new(env!("CARGO_BIN_EXE_typed-kernel"))
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("the example starts");
+    let output = run(env!("CARGO_BIN_EXE_typed-kernel"), &[]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{}: {stderr}", output.status);
     assert!(stderr.starts_with("running on "), "{stderr}");

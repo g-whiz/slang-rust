@@ -2,14 +2,12 @@ mod shader_playground;
 mod typed_kernel;
 mod windowed_renderer;
 
-use std::process::{Command, Output};
+use std::process::Output;
+
+use crate::common::run;
 
 fn compile_and_reflect(file: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_compile-and-reflect"))
-        .arg(file)
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("the example starts")
+    run(env!("CARGO_BIN_EXE_compile-and-reflect"), &[file])
 }
 
 #[test]
