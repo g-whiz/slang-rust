@@ -7,6 +7,9 @@ mod common;
 #[cfg(test)]
 mod ffi;
 #[cfg(test)]
+#[path = "../../src/shared/frames.rs"]
+mod frames;
+#[cfg(test)]
 mod gpu;
 #[cfg(test)]
 mod unattended;

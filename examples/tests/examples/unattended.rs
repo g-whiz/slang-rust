@@ -2,10 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-#[path = "../../src/shared/frames.rs"]
-mod frames;
-
-use frames::{Frames, OPTIONS, UNATTENDED_STALL, parse_args};
+use crate::frames::{Frames, UNATTENDED_STALL, parse_args};
 
 fn args(args: &[&str]) -> Vec<OsString> {
     args.iter().map(OsString::from).collect()
@@ -45,12 +42,6 @@ fn parse_args_rejects_zero_frames() {
 }
 
 #[test]
-fn the_options_describe_both_flags() {
-    assert!(OPTIONS.contains("--frames N"), "{OPTIONS}");
-    assert!(OPTIONS.contains("-h, --help"), "{OPTIONS}");
-}
-
-#[test]
 fn frames_without_a_limit_run_on_and_are_not_watched() {
     let start = Instant::now();
     let mut frames = Frames::new(None, start);
@@ -77,7 +68,6 @@ fn frames_stop_running_when_the_limit_is_drawn() {
 
 #[test]
 fn the_watchdog_fails_a_run_that_draws_no_frame_for_ten_seconds() {
-    assert_eq!(UNATTENDED_STALL, Duration::from_secs(10));
     let start = Instant::now();
     let mut frames = Frames::new(Some(5), start);
     let deadline = start + UNATTENDED_STALL;

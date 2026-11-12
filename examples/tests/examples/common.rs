@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use slango::{Device, DeviceOptions};
 
+use crate::frames::OPTIONS;
+
 /// Runs the example binary at `bin` with `args` in the directory of the
 /// examples package, where the paths of the shaders start.
 pub(crate) fn run<S: AsRef<OsStr>>(bin: &str, args: &[S]) -> Output {
@@ -27,6 +29,14 @@ pub(crate) fn assert_prints_usage(bin: &str, first_line: &str) {
         let stdout = String::from_utf8(output.stdout).expect("the usage is UTF-8");
         assert!(stdout.starts_with(first_line), "{stdout}");
     }
+}
+
+/// Asserts that the usage of a windowed example ends with the options that
+/// both windowed examples share.
+pub(crate) fn assert_lists_the_windowed_options(bin: &str) {
+    let output = run(bin, &["--help"]);
+    let stdout = String::from_utf8(output.stdout).expect("the usage is UTF-8");
+    assert!(stdout.ends_with(OPTIONS), "{stdout}");
 }
 
 /// Asserts that the example fails with exit status 1 for `args`, prints
