@@ -126,65 +126,104 @@ struct Argument {
     borrows: bool,
 }
 
-fn kernel_items(
-    kernel: &KernelInterface,
-    type_name: &Ident,
-    args_name: &Ident,
-) -> Result<TokenStream> {
+/// The fields of the arguments of a kernel, and the calls that give each
+/// parameter its value, in the order of the parameters.
+struct Plan {
+    arguments: Vec<Argument>,
+    calls: Vec<TokenStream>,
+}
+
+/// A structure among the plain values of a kernel that no other structure
+/// holds, with its field of the arguments once a parameter has reached it.
+struct Outermost<'a> {
+    structure: &'a UniformStructure,
+    field: Option<Ident>,
+}
+
+impl Outermost<'_> {
+    /// Returns the field of the structure, and adds it to `arguments` when
+    /// the first parameter reaches the structure.
+    fn field(
+        &mut self,
+        kernel: &str,
+        scope: &mut Scope,
+        arguments: &mut Vec<Argument>,
+    ) -> Result<Ident> {
+        if let Some(field) = &self.field {
+            return Ok(field.clone());
+        }
+        let argument = structure_argument(kernel, self.structure, scope)?;
+        let field = argument.name.clone();
+        arguments.push(argument);
+        self.field = Some(field.clone());
+        Ok(field)
+    }
+}
+
+/// Returns the fields of the arguments of a kernel and the calls that set
+/// its parameters from them.
+fn plan_arguments(kernel: &KernelInterface) -> Result<Plan> {
     let KernelInterface {
         name,
-        thread_group_size,
         parameters,
         structures,
+        ..
     } = kernel;
-    let outermost: Vec<&UniformStructure> = structures
+    let mut outermost: Vec<Outermost<'_>> = structures
         .iter()
         .filter(|structure| {
             !structures
                 .iter()
                 .any(|outer| inside(&structure.path, &outer.path).is_some())
         })
+        .map(|structure| Outermost {
+            structure,
+            field: None,
+        })
         .collect();
-    let mut placed: Vec<Option<Ident>> = vec![None; outermost.len()];
     let mut scope = Scope::default();
     let mut arguments = Vec::with_capacity(parameters.len());
     let mut calls = Vec::with_capacity(parameters.len());
     for parameter in parameters {
         let path = &parameter.path;
-        let Some((index, structure, rest)) =
-            outermost.iter().enumerate().find_map(|(index, structure)| {
-                inside(path, &structure.path).map(|rest| (index, *structure, rest))
-            })
-        else {
+        let found = outermost
+            .iter_mut()
+            .find_map(|outer| inside(path, &outer.structure.path).map(|rest| (outer, rest)));
+        if let Some((outer, rest)) = found {
+            let field = outer.field(name, &mut scope, &mut arguments)?;
+            let what = parameter_description(name, path);
+            let access = rest
+                .split('.')
+                .map(|part| ident(&snake_case(part), &what))
+                .collect::<Result<Vec<_>>>()?;
+            calls.push(quote!(.set(#path, args.#field #(.#access)*)));
+        } else {
             let argument = argument(name, parameter, &mut scope)?;
             let field = &argument.name;
             let method = format_ident!("{}", call_method(&parameter.kind));
             calls.push(quote!(.#method(#path, args.#field)));
             arguments.push(argument);
-            continue;
-        };
-        let field = if let Some(field) = &placed[index] {
-            field.clone()
-        } else {
-            let argument = structure_argument(name, structure, &mut scope)?;
-            let field = argument.name.clone();
-            placed[index] = Some(field.clone());
-            arguments.push(argument);
-            field
-        };
-        let what = parameter_description(name, path);
-        let access = rest
-            .split('.')
-            .map(|part| ident(&snake_case(part), &what))
-            .collect::<Result<Vec<_>>>()?;
-        calls.push(quote!(.set(#path, args.#field #(.#access)*)));
-    }
-    for (structure, field) in outermost.iter().zip(&placed) {
-        if field.is_none() {
-            arguments.push(structure_argument(name, structure, &mut scope)?);
         }
     }
+    for outer in &outermost {
+        if outer.field.is_none() {
+            arguments.push(structure_argument(name, outer.structure, &mut scope)?);
+        }
+    }
+    Ok(Plan { arguments, calls })
+}
 
+fn kernel_items(
+    kernel: &KernelInterface,
+    type_name: &Ident,
+    args_name: &Ident,
+) -> Result<TokenStream> {
+    let Plan { arguments, calls } = plan_arguments(kernel)?;
+    let KernelInterface {
+        name,
+        thread_group_size,
+        ..
+    } = kernel;
     let lifetime = arguments
         .iter()
         .any(|argument| argument.borrows)
