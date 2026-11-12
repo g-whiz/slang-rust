@@ -12,6 +12,8 @@ mod frames;
 #[cfg(test)]
 mod gpu;
 #[cfg(test)]
+mod redraw_retry;
+#[cfg(test)]
 mod unattended;
 #[cfg(test)]
 #[path = "../../src/shared/watched.rs"]

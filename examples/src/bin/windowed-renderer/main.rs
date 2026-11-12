@@ -53,6 +53,7 @@ mod format;
 mod frames;
 #[path = "../../shared/report.rs"]
 mod report;
+mod retry;
 mod scene;
 #[path = "../../shared/watched.rs"]
 mod watched;
@@ -61,7 +62,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -72,9 +73,8 @@ use winit::window::{Window, WindowId};
 use crate::format::colour_format;
 use crate::frames::{Frames, OPTIONS, parse_args};
 use crate::report::report;
+use crate::retry::Retry;
 use crate::scene::Scene;
-
-const REDRAW_RETRY: Duration = Duration::from_millis(100);
 
 const USAGE: &str = "\
 Usage: windowed-renderer [--frames N] <FILE>
@@ -103,7 +103,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         file: args.file,
         frames: Frames::new(args.frames, Instant::now()),
         start: Instant::now(),
-        retry: None,
+        retry: Retry::default(),
         state: None,
         error: None,
     };
@@ -122,7 +122,7 @@ struct App {
     file: PathBuf,
     frames: Frames,
     start: Instant,
-    retry: Option<Instant>,
+    retry: Retry,
     state: Option<State>,
     error: Option<Box<dyn Error>>,
 }
@@ -253,7 +253,7 @@ impl ApplicationHandler for App {
                         } else if drawn {
                             state.window.request_redraw();
                         } else {
-                            self.retry = Some(Instant::now() + REDRAW_RETRY);
+                            self.retry.schedule(Instant::now());
                         }
                     }
                     Err(error) => self.fail(event_loop, error),
@@ -271,13 +271,12 @@ impl ApplicationHandler for App {
             return;
         }
         let now = Instant::now();
-        if self.retry.is_some_and(|retry| retry <= now) {
-            self.retry = None;
+        if self.retry.take_due(now) {
             state.window.request_redraw();
         }
         match self.frames.watch(now) {
             Ok(deadline) => {
-                let wake = self.retry.into_iter().chain(deadline).min();
+                let wake = self.retry.wake(deadline);
                 event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
             }
             Err(error) => self.fail(event_loop, error),
