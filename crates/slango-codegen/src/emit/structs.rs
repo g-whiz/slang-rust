@@ -1,7 +1,7 @@
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use slango::__private::{
-    ElementType, FieldType, KernelInterface, ParameterKind, Scalar, Shape, Structure,
+    ElementType, Field, FieldType, KernelInterface, ParameterKind, Scalar, Shape, Structure,
     UniformStructure, ValueType,
 };
 
@@ -47,6 +47,15 @@ struct Placed {
 enum Content {
     Value { scalar: Scalar, packed: Packed },
     Structure { size: u64 },
+}
+
+/// The Rust type of a field of a structure in a structured buffer, with what
+/// the field holds and its size in bytes.
+#[derive(Debug)]
+struct FieldShape {
+    ty: TokenStream,
+    content: Content,
+    size: u64,
 }
 
 /// A plain value whose elements follow each other with no gap, which a Rust
@@ -123,48 +132,24 @@ impl<'a> Structures<'a> {
     }
 
     fn element(&mut self, structure: &'a Structure, at: Use<'a>) -> Result<()> {
-        let field_error = |field: &str, what: &str| {
-            unsupported(
-                at.kernel,
-                at.parameter,
-                &format!(
-                    "the field `{field}` of the structure `{}` is {what}, which a generated struct does not support",
-                    structure.name
-                ),
-            )
-        };
         let mut members = Vec::with_capacity(structure.fields.len());
         let mut fields = Vec::with_capacity(structure.fields.len());
         let mut end = 0_u64;
         for field in &structure.fields {
-            let (ty, content, size) = match &field.ty {
-                FieldType::Value(value) => {
-                    let packed = packed(value).map_err(|what| field_error(&field.name, &what))?;
-                    let size = packed.size;
-                    let content = Content::Value {
-                        scalar: value.scalar,
-                        packed,
-                    };
-                    (value_type(value), content, size)
-                }
-                FieldType::Structure(inner) => {
-                    self.element(inner, at)?;
-                    let content = Content::Structure { size: inner.size };
-                    (struct_type(&inner.name)?, content, inner.size)
-                }
-                FieldType::Other { name } => {
-                    return Err(field_error(&field.name, &format!("of the type `{name}`")));
-                }
-            };
+            let FieldShape { ty, content, size } = self.field_shape(structure, field, at)?;
             let padding = field.offset.checked_sub(end).ok_or_else(|| {
                 field_error(
-                    &field.name,
+                    structure,
+                    field,
+                    at,
                     &format!("at the offset {}, inside the field before it", field.offset),
                 )
             })?;
             end = field.offset.checked_add(size).ok_or_else(|| {
                 field_error(
-                    &field.name,
+                    structure,
+                    field,
+                    at,
                     &format!("at the offset {}, beyond any Rust struct", field.offset),
                 )
             })?;
@@ -198,6 +183,45 @@ impl<'a> Structures<'a> {
                 tail,
             }),
         })
+    }
+
+    /// Returns the Rust type, the content, and the size of a field of a
+    /// structure in a structured buffer, and records the structure that the
+    /// field holds, if any.
+    fn field_shape(
+        &mut self,
+        structure: &Structure,
+        field: &'a Field,
+        at: Use<'a>,
+    ) -> Result<FieldShape> {
+        match &field.ty {
+            FieldType::Value(value) => {
+                let packed =
+                    packed(value).map_err(|what| field_error(structure, field, at, &what))?;
+                Ok(FieldShape {
+                    ty: value_type(value),
+                    size: packed.size,
+                    content: Content::Value {
+                        scalar: value.scalar,
+                        packed,
+                    },
+                })
+            }
+            FieldType::Structure(inner) => {
+                self.element(inner, at)?;
+                Ok(FieldShape {
+                    ty: struct_type(&inner.name)?,
+                    content: Content::Structure { size: inner.size },
+                    size: inner.size,
+                })
+            }
+            FieldType::Other { name } => Err(field_error(
+                structure,
+                field,
+                at,
+                &format!("of the type `{name}`"),
+            )),
+        }
     }
 
     fn uniform(
@@ -544,6 +568,19 @@ impl Parts {
             }
         }
     }
+}
+
+/// Returns the error for a field of `structure` that a generated struct does
+/// not support, where `what` says what the field is.
+fn field_error(structure: &Structure, field: &Field, at: Use<'_>, what: &str) -> Error {
+    unsupported(
+        at.kernel,
+        at.parameter,
+        &format!(
+            "the field `{}` of the structure `{}` is {what}, which a generated struct does not support",
+            field.name, structure.name
+        ),
+    )
 }
 
 /// Returns the statements that append the scalars of `value`, a plain value
