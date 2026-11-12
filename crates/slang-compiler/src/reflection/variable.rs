@@ -1174,3 +1174,35 @@ impl fmt::Debug for Attribute<'_> {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use slang_compiler_sys::SlangResult;
+
+    use super::Attribute;
+    use crate::{ErrorKind, Operation};
+
+    #[test]
+    fn value_or_none_keeps_a_value_and_reads_an_argument_of_another_kind_as_none() {
+        assert_eq!(
+            Attribute::value_or_none(SlangResult::SLANG_OK, 7).ok(),
+            Some(Some(7))
+        );
+        assert_eq!(
+            Attribute::value_or_none(SlangResult::SLANG_E_INVALID_ARG, 7).ok(),
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn value_or_none_passes_on_every_other_failure() {
+        for (result, kind) in [
+            (SlangResult::SLANG_FAIL, ErrorKind::Internal),
+            (SlangResult::SLANG_E_NOT_AVAILABLE, ErrorKind::Unsupported),
+        ] {
+            let error = Attribute::value_or_none(result, 7).expect_err("the read failed");
+            assert_eq!(error.kind(), kind, "{result:?}");
+            assert_eq!(error.operation(), Operation::Reflect);
+        }
+    }
+}
