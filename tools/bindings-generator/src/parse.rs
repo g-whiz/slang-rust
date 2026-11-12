@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use clang::diagnostic::Severity;
 use clang::{
-    Entity, EntityKind, EvaluationResult, Index, TranslationUnit, Type, TypeKind, Unsaved,
+    Entity, EntityKind, EvaluationResult, Index, Parser, TranslationUnit, Type, TypeKind, Unsaved,
 };
 
 use crate::error::{Error, ErrorKind, Location, Result};
@@ -45,20 +45,9 @@ pub(crate) fn parse(
     header_dir: &Path,
     main_header: &str,
 ) -> Result<Model> {
-    let path = header_dir.join(main_header);
-    let tu = index
-        .parser(&path)
-        .arguments(&arguments(target, header_dir))
-        .detailed_preprocessing_record(true)
-        .parse()
-        .map_err(|error| {
-            Error::new(
-                ErrorKind::Libclang,
-                format!("libclang cannot parse {main_header} for target {target}"),
-            )
-            .with_source(error.to_string())
-        })?;
-    check_diagnostics(&tu, target, header_dir, |_| None)?;
+    let mut parser = index.parser(header_dir.join(main_header));
+    parser.detailed_preprocessing_record(true);
+    let tu = parse_unit(&mut parser, target, header_dir, main_header, |_| None)?;
     let mut extractor = Extractor {
         header_dir,
         files: HashMap::new(),
@@ -68,6 +57,27 @@ pub(crate) fn parse(
     };
     extractor.walk(tu.get_entity())?;
     Ok(extractor.model)
+}
+
+fn parse_unit<'i>(
+    parser: &mut Parser<'i>,
+    target: &str,
+    header_dir: &Path,
+    what: &str,
+    explain: impl Fn(u32) -> Option<(Location, String)>,
+) -> Result<TranslationUnit<'i>> {
+    let tu = parser
+        .arguments(&arguments(target, header_dir))
+        .parse()
+        .map_err(|error| {
+            Error::new(
+                ErrorKind::Libclang,
+                format!("libclang cannot parse {what} for target {target}"),
+            )
+            .with_source(error.to_string())
+        })?;
+    check_diagnostics(&tu, target, header_dir, explain)?;
+    Ok(tu)
 }
 
 fn check_diagnostics(
@@ -873,24 +883,20 @@ pub(crate) fn evaluate(
         )
         .collect();
     let path = header_dir.join(EVALUATION_FILE);
-    let tu = index
-        .parser(&path)
-        .arguments(&arguments(target, header_dir))
-        .unsaved(&[Unsaved::new(&path, &source)])
-        .parse()
-        .map_err(|error| {
-            Error::new(
-                ErrorKind::Libclang,
-                format!("libclang cannot parse the evaluation file for target {target}"),
-            )
-            .with_source(error.to_string())
-        })?;
-    check_diagnostics(&tu, target, header_dir, |line| {
-        let position = usize::try_from(line).ok()?.checked_sub(2)?;
-        evaluations
-            .get(position)
-            .map(|evaluation| (evaluation.location.clone(), evaluation.what.clone()))
-    })?;
+    let mut parser = index.parser(&path);
+    parser.unsaved(&[Unsaved::new(&path, &source)]);
+    let tu = parse_unit(
+        &mut parser,
+        target,
+        header_dir,
+        "the evaluation file",
+        |line| {
+            let position = usize::try_from(line).ok()?.checked_sub(2)?;
+            evaluations
+                .get(position)
+                .map(|evaluation| (evaluation.location.clone(), evaluation.what.clone()))
+        },
+    )?;
     let mut values: Vec<Option<Value>> = vec![None; evaluations.len()];
     for child in tu.get_entity().get_children() {
         if child.get_kind() != EntityKind::VarDecl {
