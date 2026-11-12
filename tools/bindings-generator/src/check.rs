@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Evaluation, Init, Interface, Item, ItemKind, Macro, Model, Prim, Record, Signature, Ty,
-    Underlying, Value,
+    CType, Constant, Evaluation, Field, Function, Init, Interface, Item, ItemKind, Macro, Model,
+    Prim, Record, Signature, Ty, Underlying, Value,
 };
 use crate::rules::{Action, MacroAction, RuleSet};
 
@@ -31,49 +31,112 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
         macros: vec![false; rules.macros.len()],
         unnamed_enums: vec![false; rules.unnamed_enums.len()],
     };
-    let mut actions: HashMap<String, Action> = HashMap::new();
-    let mut constants_of: HashMap<String, &'static str> = HashMap::new();
-    let mut unmatched = Vec::new();
-    let mut first_unmatched = None;
-    for item in model.items.iter().filter(|item| item.owner.is_none()) {
+    let mut unmatched = Unmatched::default();
+    let decisions = match_declarations(&model.items, rules, &mut used, &mut unmatched);
+    let macros = match_macros(model.macros, rules, &mut used, &mut unmatched);
+    unmatched.check()?;
+    used.check(rules)?;
+    Ok(partition(model.items, &decisions, macros))
+}
+
+#[derive(Default)]
+struct Decisions {
+    actions: HashMap<String, Action>,
+    constants_of: HashMap<String, &'static str>,
+}
+
+#[derive(Default)]
+struct Unmatched {
+    first: Option<Location>,
+    descriptions: Vec<String>,
+}
+
+impl Unmatched {
+    fn record(&mut self, description: String, location: &Location) {
+        self.first.get_or_insert_with(|| location.clone());
+        self.descriptions.push(description);
+    }
+
+    fn check(self) -> Result<()> {
+        let Some(first) = self.first else {
+            return Ok(());
+        };
+        Err(Error::at(
+            ErrorKind::UnmatchedDeclaration,
+            &first,
+            format!(
+                "{} declarations and macros match no rule of the rule set: {}",
+                self.descriptions.len(),
+                self.descriptions.join(", ")
+            ),
+        ))
+    }
+}
+
+fn match_declarations(
+    items: &[Item],
+    rules: &RuleSet,
+    used: &mut Used,
+    unmatched: &mut Unmatched,
+) -> Decisions {
+    let mut decisions = Decisions::default();
+    for item in items.iter().filter(|item| item.owner.is_none()) {
         let file = item.location.file();
         if let ItemKind::Enum(enumeration) = &item.kind
             && enumeration.unnamed
         {
-            if let Some(position) = rules.unnamed_enum_position(file, &enumeration.enumerators) {
-                used.unnamed_enums[position] = true;
-                actions.insert(item.name.cxx.clone(), Action::Include);
-                constants_of.insert(item.name.cxx.clone(), rules.unnamed_enums[position].typedef);
-            } else {
-                first_unmatched.get_or_insert_with(|| item.location.clone());
+            let Some(position) = rules.unnamed_enum_position(file, &enumeration.enumerators) else {
                 let first = enumeration
                     .enumerators
                     .first()
                     .map_or("no enumerator", |enumerator| enumerator.name.as_str());
-                unmatched.push(format!(
-                    "the unnamed enumeration that starts with {first} ({})",
-                    item.location
-                ));
-            }
+                unmatched.record(
+                    format!(
+                        "the unnamed enumeration that starts with {first} ({})",
+                        item.location
+                    ),
+                    &item.location,
+                );
+                continue;
+            };
+            used.unnamed_enums[position] = true;
+            decisions
+                .actions
+                .insert(item.name.cxx.clone(), Action::Include);
+            decisions
+                .constants_of
+                .insert(item.name.cxx.clone(), rules.unnamed_enums[position].typedef);
         } else if let Some(position) = rules.declaration_position(file, &item.name.cxx) {
             used.declarations[position] = true;
-            actions.insert(item.name.cxx.clone(), rules.declarations[position].action);
+            decisions
+                .actions
+                .insert(item.name.cxx.clone(), rules.declarations[position].action);
         } else {
-            first_unmatched.get_or_insert_with(|| item.location.clone());
-            unmatched.push(format!("{} ({})", item.name.cxx, item.location));
+            unmatched.record(
+                format!("{} ({})", item.name.cxx, item.location),
+                &item.location,
+            );
         }
     }
-    let mut macros = Vec::new();
-    for Macro { name, location } in model.macros {
+    decisions
+}
+
+fn match_macros(
+    macros: Vec<Macro>,
+    rules: &RuleSet,
+    used: &mut Used,
+    unmatched: &mut Unmatched,
+) -> Vec<SelectedMacro> {
+    let mut selected = Vec::new();
+    for Macro { name, location } in macros {
         let Some(position) = rules.macro_position(&name) else {
-            unmatched.push(format!("macro {name} ({location})"));
-            first_unmatched.get_or_insert(location);
+            unmatched.record(format!("macro {name} ({location})"), &location);
             continue;
         };
         used.macros[position] = true;
         let rule = &rules.macros[position];
         if rule.action != MacroAction::Exclude {
-            macros.push(SelectedMacro {
+            selected.push(SelectedMacro {
                 name,
                 location,
                 action: rule.action,
@@ -82,43 +145,34 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
             });
         }
     }
-    if let Some(first) = first_unmatched {
-        return Err(Error::at(
-            ErrorKind::UnmatchedDeclaration,
-            &first,
-            format!(
-                "{} declarations and macros match no rule of the rule set: {}",
-                unmatched.len(),
-                unmatched.join(", ")
-            ),
-        ));
-    }
-    used.check(rules)?;
-    let owners: HashMap<String, String> = model
-        .items
+    selected
+}
+
+fn partition(items: Vec<Item>, decisions: &Decisions, macros: Vec<SelectedMacro>) -> Selection {
+    let owners: HashMap<String, String> = items
         .iter()
         .filter_map(|item| Some((item.name.cxx.clone(), item.owner.clone()?)))
         .collect();
-    let mut items = Vec::new();
+    let mut included = Vec::new();
     let mut excluded = Vec::new();
-    for mut item in model.items {
+    for mut item in items {
         let root = root_owner(&owners, &item.name.cxx);
         if let ItemKind::Enum(enumeration) = &mut item.kind
-            && let Some(typedef) = constants_of.get(&item.name.cxx)
+            && let Some(typedef) = decisions.constants_of.get(&item.name.cxx)
         {
             enumeration.constants_of = Some((*typedef).to_owned());
         }
-        if actions.get(root) == Some(&Action::Include) {
-            items.push(item);
+        if decisions.actions.get(root) == Some(&Action::Include) {
+            included.push(item);
         } else {
             excluded.push(item);
         }
     }
-    Ok(Selection {
-        items,
+    Selection {
+        items: included,
         excluded,
         macros,
-    })
+    }
 }
 
 enum Slot {
@@ -367,68 +421,80 @@ impl<'a> Validator<'a> {
                 format!("{name} is {description}, which the bindings cannot express"),
             )),
             ItemKind::Opaque => Ok(()),
-            ItemKind::Typedef(ty) => {
-                if let Some(prim) = item
-                    .name
-                    .rust
-                    .as_deref()
-                    .and_then(|rust| self.rules.pointer_sized(rust))
-                    && self.integer_range(ty).is_none()
-                {
-                    return Err(Self::unsupported(
-                        location,
-                        format!(
-                            "typedef {name} is mapped to {} but is not an integer type",
-                            prim.rust()
-                        ),
-                    ));
-                }
-                self.ty(ty, Context::Typedef, location, &format!("typedef {name}"))
-            }
-            ItemKind::Constant(constant) => {
-                let Some(value) = constant.value else {
-                    return Err(Error::at(
-                        ErrorKind::Evaluation,
-                        location,
-                        format!("cannot evaluate the constant {name}"),
-                    ));
-                };
-                self.ty(
-                    &constant.ty,
-                    Context::Value,
-                    location,
-                    &format!("constant {name}"),
-                )?;
-                self.check_value(&constant.ty, value, location, &format!("constant {name}"))
-            }
-            ItemKind::Function(function) => {
-                if !function.c_linkage {
-                    return Err(Self::unsupported(
-                        location,
-                        format!(
-                            "function {name} has C++ linkage, so the library exports it only under a mangled name that differs between compilers (SCS-3)"
-                        ),
-                    ));
-                }
-                if function.inline {
-                    return Err(Self::unsupported(
-                        location,
-                        format!(
-                            "function {name} is defined inline in the header, so the library does not export it (SCS-3)"
-                        ),
-                    ));
-                }
-                self.signature(
-                    &function.signature,
-                    location,
-                    &format!("function {name}"),
-                    true,
-                )
-            }
+            ItemKind::Typedef(ty) => self.typedef(item, ty),
+            ItemKind::Constant(constant) => self.constant(item, constant),
+            ItemKind::Function(function) => self.function(item, function),
             ItemKind::Enum(enumeration) => self.enumeration(item, enumeration),
             ItemKind::Record(record) => self.record(item, record),
             ItemKind::Interface(interface) => self.interface(item, interface),
         }
+    }
+
+    fn typedef(&self, item: &'a Item, ty: &'a Ty) -> Result<()> {
+        let name = &item.name.cxx;
+        let location = &item.location;
+        if let Some(prim) = item
+            .name
+            .rust
+            .as_deref()
+            .and_then(|rust| self.rules.pointer_sized(rust))
+            && self.integer_range(ty).is_none()
+        {
+            return Err(Self::unsupported(
+                location,
+                format!(
+                    "typedef {name} is mapped to {} but is not an integer type",
+                    prim.rust()
+                ),
+            ));
+        }
+        self.ty(ty, Context::Typedef, location, &format!("typedef {name}"))
+    }
+
+    fn constant(&self, item: &'a Item, constant: &'a Constant) -> Result<()> {
+        let name = &item.name.cxx;
+        let location = &item.location;
+        let Some(value) = constant.value else {
+            return Err(Error::at(
+                ErrorKind::Evaluation,
+                location,
+                format!("cannot evaluate the constant {name}"),
+            ));
+        };
+        self.ty(
+            &constant.ty,
+            Context::Value,
+            location,
+            &format!("constant {name}"),
+        )?;
+        self.check_value(&constant.ty, value, location, &format!("constant {name}"))
+    }
+
+    fn function(&self, item: &'a Item, function: &'a Function) -> Result<()> {
+        let name = &item.name.cxx;
+        let location = &item.location;
+        if !function.c_linkage {
+            return Err(Self::unsupported(
+                location,
+                format!(
+                    "function {name} has C++ linkage, so the library exports it only under a mangled name that differs between compilers (SCS-3)"
+                ),
+            ));
+        }
+        if function.inline {
+            return Err(Self::unsupported(
+                location,
+                format!(
+                    "function {name} is defined inline in the header, so the library does not export it (SCS-3)"
+                ),
+            ));
+        }
+        self.signature(
+            &function.signature,
+            location,
+            &format!("function {name}"),
+            true,
+        )
     }
 
     fn enumeration(&self, item: &'a Item, enumeration: &'a crate::model::Enum) -> Result<()> {
@@ -529,45 +595,47 @@ impl<'a> Validator<'a> {
             ));
         }
         for field in &record.fields {
-            let field_name = field.name.as_deref().unwrap_or("(anonymous member)");
-            let what = format!("field {name}::{field_name}");
-            if field.bit_width.is_some() {
-                return Err(Self::unsupported(
-                    &field.location,
-                    format!("{what} is a bit-field, which a Rust struct cannot express"),
-                ));
-            }
-            if record.union && field.init != Init::None {
-                return Err(Self::unsupported(
-                    &field.location,
-                    format!("{what} has a default member initializer in a union"),
-                ));
-            }
-            self.ty(&field.ty, Context::Field, &field.location, &what)?;
-            match field.init {
-                Init::Null => {
-                    if !matches!(
-                        self.resolve(&field.ty),
-                        Ty::Pointer { .. } | Ty::Callback(_)
-                    ) {
-                        return Err(Self::unsupported(
-                            &field.location,
-                            format!("{what} is initialized with nullptr but is not a pointer"),
-                        ));
-                    }
-                }
-                Init::Expression => {
-                    return Err(Error::at(
-                        ErrorKind::Evaluation,
-                        &field.location,
-                        format!("the default member initializer of {what} was not evaluated"),
-                    ));
-                }
-                Init::Value(value) => self.check_value(&field.ty, value, &field.location, &what)?,
-                Init::None | Init::Zero => {}
-            }
+            self.field(name, record, field)?;
         }
         Ok(())
+    }
+
+    fn field(&self, name: &str, record: &'a Record, field: &'a Field) -> Result<()> {
+        let field_name = field.name.as_deref().unwrap_or("(anonymous member)");
+        let what = format!("field {name}::{field_name}");
+        if field.bit_width.is_some() {
+            return Err(Self::unsupported(
+                &field.location,
+                format!("{what} is a bit-field, which a Rust struct cannot express"),
+            ));
+        }
+        if record.union && field.init != Init::None {
+            return Err(Self::unsupported(
+                &field.location,
+                format!("{what} has a default member initializer in a union"),
+            ));
+        }
+        self.ty(&field.ty, Context::Field, &field.location, &what)?;
+        match field.init {
+            Init::Null
+                if !matches!(
+                    self.resolve(&field.ty),
+                    Ty::Pointer { .. } | Ty::Callback(_)
+                ) =>
+            {
+                Err(Self::unsupported(
+                    &field.location,
+                    format!("{what} is initialized with nullptr but is not a pointer"),
+                ))
+            }
+            Init::Expression => Err(Error::at(
+                ErrorKind::Evaluation,
+                &field.location,
+                format!("the default member initializer of {what} was not evaluated"),
+            )),
+            Init::Value(value) => self.check_value(&field.ty, value, &field.location, &what),
+            Init::None | Init::Null | Init::Zero => Ok(()),
+        }
     }
 
     fn interface(&self, item: &'a Item, interface: &'a Interface) -> Result<()> {
@@ -1041,7 +1109,7 @@ fn first_difference(first: &str, other: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Constant, Enumerator, Field, Name};
+    use crate::model::{Enumerator, Name};
     use crate::rules::SLANG;
 
     fn item(cxx: &str, kind: ItemKind) -> Item {
