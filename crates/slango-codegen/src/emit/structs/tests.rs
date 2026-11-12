@@ -624,6 +624,42 @@ fn two_fields_with_one_rust_name_conflict() {
 }
 
 #[test]
+fn a_uniform_structure_named_like_a_parameter_conflicts() {
+    let with_leaf = with_structures(
+        kernel(
+            "main",
+            vec![
+                leaf("cb.params.scale", float(1)),
+                leaf("cb_params", float(1)),
+            ],
+        ),
+        vec![uniform("cb.params", "Params")],
+    );
+    let without_leaves = with_structures(
+        kernel("main", vec![leaf("Marker", float(1))]),
+        vec![uniform("marker", "Marker")],
+    );
+    for (kernel, detail) in [
+        (
+            with_leaf,
+            "the parameter `cb.params` of the kernel `main` and the parameter `cb_params` of the kernel `main` both become the Rust name `cb_params`",
+        ),
+        (
+            without_leaves,
+            "the parameter `Marker` of the kernel `main` and the parameter `marker` of the kernel `main` both become the Rust name `marker`",
+        ),
+    ] {
+        assert_eq!(
+            error(vec![kernel]),
+            (
+                ErrorKind::NameConflict,
+                format!("cannot name an item of the bindings: {detail}")
+            )
+        );
+    }
+}
+
+#[test]
 fn a_field_named_like_the_padding_conflicts() {
     let element = structure("Padded", 8, vec![plain("_padding0", 4, float(1))]);
     assert_eq!(
