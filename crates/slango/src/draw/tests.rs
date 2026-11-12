@@ -895,3 +895,36 @@ fn assert_send_sync<T: Send + Sync>() {}
 fn a_draw_is_send_and_sync() {
     assert_send_sync::<Draw<'_>>();
 }
+
+#[test]
+fn a_value_that_its_reflected_layout_cannot_hold_is_an_unsupported_parameter() {
+    let mut case = Case::new();
+    let Some(Resource::UniformBuffer(block)) = case
+        .snapshot
+        .bindings
+        .first_mut()
+        .map(|binding| &mut binding.binding.resource)
+    else {
+        panic!("the first binding of the snapshot is its uniform buffer");
+    };
+    let Some(tint) = block.values.iter_mut().find(|value| value.path == "tint") else {
+        panic!("the uniform buffer holds `tint`");
+    };
+    tint.size = 8;
+    let error = case.plan().expect_err("a float4 in 8 bytes");
+    assert_eq!(error.kind(), ErrorKind::UnsupportedParameter);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{PREFIX}the render pipeline of `vsMain` and `fsMain` cannot take the value of the parameter `tint`"
+        )
+    );
+    assert_eq!(
+        std::error::Error::source(&error)
+            .map(ToString::to_string)
+            .as_deref(),
+        Some(
+            "cannot set a plain value: the reflected layout of the parameter `tint` places a scalar outside its 8 bytes"
+        )
+    );
+}

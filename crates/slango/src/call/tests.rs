@@ -844,3 +844,31 @@ fn a_texture_without_texture_binding_is_an_invalid_argument() {
         )
     );
 }
+
+#[test]
+fn a_value_that_its_reflected_layout_cannot_hold_is_an_unsupported_parameter() {
+    let mut layout = layout();
+    let Some(Resource::UniformBuffer(block)) = layout
+        .bindings
+        .first_mut()
+        .map(|binding| &mut binding.resource)
+    else {
+        panic!("the first binding of the layout is its uniform buffer");
+    };
+    let Some(factor) = block.values.first_mut() else {
+        panic!("the uniform buffer holds `factor` first");
+    };
+    factor.size = 2;
+    let error = plan(&layout, &complete()).expect_err("a float in 2 bytes");
+    assert_eq!(error.kind(), ErrorKind::UnsupportedParameter);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: the kernel `scale` cannot take the value of the parameter `factor`"
+    );
+    assert_eq!(
+        error.source().map(ToString::to_string).as_deref(),
+        Some(
+            "cannot set a plain value: the reflected layout of the parameter `factor` places a scalar outside its 2 bytes"
+        )
+    );
+}
