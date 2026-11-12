@@ -533,7 +533,7 @@ The generator is a library with a thin binary. The library's public API is:
 
 The binary takes the header directory `$VULKAN_SDK/include/slang`, calls `generate`, and writes each text that `files` returns to its path, relative to the root of the repository.
 
-Inside the library, the module `parse` turns one parse of libclang into a model, `rules` holds the rule set, `check` selects the declarations by the rules, validates the selection against every refusal of SCS-19 for each target, and compares the targets, and `emit` writes the Rust text and formats it with `rustfmt --edition 2024` on standard input. The module `model` defines the model, and `error` defines the error type.
+Inside the library, the module `parse` turns one parse of libclang into a model, `rules` holds the rule set, `check` selects the declarations by the rules, validates the selection against every refusal of SCS-19 for each target, and compares the targets, and `emit` writes the Rust text and formats it with `rustfmt --edition 2024` on standard input. The function of `emit` that runs rustfmt takes the program and its arguments as parameters only so that the `ffi` tests of Section 7.5 can run a missing program and `sh` in place of rustfmt, to reach the errors of a program that cannot start and of one that fails before it reads its input. The module `model` defines the model, and `error` defines the error type.
 
 SCS-20. The binary of the binding generator and the regeneration test of Section 7.6 MUST call the same library function with the same inputs, because the test is a proof that the checked-in file equals the output of the binary only when both take the same path through the code.
 
