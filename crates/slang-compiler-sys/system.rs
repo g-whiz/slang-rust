@@ -9,7 +9,7 @@ impl Host for System {
     }
 
     fn read(&self, path: &Path) -> io::Result<String> {
-        fs::read_to_string(path)
+        Ok(String::from_utf8_lossy(&fs::read(path)?).into_owned())
     }
 
     fn kind(&self, path: &Path) -> io::Result<EntryKind> {

@@ -34,6 +34,9 @@ fn system_reads_variables_kinds_and_the_host_os() -> io::Result<()> {
     let file = dir.join("file.txt");
     System.write(&file, "text")?;
     assert_eq!(System.read(&file)?, "text");
+    let log = dir.join("build.log");
+    fs::write(&log, b"cl: \xfc\xe9 error\n")?;
+    assert_eq!(System.read(&log)?, "cl: \u{FFFD}\u{FFFD} error\n");
     assert_eq!(System.kind(&dir)?, EntryKind::Directory);
     assert_eq!(System.kind(&file)?, EntryKind::File);
     assert_eq!(

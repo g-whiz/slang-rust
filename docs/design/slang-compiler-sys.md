@@ -873,7 +873,7 @@ The build script follows SYS-8 of the coding standard. It consists of three file
 The logic reaches the environment, the file system, and other programs only through the private trait `Host`, which has ten methods:
 
 - `var`, which returns the value of an environment variable as an `OsString`, or nothing when the variable is absent.
-- `read`, which returns the text of a file.
+- `read`, which returns the text of a file, with every byte sequence that is not UTF-8 replaced, because the log of a failed build can hold compiler output in another encoding, and its last lines have to reach the error (SCS-48).
 - `kind`, which says whether a path is a directory, a file, or something else, following symbolic links, or returns the error of the file system.
 - `host_os`, which names the operating system of the host in the form of `CARGO_CFG_TARGET_OS`.
 - `run`, which runs a program described by the struct `Invocation`, with its arguments, its working directory, and the variables to set and to remove, and returns its exit status and both of its output streams.
