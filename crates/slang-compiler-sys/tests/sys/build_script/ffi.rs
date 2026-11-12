@@ -166,6 +166,66 @@ fn system_runs_a_program_and_captures_its_output_and_exit_status() -> io::Result
 }
 
 #[test]
+fn system_runs_a_program_with_the_variables_that_it_sets_and_removes() -> io::Result<()> {
+    let removed = "CARGO_MANIFEST_DIR";
+    assert!(
+        std::env::var_os(removed).is_some(),
+        "the test process lacks {removed}"
+    );
+    let dir = scratch("env")?;
+    let (set, absent) = (dir.join("set.rs"), dir.join("absent.rs"));
+    fs::write(
+        &set,
+        "const _: () = assert!(matches!(env!(\"SLANG_COMPILER_SYS_SET\").as_bytes(), b\"set\"));\n",
+    )?;
+    fs::write(
+        &absent,
+        format!("const _: () = assert!(option_env!(\"{removed}\").is_none());\n"),
+    )?;
+    let check = |source: &Path| {
+        let out = dir.display().to_string();
+        let source = source.display().to_string();
+        rustc(&[
+            "--edition",
+            "2024",
+            "--crate-type",
+            "lib",
+            "--emit",
+            "metadata",
+            "--out-dir",
+            &out,
+            &source,
+        ])
+    };
+    for (invocation, compiles) in [
+        (check(&set), false),
+        (
+            Invocation {
+                env: vec![("SLANG_COMPILER_SYS_SET", "set")],
+                ..check(&set)
+            },
+            true,
+        ),
+        (check(&absent), false),
+        (
+            Invocation {
+                env_remove: vec![removed],
+                ..check(&absent)
+            },
+            true,
+        ),
+    ] {
+        let finished = System.run(&invocation)?;
+        assert_eq!(
+            finished.exit.success(),
+            compiles,
+            "{invocation:?}: {finished:?}"
+        );
+    }
+    fs::remove_dir_all(&dir)
+}
+
+#[test]
 fn system_appends_the_output_of_a_logged_program_to_its_log() -> io::Result<()> {
     let dir = scratch("log")?;
     let log = dir.join("build.log");
