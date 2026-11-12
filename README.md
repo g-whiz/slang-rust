@@ -25,7 +25,7 @@ No crate in this table is published. Each crate gets a link to its documentation
 | `slango-codegen` | Built and not published, with the generator that `slango-macros` calls | The generator of `slango-macros`, as a library |
 | `slang-slint` | Built and not published: it shares Slint's GPU device with `slango` and shows what `slango` draws as an image in a Slint window | A view for Slint, a Rust toolkit for graphical user interfaces, that a Slang render pipeline draws, built on `slango` and wgpu |
 
-The repository also holds the binding generator, which writes the raw bindings, and the examples, which also serve as integration tests. The first example, `compile-and-reflect`, compiles a Slang file and prints its entry points and parameters. The second, `compute-kernel`, runs a compute kernel on the GPU with `slango` and checks its results. The third, `windowed-renderer`, draws a rotating, textured quad in a window and reloads its shader whenever the file changes. The fourth, `shader-playground`, shows what a shader draws in a Slint window with two sliders that set its parameters, and also reloads the shader whenever the file changes. Neither the generator nor the examples are published.
+The repository also holds the binding generator, which writes the raw bindings, and the examples, which also serve as integration tests. The first example, `compile-and-reflect`, compiles a Slang file and prints its entry points and parameters. The second, `compute-kernel`, runs a compute kernel on the GPU with `slango` and checks its results. The third, `windowed-renderer`, draws a rotating, textured quad in a window and reloads its shader whenever the file changes. The fourth, `shader-playground`, shows what a shader draws in a Slint window with two sliders that set its parameters, and also reloads the shader whenever the file changes. The fifth, `typed-kernel`, runs a compute kernel on the GPU through the typed bindings that the macro `shader!` generates, including a struct for a Slang structure, and checks its results. Neither the generator nor the examples are published.
 
 ## Obtaining Slang
 
@@ -57,13 +57,14 @@ This command runs every check, as is required before every merge:
 just check
 ```
 
-These commands, run from the workspace root with the Slang library of the Vulkan SDK on the library path, run the four examples on their sample shaders. The second, third, and fourth also need a GPU driver or a software driver, such as lavapipe on Linux, and the third and fourth need a display. On a software driver, the fourth also needs the environment variable `SLINT_WGPU_CPU` set to `1`:
+These commands, run from the workspace root with the Slang library of the Vulkan SDK on the library path, run the five examples. The first four run a sample shader that their argument names, and the fifth runs a shader that the macro `shader!` embeds when it builds, so it takes no argument. Every example except the first also needs a GPU driver or a software driver, such as lavapipe on Linux, and the third and fourth need a display. On a software driver, the fourth also needs the environment variable `SLINT_WGPU_CPU` set to `1`:
 
 ```sh
 cargo run -p slang-rust-examples --bin compile-and-reflect -- examples/shaders/scale.slang
 cargo run -p slang-rust-examples --bin compute-kernel -- examples/shaders/saxpy.slang
 cargo run -p slang-rust-examples --bin windowed-renderer -- examples/shaders/textured-quad.slang
 cargo run -p slang-rust-examples --bin shader-playground -- examples/shaders/playground.slang
+cargo run -p slang-rust-examples --bin typed-kernel
 ```
 
 [`AGENTS.md`](https://github.com/g-whiz/slang-rust/blob/main/AGENTS.md) holds the rules for working in the repository, the project status, and the recipe to run for each kind of change. These documents are under `docs/`:

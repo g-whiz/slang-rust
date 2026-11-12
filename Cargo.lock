@@ -3690,6 +3690,7 @@ dependencies = [
  "slang-compiler",
  "slang-slint",
  "slango",
+ "slango-macros",
  "slint",
  "wgpu",
  "winit",

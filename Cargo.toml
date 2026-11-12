@@ -32,6 +32,7 @@ slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
 slang-slint = { path = "crates/slang-slint", version = "0.1.0" }
 slango = { path = "crates/slango", version = "0.1.0" }
 slango-codegen = { path = "crates/slango-codegen", version = "=0.1.0" }
+slango-macros = { path = "crates/slango-macros", version = "0.1.0" }
 slint = { version = "~1.18", default-features = false }
 syn = { version = "2.0.119", default-features = false }
 trybuild = "1.0.122"
