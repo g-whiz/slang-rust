@@ -117,6 +117,11 @@ pub enum ErrorKind {
     /// Slang failed to compile or link a module. The source error is the
     /// error of `slang-compiler`, with the messages that Slang printed. Fix
     /// the shader.
+    ///
+    /// An error of this kind for a vertex or fragment entry point that Slang
+    /// failed on, which [`Module::render_pipeline`](crate::Module::render_pipeline)
+    /// returns, has no source error, and its text holds the text of the
+    /// error of `slang-compiler` instead.
     Compile,
     /// wgpu found no adapter, a GPU or a software implementation of one, that
     /// matches the options. Install a GPU driver or a software driver such as

@@ -692,7 +692,7 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 
 | Kind | Meaning |
 | --- | --- |
-| `Compile` | Slang failed to compile or link the module. `source()` returns the error of `slang-compiler` with its diagnostics |
+| `Compile` | Slang failed to compile or link the module. `source()` returns the error of `slang-compiler` with its diagnostics, except for the rejection of a vertex or fragment entry point, whose text holds that error's text and which has no source error (Section 7.4) |
 | `NoAdapter` | wgpu found no adapter that matches the options |
 | `DeviceRequest` | The adapter refused the device that the options request |
 | `UnsupportedShader` | The backend rejected a kernel at load, or a render pipeline at its creation, as the text after this table states. The source error carries the backend's text |

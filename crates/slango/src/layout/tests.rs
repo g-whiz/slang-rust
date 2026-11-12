@@ -231,6 +231,27 @@ fn a_failure_to_generate_the_spirv_of_a_render_entry_point_becomes_its_rejection
 }
 
 #[test]
+fn a_rejection_keeps_the_text_of_the_source_after_the_detail() {
+    let error = Error::new(ErrorKind::Compile, LOAD)
+        .with_detail("Slang reports no layout for the entry point".to_owned())
+        .with_source(std::io::Error::other("Slang reports error 30019"));
+    let record = render_record(
+        "fsMain".to_owned(),
+        Role::Fragment,
+        Err(error),
+        Ok(vec![0x0723_0203]),
+    );
+    assert_eq!(
+        rejection_of(&record),
+        &Rejection {
+            kind: ErrorKind::Compile,
+            detail: "Slang reports no layout for the entry point: Slang reports error 30019"
+                .to_owned(),
+        }
+    );
+}
+
+#[test]
 fn the_failure_of_the_walk_comes_before_the_failure_of_the_spirv() {
     let record = render_record(
         "vsMain".to_owned(),

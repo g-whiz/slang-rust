@@ -295,7 +295,12 @@ pub(crate) struct UsableRender {
 /// Why a vertex or fragment entry point cannot be used: the kind of the
 /// failure, [`ErrorKind::UnsupportedParameter`] when the walk refused one of
 /// its parameters and [`ErrorKind::Compile`] when Slang failed on it, and the
-/// text that describes it.
+/// text that describes it, which includes the text of the source error.
+///
+/// It keeps no source error, because a module returns the rejection from
+/// every call of [`Module::render_pipeline`](crate::Module::render_pipeline)
+/// that names the entry point, and a precompiled module decodes it from
+/// bytes.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Rejection {
     pub(crate) kind: ErrorKind,
@@ -490,11 +495,12 @@ fn render_record(
 }
 
 /// Returns the rejection of a vertex or fragment entry point from the error
-/// that made it unusable, with the detail of the error, or the text of its
-/// source when the error has no detail.
+/// that made it unusable, with the detail of the error followed by the text
+/// of its source, because a rejection keeps no source error.
 fn rejection(error: &Error, role: Role, name: &str) -> Rejection {
     let detail = match (error.detail(), StdError::source(error)) {
-        (Some(detail), _) => detail.to_owned(),
+        (Some(detail), Some(source)) => format!("{detail}: {source}"),
+        (Some(detail), None) => detail.to_owned(),
         (None, Some(source)) => format!("Slang failed on the {} `{name}`: {source}", role.noun()),
         (None, None) => format!("{error}, for the {} `{name}`", role.noun()),
     };

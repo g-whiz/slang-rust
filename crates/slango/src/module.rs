@@ -139,7 +139,8 @@ impl Module {
     ///   `uniform` parameters of its own, which a render pipeline does not
     ///   accept.
     /// - [`ErrorKind::Compile`] when Slang failed on either entry point while
-    ///   the module was loaded.
+    ///   the module was loaded. The error has no source error, and its text
+    ///   holds the messages that Slang printed.
     /// - [`ErrorKind::UnsupportedShader`] when the backend rejects the
     ///   compiled form of either entry point, or the two together, such as
     ///   when the outputs of the vertex entry point do not match the inputs
