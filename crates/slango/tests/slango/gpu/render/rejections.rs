@@ -60,7 +60,7 @@ impl Setup {
     /// `text`, and that the target still holds the pixels of the clear.
     fn assert_rejected(&self, result: slango::Result<()>, kind: ErrorKind, text: &str) {
         let error = result.err();
-        let message = error.as_ref().map(ToString::to_string).unwrap_or_default();
+        let message = error.as_ref().map_or_default(ToString::to_string);
         assert_eq!(error.map(|error| error.kind()), Some(kind), "{message}");
         assert!(message.starts_with(PREFIX), "{message}");
         assert!(message.contains(text), "{message} does not contain {text}");

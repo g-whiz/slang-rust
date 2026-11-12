@@ -1196,8 +1196,7 @@ fn logged_args(host: &FakeHost, first: &str) -> String {
         .borrow()
         .iter()
         .find(|(invocation, _)| subcommand(invocation) == ("cmake", first))
-        .map(|(invocation, _)| invocation.args.join(" "))
-        .unwrap_or_default()
+        .map_or_default(|(invocation, _)| invocation.args.join(" "))
 }
 
 #[test]
@@ -1571,8 +1570,7 @@ fn static_route_names_a_program_that_exits_with_a_failure() {
         });
         let place = dir
             .as_ref()
-            .map(|dir| format!(" in {}", dir.display()))
-            .unwrap_or_default();
+            .map_or_default(|dir| format!(" in {}", dir.display()));
         static_failure(
             &host,
             &[

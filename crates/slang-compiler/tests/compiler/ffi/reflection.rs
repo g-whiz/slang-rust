@@ -164,8 +164,7 @@ fn print_variable(out: &mut String, variable: VariableLayout<'_>, depth: usize) 
     let indent = "  ".repeat(depth);
     let name = variable
         .variable()
-        .map(|v| v.name().expect("UTF-8"))
-        .unwrap_or_default()
+        .map_or_default(|v| v.name().expect("UTF-8"))
         .unwrap_or("<scope>");
     let Some(layout) = variable.type_layout() else {
         writeln!(out, "{indent}{name}: no type layout").expect("a String takes text");
@@ -173,8 +172,7 @@ fn print_variable(out: &mut String, variable: VariableLayout<'_>, depth: usize) 
     };
     let ty = layout
         .ty()
-        .map(|ty| ty.full_name().expect("a full name"))
-        .unwrap_or_default();
+        .map_or_default(|ty| ty.full_name().expect("a full name"));
     write!(
         out,
         "{indent}{name}: {ty} ({:?})",
@@ -219,8 +217,7 @@ fn print_bindings(out: &mut String, layout: TypeLayout<'_>) {
     for range in layout.binding_ranges().expect("a count") {
         let leaf = range
             .leaf_variable()
-            .map(|v| v.name().expect("UTF-8"))
-            .unwrap_or_default()
+            .map_or_default(|v| v.name().expect("UTF-8"))
             .unwrap_or("<none>");
         writeln!(
             out,
@@ -308,8 +305,7 @@ fn print_layout(layout: ProgramLayout<'_>) -> String {
         for parameter in entry.parameter_layouts() {
             let name = parameter
                 .variable()
-                .map(|v| v.name().expect("UTF-8"))
-                .unwrap_or_default();
+                .map_or_default(|v| v.name().expect("UTF-8"));
             writeln!(out, "  parameter {name:?}").expect("a String takes text");
         }
         if let Some(function) = entry.function() {
@@ -317,8 +313,7 @@ fn print_layout(layout: ProgramLayout<'_>) -> String {
                 .parameters()
                 .map(|p| {
                     p.ty()
-                        .map(|ty| ty.full_name().expect("a full name"))
-                        .unwrap_or_default()
+                        .map_or_default(|ty| ty.full_name().expect("a full name"))
                 })
                 .collect::<Vec<_>>();
             writeln!(
@@ -958,8 +953,7 @@ fn counters_and_leaves_of_binding_ranges_report_what_slang_computes() {
                         .unwrap_or_default(),
                     leaf.kind().expect("a known kind"),
                     leaf.ty()
-                        .map(|ty| ty.full_name().expect("a name"))
-                        .unwrap_or_default(),
+                        .map_or_default(|ty| ty.full_name().expect("a name")),
                     range.binding_count().expect("a count"),
                 )
             })

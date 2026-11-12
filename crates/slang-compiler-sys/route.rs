@@ -481,8 +481,7 @@ fn out_dir(value: Option<&OsStr>) -> Result<PathBuf, BuildError> {
 fn static_platform(host: &impl Host) -> Result<Platform, BuildError> {
     let text = |name: &str| {
         host.var(name)
-            .map(|value| value.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .map_or_default(|value| value.to_string_lossy().into_owned())
     };
     let required = |name: &str| {
         host.var(name)
@@ -841,8 +840,7 @@ fn check_success(
         invocation
             .dir
             .as_ref()
-            .map(|dir| format!(" in {}", dir.display()))
-            .unwrap_or_default(),
+            .map_or_default(|dir| format!(" in {}", dir.display())),
         finished.exit.status(),
         finished.stderr.trim()
     )))

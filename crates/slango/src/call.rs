@@ -734,7 +734,7 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
             }
         })
         .collect();
-    let mut immediates = parameters.immediates.map(zeroed).unwrap_or_default();
+    let mut immediates = parameters.immediates.map_or_default(zeroed);
     let mut given: Vec<Option<usize>> = vec![None; parameters.bindings.len()];
     let mut set: HashSet<&str> = HashSet::new();
     for (index, (path, argument)) in arguments.iter().enumerate() {

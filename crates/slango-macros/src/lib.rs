@@ -174,10 +174,7 @@ fn resolve(literal: &LitStr) -> syn::Result<std::path::PathBuf> {
     let file = proc_macro::Span::call_site().local_file().ok_or_else(|| {
         error("cannot resolve the path of the Slang file, because the compiler gives no Rust file for the call of shader!".to_owned())
     })?;
-    let directory = file
-        .parent()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_default();
+    let directory = file.parent().map_or_default(std::path::PathBuf::from);
     std::path::absolute(directory.join(literal.value())).map_err(|cause| {
         error(format!(
             "cannot resolve the path of the Slang file against the working directory of the compiler\n  caused by: {cause}"
