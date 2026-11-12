@@ -1376,7 +1376,7 @@ fn static_route_names_a_missing_submodule_and_the_command_that_fetches_it() {
 
 #[test]
 fn static_route_reports_a_submodule_git_entry_that_cannot_be_accessed() {
-    let entry = source_root().join("external/lz4/.git");
+    let entry = source_root().join("external/lz4").join(".git");
     let mut host = static_host();
     set_entry(
         &mut host,
