@@ -929,6 +929,28 @@ fn static_route_with_a_matching_stamp_skips_the_copy_and_the_configure_step() {
     assert!(ran(&moved).contains(&"cmake -S".to_owned()));
     assert!(!moved.synced.borrow().is_empty());
     assert_eq!(moved.written.borrow().len(), 2);
+
+    let windows = |feature: &str| {
+        let mut host = target_host("windows", "msvc", feature, "x86_64-pc-windows-msvc");
+        for library in STATIC_LIBRARIES {
+            set_entry(
+                &mut host,
+                archive_dir().join(format!("{library}.lib")),
+                Ok(EntryKind::File),
+            );
+        }
+        host
+    };
+    let shared_runtime = windows("");
+    assert_eq!(run(&shared_runtime).1, Ok(()));
+    let mut static_runtime = windows("crt-static");
+    static_runtime
+        .files
+        .push((stamp_file(), shared_runtime.written.borrow()[1].1.clone()));
+    assert_eq!(run(&static_runtime).1, Ok(()));
+    assert!(ran(&static_runtime).contains(&"cmake -S".to_owned()));
+    assert!(!static_runtime.synced.borrow().is_empty());
+    assert_eq!(static_runtime.written.borrow().len(), 2);
 }
 
 #[test]
