@@ -513,6 +513,7 @@ mod tests {
         LayoutSize, LayoutUnits, ResourceAccess, ResourceBaseShape, ResourceShape, ScalarType,
         TypeKind,
     };
+    use crate::reflection::BindingType;
     use crate::{ErrorKind, ParameterCategory};
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -526,6 +527,7 @@ mod tests {
         assert_send_sync::<ResourceShape>();
         assert_send_sync::<LayoutSize>();
         assert_send_sync::<LayoutUnits>();
+        assert_send_sync::<BindingType>();
     }
 
     #[test]
