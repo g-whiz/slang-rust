@@ -441,7 +441,7 @@ The generator derives each Rust name from the C++ name. These are its rules:
 
 - A namespace is dropped, so `slang::IGlobalSession` becomes `IGlobalSession`.
 - A type nested in a record joins the names of its records and its own name with `_`, so `slang::CompileCoreModuleFlag::Enum` becomes `CompileCoreModuleFlag_Enum`.
-- The k-th anonymous struct or union inside a record, counted from 0, is the type `Parent_anon{k}`, held by the field `anon{k}`, so an anonymous union inside it is `Parent_anon{k}_anon{j}`.
+- The k-th field of a record whose type is an unnamed struct or union, counted from 0, has the type `Parent_anon{k}`, so an anonymous union inside that type is `Parent_anon{k}_anon{j}`. A named field of such a type keeps its name and its default member initializer. The j-th anonymous member, a field without a name, counted from 0, is the field `anon{j}`, so the two numbers differ only when a named field of an unnamed type precedes an anonymous member.
 - A name that is a Rust keyword becomes a raw identifier, such as `r#type`, and `crate`, `self`, `Self`, `super`, and `_` get a trailing underscore, because they cannot be raw identifiers.
 - An unnamed parameter at position i becomes `arg{i}`, and a parameter or field name that repeats an earlier name in the same list, or a parameter named `this`, gets trailing underscores until it is unique.
 

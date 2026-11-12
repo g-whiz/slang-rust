@@ -392,22 +392,20 @@ impl Extractor<'_> {
             let field_type = field
                 .get_type()
                 .ok_or_else(|| layout_error("field types"))?;
-            let anonymous = field_type
+            let declaration = field_type
                 .get_canonical_type()
                 .get_declaration()
                 .filter(|declaration| is_anonymous(*declaration));
-            if let Some(declaration) = anonymous {
+            if let Some(declaration) = declaration {
                 self.anonymous_member(declaration, name, &field_location)?;
             }
+            let member =
+                declaration.is_some_and(|declaration| declaration.is_anonymous_record_decl());
             let offset_bits = field
                 .get_offset_of_field()
                 .map_err(|error| layout_error("field offsets").with_source(error))?;
             fields.push(Field {
-                name: if anonymous.is_some() {
-                    None
-                } else {
-                    field.get_name()
-                },
+                name: if member { None } else { field.get_name() },
                 location: field_location,
                 ty: self.ty(field_type),
                 offset_bits,
@@ -416,7 +414,7 @@ impl Extractor<'_> {
                 } else {
                     None
                 },
-                init: if anonymous.is_some() {
+                init: if member {
                     Init::None
                 } else {
                     initializer(field)

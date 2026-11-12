@@ -636,6 +636,33 @@ struct Argument
     }
 
     #[test]
+    fn generate_keeps_the_name_and_initializer_of_a_field_whose_type_has_no_name() {
+        let text = generate(
+            "named_field_of_unnamed_type",
+            r"
+struct Holder
+{
+    int32_t kind;
+    struct
+    {
+        int32_t x;
+    } point = {};
+};
+",
+        );
+        assert_contains(
+            &text,
+            "pub struct Holder {\n    pub kind: i32,\n    pub point: Holder_anon0,\n}",
+        );
+        assert_contains(&text, "pub struct Holder_anon0 {\n    pub x: i32,\n}");
+        assert_contains(&text, "point: Holder_anon0 { x: 0 },");
+        assert_contains(
+            &text,
+            "assert!(::core::mem::offset_of!(Holder, point) == 4);",
+        );
+    }
+
+    #[test]
     fn generate_emits_excluded_types_used_through_pointers_as_opaque_types() {
         const DECLARATIONS: &[DeclRule] = &[
             DeclRule {
