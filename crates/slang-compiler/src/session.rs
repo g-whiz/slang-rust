@@ -249,8 +249,7 @@ impl Session {
     /// to its global session of its own, but when that is the last reference,
     /// releasing the session frees the global session first and then writes
     /// into it, so the release order is safe only while another handle keeps
-    /// the global session alive. The returned handle also keeps the global
-    /// session counted as the live global session of this thread.
+    /// the global session alive.
     ///
     /// # Examples
     ///
