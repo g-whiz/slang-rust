@@ -10,10 +10,9 @@
 //! compute entry point, or kernel, a struct that runs it with an arguments
 //! struct that has one typed field for each parameter, and for each Slang
 //! structure that a kernel takes, a struct of the same name. The generated
-//! code
-//! embeds the compiled module and calls `slango` at run time, so a crate
-//! that contains it depends on `slango` of exactly the version that this
-//! crate requires.
+//! code embeds the compiled module and calls `slango` at run time, so a
+//! crate that contains it depends on `slango` of exactly the version that
+//! this crate requires.
 //!
 //! [`generate`] compiles a file and generates its bindings, and
 //! [`generate_precompiled`] generates the bindings of a module that is
@@ -77,7 +76,8 @@ const COMPILE: &str = "generate the bindings of the Slang file";
 ///
 /// - [`ErrorKind::Compile`] when `slango` cannot read or compile the file.
 /// - [`ErrorKind::Unsupported`] when a kernel has a parameter for which the
-///   generator has no Rust type.
+///   generator has no Rust type, or the path of a file that Slang read is
+///   not valid UTF-8.
 /// - [`ErrorKind::NameConflict`] when two names of the module give the same
 ///   Rust name, or a name gives a Rust name that cannot be used.
 pub fn generate(path: impl AsRef<Path>) -> Result<TokenStream> {
@@ -99,8 +99,7 @@ fn generate_file(path: &Path) -> Result<TokenStream> {
 /// `slango::__private::precompile_file` compiled.
 ///
 /// Use this when the module is already compiled. The function calls no
-/// Slang, so it is what the tests of the generator call with a description
-/// that they build by hand.
+/// Slang.
 ///
 /// # Examples
 ///

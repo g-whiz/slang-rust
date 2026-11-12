@@ -167,8 +167,7 @@ fn expand(_literal: &LitStr) -> syn::Result<TokenStream> {
 }
 
 /// Returns the absolute path that a path literal names, relative to the
-/// directory of the Rust file that calls the macro (SLM-10 of
-/// `docs/design/slango-macros.md`).
+/// directory of the Rust file that calls the macro.
 #[cfg(not(slango_docs_rs))]
 fn resolve(literal: &LitStr) -> syn::Result<std::path::PathBuf> {
     let error = |text: String| syn::Error::new(literal.span(), text);

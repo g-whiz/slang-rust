@@ -39,9 +39,8 @@ fn structure(name: &str, size: u64, fields: Vec<Field>) -> Structure {
     }
 }
 
-/// The structure `Particle` of Section 3.9 of the design: a `float3`, a
-/// `float`, and a `float2` at the offsets 0, 12, and 16, with 8 bytes of
-/// tail padding.
+/// The structure `Particle`: a `float3`, a `float`, and a `float2` at the
+/// offsets 0, 12, and 16, with 8 bytes of tail padding.
 fn particle() -> Structure {
     structure(
         "Particle",

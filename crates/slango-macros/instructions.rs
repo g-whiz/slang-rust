@@ -25,8 +25,7 @@ impl fmt::Debug for BuildError {
 /// Returns the instructions for Cargo: the rerun instructions, the `cfg` of
 /// the stub for docs.rs, and, on Linux and macOS, the rpath of the library
 /// directory of the Vulkan SDK, through which the macro library finds the
-/// Slang library when rustc loads it (SLM-12 and SLM-13 of
-/// `docs/design/slango-macros.md`).
+/// Slang library when rustc loads it.
 fn instructions(environment: &impl Environment) -> Result<Vec<String>, BuildError> {
     let mut out = vec![
         format!("cargo::rerun-if-env-changed={VULKAN_SDK}"),

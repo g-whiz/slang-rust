@@ -133,8 +133,8 @@ pub enum ErrorKind {
     /// such as a structured buffer of `float3`, a 64-bit scalar, or a
     /// structure in a structured buffer with a `bool` field. The detail names
     /// the kernel, the parameter, the field when there is one, and the
-    /// reason. Change the shader, or
-    /// use the runtime API of `slango` for the kernel.
+    /// reason. Change the shader, or use the runtime API of `slango` for the
+    /// kernel.
     Unsupported,
     /// Two names of the Slang module give the same Rust name, or a name gives
     /// a Rust name that cannot be used, such as `self`. The detail names the
