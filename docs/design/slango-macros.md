@@ -39,13 +39,13 @@ These are not part of M6:
 - Typed render pipelines, typed draws, and vertex layouts, which are deferred with no milestone assigned.
 - An entry point for a build script that writes the generated code into `OUT_DIR`. It needs Slang in the build script and its own tracking, so it is not free, and it is deferred with no milestone assigned.
 - A mode that embeds the Slang source and compiles it at run time, because it cannot resolve an `import` (Section 3.5).
-- A program that runs without the Slang library (Section 13, SLMQ-1).
-- A re-export of the macro by `slango` (Section 13, SLMQ-2).
-- A cache of the generated code that lets a crate build without Slang, as `sqlx` keeps one (Section 13, SLMQ-3).
+- A program that runs without the Slang library (Section 12, SLMQ-1).
+- A re-export of the macro by `slango` (Section 12, SLMQ-2).
+- A cache of the generated code that lets a crate build without Slang, as `sqlx` keeps one (Section 12, SLMQ-3).
 
-### 1.7. Defects of Third-Party Components and Trusted Input
+### 1.6. Defects of Third-Party Components and Trusted Input
 
-`slango-macros` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slango.md`. The `.slang` file, every file it imports, and the path in the macro call are trusted input from the crate that calls the macro. The macro does not guard against a defect of Slang, and Section 15.6 lists the properties of compiling Slang inside the compiler, which are limits and not defects.
+`slango-macros` follows Hard Rule 14 of `AGENTS.md` and Section 1.6 of `docs/design/slango.md`. The `.slang` file, every file it imports, and the path in the macro call are trusted input from the crate that calls the macro. The macro does not guard against a defect of Slang, and Section 14.6 lists the properties of compiling Slang inside the compiler, which are limits and not defects.
 
 ## 2. Requirements Language
 
@@ -76,7 +76,7 @@ Each fact carries one of these marks:
 
 - (run): Observed by running code with Rust 1.99.1 and the pinned Vulkan SDK, on x86_64 Linux unless the fact names another platform. A GPU result holds on a hardware NVIDIA GPU and on lavapipe.
 - (read): Read in the named source.
-- (inferred): Concluded from other facts and not verified. Section 12 lists the assumptions on which a requirement depends.
+- (inferred): Concluded from other facts and not verified. Section 11 lists the assumptions on which a requirement depends.
 
 ### 3.2. Mechanism
 
@@ -177,7 +177,7 @@ The owner decided:
 5. `slango` does not re-export the macro in M6. A user depends on `slango-macros` directly. This answers Q-26 of the architecture design together with Sections 6.1 and 10.
 6. The tests of Section 10.
 7. The dependencies of Section 4.2, with no new licence and no new advisory exception.
-8. The known limits of Section 15.6, which are recorded and not guarded against.
+8. The known limits of Section 14.6, which are recorded and not guarded against.
 9. The separate published library crate `slango-codegen` for the generator (SLM-1).
 10. The element type check of `bind` is exact for a plain element and keeps the stride check for a structure (SLM-5).
 
@@ -309,7 +309,7 @@ SLM-10. The macro MUST resolve a relative path against the directory of the invo
 
 SLM-11. The expansion MUST contain `const _: &[u8] = include_bytes!("<absolute path>");` for the file and for every file that Slang read, so that Cargo rebuilds the crate when any of them changes (Section 3.4).
 
-The generated code therefore contains absolute paths of the build machine. When `proc_macro::tracked::path` is stable, a change replaces the trick with it. A new file that changes how an `import` resolves does not trigger a rebuild (Section 15.6).
+The generated code therefore contains absolute paths of the build machine. When `proc_macro::tracked::path` is stable, a change replaces the trick with it. A new file that changes how an `import` resolves does not trigger a rebuild (Section 14.6).
 
 ### 6.3. The Build Script
 
@@ -329,7 +329,7 @@ SLM-13. When `DOCS_RS` is present, the build script MUST set the `cfg` `slango_d
 
 The stub's documentation says that the bindings are generated only in a build with Slang. The macro emits the stub without resolving or reading the path, so a wrong path does not fail the documentation build. The other generated items are absent from the documentation of the user's crate.
 
-A crate builds its documentation without Slang only when it names every generated item other than `Shader` inside function bodies alone, in expressions and in the type annotations of `let` (Section 3.8). Section 15.6 states the consequence.
+A crate builds its documentation without Slang only when it names every generated item other than `Shader` inside function bodies alone, in expressions and in the type annotations of `let` (Section 3.8). Section 14.6 states the consequence.
 
 ### 6.5. Diagnostics
 
@@ -552,7 +552,7 @@ SLM-22. An agent that changes the pin MUST run the compile-fail tests and update
 
 A new Slang can therefore fail the tests with no change to the macro.
 
-## 12. Assumptions to Confirm
+## 11. Assumptions to Confirm
 
 Each row is a statement that this design relies on and that is not yet established. A section that relies on one cites its identifier.
 
@@ -564,17 +564,17 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run |
 | SLMA-8 | The crates.io name `slango-codegen` is available | SLM-1 | The first release, in M7 |
 
-## 13. Open Questions
+## 12. Open Questions
 
 | Identifier | Question | Answered by |
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
 | SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M7, at publishing |
-| SLMQ-3 | How does a crate that names generated items outside function bodies get its documentation on docs.rs, where the stub breaks its documentation build (Section 15.6)? The candidates are a checked-in cache of the generated interface that the macro reads when Slang is absent, in the style of the offline mode of `sqlx`, which would also show the generated items, and documentation built elsewhere than on docs.rs. | M7, at publishing |
+| SLMQ-3 | How does a crate that names generated items outside function bodies get its documentation on docs.rs, where the stub breaks its documentation build (Section 14.6)? The candidates are a checked-in cache of the generated interface that the macro reads when Slang is absent, in the style of the offline mode of `sqlx`, which would also show the generated items, and documentation built elsewhere than on docs.rs. | M7, at publishing |
 
 An identifier is never reused.
 
-## 14. Security Considerations
+## 13. Security Considerations
 
 The threat model treats the `.slang` file, the files it imports, and the path in the macro call as trusted input from the crate that calls the macro, as Hard Rule 14 of `AGENTS.md` states. The macro runs Slang inside rustc with the privileges of the build.
 
@@ -586,19 +586,19 @@ These attacks are out of scope, because the user chose the input: a malicious sh
 
 The residual risk is a defect in Slang that corrupts memory inside rustc during an expansion. Another is a library planted in the SDK's library directory, which the rpath lets rustc load, as the library path of the recipes already does.
 
-## 15. Operational Considerations
+## 14. Operational Considerations
 
-### 15.1. Cargo Features and Environment Variables
+### 14.1. Cargo Features and Environment Variables
 
 Neither crate has Cargo features. The build script of `slango-macros` reads `VULKAN_SDK`, which sets the rpath, and `DOCS_RS`, which selects the stub (SLM-12, SLM-13). Building a crate that uses the macro needs what building `slango` needs: the pinned Slang through `VULKAN_SDK` or `SLANG_SOURCE_DIR` (Section 9 of `docs/design/slang-compiler-sys.md`).
 
-### 15.2. Platforms and Minimum Supported Rust Version
+### 14.2. Platforms and Minimum Supported Rust Version
 
 CI builds and tests both crates on Linux, Windows, and macOS. On macOS, the CI job also sets `DYLD_LIBRARY_PATH`, so it does not show that the rpath alone suffices (Section 3.3, SLMA-5).
 
 `Span::local_file` needs Rust 1.88.0, and every new dependency declares 1.88 or less, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
-### 15.3. Failure Modes
+### 14.3. Failure Modes
 
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
@@ -610,15 +610,15 @@ CI builds and tests both crates on Linux, Windows, and macOS. On macOS, the CI j
 | naga rejects the embedded SPIR-V | `UnsupportedShader` at `Shader::load` | Build with the Slang of the Vulkan SDK (Section 3.6) |
 | The encoded snapshot is of another version | A compile error from the version assertion, or `InvalidArgument` at load | Use the matching versions (SLM-2) |
 
-### 15.4. Logs
+### 14.4. Logs
 
 Neither crate emits logs (SLM-4).
 
-### 15.5. Costs
+### 14.5. Costs
 
 Section 3.10 states the build-time costs of the macro: each call runs on every compilation of the crate that contains it, a release build compiles the runtime dependencies twice, and the first trybuild run is slow.
 
-### 15.6. Known Limits
+### 14.6. Known Limits
 
 These are properties of the design, recorded and not guarded against:
 
@@ -631,9 +631,9 @@ These are properties of the design, recorded and not guarded against:
 
 These are not determined: the macro in rust-analyzer and in a cross build that links, the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5), and the behaviour of cargo-semver-checks on hidden items.
 
-## 16. References
+## 15. References
 
-### 16.1. Normative References
+### 15.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.

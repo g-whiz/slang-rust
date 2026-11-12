@@ -224,9 +224,9 @@ SLANG_SOURCE_DIR=/tmp/slang cargo build
 
 On the dynamic route, the operating system's dynamic loader has to find the Slang shared library when the program starts. That is the job of the user's environment: the SDK's setup script on Linux and macOS, and `PATH` on Windows. The build script of a dependency is understood to have no way to set the rpath of the final binary (Section 16, A-6).
 
-The crate-level documentation of `slang-compiler-sys` says how the library is found on each platform, as Section 7.4 of the writing guide requires. The CI workflow does not run the setup script. Its install step sets the same loader variables directly, and `PATH` on Windows (Section 8.3 of `docs/design/tooling.md`).
+The crate-level documentation of `slang-compiler-sys` says how the library is found on each platform, as Section 7.4 of the writing guide requires. The CI workflow does not run the setup script. Its install step sets the same loader variables directly, and `PATH` on Windows (Section 7.3 of `docs/design/tooling.md`).
 
-In this repository, each recipe that runs compiled code which loads Slang puts the library path assignment on the command line of the program that it runs, without exporting it (SCS-32 of `docs/design/slang-compiler-sys.md`). A program run outside the recipes needs the path in its environment, which Section 11 of `docs/design/tooling.md` requires of the container image.
+In this repository, each recipe that runs compiled code which loads Slang puts the library path assignment on the command line of the program that it runs, without exporting it (SCS-32 of `docs/design/slang-compiler-sys.md`). A program run outside the recipes needs the path in its environment, which Section 10 of `docs/design/tooling.md` requires of the container image.
 
 ### 4.5. Documentation Builds Without Slang
 
@@ -281,7 +281,7 @@ The generated module carries the lint exception that Section 7.9 of the writing 
 
 ### 6.2. Binding Generator
 
-The binding generator is a program in this repository that parses the pinned Slang headers with libclang and writes the bindings file. The recipe `generate-bindings` runs it (Section 4.2 of `docs/design/tooling.md`). Only an agent that regenerates the bindings needs libclang.
+The binding generator is a program in this repository that parses the pinned Slang headers with libclang and writes the bindings file. The recipe `generate-bindings` runs it (Section 3.2 of `docs/design/tooling.md`). Only an agent that regenerates the bindings needs libclang.
 
 The generator is an application, so rules ERR-1 and ERR-2 of the coding standard do not apply to it (Section 1.1 of the coding standard).
 
@@ -660,13 +660,13 @@ The threat model has five parts:
 2. An agent introduces a defect into unsafe code or into a generated declaration, which turns a malformed input or a misuse into undefined behaviour.
 3. The build script of `slang-compiler-sys` runs on the user's machine with the user's permissions and reads environment variables. On the static route, it runs CMake and a native build on a source tree that the user names.
 4. A dependency, whether a crate or the native library, contains a defect or a published vulnerability.
-5. A CI workflow downloads the Vulkan SDK (Section 8.3 of `docs/design/tooling.md`) and other tools, and an attacker on the network or at the download host tampers with them.
+5. A CI workflow downloads the Vulkan SDK (Section 7.3 of `docs/design/tooling.md`) and other tools, and an attacker on the network or at the download host tampers with them.
 
 The design addresses each part, mostly through the rules that Section 20 of the coding standard summarizes:
 
-- Untrusted input: `slang-compiler` returns errors instead of panicking (ERR-5), and its design document states which files Slang can read through include paths and module search paths. The crates treat text passed to Slang as trusted input and do not guard against defects of Slang (Section 1.7 of `docs/design/slang-compiler.md`).
+- Untrusted input: `slang-compiler` returns errors instead of panicking (ERR-5), and its design document states which files Slang can read through include paths and module search paths. The crates treat text passed to Slang as trusted input and do not guard against defects of Slang (Section 1.6 of `docs/design/slang-compiler.md`).
 
-  Slang reads standard modules, the files of some options, and downstream compilers directly from the operating system. An application that compiles untrusted source and needs isolation therefore runs the compiler in a separate process (Sections 8.6 and 18 of `docs/design/slang-compiler.md`).
+  Slang reads standard modules, the files of some options, and downstream compilers directly from the operating system. An application that compiles untrusted source and needs isolation therefore runs the compiler in a separate process (Sections 8.6 and 17 of `docs/design/slang-compiler.md`).
 - Unsafe code: the crates rely on the native library matching the bindings, which ARCH-9 to ARCH-11 and SYS-6 secure, and on the reference counting and lifetime contracts of the Slang API, which Section 12 of the coding standard constrains. Unsafe code stays in two crates (Section 3.3), and generated declarations are never edited by hand (ARCH-13, COM-9).
 - Build scripts: SYS-5 forbids downloads, installs, and writes outside `OUT_DIR`. ARCH-6 keeps the static build inside `OUT_DIR`, and ARCH-5 and ARCH-7 stop the build instead of searching for a library elsewhere.
 - Dependencies: the pin fixes the native library to one SDK version and one commit, and cargo-deny checks the advisories, licences, and sources of every crate.
@@ -683,7 +683,7 @@ The residual risk has four parts:
 
 1. Slang is a large C++ code base that parses shader source inside the application's process. A memory-safety defect in Slang can be reached by an attacker's shader source, and shader source can make the compiler use unbounded time or memory unless the application limits it.
 2. The soundness of the unsafe code rests on judgement rules and on contracts in the Slang documentation that no tool verifies, and Miri cannot run the native library.
-3. The custom checkers of `docs/design/tooling.md` do not read every form of documentation or workflow. The rules or parts of rules that no tool checks depend on review, as Section 16 of `docs/design/tooling.md` states.
+3. The custom checkers of `docs/design/tooling.md` do not read every form of documentation or workflow. The rules or parts of rules that no tool checks depend on review, as Section 13 of `docs/design/tooling.md` states.
 4. A shader from an untrusted source can abort the process. When its types nest past Slang's limit of 128 levels, a C++ exception escapes Slang, and `slang-compiler` aborts the process on purpose instead of returning an error (Section 11.6 of `docs/design/slang-compiler.md`). An application that must survive such a shader compiles in a separate process.
 
 ## 19. Operational Considerations
@@ -702,7 +702,7 @@ This table lists every environment variable that the build script of `slang-comp
 | `SLANG_SOURCE_DIR` | When `DOCS_RS` is unset | The dynamic route applies. When the variable is set, the static route applies, and a value that is empty or names no directory stops the build with an error that names the variable (ARCH-7). |
 | `DOCS_RS` | Always | The build proceeds on the selected route. When the variable is set, the build script skips finding, building, and linking Slang on either route, whatever the other variables hold (ARCH-8). |
 
-Section 19.2 of `docs/design/slang-compiler-sys.md` also lists the variable that the binding generator reads.
+Section 18.2 of `docs/design/slang-compiler-sys.md` also lists the variable that the binding generator reads.
 
 ### 19.3. Platforms and Minimum Supported Rust Version
 
@@ -725,7 +725,7 @@ This table lists the failure modes that this document defines, how each is repor
 
 ### 19.5. Logs
 
-This document defines no logs. No crate of the workspace emits logs or has a logging dependency (Section 19.5 of `docs/design/slang-compiler.md`, Section 18.5 of `docs/design/slango.md`, SLS-4 of `docs/design/slang-slint.md`, and SLM-4 of `docs/design/slango-macros.md`). Whether each later crate emits logs is open (Section 17, Q-16).
+This document defines no logs. No crate of the workspace emits logs or has a logging dependency (Section 18.5 of `docs/design/slang-compiler.md`, Section 17.5 of `docs/design/slango.md`, SLS-4 of `docs/design/slang-slint.md`, and SLM-4 of `docs/design/slango-macros.md`). Whether each later crate emits logs is open (Section 17, Q-16).
 
 ## 20. References
 

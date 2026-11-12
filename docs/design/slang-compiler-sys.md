@@ -54,7 +54,7 @@ This document does not cover:
 - The deprecated compile-request API of `slang-deprecated.h`, including `slang::ICompileRequest`, which the modern interfaces replace (Section 4).
 - `slang-gfx.h`, which declares a separate deprecated library, and the other headers that Section 3.2 lists as out of scope.
 - Hand-written declarations of any kind in the generated file, which COM-9 and FFI-1 forbid.
-- How continuous integration (CI) installs the Vulkan SDK on each runner, which Section 8.3 of `docs/design/tooling.md` specifies. Section 12 states the requirements that the installation meets.
+- How continuous integration (CI) installs the Vulkan SDK on each runner, which Section 7.3 of `docs/design/tooling.md` specifies. Section 12 states the requirements that the installation meets.
 - The recipes, the nextest profiles, and the CI workflow as a whole, which `docs/design/tooling.md` owns. This document states the requirements that this crate and the generator put on them.
 
 ## 2. Requirements Language
@@ -105,7 +105,7 @@ This section is non-normative. It states the facts about the Slang headers, the 
 
 The facts in this section hold for the headers, the library, and the source tree of the pin (Section 8.1), which is the Vulkan SDK 1.4.363.1 and the Slang commit `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`. The generator reads the headers through libclang and the Rust crate `clang` 2.1.0.
 
-Statements about Slang's documented rules come from the documents in the Slang source tree [SLANG-UG] [SLANG-BUILD]. Section 16 lists what is not verified.
+Statements about Slang's documented rules come from the documents in the Slang source tree [SLANG-UG] [SLANG-BUILD]. Section 15 lists what is not verified.
 
 ### 3.2. Headers
 
@@ -549,7 +549,7 @@ SCS-13. The binding generator MUST emit no comment and no item documentation, on
 
 It lists exactly the lints that fire, as determined by running the checks, except `ffi_unwind_calls`, which a second `#[expect]` on the same declaration lists with its own reason. A listed lint that does not fire fails the check through `unfulfilled_lint_expectations` (Section 7.9 of the writing guide), so the list is set by running the checks.
 
-Because the file holds no other comment and no documentation, `check-rust-comments`, `check-doc-headings`, and `check-prose` read it like any other file and need no exemption, as Section 7.2 of the tooling design records. `check-fmt`, the custom checkers, `check-unused-deps`, `check-deny`, `check-doc`, and `check-miri` need no exclusion for it either. The only exclusion that the file needs is the one of SCS-14.
+Because the file holds no other comment and no documentation, `check-rust-comments`, `check-doc-headings`, and `check-prose` read it like any other file and need no exemption, as Section 6.2 of the tooling design records. `check-fmt`, the custom checkers, `check-unused-deps`, `check-deny`, `check-doc`, and `check-miri` need no exclusion for it either. The only exclusion that the file needs is the one of SCS-14.
 
 On the checked-in file, compiled as the module `bindings` of `slang-compiler-sys` with the workspace lint tables and warnings denied, exactly these lints fire:
 
@@ -782,11 +782,11 @@ The test panics with a message for each cause of failure, and nextest reports th
 
 The test runs in the default test tier, so `test`, `test-gpu`, and therefore `just check` run it on Linux, through `test-gpu` in `check-rust`. The Windows and macOS runners compile the crate with the checked-in bindings and never regenerate.
 
-The development container and the hosted Linux runner can have different versions of libclang. CI installs the libclang package of the runner's distribution (Section 8.1 of the tooling design), and the regeneration test detects a version of libclang that changes the output.
+The development container and the hosted Linux runner can have different versions of libclang. CI installs the libclang package of the runner's distribution (Section 7.1 of the tooling design), and the regeneration test detects a version of libclang that changes the output.
 
-These recipes exist, with the names and groups of Section 4.2 of the tooling design:
+These recipes exist, with the names and groups of Section 3.2 of the tooling design:
 
-- `generate-bindings`, in the group `rust`: Runs the generator's binary, which overwrites both generated files, `crates/slang-compiler-sys/src/bindings.rs` and `crates/slang-compiler-sys/tests/sys/symbols.rs`, from the headers at `VULKAN_SDK`. It needs `VULKAN_SDK`, libclang, and rustfmt, and the binary fails with a message that names `VULKAN_SDK` when the variable is unset or empty (Section 19.2).
+- `generate-bindings`, in the group `rust`: Runs the generator's binary, which overwrites both generated files, `crates/slang-compiler-sys/src/bindings.rs` and `crates/slang-compiler-sys/tests/sys/symbols.rs`, from the headers at `VULKAN_SDK`. It needs `VULKAN_SDK`, libclang, and rustfmt, and the binary fails with a message that names `VULKAN_SDK` when the variable is unset or empty (Section 18.2).
 - `check-bindings`, in the group `checks`: Runs the regeneration test alone, through the nextest command of Section 4.8 of the coding standard with a filter expression that selects only that test, and with `--no-tests=fail` in place of `--no-tests=warn`.
 
 `check-bindings` passes `--no-tests=fail` under the departure that TOOL-7 of the tooling design permits and explains, so that it never passes without having run the test, as SCS-22 requires. On Windows and macOS, the recipe fails, because it selects no test there. `check` does not run `check-bindings`, because `test-gpu` runs the same test, and no CI job runs it.
@@ -872,7 +872,7 @@ The recipe runs on every CI runner, because every job reads the pin through it (
 
 It also works when `just` runs from a subdirectory of the repository.
 
-The expected SHA-256 checksums of the SDK downloads are not part of the pin and are not in `pin.rs`. They are recorded in the CI workflow file, as Section 8.3 of the tooling design states, and they change in the same change as the pin (ARCH-10).
+The expected SHA-256 checksums of the SDK downloads are not part of the pin and are not in `pin.rs`. They are recorded in the CI workflow file, as Section 7.3 of the tooling design states, and they change in the same change as the pin (ARCH-10).
 
 ### 8.2. Updating the Pin
 
@@ -1088,7 +1088,7 @@ On a failure of the configure or build step, its error MUST name the log and hol
 
 A full build prints hundreds of lines, and an error that holds them all buries the cause, while an error without them leaves the user to find the log.
 
-The code of the route for macOS and for Windows with the Microsoft toolchain follows a reading of Slang's CMake files and is unverified (Section 17, SQ-3). On Windows, the build with Ninja is expected to need the developer environment of the Microsoft toolchain, which the build script does not set up.
+The code of the route for macOS and for Windows with the Microsoft toolchain follows a reading of Slang's CMake files and is unverified (Section 16, SQ-3). On Windows, the build with Ninja is expected to need the developer environment of the Microsoft toolchain, which the build script does not set up.
 
 The recipe `test-static`, in the group `rust`, runs the tests of `slang-compiler-sys` on the static route (SCS-49). It fails with a message that names `SLANG_SOURCE_DIR` and says what to set when the variable is unset or empty. Otherwise it runs this command:
 
@@ -1116,7 +1116,7 @@ docs.rs has no Slang, and a build script that fails there leaves the crate witho
 
 The checked-in bindings let the crate document itself without Slang. That docs.rs sets `DOCS_RS` is assumption A-7 of the architecture design. A program built with `DOCS_RS` present does not link, because the build script emits no link instruction.
 
-The recipe `check-doc-without-slang`, in the group `checks`, runs the documentation command of Section 4.8 of the coding standard with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment (Section 10 of the tooling design). `check-rust` runs it directly after `check-doc`. The recipe imitates the absence of Slang on docs.rs and cannot confirm A-7, which the first docs.rs build confirms in M7.
+The recipe `check-doc-without-slang`, in the group `checks`, runs the documentation command of Section 4.8 of the coding standard with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment (Section 9 of the tooling design). `check-rust` runs it directly after `check-doc`. The recipe imitates the absence of Slang on docs.rs and cannot confirm A-7, which the first docs.rs build confirms in M7.
 
 The manifest of `slang-compiler-sys` lists only the four supported targets of Section 6 under `targets` in `[package.metadata.docs.rs]`. These are `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `x86_64-apple-darwin`. The list keeps docs.rs from building for a 32-bit target, on which SCS-15 stops compilation (SA-8).
 
@@ -1148,7 +1148,7 @@ The build script emits no rerun instruction for these inputs:
 - The variables that Cargo sets for each build, such as `CARGO_CFG_TARGET_OS`, `TARGET`, `HOST`, `OUT_DIR`, and `NUM_JOBS`.
 - `$VULKAN_SDK/lib` and the library file, whose kind it checks but whose content it does not read.
 - The files under `OUT_DIR` that it writes itself.
-- `CC`, `CXX`, and `CMAKE_TOOLCHAIN_FILE`, which CMake reads from the environment (Section 17, SQ-5).
+- `CC`, `CXX`, and `CMAKE_TOOLCHAIN_FILE`, which CMake reads from the environment (Section 16, SQ-5).
 
 The manifest declares `links = "slang-compiler"` (FFI-2). The build script emits the `links` metadata as `cargo::metadata=include=...` and `cargo::metadata=lib=...`. It exposes the directory of the headers as `include` and the directory of the library as `lib`, so a dependent build script reads them as `DEP_SLANG_COMPILER_INCLUDE` and `DEP_SLANG_COMPILER_LIB`.
 
@@ -1290,7 +1290,7 @@ The `justfile` MUST NOT export that path. The `justfile` MUST leave the variable
 These requirements hold for three reasons:
 
 - The tests that call Slang fail before any test runs when the loader cannot find the library.
-- The development container provides the path only to processes that a login shell starts (Section 11 of the tooling design). macOS with System Integrity Protection enabled is expected to remove an exported `DYLD_*` variable when it starts the protected shell that runs a recipe.
+- The development container provides the path only to processes that a login shell starts (Section 10 of the tooling design). macOS with System Integrity Protection enabled is expected to remove an exported `DYLD_*` variable when it starts the protected shell that runs a recipe.
 - `check-doc-without-slang` and every recipe that does not load Slang have to work without `VULKAN_SDK`.
 
 The `justfile` computes the variable with the `just` functions `os()`, `env()`, and `quote()`, so it holds the assignment as text and no recipe exports anything. This example shows the command that `just test` runs on Linux when `VULKAN_SDK` is `/tmp/vulkan-sdk/x86_64` and `LD_LIBRARY_PATH` is empty:
@@ -1314,11 +1314,11 @@ Two alternatives were rejected:
 - An rpath, which SCS-26 forbids and which, by A-6 of the architecture design, is assumed to be out of reach of a dependency's build script.
 - A symbolic link to the library inside `OUT_DIR`, which Cargo adds to the dynamic library path of the programs that it runs. It would make the build script of every user create a link that only the recipes of this repository need.
 
-On every CI runner, the step that installs the SDK also sets the path that the loader of the platform reads (Section 8.3 of the tooling design). On Windows, that is `PATH`, through which the loader finds `slang-compiler.dll`.
+On every CI runner, the step that installs the SDK also sets the path that the loader of the platform reads (Section 7.3 of the tooling design). On Windows, that is `PATH`, through which the loader finds `slang-compiler.dll`.
 
 On the Linux and macOS runners, the directory therefore appears twice on the library path of a recipe, which is harmless, because the second entry names a directory that the loader has already searched.
 
-SA-7 (Section 16) covers the expectation that the assignment survives System Integrity Protection. System Integrity Protection is disabled on the hosted macOS runner, and both the install step and the recipe set `DYLD_LIBRARY_PATH` there. A run in CI therefore cannot show which of the two reached the test binary.
+SA-7 (Section 15) covers the expectation that the assignment survives System Integrity Protection. System Integrity Protection is disabled on the hosted macOS runner, and both the install step and the recipe set `DYLD_LIBRARY_PATH` there. A run in CI therefore cannot show which of the two reached the test binary.
 
 Without the variable, loading the library fails, because dyld then searches only system locations and the current directory. These facts limit the alternatives on macOS:
 
@@ -1330,7 +1330,7 @@ Without the variable, loading the library fails, because dyld then searches only
 
 SCS-33. Every test that calls native code, whether Slang or libclang, MUST sit in a module named `ffi`, and the nextest profile `default-miri` MUST exclude every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`. Miri cannot call foreign code, and a test that reaches a foreign call under Miri fails without a defect in the code.
 
-This answers TQ-5 of the tooling design. The selection by module name works like the GPU tiers (Section 5 of the tooling design). The `ffi` tests stay in the default test tier, so `test` and `test-gpu` run them.
+This answers TQ-5 of the tooling design. The selection by module name works like the GPU tiers (Section 4 of the tooling design). The `ffi` tests stay in the default test tier, so `test` and `test-gpu` run them.
 
 `check-miri` keeps the nextest form of Section 4.8 of the coding standard, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call. `cargo +nightly miri nextest run` builds the test binaries without linking the native library and passes when a filter excludes the tests with foreign calls. The build script still runs natively under Miri, so `check-miri` needs `VULKAN_SDK`, but it needs no library path.
 
@@ -1371,19 +1371,19 @@ The layout assertions of SCS-12 are compile-time checks and need no test. The te
 
 ## 12. Continuous Integration
 
-SCS-35. The Linux, Windows, and macOS jobs of the CI workflow MUST install the pinned Vulkan SDK from LunarG and verify the download against the SHA-256 checksum that LunarG publishes, with the expected value recorded in the workflow (Section 8.3 of the tooling design). They MUST set `VULKAN_SDK` and put the SDK's library directory on the library path of the platform.
+SCS-35. The Linux, Windows, and macOS jobs of the CI workflow MUST install the pinned Vulkan SDK from LunarG and verify the download against the SHA-256 checksum that LunarG publishes, with the expected value recorded in the workflow (Section 7.3 of the tooling design). They MUST set `VULKAN_SDK` and put the SDK's library directory on the library path of the platform.
 
 Every job compiles `slang-compiler-sys`, which runs its build script, and every job that runs tests starts binaries that load Slang (TOOL-21, TOOL-23).
 
-Section 8.3 of the tooling design specifies the mechanism on each platform, including the download address, the installers, the recorded checksums, and the decision not to cache. It meets TOOL-21, TOOL-23, ARCH-9, and SCS-23: each job reads the pin through `just pin`, so the workflow does not restate the version. After the installation, each job runs `just check-vulkan-sdk`, which checks the headers, the library, and `slangc` of the SDK against the build tag of the pin.
+Section 7.3 of the tooling design specifies the mechanism on each platform, including the download address, the installers, the recorded checksums, and the decision not to cache. It meets TOOL-21, TOOL-23, ARCH-9, and SCS-23: each job reads the pin through `just pin`, so the workflow does not restate the version. After the installation, each job runs `just check-vulkan-sdk`, which checks the headers, the library, and `slangc` of the SDK against the build tag of the pin.
 
-The `check` and `coverage` jobs on Linux also install libclang and the rustfmt component before they run the tests. The generator's tests (Section 7.5) and the regeneration test, which also reads the headers of the installed SDK (Section 7.6), need them. Section 8.1 of the tooling design specifies that step and states how it meets TOOL-21.
+The `check` and `coverage` jobs on Linux also install libclang and the rustfmt component before they run the tests. The generator's tests (Section 7.5) and the regeneration test, which also reads the headers of the installed SDK (Section 7.6), need them. Section 7.1 of the tooling design specifies that step and states how it meets TOOL-21.
 
 The jobs build the dynamic route only. The Windows and macOS jobs link the test binary of `slang-compiler-sys` against the Slang of the SDK and run the smoke test, the native-symbol test (Section 11), and the tests of the real host of Section 9.7.
 
 SCS-36. The CI workflow MUST NOT build the static route on every push or pull request that it runs on, because the route compiles several hundred C++ files, which would multiply the time of every run for a route that changes rarely.
 
-This answers Q-28 of the architecture design. The static route is verified locally through the recipe `test-static` (Section 9.3). Whether a scheduled CI job builds it is open (Section 17, SQ-4).
+This answers Q-28 of the architecture design. The static route is verified locally through the recipe `test-static` (Section 9.3). Whether a scheduled CI job builds it is open (Section 16, SQ-4).
 
 ## 13. Crate Documentation
 
@@ -1458,11 +1458,11 @@ The generator depends on the crate `clang` 2.1.0, and through it on `clang-sys`,
 - `libloading`: ISC.
 - `glob`, `libc`, `cfg-if`, and `windows-link`: MIT OR Apache-2.0.
 
-The licence allow-list of `deny.toml` includes `Apache-2.0` and `ISC`, which cover this graph (TOOL-24). Apache-2.0 and ISC are compatible with GPL-3.0-or-later. Section 9 of the tooling design lists the whole allow-list.
+The licence allow-list of `deny.toml` includes `Apache-2.0` and `ISC`, which cover this graph (TOOL-24). Apache-2.0 and ISC are compatible with GPL-3.0-or-later. Section 8 of the tooling design lists the whole allow-list.
 
 The dependency is declared once in `[workspace.dependencies]` as `clang = { version = "2.1.0", features = ["runtime", "clang_10_0"] }` (DEP-2). `check-msrv` verifies that it builds with the workspace's `rust-version`.
 
-## 16. Assumptions to Confirm
+## 15. Assumptions to Confirm
 
 Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier.
 
@@ -1477,19 +1477,19 @@ The next assumption takes SA-11.
 
 Assumptions A-6 and A-7 of the architecture design, that a dependency's build script cannot set the rpath of the final binary and that docs.rs sets `DOCS_RS`, also apply to this design and stay where the architecture design records them.
 
-## 17. Open Questions
+## 16. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SQ-3 | Does the static route work on macOS and on Windows with the Microsoft toolchain? Its code for these targets follows a reading of Slang's CMake files and has never run: the archive names and the runtime option of the Microsoft toolchain, the C++ standard library `c++` on macOS, whether macOS needs a framework, Ninja in the developer environment on Windows, and whether the options of Section 9.3 avoid every download on both (Section 9.3) | This document | M7, before the first release |
-| SQ-4 | Should a scheduled CI job run `test-static`, on which platforms, and how often? CI does not build the static route on a push or a pull request (SCS-36) | This document, with Section 8.1 of the tooling design | M7 |
+| SQ-4 | Should a scheduled CI job run `test-static`, on which platforms, and how often? CI does not build the static route on a push or a pull request (SCS-36) | This document, with Section 7.1 of the tooling design | M7 |
 | SQ-5 | Should the build script watch `CC`, `CXX`, and `CMAKE_TOOLCHAIN_FILE`, which CMake reads from the environment? A change of one of them after the first configure step has no effect until `SLANG_SOURCE_DIR`, the commit, or the configure arguments change (Section 9.5) | This document | M7 |
 
 The next question takes SQ-6.
 
-## 18. Security Considerations
+## 17. Security Considerations
 
 The threat model has six parts:
 
@@ -1549,16 +1549,16 @@ The residual risk has eight parts:
 4. Slang is a large C++ code base whose defects reach every program that links it, as Section 18 of the architecture design states.
 5. Miri cannot run any test that calls Slang (SCS-33), so the soundness of the declarations rests on the generator and its tests, not on Miri.
 6. A program linked on the static route still loads a `slang-glslang` shared library by name when the dynamic loader finds one (Section 3.10), and that library can come from another Slang build than the pin. The SPIR-V that such a program generates therefore depends on the environment that it runs in: with such a library on the loader path, Slang optimizes the SPIR-V, and without one, it does not.
-7. The checks of the static route on macOS and Windows are unverified (Section 17, SQ-3).
+7. The checks of the static route on macOS and Windows are unverified (Section 16, SQ-3).
 8. A C++ exception that escapes Slang is defined behaviour through the unwinding ABIs, but it runs the destructors of the caller's Rust frames. A direct user of this crate that does not stop the unwinding can call Slang again while Slang is in the middle of unwinding, and Slang's state can be inconsistent after it.
 
-## 19. Operational Considerations
+## 18. Operational Considerations
 
-### 19.1. Cargo Features
+### 18.1. Cargo Features
 
 `slang-compiler-sys` has no Cargo features, and neither does the binding generator. The environment selects the route of the build script (Section 9.1).
 
-### 19.2. Environment Variables
+### 18.2. Environment Variables
 
 This table lists every environment variable that the build script or the generator reads, and every variable that the build script sets or removes for the programs that it runs, with its default. The variables that Cargo sets for every build script, such as `OUT_DIR`, `TARGET`, `HOST`, and the `CARGO_CFG_TARGET_*` variables, are not options, and the table lists those that the build script decides on.
 
@@ -1574,18 +1574,18 @@ This table lists every environment variable that the build script or the generat
 | `GIT_OPTIONAL_LOCKS` | Set to `0` by the build script for every git command on the static route | The value of the environment is never used, so `git status` does not refresh the index of the clone (SCS-44). |
 | `GIT_DIR`, `GIT_INDEX_FILE`, and the other 13 variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` | Removed by the build script from the environment of every git command on the static route | A value in the environment of the build, such as one that a git hook sets, never reaches git (SCS-44). |
 | `SLANG_USE_SCCACHE` | Removed by the build script from the environment of `cmake` on the static route | A value in the environment never reaches Slang's CMake, and the configure step sets `-DSLANG_USE_SCCACHE=OFF`. |
-| `CC`, `CXX`, `CMAKE_TOOLCHAIN_FILE` | CMake, when the static route configures, and not the build script | Passed through unchanged. CMake chooses the compilers and the toolchain from them. The build script does not watch them (Section 17, SQ-5). |
+| `CC`, `CXX`, `CMAKE_TOOLCHAIN_FILE` | CMake, when the static route configures, and not the build script | Passed through unchanged. CMake chooses the compilers and the toolchain from them. The build script does not watch them (Section 16, SQ-5). |
 | `VULKAN_SDK` | The build script on the dynamic route, the generator, the regeneration test, and the variable `slang_library_path` of the `justfile` | No default. The static route never reads it, and `test-static` removes it (SCS-49). On the dynamic route, absence, an empty value, and a value that is not an absolute path in UTF-8 without line breaks stop the build (SCS-40 and Section 9.6). The generator's binary fails without it, or with it empty, with a message that names `VULKAN_SDK` and the pinned SDK version, and the regeneration test fails without it (SCS-22). Without it, or with it empty, `slang_library_path` is empty, so the recipes add no library path (SCS-32). The development container sets it. `check-doc-without-slang` removes it from the environment of the documentation build. |
 | `CARGO_CFG_TARGET_OS` | The build script on both routes | Set by Cargo for the target. On the dynamic route, when it names the operating system of the host, the build script also checks the library file of the target (SCS-41). When it is absent or names another or an unknown operating system, the build script does not look for the library file. On the static route, it selects the C++ standard library and the archive names, and a target other than Linux, macOS, or Windows stops the build (SCS-43). |
 | `LIBCLANG_PATH` | `clang-sys`, when the generator or its tests run | Absent, so `clang-sys` searches the locations that its documentation lists. When libclang is not found there, the generator fails with an error of kind `Libclang` that starts with "cannot load libclang" and advises to install libclang or set `LIBCLANG_PATH` (Section 7.7). |
 
-### 19.3. Platforms and Minimum Supported Rust Version
+### 18.3. Platforms and Minimum Supported Rust Version
 
 Section 6 lists the supported targets, and SCS-15 stops compilation on any other.
 
 The binding generator runs on Linux only (Sections 7.5 and 7.6), and it needs libclang and `rustfmt` on the `PATH` at run time. Its crate builds on every platform without libclang. Both crates use the workspace's `rust-version` (TOOL-4), which `check-msrv` verifies.
 
-### 19.4. Failure Modes
+### 18.4. Failure Modes
 
 This table lists the failure modes that this design defines, how each is reported, and the recovery.
 
@@ -1606,7 +1606,7 @@ This table lists the failure modes that this design defines, how each is reporte
 | A target whose pointer width is not 64 | The `compile_error!` of SCS-15 | Build for a supported target |
 | The shared library is not found at run time | The dynamic loader, which stops the program before `main`. On Linux, it prints "error while loading shared libraries", the file name `libslang-compiler.so.0.2026.17`, and "cannot open shared object file: No such file or directory", and the program exits with status 127 (Section 11) | Run the program through a recipe, which supplies the path, or put the SDK's library directory on the platform's library path as the crate documentation says (Sections 10 and 13) |
 | The library at run time is not the pinned build | The smoke test (SCS-34), and the safe crate | Make the loader find the pinned SDK's library |
-| A program linked on the static route finds no `slang-glslang` shared library at run time, so its SPIR-V is not optimized | Slang, only in the diagnostics of the first generation of SPIR-V in each global session, which begin `error[E00100]: failed to load downstream compiler 'spirv-opt'` while the call succeeds (Section 3.10) | Accept SPIR-V that is not optimized, or put the directory of a `slang-glslang` library of the pinned build on the platform's library path (Section 18) |
+| A program linked on the static route finds no `slang-glslang` shared library at run time, so its SPIR-V is not optimized | Slang, only in the diagnostics of the first generation of SPIR-V in each global session, which begin `error[E00100]: failed to load downstream compiler 'spirv-opt'` while the call succeeds (Section 3.10) | Accept SPIR-V that is not optimized, or put the directory of a `slang-glslang` library of the pinned build on the platform's library path (Section 17) |
 | libclang cannot be loaded | The generator or its tests, with an error of kind `Libclang` that gives the reason (Section 7.7) | Install libclang or set `LIBCLANG_PATH` |
 | The process already holds a libclang instance | The generator, with an error of kind `Libclang` that says so (Section 7.7) | Generate the bindings once per process and from one thread |
 | A parse reports an error diagnostic, a target difference has no rule, a construct of SCS-19 appears, or a declaration matches no rule | The generator, with the diagnostic, the difference, the construct, or every unmatched declaration, each with its location | Fix the shim headers, add a rule to the rule set, or extend the generator and this design |
@@ -1616,7 +1616,7 @@ This table lists the failure modes that this design defines, how each is reporte
 | A checked-in generated file differs from a regeneration | The regeneration test and `check-bindings`, with each file that differs (Section 7.6) | Run `just generate-bindings` and commit both regenerated files with the change that caused the difference |
 | A C function of the bindings is not exported by the library | The linker, when it links the test binary of `slang-compiler-sys` for the native-symbol test (Section 11) | Install the SDK of the pin, or move the pin and regenerate (Section 8.2) |
 
-### 19.5. Logs
+### 18.5. Logs
 
 The build script emits no warnings. Its only output is the Cargo instructions and, on a failure, its error.
 
@@ -1624,14 +1624,14 @@ On the static route, it writes the output of every `cmake` run to `slang/build.l
 
 The generator prints its errors to standard error. Neither crate emits logs at run time.
 
-## 20. References
+## 19. References
 
-### 20.1. Normative References
+### 19.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
-### 20.2. Informative References
+### 19.2. Informative References
 
 - [SLANG-BUILD] The Slang project, "Building Slang From Source", `docs/building.md` at commit `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`, <https://github.com/shader-slang/slang/blob/c7954ebd1f1984ad2bfde15f76248db41dc34aa3/docs/building.md>.
 - [SLANG-UG] The Slang project, "Slang User's Guide", `docs/user-guide/` at commit `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`, including the chapter `08-compiling.md`, <https://github.com/shader-slang/slang/tree/c7954ebd1f1984ad2bfde15f76248db41dc34aa3/docs/user-guide>.

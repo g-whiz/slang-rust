@@ -456,7 +456,7 @@ This table summarizes how each rule in this section is checked.
 | ASCII punctuation, no semicolons, and the listed spellings in API documentation | 7.11 | `check-prose` |
 | Other language rules in API documentation | 7.11 | Judgement |
 
-The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 7 of `docs/design/tooling.md` specifies. In a Rust file, the checkers that read documentation read only `///` and `//!` comments. They do not read documentation written as a `#[doc = ...]` attribute, so for such documentation the rules that they enforce are judgement rules.
+The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 6 of `docs/design/tooling.md` specifies. In a Rust file, the checkers that read documentation read only `///` and `//!` comments. They do not read documentation written as a `#[doc = ...]` attribute, so for such documentation the rules that they enforce are judgement rules.
 
 A lint enforces a rule only when the workspace lint configuration enables it and the checks treat its warnings as errors. Several of these lints are off by default, including rustc `missing_docs`, `rustdoc::missing_crate_level_docs`, and the lints in the Clippy `pedantic` and `restriction` groups. The standards document `docs/rust-coding-standards.md` defines the lint configuration. Until the configuration enables a lint, the rule it checks is a judgement rule, as Section 3.5 states.
 

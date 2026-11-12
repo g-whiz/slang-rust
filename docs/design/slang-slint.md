@@ -45,9 +45,9 @@ M5 covers the minimal view only. These are not part of M5:
 
 The example reloads its shader as example 3 does, with the existing load (Section 10).
 
-### 1.7. Defects of Third-Party Components and Trusted Input
+### 1.6. Defects of Third-Party Components and Trusted Input
 
-`slang-slint` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slango.md`, and applies the same stance to Slint. It does not guard against the validation message of Section 3.2 or the abort at exit of Section 3.3. Shader source and file paths are trusted input.
+`slang-slint` follows Hard Rule 14 of `AGENTS.md` and Section 1.6 of `docs/design/slango.md`, and applies the same stance to Slint. It does not guard against the validation message of Section 3.2 or the abort at exit of Section 3.3. Shader source and file paths are trusted input.
 
 ## 2. Requirements Language
 
@@ -77,7 +77,7 @@ Each fact carries one of these marks:
 
 - (run): Observed by running code with Slint 1.18.1 and wgpu 30.0.1 on x86_64 Linux with Vulkan, on lavapipe and on a hardware NVIDIA GPU, with the same result on both unless the fact says otherwise. A fact about dependencies means a run of `cargo deny` or `cargo tree`.
 - (read): Read in the source of the named crate of Slint 1.18.1, or in the named source.
-- (inferred): Concluded from other facts and not verified. Section 12 lists the assumptions on which a requirement depends.
+- (inferred): Concluded from other facts and not verified. Section 11 lists the assumptions on which a requirement depends.
 
 ### 3.2. Building
 
@@ -151,7 +151,7 @@ The windowing backend on winit and the FemtoVG renderer on wgpu, which the examp
 
 Cargo unifies features, so the example `windowed-renderer` is also built with it.
 
-None of these crates enters through `slang-slint`, which enables no backend and no renderer (SLS-3). Section 9 of `docs/design/tooling.md` records each change of `deny.toml` with its reason and the owner's decisions.
+None of these crates enters through `slang-slint`, which enables no backend and no renderer (SLS-3). Section 8 of `docs/design/tooling.md` records each change of `deny.toml` with its reason and the owner's decisions.
 
 ## 4. Crate Structure and Dependencies
 
@@ -183,7 +183,7 @@ The crate inherits the workspace lints and has no Cargo features.
 
 SLS-5. The crate-level documentation of `slang-slint` and `README.md` MUST state this consequence, because a user who distributes a program built with the crate must know the licence of the result first.
 
-`deny.toml` admits `GPL-3.0-only` under TOOL-24, with the evidence of compatibility that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26. It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 9 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for five advisories.
+`deny.toml` admits `GPL-3.0-only` under TOOL-24, with the evidence of compatibility that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26. It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 8 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for five advisories.
 
 ## 5. The Device
 
@@ -389,7 +389,7 @@ The example runs locally only (ARCH-21). A user runs it from the workspace root 
 SLINT_WGPU_CPU=1 cargo run -p slang-rust-examples --bin shader-playground -- examples/shaders/playground.slang
 ```
 
-## 12. Assumptions to Confirm
+## 11. Assumptions to Confirm
 
 Each row is a statement that this design relies on and that is not yet established. A section that relies on one cites its identifier.
 
@@ -402,37 +402,37 @@ The change that confirms or corrects it states the result in Section 3 and in th
 
 Section 3.3 confirms A-14 of the architecture design in part: external GPU content enters Slint through its rendering notifier and its import of wgpu textures, and Slint names the features of that API unstable. Whether Slint has a public Vulkan hook, and whether the API changes in a minor release, is not established. SLS-1 depends on neither.
 
-## 13. Open Questions
+## 12. Open Questions
 
 No question is open.
 
-## 14. Security Considerations
+## 13. Security Considerations
 
-The threat model treats the shader source, the file paths, and the sizes that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. `slang-slint` has no unsafe code (SLS-4) and no build script. Its memory safety rests on the safe APIs of Slint, wgpu, and `slango`, and the safety of the GPU's accesses rests on `slango` (Section 17 of `docs/design/slango.md`).
+The threat model treats the shader source, the file paths, and the sizes that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. `slang-slint` has no unsafe code (SLS-4) and no build script. Its memory safety rests on the safe APIs of Slint, wgpu, and `slango`, and the safety of the GPU's accesses rests on `slango` (Section 16 of `docs/design/slango.md`).
 
 Slint adds many crates to the build graph (Section 3.6) and links fontconfig and the libraries that it uses. `Cargo.lock` fixes their versions, and `cargo-deny` checks their advisories, licences, and sources (Section 4.2).
 
 By the owner's decisions, it ignores five advisories, each for an unmaintained crate with no reported vulnerability. One is for `pin-utils`, which the library brings, and four come only with the Slint backend of the unpublished examples package (Section 3.6).
 
-These attacks are out of scope, because a program that runs them has chosen to: a malicious shader, and a shader or a file that reaches a defect of Slang, naga, wgpu, Slint, or a driver (Section 1.7).
+These attacks are out of scope, because a program that runs them has chosen to: a malicious shader, and a shader or a file that reaches a defect of Slang, naga, wgpu, Slint, or a driver (Section 1.6).
 
 The residual risk is a defect in Slint, in its native libraries, which read the system's font files, or in wgpu or a driver, that corrupts memory in the application's process.
 
-## 15. Operational Considerations
+## 14. Operational Considerations
 
-### 15.1. Cargo Features and Environment Variables
+### 14.1. Cargo Features and Environment Variables
 
 `slang-slint` has no Cargo features and reads no environment variable. Slint reads `SLINT_WGPU_CPU`. When it is unset, Slint's selection with `Automatic` fails on a machine whose only adapter runs on the CPU, such as lavapipe (Section 3.3).
 
 The tests of Section 9 do not need `SLINT_WGPU_CPU`. Building needs `VULKAN_SDK`, as `slango` does, and on Linux the development files of fontconfig (Section 3.2).
 
-### 15.2. Platforms and Minimum Supported Rust Version
+### 14.2. Platforms and Minimum Supported Rust Version
 
 The facts of Section 3 hold on x86_64 Linux with Vulkan (Section 3.1). CI builds the crate on Linux, Windows, and macOS. Example 4 is checked with a window only on x86_64 Linux under Wayland, and not on Windows, macOS, or X11.
 
 The `rust-version` of Slint (Section 3.2) is below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
-### 15.3. Failure Modes
+### 14.3. Failure Modes
 
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
@@ -445,17 +445,17 @@ The `rust-version` of Slint (Section 3.2) is below the workspace's minimum suppo
 | Slint rejects the texture | `TextureImport`, with Slint's error as the source | Report it as a defect of `slang-slint` |
 | A build on Linux without the development files of fontconfig | The build script of `yeslogic-fontconfig-sys` fails | Install them, such as `libfontconfig-dev` |
 
-### 15.4. Logs
+### 14.4. Logs
 
 `slang-slint` emits no logs (SLS-4). Slint itself prints the line of Section 3.5 without a D-Bus session, and wgpu's validation layer prints the message of Section 3.2 in a debug build.
 
-### 15.5. Costs
+### 14.5. Costs
 
 Slint grows the lock file and the build graph (Section 3.6), so a clean build of a crate that uses `slang-slint` takes longer than one of `slango` alone. The windowing backend and the renderer that an application enables add more.
 
-## 16. References
+## 15. References
 
-### 16.1. Normative References
+### 15.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.

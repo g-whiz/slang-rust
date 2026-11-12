@@ -51,7 +51,7 @@ This document does not cover:
 - A version of the API that is `Send` or `Sync`, which `slango` does not need (Section 10).
 - The deprecated, experimental, and process-level Slang surface that Section 12 lists.
 
-### 1.7. Defects of Slang and Trusted Input
+### 1.6. Defects of Slang and Trusted Input
 
 The crate follows Hard Rule 14 of `AGENTS.md`. It provides a safe interface on the explicit assumption that Slang behaves as its documentation states. It does not guard against a defect of Slang and is implemented as if the defect did not exist.
 
@@ -160,12 +160,12 @@ Every fact concerns the pinned Slang build, whose build tag is `2026.17-25-gc795
 
 - (run): Observed by calling the checked-in raw bindings, or the crate's `ffi` tests, against the library of the pinned SDK on x86_64 Linux. Reference counts were read by calling `addRef` and then `release`.
 
-  A fact that the `ffi` tests exercise also holds on Windows and macOS, because CI runs them there. CA-2 of Section 16 covers the rest.
+  A fact that the `ffi` tests exercise also holds on Windows and macOS, because CI runs them there. CA-2 of Section 15 covers the rest.
 - (header `slang.h:N`): Read at line N of `$VULKAN_SDK/include/slang/slang.h`, which is byte-identical to the header of the source tree (Section 3.2 of the sys design). The header is part of Slang's documented API.
 - (documentation `docs/...:N`): Read at line N of a file of Slang's documentation at the pinned commit [SLANG-UG].
 - (implementation `source/...:N` or `examples/...:N`): Read at line N of Slang's source tree at the pinned commit. Such a fact is an implementation detail of the pinned commit and not a documented contract. A later pin can change it without notice.
 
-A statement that none of these establishes is an assumption and appears in Section 16, not here.
+A statement that none of these establishes is an assumption and appears in Section 15, not here.
 
 ### 3.2. The Compile Flow
 
@@ -541,7 +541,7 @@ The output of the static build therefore depends on the environment. Which resul
 
 ### 3.12. Known Upstream Bugs
 
-This is the one list of the known defects of the pinned Slang build (Section 1.7). Each row gives the smallest known input, the call, the outcome and the platforms on which it was observed, the source location where it is known, and whether the defect was reported. Every path in the column "Source" is under `source/`.
+This is the one list of the known defects of the pinned Slang build (Section 1.6). Each row gives the smallest known input, the call, the outcome and the platforms on which it was observed, the source location where it is known, and whether the defect was reported. Every path in the column "Source" is under `source/`.
 
 The crate does not guard against these defects.
 
@@ -771,7 +771,7 @@ The crate reports a failed generation of SPIR-V assembly with the kind that SLC-
 
 The tests of this crate do not observe the static route (Section 13.3). What `check_target_support` returns on the static route is not established. The crate documentation states these limits of the static route, with a link to the crate documentation of `slang-compiler-sys`.
 
-A thread may hold any number of global sessions of the crate at once, because Slang documents no limit (Section 3.5). The label SLC-29 is retired and never reused (Section 1.7).
+A thread may hold any number of global sessions of the crate at once, because Slang documents no limit (Section 3.5). The label SLC-29 is retired and never reused (Section 1.6).
 
 SLC-5. Creating a global session MUST read the build tag of the loaded library through `spGetBuildTagString`, which needs no object (Section 3.3), and MUST compare the tag with `slang_compiler_sys::SLANG_BUILD_TAG` before it builds the descriptor and before it calls `slang_createGlobalSession2`. On a difference, or when the function returns null, the creation MUST return an error of kind `VersionMismatch` whose text names both build tags, and MUST NOT create a global session.
 
@@ -1253,7 +1253,7 @@ The `# Safety` section of `set_int` requires that Slang reads the option as inte
 
 A user takes the value from the generated `CompilerOptionName` constants of `slang-compiler-sys` or from Slang's documentation. The typed setters do not go through the raw setters' safety contract, because each of their values comes from an enumeration that the crate maps from the pinned header.
 
-The raw setters are `unsafe` although the alternative, safe setters, would be more convenient, because the soundness of a wrong value depends on how Slang reads each option, which is not documented for most options. UNS-3 of the coding standard requires a wrapper that cannot guarantee a requirement to be an `unsafe fn` with a `# Safety` section, and Hard Rule 7 of `AGENTS.md` requires the sounder choice. Section 16, CA-4, records the undetermined value kinds.
+The raw setters are `unsafe` although the alternative, safe setters, would be more convenient, because the soundness of a wrong value depends on how Slang reads each option, which is not documented for most options. UNS-3 of the coding standard requires a wrapper that cannot guarantee a requirement to be an `unsafe fn` with a `# Safety` section, and Hard Rule 7 of `AGENTS.md` requires the sounder choice. Section 15, CA-4, records the undetermined value kinds.
 
 ### 7.4. Options Left Out
 
@@ -1299,7 +1299,7 @@ pub trait FileSystem: Send + Sync + 'static {
 
 `load_file` returns `Ok(Some(bytes))` for a file, `Ok(None)` when the file does not exist, and `Err` for any other failure. The crate treats an `Err` whose kind is `std::io::ErrorKind::NotFound` like `Ok(None)`, because Slang probes many candidate names that do not exist and stops searching at any failure other than "not found" (Section 3.8). A path that is not UTF-8 is answered as not found without calling `load_file`.
 
-The trait is meant for use as a trait object, which its documentation states, and a test compiles a `&dyn FileSystem` (API-11). It is not sealed, because users implement it. The bound `Send + Sync` lets Slang call the object from any thread on which a session call runs, and whether it can be relaxed is CQ-3 of Section 17.
+The trait is meant for use as a trait object, which its documentation states, and a test compiles a `&dyn FileSystem` (API-11). It is not sealed, because users implement it. The bound `Send + Sync` lets Slang call the object from any thread on which a session call runs, and whether it can be relaxed is CQ-3 of Section 16.
 
 This crate spawns nothing, and CONC-6 of the coding standard permits these bounds on a trait whose implementations a foreign library keeps and calls, with the reason for each bound stated here:
 
@@ -1355,7 +1355,7 @@ A custom file system would not be a sandbox. Slang does these things outside any
 - It reads the files of some options directly.
 - It loads downstream compilers as shared libraries, and runs programs found on `PATH`.
 
-Section 18 treats this as part of the threat model.
+Section 17 treats this as part of the threat model.
 
 ## 9. Reflection
 
@@ -1373,7 +1373,7 @@ The safe source of a `Type` is `ProgramLayout::find_type_by_name`, together with
 
 Owned reflection handles that each hold a session are rejected, because a program makes thousands of queries and each would cost two count changes. An eager snapshot as the only API is rejected, because it loses the lazy queries, such as finding a type by name. `slango` keeps its own owned snapshot of a layout (Section 7.1 of `docs/design/slango.md`).
 
-`Type` does not implement `PartialEq`, because it is not established that two pointers to equal types are always equal (Section 16, CA-6).
+`Type` does not implement `PartialEq`, because it is not established that two pointers to equal types are always equal (Section 15, CA-6).
 
 ### 9.2. Names of Methods
 
@@ -1505,7 +1505,7 @@ SLC-28 keeps library state in `thread_local!` statics. CONC-4 of the coding stan
 
 The state cannot live in a value that the user holds, because a reentrant call reaches Slang through a wrapper that the user's callback took from its own storage, with no path to any value of the outer call.
 
-CONC-4 gives as one reason against statics that two versions of a crate in one build each get their own. That holds here: each version of this crate keeps its own guard, so the rule holds within one version only (Section 18).
+CONC-4 gives as one reason against statics that two versions of a crate in one build each get their own. That holds here: each version of this crate keeps its own guard, so the rule holds within one version only (Section 17).
 
 ## 11. Soundness Invariants
 
@@ -1578,7 +1578,7 @@ Every vtable function that runs the user's code, including `release` when it dro
 
 The panic is caught at the boundary of the vtable function (SLC-18) or, in `release`, aborts the process (Section 8.4). A wrapper that the user's code drops releases nothing until the outermost call of the crate returns.
 
-The user's state is `Send + Sync`, so a call from any thread on which Slang runs a session call is sound. That the guard covers every call of the user's code rests on CA-11 of Section 16: Slang calls a custom file system only during a call into a session or an object created from it, on the thread of that call.
+The user's state is `Send + Sync`, so a call from any thread on which Slang runs a session call is sound. That the guard covers every call of the user's code rests on CA-11 of Section 15: Slang calls a custom file system only during a call into a session or an object created from it, on the thread of that call.
 
 Each vtable function is defined `extern "system"` and stored in its `"system-unwind"` field through a conversion of the function pointer (Section 8.4). So a panic that no `catch_unwind` of the function catches aborts the process at the boundary and never unwinds into Slang.
 
@@ -1588,7 +1588,7 @@ No panic leaves Rust through a function that Slang calls (SLC-18, FFI-7). A C++ 
 
 The mechanism of this section is frozen, as Hard Rule 14 and the description of `slang-compiler` in Technology Decisions of `AGENTS.md` state. A new call into Slang still runs inside `abort_on_exception`, because `check-slang-call-guard` requires it. The mechanism is not extended: no further audit of which functions of Slang throw, no new test of an abort, and no new paragraph that begins with "Aborts".
 
-A change that would have to modify the mechanism itself removes it instead. The generated declarations return to non-unwinding ABIs and the calls become direct, because the mechanism exists only to give a defect of Slang a defined outcome (Section 1.7).
+A change that would have to modify the mechanism itself removes it instead. The generated declarations return to non-unwinding ABIs and the calls become direct, because the mechanism exists only to give a defect of Slang a defined outcome (Section 1.6).
 
 These facts of Rust decide the mechanism:
 
@@ -1614,7 +1614,7 @@ This is the invariant that the `// SAFETY:` comments of the crate cite for a cal
 
 The value that `abort_on_exception` holds is therefore the first value with a destructor that a foreign exception reaches. When the program builds with `panic = "unwind"`, the process aborts with the line of SLC-32 before any other destructor of the crate or of its caller runs, and before any release can enter Slang again.
 
-The custom checker `check-slang-call-guard` of Section 7.9 of the tooling design enforces the placement part of SLC-32. It checks every call into Slang in `crates/slang-compiler/src`, outside `fake.rs` and inline `#[cfg(test)]` modules, and a call in the body of a macro counts once. It fails in these cases:
+The custom checker `check-slang-call-guard` of Section 6.9 of the tooling design enforces the placement part of SLC-32. It checks every call into Slang in `crates/slang-compiler/src`, outside `fake.rs` and inline `#[cfg(test)]` modules, and a call in the body of a macro counts once. It fails in these cases:
 
 - The call is not in a closure literal passed to `abort_on_exception`, or sits in a closure or `fn` item nested in that closure.
 - Such a closure makes no call or more than one call into Slang, is a `move` closure, or is not a closure literal.
@@ -1797,7 +1797,7 @@ The module `ffi::settings` holds a test for each behaviour of a setting that nee
 
 No test of this crate observes the diagnostics of the first generation of SPIR-V on a build without `slang-glslang`. The tests of this crate run only on the dynamic route, where the SDK provides `slang-glslang`, and `test-static` runs the tests of `slang-compiler-sys` alone (Section 6.3). Section 3.11 records those diagnostics, which a run through the raw bindings observed.
 
-SLC-24. An agent MUST NOT add further `ffi` tests that drive hostile or invalid input through the calls of Section 3.6 that have no `try` in Slang to find which inputs let an exception escape. The crate does not guard against defects of Slang (Section 1.7) and the mechanism of Section 11.6 is frozen.
+SLC-24. An agent MUST NOT add further `ffi` tests that drive hostile or invalid input through the calls of Section 3.6 that have no `try` in Slang to find which inputs let an exception escape. The crate does not guard against defects of Slang (Section 1.6) and the mechanism of Section 11.6 is frozen.
 
 The existing tests of `ffi::exceptions` and `guard::tests::ffi` stay until a change removes that mechanism, which removes them with it. Each of them that lets an exception escape runs the call in a child process of the test binary and asserts the line of SLC-32, the status of an abort, and that the call did not return.
 
@@ -1901,7 +1901,7 @@ SLC-27. The crate-level documentation MUST contain the content of Section 7.4 of
 
 - The usage flow of Section 6.2 as its example, marked `no_run`.
 - A `# Features` section that says the crate has no features.
-- A `# Platform support` section with the platforms of Section 19.3.
+- A `# Platform support` section with the platforms of Section 18.3.
 - A link to `slang-compiler-sys` for how Slang is found.
 
 It MUST also state these rules and facts, because a user reads the crate page first:
@@ -1910,7 +1910,7 @@ It MUST also state these rules and facts, because a user reads the crate page fi
 - The parent rule of Section 5.2.
 - The diagnostics shape of Section 6.8.
 - The limits of a statically linked Slang (Section 6.3).
-- The process-level inputs of Section 19.2.
+- The process-level inputs of Section 18.2.
 - The behaviour of `catch_unwind` under `panic = "abort"`.
 - In a paragraph that begins with "Aborts", the abort of the process when a C++ exception escapes Slang (Section 11.6).
 - When the custom file system is added, the rule that a `FileSystem` implementation must not use the crate's objects, whose methods panic when it does (SLC-28), and the limits of a custom file system (Section 8.6).
@@ -1986,7 +1986,7 @@ The reader of the API documentation knows Rust but may know nothing about Slang,
 - resource shape
 - hot reload
 
-## 16. Assumptions to Confirm
+## 15. Assumptions to Confirm
 
 Each row is a statement that this design relies on and that neither a run nor a primary source established, or that rests on a reading of the implementation that no run has confirmed. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row.
 
@@ -2001,7 +2001,7 @@ An identifier is never reused, and the next assumption takes CA-18.
 | CA-11 | Slang calls a custom file system only during a call into a session or an object created from it, on the thread of that call | SLC-18, Section 11.5 | The change that adds the custom file system (Section 8), by a test that records the calling thread |
 | CA-15 | Releasing Slang objects of the same global session from inside a custom file system, during a load, leaves the load in progress unaffected | The deferral of releases of SLC-28, which the confirmation lifts | The change that adds the custom file system (Section 8), by the `ffi` test of CA-15 in Section 13.3 |
 
-## 17. Open Questions
+## 16. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-7.
 
@@ -2010,17 +2010,17 @@ Each row is a question that this document leaves open. The owner in the third co
 | CQ-3 | Can the bound `Send + Sync` of `FileSystem` be relaxed while every wrapper stays on one thread, which CONC-6 would prefer (Section 8.3), given that tightening it again later would be a breaking change? | This document | Answered with the custom file system, before the trait is first released |
 | CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 is reported as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M7 |
 
-## 18. Security Considerations
+## 17. Security Considerations
 
 The threat model has five parts:
 
-1. An application passes shader source, module names, file paths, search paths, preprocessor macros, IR bytes, and option text that an attacker controls to the crate. The attacker chooses their content but not the code of the application or of this crate. The crate treats that text as trusted input (Section 1.7), so an application that passes it accepts the residual risk below.
+1. An application passes shader source, module names, file paths, search paths, preprocessor macros, IR bytes, and option text that an attacker controls to the crate. The attacker chooses their content but not the code of the application or of this crate. The crate treats that text as trusted input (Section 1.6), so an application that passes it accepts the residual risk below.
 2. Once the custom file system of Section 8 exists, a user supplies one whose code may panic, fail, or return arbitrary bytes.
-3. Slang reads process-level inputs that the crate does not control: the working directory, `PATH`, and the environment variables `SLANG_RECORD_LAYER` and `SLANG_RUN_SPIRV_VALIDATION` (Section 19.2).
+3. Slang reads process-level inputs that the crate does not control: the working directory, `PATH`, and the environment variables `SLANG_RECORD_LAYER` and `SLANG_RUN_SPIRV_VALIDATION` (Section 18.2).
 4. Slang is a large C++ compiler that runs inside the application's process.
 5. An agent introduces a defect into the unsafe code of the crate, which turns a misuse or a malformed input into undefined behaviour.
 
-Unsafe code and foreign function interface (FFI) invariants. The crate relies on the native library being the pinned build, which SCS-25 checks at build time and SLC-5 at run time, on the facts of Section 3, and on the assumptions of Section 16. A C++ exception that escapes Slang for the inputs of Section 3.12 is defined behaviour through the unwinding ABIs of the bindings, and stops the process in `abort_on_exception` (SLC-32).
+Unsafe code and foreign function interface (FFI) invariants. The crate relies on the native library being the pinned build, which SCS-25 checks at build time and SLC-5 at run time, on the facts of Section 3, and on the assumptions of Section 15. A C++ exception that escapes Slang for the inputs of Section 3.12 is defined behaviour through the unwinding ABIs of the bindings, and stops the process in `abort_on_exception` (SLC-32).
 
 The crate guarantees its callers that no sequence of calls to its safe API causes undefined behaviour, through the invariants of Section 11:
 
@@ -2057,22 +2057,22 @@ These attacks are out of scope:
 The residual risk has five parts:
 
 1. A memory-safety defect in Slang's parser, type checker, or code generator can be reached by an attacker's source, IR bytes, or option text. Source can make Slang use unbounded time or memory, which the crate does not limit. Some type names crash Slang's parser, and with it the process (Section 3.12, KB-3).
-2. The soundness of the crate rests on the facts of Section 3, of which those read in the implementation can change at the next pin, and on the assumptions of Section 16, which no tool verifies.
+2. The soundness of the crate rests on the facts of Section 3, of which those read in the implementation can change at the next pin, and on the assumptions of Section 15, which no tool verifies.
 
    Miri covers only the paths that the fake models. `check-slang-call-guard` checks that every call into Slang runs alone inside the closure of `abort_on_exception` (SLC-32). The parts that it cannot see depend on review (Section 11.6).
 3. A shader from an untrusted source can abort the process on purpose, through the inputs of KB-1 and KB-2 of Section 3.12 (Section 11.6). This is a denial of service that an application cannot catch, so an application that compiles untrusted source and must survive such a shader runs the compiler in a separate process.
 
-   The design accepts it (Section 1.7). The layout options set through `link_with_options` also make the generated code and the reflected layout disagree (Section 7.2), which can make an application place data where the code does not read it.
+   The design accepts it (Section 1.6). The layout options set through `link_with_options` also make the generated code and the reflected layout disagree (Section 7.2), which can make an application place data where the code does not read it.
 4. The record layer, when an environment variable switches it on, makes Slang write files and return proxy objects, and the crate does not detect it.
 5. The rule of SLC-28 holds within one version of this crate (Section 10). Slang objects that other code in the process creates on the same thread, including another version of this crate, are outside it.
 
-## 19. Operational Considerations
+## 18. Operational Considerations
 
-### 19.1. Cargo Features
+### 18.1. Cargo Features
 
 The crate has no Cargo features (SLC-1). The examples package has none either.
 
-### 19.2. Environment Variables
+### 18.2. Environment Variables
 
 The crate reads no environment variable. This table lists the process-level inputs that Slang and the operating system read, which the crate documents and does not control (Section 3.10), with the default behaviour.
 
@@ -2084,15 +2084,15 @@ The crate reads no environment variable. This table lists the process-level inpu
 | The working directory | Slang, for relative paths (Section 3.8) | The process's working directory |
 | `LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, or `PATH` on Windows | The dynamic loader of the operating system, before `main` | Without the SDK's library directory, the program does not start (Section 4.4 of the architecture design). A program on a statically linked Slang starts without it, and Slang optimizes its SPIR-V only when the loader finds a `slang-glslang` shared library, so its SPIR-V depends on this input (Section 6.3) |
 
-The variables that the build script of `slang-compiler-sys` reads are listed in Section 19.2 of the sys design.
+The variables that the build script of `slang-compiler-sys` reads are listed in Section 18.2 of the sys design.
 
-### 19.3. Platforms and Minimum Supported Rust Version
+### 18.3. Platforms and Minimum Supported Rust Version
 
 The crate supports the platforms of `slang-compiler-sys`, which the sys design calls its supported targets: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS (Section 6 of the sys design). Every fact of Section 3 marked (run) was observed on x86_64 Linux, and the CI jobs on Windows and macOS confirm those that the `ffi` tests exercise (CA-2).
 
 The crate needs no graphics backend. It uses the workspace's `rust-version`, which `check-msrv` verifies.
 
-### 19.4. Failure Modes
+### 18.4. Failure Modes
 
 This table lists the failure modes of the crate, the error kind that reports each, and the recovery.
 
@@ -2119,18 +2119,18 @@ This table lists the failure modes of the crate, the error kind that reports eac
 
 The failure modes of a custom file system, which are its failures, its panics, and a reentrant call from it, arrive with it (SLC-18, Section 10).
 
-### 19.5. Logs
+### 18.5. Logs
 
 The crate emits no logs, has no logging dependency, and starts no threads. Everything that a caller needs is in a return value or an error, and Slang delivers every message as diagnostics text that the crate returns (SLC-8). This answers Q-16 of the architecture design for this crate.
 
-## 20. References
+## 19. References
 
-### 20.1. Normative References
+### 19.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
-### 20.2. Informative References
+### 19.2. Informative References
 
 - [RFC2945] The Rust project, "C-unwind ABI", RFC 2945, <https://rust-lang.github.io/rfcs/2945-c-unwind-abi.html>, read on 2026-11-10 and 2026-11-11.
 - [RUST-REFERENCE] The Rust project, "The Rust Reference", the chapters on panic, functions, and external blocks, <https://doc.rust-lang.org/reference/>, read on 2026-11-10 and 2026-11-11.

@@ -20,7 +20,7 @@ This document specifies `slango`, the high-level library for running Slang code 
 
 `slango` lets a Rust program load a Slang module, look up a compute kernel, set its parameters by name, dispatch it over a number of elements, and read the results, with every binding derived from reflection. For M4, it also lets the program draw with a vertex and a fragment entry point into a texture, with every binding and vertex attribute derived from reflection.
 
-This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, and meets ARCH-15 to ARCH-19. It answers the questions and assumptions of that design that name this document, as Sections 15 and 16 record.
+This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, and meets ARCH-15 to ARCH-19. It answers the questions and assumptions of that design that name this document, as Sections 14 and 15 record.
 
 ### 1.3. Audience
 
@@ -49,9 +49,9 @@ M4 leaves out these features:
 
 A shader target configurable per backend is deferred with no milestone assigned. Slang's SPIR-V loads and runs through wgpu's validated path on Vulkan, Direct3D 12, and Metal (Section 3.8), and a second target would need the passthrough path and unsafe code (SLO-2).
 
-### 1.7. Defects of Third-Party Components and Trusted Input
+### 1.6. Defects of Third-Party Components and Trusted Input
 
-`slango` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slang-compiler.md`, and applies the same stance to naga and wgpu. Shader source and file paths are trusted input. When naga rejects a module, `slango` reports naga's own text and does not screen modules for the constructs of Sections 3.5 and 3.9 in advance.
+`slango` follows Hard Rule 14 of `AGENTS.md` and Section 1.6 of `docs/design/slang-compiler.md`, and applies the same stance to naga and wgpu. Shader source and file paths are trusted input. When naga rejects a module, `slango` reports naga's own text and does not screen modules for the constructs of Sections 3.5 and 3.9 in advance.
 
 The checks of the arguments of a call stay, because a safe interface needs them (Section 9.3). A defect of Slang that `slango` finds is recorded in Section 3.12 of `docs/design/slang-compiler.md`, not here.
 
@@ -105,7 +105,7 @@ Each fact holds for wgpu 30.0.1 with the feature `spirv`, naga 30.0.1, and the p
 
 - Run: A program or a test observed it. Such a fact holds on Vulkan with lavapipe and with a hardware GPU, and on the three adapters of Section 3.8 where it says so. A fact without a mark is of this kind.
 - Read: A source states it, and the fact names the source with the mark (read).
-- Inferred: It is concluded from other facts and not verified. Every inferred fact that the design depends on is a row of Section 15.
+- Inferred: It is concluded from other facts and not verified. Every inferred fact that the design depends on is a row of Section 14.
 
 ### 3.2. Facts About wgpu and naga
 
@@ -168,7 +168,7 @@ Kernels that read a `float2x3` and a `float3x2` in the immediates and a `float2x
 
 ### 3.5. Known Limits of the Validated Path
 
-naga rejects these valid Slang constructs, with the same text on every adapter. `slango` does not screen for them (Section 1.7).
+naga rejects these valid Slang constructs, with the same text on every adapter. `slango` does not screen for them (Section 1.6).
 
 | Construct | naga's error text |
 | --- | --- |
@@ -291,7 +291,7 @@ The validated path runs every kernel that M3 needs and every render shader that 
 
 wgpu's dependency tree brings crates under the licences `MIT`, `Unicode-3.0`, and `Zlib`, and duplicate versions of `foldhash`, `hashbrown`, and `syn`. The licence allow-list of `deny.toml` holds the three licences, and its `[bans]` table holds a `skip` entry with a reason for each duplicate version, as TOOL-24 and TOOL-26 require.
 
-The project's licence stays GPL-3.0-or-later. Section 9 of `docs/design/tooling.md` records which crates need each licence, the evidence of its compatibility, and the reason for each skip.
+The project's licence stays GPL-3.0-or-later. Section 8 of `docs/design/tooling.md` records which crates need each licence, the evidence of its compatibility, and the reason for each skip.
 
 ## 5. Public Types and Ownership
 
@@ -659,7 +659,7 @@ A blocking read is the only synchronization that `slango` offers. It copies the 
 
 SLO-24. The walk MUST accept a `Texture2D` with a `float` result and a `SamplerState` in every stage. It MUST reject every other texture or sampler kind, including `Sampler2D`, with `ErrorKind::UnsupportedParameter`, because only these two are in the supported set of parameters (Section 7.1).
 
-This is the walk's own check of that set and no screen for a defect of naga (Section 1.7).
+This is the walk's own check of that set and no screen for a defect of naga (Section 1.6).
 
 The snapshot records a texture as a sampled texture and a sampler as a sampler, each with its parameter path, set, binding, and usage. The backend builds the layout entries of Section 3.9, visible to the compute stage in a kernel and as Section 7.5 states in a render pipeline. The setters `texture` and `sampler` are in Sections 9.1 and 9.5.
 
@@ -817,7 +817,7 @@ The draw shares the checks of its parameters with a call, so every rule of Secti
 
    With `submit`, the count of vertices is at most the length of the buffers per vertex. With `submit_indexed`, the index buffer belongs to the device and is not empty, and the count of indices is at most its length and is not bounded by the vertex buffers. The count of instances is at most the length of the buffers per instance, when there are any.
 
-The draw does not read the values of an index buffer (Section 17). It records and submits its work inside an error scope, and returns each error that remains as `ErrorKind::Backend`, as SLO-15 states for a dispatch.
+The draw does not read the values of an index buffer (Section 16). It records and submits its work inside an error scope, and returns each error that remains as `ErrorKind::Backend`, as SLO-15 states for a dispatch.
 
 `slango` makes no check of its own that one texture is both sampled and a target of one draw. wgpu's validation rejects it (Section 3.9), as it rejects aliased buffers (Section 9.3).
 
@@ -967,9 +967,9 @@ No test opens a window, because the Linux runner has no display, so example 3 ru
 - On the Wayland socket of the development container, with the software adapter, it draws a few frames and then stops, so `--frames` ends with the error of the 10-second bound. The cause is unknown. Under a nested Wayland compositor, it draws, reloads, and exits as this section states.
 - On X11, it needs the Xlib library, which the development container lacks.
 
-winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependency of the examples package only. It builds on all three CI runners with no package added to the Linux runners. Section 9 of `docs/design/tooling.md` records its features and the duplicate versions that it brings.
+winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependency of the examples package only. It builds on all three CI runners with no package added to the Linux runners. Section 8 of `docs/design/tooling.md` records its features and the duplicate versions that it brings.
 
-## 15. Assumptions to Confirm
+## 14. Assumptions to Confirm
 
 Each row is a statement that this design relies on and that no test or source establishes. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row.
 
@@ -977,13 +977,13 @@ An identifier is never reused.
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 17 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
+| SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 16 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
 
 Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 
 Section 3.7 confirms A-10 in part, for the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". A-10 stays for typed shader interfaces generated from reflection. A-9 holds as far as SlangPy's documentation states (Section 3.7), and `slango` does not depend on it.
 
-## 16. Open Questions
+## 15. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row.
 
@@ -993,7 +993,7 @@ Each row is a question that this document leaves open. The owner in the third co
 
 Of the questions of the architecture design that name this document, these sections answer or defer each:
 
-- Section 18.5 answers Q-16 for `slango` through M4.
+- Section 17.5 answers Q-16 for `slango` through M4.
 - Section 6 answers Q-17.
 - Section 9.1 answers Q-18 for M3.
 - SLO-2 answers Q-19 for `slango` through M4.
@@ -1004,7 +1004,7 @@ Of the questions of the architecture design that name this document, these secti
 - Section 13.4 answers Q-24 for `slango`.
 - Section 7.1 answers Q-31 and makes Q-30 unnecessary for M3.
 
-## 17. Security Considerations
+## 16. Security Considerations
 
 The threat model treats the shader source, the file paths, and the options that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. It covers mistakes in the arguments of a call, which Section 9.3 checks.
 
@@ -1018,19 +1018,19 @@ Rendering adds textures, samplers, and vertex and index buffers, whose sizes and
 
 The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel or a draw read or write outside its buffers and textures. A crash that a defect of Slang causes is also residual, and Section 3.12 of `docs/design/slang-compiler.md` records each such defect.
 
-## 18. Operational Considerations
+## 17. Operational Considerations
 
-### 18.1. Cargo Features and Environment Variables
+### 17.1. Cargo Features and Environment Variables
 
-`slango` has no Cargo features in M3 and M4. It reads no environment variable itself. Its build needs `VULKAN_SDK`, and its programs need the Slang shared library on the library path, as `slang-compiler-sys` requires (Section 19.4 of `docs/design/slang-compiler-sys.md`).
+`slango` has no Cargo features in M3 and M4. It reads no environment variable itself. Its build needs `VULKAN_SDK`, and its programs need the Slang shared library on the library path, as `slang-compiler-sys` requires (Section 18.4 of `docs/design/slang-compiler-sys.md`).
 
-### 18.2. Platforms and Minimum Supported Rust Version
+### 17.2. Platforms and Minimum Supported Rust Version
 
 The crate runs on Linux with Vulkan, on a software and on a hardware adapter. On Windows with Direct3D 12 and on macOS with Metal, it creates a device, loads modules, dispatches kernels, samples textures in them, and draws offscreen in CI, with the same conventions of a draw on all three (Sections 3.8 and 3.9).
 
 wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
-### 18.3. Failure Modes
+### 17.3. Failure Modes
 
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
@@ -1049,22 +1049,22 @@ wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supporte
 | A draw samples the texture that it draws into | `Backend`, with wgpu's text as the source error | Draw into another texture |
 | wgpu reports a validation or out-of-memory error (Section 10), or an error while a buffer, texture, or sampler is created or read | `Backend` | Report a validation error as a defect of `slango` |
 
-### 18.4. Costs
+### 17.4. Costs
 
 Each load of a module pays for its own global session, well over 100 ms, plus about 10 ms for a small module (Sections 3.6 and 7.2). A program that reloads a shader therefore waits on the order of 150 ms for each reload.
 
-### 18.5. Logs
+### 17.5. Logs
 
 `slango` emits no logs in M3 and M4 and has no logging dependency, as `slang-compiler` does. This answers Q-16 of the architecture design for `slango` through M4.
 
-## 19. References
+## 18. References
 
-### 19.1. Normative References
+### 18.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
-### 19.2. Informative References
+### 18.2. Informative References
 
 - [SLANG-SPIRV] The Slang project, "SPIR-V specific functionalities", `docs/user-guide/a2-01-spirv-target-specific.md` in Slang's source tree at the pinned commit, read on 2026-11-11.
 - [SLANGPY] The Slang project, "SlangPy documentation", <https://slangpy.shader-slang.org/en/latest/>, read on 2026-11-11.

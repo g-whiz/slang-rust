@@ -36,7 +36,7 @@ Each fact has one owner, as Section 4.5 of the writing guide requires, and this 
 - `docs/design/architecture.md` owns the crates, their layering, the directories of the workspace members, the roadmap, the test tiers of its Section 11, the platforms, and the publishing policy. This document defines only the mechanisms that implement them.
 - `AGENTS.md` owns the hard rules and the development workflow.
 
-This document does not design the binding generator, the build script of `slang-compiler-sys`, or the application programming interface (API) of any crate, which the design documents of the crates own. It does not specify the contents of the container image beyond the requirements of Section 11, because the repository slang-rs-env defines the image.
+This document does not design the binding generator, the build script of `slang-compiler-sys`, or the application programming interface (API) of any crate, which the design documents of the crates own. It does not specify the contents of the container image beyond the requirements of Section 10, because the repository slang-rs-env defines the image.
 
 ## 2. Requirements Language
 
@@ -58,7 +58,7 @@ It adds these terms:
 - aggregate recipe: A recipe that only runs other recipes, such as `check`.
 - commit SHA: The full 40-character hexadecimal hash that names one git commit.
 - container image: The image, defined in the repository slang-rs-env, from which the development container runs.
-- custom checker: A script in this repository that checks one rule of the writing guide, the coding standard, or a design document that no installed tool checks (Section 7).
+- custom checker: A script in this repository that checks one rule of the writing guide, the coding standard, or a design document that no installed tool checks (Section 6).
 - development container: The container in which agents work on this repository, run from the container image.
 - GitHub Actions: The CI service of GitHub.
 - hook: A git hook that pre-commit installs from `.pre-commit-config.yaml` and runs at a git event, such as a commit.
@@ -72,9 +72,9 @@ It adds these terms:
 - Software Package Data Exchange (SPDX) licence identifier: The standard short name of a licence, such as `GPL-3.0-or-later`, which Cargo's `license` field takes.
 - workflow: A YAML Ain't Markup Language (YAML) file under `.github/workflows/` that defines the jobs that GitHub Actions runs.
 
-## 4. Recipes
+## 3. Recipes
 
-### 4.1. Rules
+### 3.1. Rules
 
 The `justfile` stays one flat file with `[group]` attributes, a help comment on every recipe, and shell that is `shellcheck`-clean, as Hard Rule 8 of `AGENTS.md` requires. It has four groups:
 
@@ -83,15 +83,15 @@ The `justfile` stays one flat file with `[group]` attributes, a help comment on 
 - `git`: `merge` and `worktree-prune`.
 - `ci`: The recipes that only the CI workflow runs, which is `install-vulkan-sdk`.
 
-The recipe `default` has no group. Section 17.1 lists every recipe that takes parameters.
+The recipe `default` has no group. Section 14.1 lists every recipe that takes parameters.
 
-TOOL-6. An agent MUST add each recipe of Section 4.2 with the name, the group, and the membership of `check` that the table gives, and MUST update the table in the same change when one of them has to differ. Agents, hooks, and CI call recipes by name, and a recipe that differs from this table breaks every caller that follows it.
+TOOL-6. An agent MUST add each recipe of Section 3.2 with the name, the group, and the membership of `check` that the table gives, and MUST update the table in the same change when one of them has to differ. Agents, hooks, and CI call recipes by name, and a recipe that differs from this table breaks every caller that follows it.
 
 TOOL-7. A recipe that runs a command of Section 4.8 of the coding standard MUST run that command as Section 4.8 gives it, and MUST add only these four things:
 
-1. The option `--profile` with a nextest profile of Section 5.
+1. The option `--profile` with a nextest profile of Section 4.
 2. The arguments that Section 4.8 names for the recipe `coverage`.
-3. The environment of Section 10.
+3. The environment of Section 9.
 4. In a recipe that runs compiled code which loads Slang, the library path assignment of the `justfile` variable `slang_library_path` at the start of the command line, which SCS-32 of `docs/design/slang-compiler-sys.md` defines.
 
 An agent that has to change the command MUST change Section 4.8 in the same change. Two command lines for one check diverge, and an agent that runs the documented command then gets a result different from the recipe's. The library path assignment changes only where the dynamic loader looks for the Slang shared library, not what the command checks.
@@ -123,24 +123,24 @@ No file is excluded from typos.
 
 The repository has no `rustfmt.toml`, because Section 4.8 of the coding standard specifies the default rustfmt settings.
 
-### 4.2. Recipe Table
+### 3.2. Recipe Table
 
 This table lists every recipe, what it runs, and whether `check` runs it. The commands of Section 4.8 of the coding standard are named by their purpose, and Section 4.8 gives each command line.
 
 | Recipe | Group | Runs | In `check` |
 | --- | --- | --- | --- |
 | `default` | none | `just --list --unsorted` | No |
-| `check` | `checks` | The recipes that Section 4.3 lists | Not applicable |
-| `check-prose` | `checks` | `scripts/check-prose`, extended to API documentation by Section 7.6 | Yes |
-| `check-prose-self-test` | `checks` | The self-test of Section 7.1 for `scripts/check-prose` | Yes |
+| `check` | `checks` | The recipes that Section 3.3 lists | Not applicable |
+| `check-prose` | `checks` | `scripts/check-prose`, extended to API documentation by Section 6.6 | Yes |
+| `check-prose-self-test` | `checks` | The self-test of Section 6.1 for `scripts/check-prose` | Yes |
 | `check-shell` | `checks` | `scripts/check-shell` | Yes |
 | `check-commit-message` | `checks` | `scripts/check-commit-message` on one file, for the `commit-msg` hook | No |
 | `check-commit-message-self-test` | `checks` | The self-test of the commit message checker | Yes |
 | `hooks-install` | `checks` | `pre-commit install` | No |
-| `merge` | `git` | `scripts/merge-branch`, which squash-merges a branch onto `main` with the subject and body of every commit of the branch in the message, pushes `main`, and deletes the branch on `origin` when its tip there is part of the squash (Section 17.7) | No |
+| `merge` | `git` | `scripts/merge-branch`, which squash-merges a branch onto `main` with the subject and body of every commit of the branch in the message, pushes `main`, and deletes the branch on `origin` when its tip there is part of the squash (Section 14.7) | No |
 | `worktree-prune` | `git` | `scripts/worktree-prune` | No |
 | `fmt` | `rust` | `cargo fmt --all` with the list of every Rust file that git tracks or does not ignore after `--`, which applies the formatting that the formatting command of Section 4.8 checks, also to the files that a crate includes with `include!`, and `taplo fmt`, which formats every Tom's Obvious Minimal Language (TOML) file that `taplo.toml` does not exclude. It lists the files with `git ls-files -z --cached --others --exclude-standard -- '*.rs'` and keeps those that exist. It fails with "fmt: git ls-files failed, so the Rust files that a crate pulls in with include! cannot be listed." when `git ls-files` fails, and with "fmt: git ls-files listed no Rust file, so the Rust files that a crate pulls in with include! cannot be listed." when the list is empty | No |
-| `check-rust` | `checks` | The recipes that Section 4.3 lists | Yes |
+| `check-rust` | `checks` | The recipes that Section 3.3 lists | Yes |
 | `check-fmt` | `checks` | The formatting command of Section 4.8, with the list of files that `fmt` computes in the same way. It fails with the messages of `fmt`, which start with "check-fmt:" instead, when `git ls-files` fails or lists no Rust file | Yes, through `check-rust` |
 | `check-clippy` | `checks` | The Clippy command of Section 4.8 | Yes, through `check-rust` |
 | `check-doc` | `checks` | The documentation command of Section 4.8 | Yes, through `check-rust` |
@@ -149,21 +149,21 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `test-gpu` | `rust` | The nextest command of Section 4.8 with the `gpu` profile, after the library path assignment | Yes, through `check-rust` |
 | `test-hw-gpu` | `rust` | The nextest command of Section 4.8 with the `hw-gpu` profile, after the library path assignment | No, because it needs a hardware GPU |
 | `check-deny` | `checks` | The cargo-deny command of Section 4.8 | Yes, through `check-rust` |
-| `check-rust-comments` | `checks` | The comment checker of Section 7.2 | Yes, through `check-rust` |
-| `check-doc-headings` | `checks` | The heading checker of Section 7.3 | Yes, through `check-rust` |
-| `check-doctest-attributes` | `checks` | The doctest attribute checker of Section 7.4 | Yes, through `check-rust` |
-| `check-feature-docs` | `checks` | The feature documentation checker of Section 7.5 | Yes, through `check-rust` |
-| `check-rust-comments-self-test`, `check-doc-headings-self-test`, `check-doctest-attributes-self-test`, `check-feature-docs-self-test` | `checks` | The self-test of Section 7.1 for each checker of Sections 7.2 to 7.5 | Yes |
-| `check-slang-call-guard` | `checks` | The Slang call guard checker of Section 7.9 | Yes, through `check-rust`, directly after `check-feature-docs` |
-| `check-slang-call-guard-self-test` | `checks` | The self-test of Section 7.1 for the Slang call guard checker | Yes |
-| `check-workflow-pins` | `checks` | The workflow pin checker of Section 7.8 | Yes |
-| `check-workflow-pins-self-test` | `checks` | The self-test of Section 7.1 for the workflow pin checker | Yes |
-| `pin` | `rust` | Prints the pin of `crates/slang-compiler-sys/pin.rs` as `NAME=value` lines, and fails when a constant is missing (Section 8.1 of `docs/design/slang-compiler-sys.md`). It runs on bash 3.2, which has no associative arrays and is the bash that a recipe gets on the hosted macOS runner. It accepts lines that end in CRLF, because a user's own git settings can produce them (Section 17.3) | No |
-| `install-vulkan-sdk` | `ci` | `scripts/install-vulkan-sdk` with the SDK version and the expected SHA-256 checksum, which downloads, verifies, and installs the Vulkan SDK on a GitHub Actions runner and exports it to the later steps of the job (Section 8.3). Only the CI workflow runs it, and it refuses to run outside a runner | No, because it runs only on a CI runner |
-| `check-vulkan-sdk` | `checks` | `scripts/check-vulkan-sdk`, without arguments, which reads the build tag of the pin with `just pin` and checks that the SDK at `VULKAN_SDK` provides that build of Slang (Section 8.3) | No, every CI job runs it after it installs the SDK |
+| `check-rust-comments` | `checks` | The comment checker of Section 6.2 | Yes, through `check-rust` |
+| `check-doc-headings` | `checks` | The heading checker of Section 6.3 | Yes, through `check-rust` |
+| `check-doctest-attributes` | `checks` | The doctest attribute checker of Section 6.4 | Yes, through `check-rust` |
+| `check-feature-docs` | `checks` | The feature documentation checker of Section 6.5 | Yes, through `check-rust` |
+| `check-rust-comments-self-test`, `check-doc-headings-self-test`, `check-doctest-attributes-self-test`, `check-feature-docs-self-test` | `checks` | The self-test of Section 6.1 for each checker of Sections 6.2 to 6.5 | Yes |
+| `check-slang-call-guard` | `checks` | The Slang call guard checker of Section 6.9 | Yes, through `check-rust`, directly after `check-feature-docs` |
+| `check-slang-call-guard-self-test` | `checks` | The self-test of Section 6.1 for the Slang call guard checker | Yes |
+| `check-workflow-pins` | `checks` | The workflow pin checker of Section 6.8 | Yes |
+| `check-workflow-pins-self-test` | `checks` | The self-test of Section 6.1 for the workflow pin checker | Yes |
+| `pin` | `rust` | Prints the pin of `crates/slang-compiler-sys/pin.rs` as `NAME=value` lines, and fails when a constant is missing (Section 8.1 of `docs/design/slang-compiler-sys.md`). It runs on bash 3.2, which has no associative arrays and is the bash that a recipe gets on the hosted macOS runner. It accepts lines that end in CRLF, because a user's own git settings can produce them (Section 14.3) | No |
+| `install-vulkan-sdk` | `ci` | `scripts/install-vulkan-sdk` with the SDK version and the expected SHA-256 checksum, which downloads, verifies, and installs the Vulkan SDK on a GitHub Actions runner and exports it to the later steps of the job (Section 7.3). Only the CI workflow runs it, and it refuses to run outside a runner | No, because it runs only on a CI runner |
+| `check-vulkan-sdk` | `checks` | `scripts/check-vulkan-sdk`, without arguments, which reads the build tag of the pin with `just pin` and checks that the SDK at `VULKAN_SDK` provides that build of Slang (Section 7.3) | No, every CI job runs it after it installs the SDK |
 | `check-bindings` | `checks` | The nextest command of Section 4.8, after the library path assignment, with a filter expression that selects only the regeneration test of TEST-8 of the coding standard, and with `--no-tests=fail` in place of `--no-tests=warn`, the first departure that TOOL-7 permits, so that it fails when the filter selects no test, as on Windows and macOS (Section 7.6 of `docs/design/slang-compiler-sys.md`). It carries the assignment because nextest starts every test binary to list its tests, including the binary of `slang-compiler-sys`, which loads Slang | No, because `test-gpu` runs the same test on Linux |
 | `generate-bindings` | `rust` | The binary of the binding generator, through `cargo run`, which overwrites both generated files, `crates/slang-compiler-sys/src/bindings.rs` and `crates/slang-compiler-sys/tests/sys/symbols.rs`, from the Slang headers of the SDK at `VULKAN_SDK` and needs libclang and rustfmt | No |
-| `check-doc-without-slang` | `checks` | The documentation command of Section 4.8 with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment, as `env -u VULKAN_SDK DOCS_RS=1 CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features` (Section 10) | Yes, through `check-rust`, directly after `check-doc` |
+| `check-doc-without-slang` | `checks` | The documentation command of Section 4.8 with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment, as `env -u VULKAN_SDK DOCS_RS=1 CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features` (Section 9) | Yes, through `check-rust`, directly after `check-doc` |
 | `test-static` | `rust` | The nextest command of Section 4.8 with the `default` profile for the package `slang-compiler-sys` only, with `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` removed, `CARGO_TARGET_DIR=target/static`, and `--no-tests=fail`, the second departure that TOOL-7 permits, as `env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/static CARGO_BUILD_WARNINGS=deny cargo nextest run -p slang-compiler-sys --all-features --profile default --no-tests=fail`. The build script then builds Slang from the source tree that the developer's `SLANG_SOURCE_DIR` names and links it statically, so the tests pass only when nothing loads the Slang of the SDK. When `SLANG_SOURCE_DIR` is unset or empty, it fails with "test-static: SLANG_SOURCE_DIR is not set or empty. Set it to the absolute path of a git checkout of Slang at the commit SLANG_COMMIT that just pin prints, with its submodules." (Section 9.3 of `docs/design/slang-compiler-sys.md`) | No, because it builds Slang from source |
 | `check-typos` | `checks` | The typos command of Section 4.8 on the whole repository, with `typos.toml` (TOOL-30) | Yes |
 | `check-toml` | `checks` | The taplo command of Section 4.8, with `taplo.toml` (TOOL-30) | Yes |
@@ -171,15 +171,15 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` |
 | `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` |
 | `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `ci-only` runs it |
-| `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 17.3) |
-| `check-semver` | `checks` | Planned for M7, with the first release, and not yet in the `justfile`: cargo semver-checks against the last published version of each published crate (Section 10) | No, the planned CI job `semver` runs it |
-| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 8.1) |
+| `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 14.3) |
+| `check-semver` | `checks` | Planned for M7, with the first release, and not yet in the `justfile`: cargo semver-checks against the last published version of each published crate (Section 9) | No, the planned CI job `semver` runs it |
+| `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 7.1) |
 
-`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines (Section 5).
+`check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines (Section 4).
 
 Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang. `check-miri` therefore covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation.
 
-The filter of `default-miri` excludes every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 5. The tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), and so do the tests that start a process, which Miri cannot do.
+The filter of `default-miri` excludes every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 4. The tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), and so do the tests that start a process, which Miri cannot do.
 
 No Cargo feature selects the static build of Slang, which the environment variable `SLANG_SOURCE_DIR` selects (Section 9.1 of `docs/design/slang-compiler-sys.md`). The checks that pass `--all-features` and the feature matrix of `check-features` therefore never build Slang from source.
 
@@ -193,7 +193,7 @@ The recipes that run compiled code which loads Slang put the assignment at the s
 - The recipes that only compile, such as `check-clippy`, `check-doc`, `check-doc-without-slang`, `check-features`, and `check-msrv`.
 - `test-static`, which removes the loader path variables to prove the static link (TOOL-7).
 
-### 4.3. Aggregate Recipes
+### 3.3. Aggregate Recipes
 
 `check` runs these recipes, in this order:
 
@@ -213,15 +213,15 @@ The recipes that run compiled code which loads Slang put the assignment at the s
 14. `check-workflow-pins`
 15. `check-rust`
 
-`check-workflows` can run in `check` only while the repository has a workflow, because actionlint exits with status 3 when it finds none. `check` needs network access (Section 17.6).
+`check-workflows` can run in `check` only while the repository has a workflow, because actionlint exits with status 3 when it finds none. `check` needs network access (Section 14.6).
 
 `check-rust` runs `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doc-without-slang`, `check-doctest`, `test-gpu`, and `check-miri`, in that order, so that the checks that do not compile the workspace report first. Every recipe of `check-rust` that compiles the workspace needs the pinned SDK at `VULKAN_SDK`, because the build script of `slang-compiler-sys` stops the build without it. The exception is `check-doc-without-slang`, which removes `VULKAN_SDK` and sets `DOCS_RS`.
 
-`check-rust` runs `test-gpu` and not `test`, because the `gpu` profile selects every test that the `default` profile selects (Section 5). `test-gpu` runs in the development container on lavapipe, so `check` meets TOOL-8.
+`check-rust` runs `test-gpu` and not `test`, because the `gpu` profile selects every test that the `default` profile selects (Section 4). `test-gpu` runs in the development container on lavapipe, so `check` meets TOOL-8.
 
-On Linux, `test-gpu` also runs the regeneration test of Section 7.6 of `docs/design/slang-compiler-sys.md`, so `check` needs `VULKAN_SDK`, libclang, and rustfmt there. The development container provides them, and the Linux jobs of CI install them (Section 8.1). A test in a `gpu` module that finds no adapter fails, as ARCH-23 of the architecture design requires, so `check` fails on a machine without any adapter.
+On Linux, `test-gpu` also runs the regeneration test of Section 7.6 of `docs/design/slang-compiler-sys.md`, so `check` needs `VULKAN_SDK`, libclang, and rustfmt there. The development container provides them, and the Linux jobs of CI install them (Section 7.1). A test in a `gpu` module that finds no adapter fails, as ARCH-23 of the architecture design requires, so `check` fails on a machine without any adapter.
 
-## 5. Test Tiers in nextest
+## 4. Test Tiers in nextest
 
 The file `.config/nextest.toml` defines three nextest profiles that implement the test tiers of Section 11 of the architecture design. The tier of a test is the name of a module in its path, as ARCH-22 of the architecture design defines. nextest reads that file, and a recipe selects a profile with the option `--profile` (TOOL-7).
 
@@ -260,7 +260,7 @@ default-filter = "not test(/(^|::)hw_gpu::/)"
 default-filter = "all()"
 ```
 
-It also defines the profile `default-miri`, which nextest uses under Miri (Section 4.2), with the filter that SCS-33 of `docs/design/slang-compiler-sys.md` requires. It selects every test that `default` selects, except those whose path contains a module named `ffi`:
+It also defines the profile `default-miri`, which nextest uses under Miri (Section 3.2), with the filter that SCS-33 of `docs/design/slang-compiler-sys.md` requires. It selects every test that `default` selects, except those whose path contains a module named `ffi`:
 
 ```toml
 [profile.default-miri]
@@ -271,7 +271,7 @@ The regular expression matches `gpu` or `hw_gpu` only at the start of the test p
 
 A test function named `gpu` is the last segment of its path and has no `::` after it, and a module named `gpu_buffers` has `_buffers` after `gpu`, so neither matches. The filter of `default-miri` matches `ffi` in the same way.
 
-A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it. `check-bindings` adds such a filter to the `default` profile to select the regeneration test alone (Section 4.2).
+A filter that the command line adds with `-E` is intersected with the default filter of the profile, so it narrows the selection of the profile and never widens it. `check-bindings` adds such a filter to the `default` profile to select the regeneration test alone (Section 3.2).
 
 TOOL-11. A profile MUST NOT retry a failed test, because a retry turns an intermittent failure on an adapter into a pass, which hides the failure in the same way that ARCH-23 of the architecture design forbids a test to hide a missing adapter.
 
@@ -291,7 +291,7 @@ success-output = "final"
 
 nextest does not run doctests, so `check-doctest` runs them, as Section 4.8 of the coding standard states.
 
-## 6. Git Hooks
+## 5. Git Hooks
 
 The hooks in `.pre-commit-config.yaml` call `just` recipes, because Hard Rule 8 of `AGENTS.md` makes every check a recipe.
 
@@ -314,7 +314,7 @@ Each of these hooks except `check-prose` runs its recipe on the whole repository
 The Claude Code hook in `.claude/settings.json` runs `scripts/claude-hook-prose` after every edit. The script runs `check-prose` on the edited file when the file is inside the repository and its name ends in `.md` or `.rs`, and ignores every other file. It reports the result in one of two ways:
 
 - When `check-prose` reports findings, the script prints them and exits with status 2, which Claude Code treats as a blocking error and reports with the findings.
-- When `check-prose` fails for another reason, such as a Rust file that cannot be lexed because it is only partly edited (Section 7.1), the script prints the message and exits with status 1, which Claude Code treats as a non-blocking error.
+- When `check-prose` fails for another reason, such as a Rust file that cannot be lexed because it is only partly edited (Section 6.1), the script prints the message and exits with status 1, which Claude Code treats as a non-blocking error.
 
 The allow list of `.claude/settings.json` lets Claude Code run these commands without asking, each as `just <recipe>` unless shown otherwise:
 
@@ -326,13 +326,13 @@ The allow list of `.claude/settings.json` lets Claude Code run these commands wi
 
 Claude Code asks before it runs any other recipe, such as `fmt`, `generate-bindings`, `merge`, `check-msrv`, `coverage`, `test-static`, `check-doc-without-slang`, `check-slang-call-guard`, or `check-slang-call-guard-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
 
-## 7. Custom Checkers
+## 6. Custom Checkers
 
-Several rules of the writing guide, the pinning rule of Section 8.2, and SLC-32 of `docs/design/slang-compiler.md` can be checked deterministically, but no installed tool checks them. actionlint, for example, does not check the pinning rule, and no lint checks SLC-32.
+Several rules of the writing guide, the pinning rule of Section 7.2, and SLC-32 of `docs/design/slang-compiler.md` can be checked deterministically, but no installed tool checks them. actionlint, for example, does not check the pinning rule, and no lint checks SLC-32.
 
-This section specifies a small custom checker for each. The "Checked by" statements of Section 7 of the writing guide, its Section 7.12, and Section 8.2 of this document name these checkers.
+This section specifies a small custom checker for each. The "Checked by" statements of Section 7 of the writing guide, its Section 7.12, and Section 7.2 of this document name these checkers.
 
-### 7.1. Conventions
+### 6.1. Conventions
 
 TOOL-14. Each custom checker MUST be a script under `scripts/` with a recipe of the same name in the `checks` group. It MUST follow the conventions that the usage text of `scripts/check-prose` states, which are:
 
@@ -342,7 +342,7 @@ TOOL-14. Each custom checker MUST be a script under `scripts/` with a recipe of 
 
 With no paths, the checker checks every relevant file in the git repository, tracked or not ignored. A checker that differs breaks the hooks and the recipes, which rely on these exit statuses to tell a finding from a broken setup.
 
-The one departure is a checker that needs an input to know what to look for, such as the generated bindings of Section 7.9. It exits with status 2 before it checks any file when that input is missing or unusable.
+The one departure is a checker that needs an input to know what to look for, such as the generated bindings of Section 6.9. It exits with status 2 before it checks any file when that input is missing or unusable.
 
 A file that is not valid UTF-8 is a file that cannot be read, so a checker reports it on standard error and exits with status 2. The exception is a Markdown file given to `check-prose`, in which an invalid byte is a finding.
 
@@ -350,7 +350,7 @@ A Rust file that ends inside a string literal, a raw string literal, a block com
 
 Unterminated input is a read error and not a silent end of the file. A lexer that read the rest of the file as part of the literal would report nothing after it, and the check would pass while it checked nothing there.
 
-Other files given in the same run are still checked. While a file is only partly edited, unterminated input is normal, and Section 6 says how the Claude Code hook reports it.
+Other files given in the same run are still checked. While a file is only partly edited, unterminated input is normal, and Section 5 says how the Claude Code hook reports it.
 
 Each checker prints every finding and every error message through the helper `emit` of `scripts/rust_lexer.py`, which escapes every character outside printable ASCII, both in file paths and in file content that a message repeats. The escapes are these:
 
@@ -358,11 +358,11 @@ Each checker prints every finding and every error message through the helper `em
 - Every other character up to U+00FF prints as `\xNN`.
 - Every character above U+00FF prints as `\uNNNN`, or as `\UNNNNNNNN` above U+FFFF.
 
-A checked file or a file name therefore cannot send a terminal control sequence to the terminal that shows the output (Section 16). A backslash prints unchanged, so a character that the helper escapes and the same escape written literally in a file print alike.
+A checked file or a file name therefore cannot send a terminal control sequence to the terminal that shows the output (Section 13). A backslash prints unchanged, so a character that the helper escapes and the same escape written literally in a file print alike.
 
 A checker reports a failed git call and a file that cannot be read in its own words, which do not depend on the version of git or on the operating system. The self-tests pin the exact text of each error and would otherwise fail on another machine for an unrelated reason.
 
-A failed git call reads `not inside a git repository`, `git <subcommand> exited with status N`, or `cannot run git: <cause>`, and never repeats the message of git. A read error names its cause as `is a directory`, `no such file`, `not a directory`, or `permission denied`, and only a cause outside these four uses the description that the operating system gives. When `cargo metadata` fails, `check-feature-docs` still repeats the first error line of Cargo (Section 7.5).
+A failed git call reads `not inside a git repository`, `git <subcommand> exited with status N`, or `cannot run git: <cause>`, and never repeats the message of git. A read error names its cause as `is a directory`, `no such file`, `not a directory`, or `permission denied`, and only a cause outside these four uses the description that the operating system gives. When `cargo metadata` fails, `check-feature-docs` still repeats the first error line of Cargo (Section 6.5).
 
 The checkers are written in Python 3 and run with `python3 -I`, as `scripts/check-prose` and `scripts/check-commit-message` are, because the container provides Python 3 and those checkers set the pattern.
 
@@ -386,7 +386,7 @@ A case passes when all three of these hold:
 
 The usage text of `scripts/self-test-checker` lists the placeholders. `check-commit-message-self-test` keeps its own inline form.
 
-### 7.2. Comment Checker
+### 6.2. Comment Checker
 
 This table summarizes the comment checker.
 
@@ -426,7 +426,7 @@ src/lib.rs:3: comment other than API documentation or a safety comment
 
 The checker does not report line 4, because the slashes there are inside a string literal. Generated files are checked like any other file. The generated bindings get no exemption, because the binding generator emits no comments other than one module-level `//!` line (Section 5.10 of `docs/design/slang-compiler-sys.md`).
 
-### 7.3. Heading Checker
+### 6.3. Heading Checker
 
 This table summarizes the heading checker.
 
@@ -439,9 +439,9 @@ This table summarizes the heading checker.
 
 The checker reads both ATX headings, which start with `#`, and setext headings, which are underlined with `=` or `-`. The `///` comments that precede one item, with only attributes and other comments between them, are one item's documentation.
 
-The checker ignores lines inside fenced code blocks, because a line that starts with `# ` in a Rust code block is a hidden line of a doctest, not a heading. It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment, which the comment checker of Section 7.2 rejects. Section 7.3 of the writing guide forbids every other heading in the documentation of an item, which is the rule that the checker enforces.
+The checker ignores lines inside fenced code blocks, because a line that starts with `# ` in a Rust code block is a hidden line of a doctest, not a heading. It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment, which the comment checker of Section 6.2 rejects. Section 7.3 of the writing guide forbids every other heading in the documentation of an item, which is the rule that the checker enforces.
 
-### 7.4. Doctest Attribute Checker
+### 6.4. Doctest Attribute Checker
 
 This table summarizes the doctest attribute checker.
 
@@ -456,7 +456,7 @@ The checker reports the attributes that start with `ignore-` as well, because Se
 
 The checker splits the info string of a code block into attributes the way rustdoc does. It splits at commas, spaces, and tabs, reads a double-quoted attribute without its quotes, and reads the text inside braces, such as `{.ignore}`, as a class or a key and not as an attribute. Whether a `no_run` example states its reason stays a judgement rule.
 
-### 7.5. Feature Documentation Checker
+### 6.5. Feature Documentation Checker
 
 This table summarizes the feature documentation checker.
 
@@ -473,15 +473,15 @@ Unlike the other checkers, it takes the paths of Cargo manifests, and with no pa
 
 Whether the section says that each feature is on or off by default, and what it enables, stays a judgement rule, because the wording is free.
 
-### 7.6. Prose in API Documentation
+### 6.6. Prose in API Documentation
 
 `scripts/check-prose` reads the text of the `///` and `//!` comments of `.rs` files and applies to it the rules that it applies to Markdown. This enforces Section 7.11 of the writing guide for the rules of its Section 8 that the script checks.
 
 It reads each run of comments that documents one item as one Markdown document, and it reports each finding at its line in the Rust file. Code spans and fenced code blocks inside the comments stay exempt, as they are in Markdown.
 
-It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment. A Rust file that is not valid UTF-8 cannot be read (Section 7.1). With no paths, `check-prose` checks every Markdown file and every Rust file, and its self-test is `check-prose-self-test`.
+It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment. A Rust file that is not valid UTF-8 cannot be read (Section 6.1). With no paths, `check-prose` checks every Markdown file and every Rust file, and its self-test is `check-prose-self-test`.
 
-### 7.7. Moving a Rule to Enforced
+### 6.7. Moving a Rule to Enforced
 
 TOOL-17. The change that lands a custom checker MUST do all of these in the same change, as Section 3.5 of the writing guide and Section 19 of the coding standard require for a rule that a tool can check:
 
@@ -491,14 +491,14 @@ TOOL-17. The change that lands a custom checker MUST do all of these in the same
 
 A document that still calls an enforced rule a judgement rule sends a reviewer to check by hand what a tool checks, which Hard Rule 4 of `AGENTS.md` forbids. The change that extends `scripts/check-prose` also updates Section 8 of the writing guide, which describes the files that the script and its hook check.
 
-### 7.8. Workflow Pin Checker
+### 6.8. Workflow Pin Checker
 
 This table summarizes the workflow pin checker.
 
 | Property | Value |
 | --- | --- |
 | Script and recipe | `scripts/check-workflow-pins`, `check-workflow-pins` |
-| Rule | TOOL-20, the `pull_request_target` part of TOOL-22, and the top-level part of TOOL-19 (Section 8.2) |
+| Rule | TOOL-20, the `pull_request_target` part of TOOL-22, and the top-level part of TOOL-19 (Section 7.2) |
 | Reads | Every `.yml` and `.yaml` file under `.github/workflows/`, and every `action.yml` and `action.yaml` file under `.github/actions/`. A file named `action.yml` or `action.yaml` is read as a composite action, and any other file as a workflow |
 | Reports | In every workflow and composite action, a `uses:` whose reference is not a full 40-character lowercase hexadecimal commit SHA. In every workflow, also the `pull_request_target` event under the top-level `on:` key, a workflow without a top-level `permissions:` key or with an empty one, and a top-level permission other than `read` or `none`, such as `write-all` or `contents: write` |
 
@@ -523,7 +523,7 @@ This illustration shows a workflow step and the finding that the checker prints 
 .github/workflows/ci.yml:12: uses: 'actions/checkout@v4' is not pinned to a full 40-character commit SHA
 ```
 
-### 7.9. Slang Call Guard Checker
+### 6.9. Slang Call Guard Checker
 
 This table summarizes the Slang call guard checker.
 
@@ -581,11 +581,11 @@ IModule::getName(self.raw.as_ptr())
 crates/slang-compiler/src/module.rs:489: call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)
 ```
 
-## 8. Continuous Integration
+## 7. Continuous Integration
 
-### 8.1. Workflow and Jobs
+### 7.1. Workflow and Jobs
 
-One workflow, `.github/workflows/ci.yml`, runs on every push to `main`, on every push to a branch that matches `feature/**`, and on every pull request. The project opens no pull requests, so a plain push of a feature branch is how a branch is verified before it merges (Section 17.7), and each such push starts one run. The `pull_request` trigger stays so that a pull request from a fork runs the same jobs, with a read-only token and no secrets (Section 8.2).
+One workflow, `.github/workflows/ci.yml`, runs on every push to `main`, on every push to a branch that matches `feature/**`, and on every pull request. The project opens no pull requests, so a plain push of a feature branch is how a branch is verified before it merges (Section 14.7), and each such push starts one run. The `pull_request` trigger stays so that a pull request from a fork runs the same jobs, with a read-only token and no secrets (Section 7.2).
 
 The `concurrency` group of a run on `main` is the run itself, and nothing cancels it, so every commit on `main` keeps its own result. For any other git reference, such as a feature branch or a pull request, the group is the workflow and the reference, and `cancel-in-progress` is true, so a new push cancels the earlier run for that reference.
 
@@ -600,7 +600,7 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 | `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just check` |
 | `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` |
 | `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` |
-| `semver` | Not yet named | Linux x86_64 | `just check-semver`. Planned for M7, with the first release, and not yet in the workflow (Section 10) |
+| `semver` | Not yet named | Linux x86_64 | `just check-semver`. Planned for M7, with the first release, and not yet in the workflow (Section 9) |
 | `coverage` | Measure test coverage on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just coverage`, then the upload of `target/lcov.info` as the artifact `coverage-lcov` |
 
 The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. It compiles the checked-in bindings of `slang-compiler-sys` there and never regenerates them. The tests for Linux only are not compiled there.
@@ -615,7 +615,7 @@ The `check` and `coverage` jobs run the regeneration test of the checked-in bind
 
 No job runs the `hw_gpu` tests, which run only on a developer's hardware GPU through `just test-hw-gpu`. No job builds the static route, because it compiles several hundred C++ files and takes several minutes, so the recipe `test-static` verifies it locally instead (SCS-36 of `docs/design/slang-compiler-sys.md`). Whether a scheduled job runs it is SQ-4 of that document.
 
-Every job runs its steps in the same order. It checks out the repository, installs the Rust toolchains, installs its tools through the installer action, reads the pin, installs the Vulkan SDK with `just install-vulkan-sdk`, and checks the SDK with `just check-vulkan-sdk` (Section 8.3). Then it runs its own steps:
+Every job runs its steps in the same order. It checks out the repository, installs the Rust toolchains, installs its tools through the installer action, reads the pin, installs the Vulkan SDK with `just install-vulkan-sdk`, and checks the SDK with `just check-vulkan-sdk` (Section 7.3). Then it runs its own steps:
 
 - The `check` job installs actionlint, libclang, lavapipe, and fontconfig and runs `just check`.
 - The `test` job runs `just check-clippy`, `just check-doctest`, and `just test-gpu`.
@@ -624,7 +624,7 @@ Every job runs its steps in the same order. It checks out the repository, instal
 
 The workflow defines the steps that check out the repository, read the pin, install and check the SDK, install libclang, install lavapipe, and install fontconfig once, with YAML anchors. It reuses them in the other jobs, so each of these steps is the same in every job that runs it.
 
-The `coverage` job runs the tests of the `gpu` profile under cargo llvm-cov and keeps the report. The recipe prints no coverage summary in the log of the job (Section 17.5), so the uploaded report is the only result of the job.
+The `coverage` job runs the tests of the `gpu` profile under cargo llvm-cov and keeps the report. The recipe prints no coverage summary in the log of the job (Section 14.5), so the uploaded report is the only result of the job.
 
 The action `actions/upload-artifact`, pinned by commit SHA (TOOL-20), uploads `target/lcov.info` as the artifact `coverage-lcov`, which GitHub keeps for 14 days. The step sets `if-no-files-found: error`, so the job fails when the recipe wrote no report. The job sets no coverage threshold, so the report informs a reviewer and does not gate a merge.
 
@@ -642,21 +642,21 @@ CI installs the tools on each runner, because no container image is published fo
 - The development files of fontconfig, in the `check`, `ci-only`, and `coverage` jobs, as the package `libfontconfig-dev`. A Linux build of Slint links fontconfig through the build script of `yeslogic-fontconfig-sys`, which finds it through pkg-config (Section 3.2 of `docs/design/slang-slint.md`).
 
   The step runs `sudo apt-get update` and `sudo apt-get install --yes --no-install-recommends libfontconfig-dev`, so it meets TOOL-21 in the same way as the libclang step. The `test` jobs install nothing for it, because the builds on Windows and macOS need no fontconfig development files.
-- The pinned Vulkan SDK, in every job, through `just install-vulkan-sdk` (Section 8.3).
+- The pinned Vulkan SDK, in every job, through `just install-vulkan-sdk` (Section 7.3).
 
-Each route except the Vulkan SDK installs the latest version that it provides, which matches the policy of the container image, in which no tool version is pinned. The Vulkan SDK is the version of the pin (Section 8.3). A tool in CI can therefore have a different version from the same tool in the development container, and a check can pass in one and fail in the other until both have the same version.
+Each route except the Vulkan SDK installs the latest version that it provides, which matches the policy of the container image, in which no tool version is pinned. The Vulkan SDK is the version of the pin (Section 7.3). A tool in CI can therefore have a different version from the same tool in the development container, and a check can pass in one and fail in the other until both have the same version.
 
 The workflow caches nothing, so no file is restored from a cache.
 
-### 8.2. Workflow Security
+### 7.2. Workflow Security
 
 TOOL-19. A workflow MUST grant its token read access to the repository contents only, at the level of the workflow, and a job that needs more MUST request the extra permission on that job alone. A compromised step can use every permission that the token holds.
 
-`check-workflow-pins` reports a workflow without top-level permissions and a top-level permission other than `read` or `none` (Section 7.8). Whether a job that requests more needs it is a judgement rule.
+`check-workflow-pins` reports a workflow without top-level permissions and a top-level permission other than `read` or `none` (Section 6.8). Whether a job that requests more needs it is a judgement rule.
 
 TOOL-20. A workflow MUST reference every action, including the actions that GitHub publishes, by a full commit SHA and never by a tag or a branch. The owner of an action can move a tag or a branch to different code, which then runs in every later job without any change to this repository.
 
-actionlint does not check this, and `check-workflow-pins` enforces it (Section 7.8).
+actionlint does not check this, and `check-workflow-pins` enforces it (Section 6.8).
 
 TOOL-21. A workflow step that downloads a file MUST verify it against a SHA-256 checksum that the upstream publishes and MUST stop the job before the file is used when the checksum differs, as Hard Rule 7 of `AGENTS.md` requires.
 
@@ -670,17 +670,17 @@ When the upstream publishes no checksum, the step SHOULD record in the workflow 
 
 A checksum that comes from the same host as the file, such as the checksums file of an actionlint release, proves that the download is intact but not that it comes from the publisher, because an attacker who controls the host can replace both. A checksum in the pinned manifest of the installer action comes from the commit of the action that TOOL-20 pins instead.
 
-Section 16 states the residual risk. Whether each step meets TOOL-21 is a judgement rule, because no tool can tell from a workflow which step downloads a file.
+Section 13 states the residual risk. Whether each step meets TOOL-21 is a judgement rule, because no tool can tell from a workflow which step downloads a file.
 
-The action `actions/upload-artifact`, which the `coverage` job uses (Section 8.1), is pinned by commit SHA like every other action, and `check-workflow-pins` checks it. The step that installs the Vulkan SDK meets TOOL-21 with checksums that the workflow records (Section 8.3). The installers of the SDK for macOS and Windows also fetch metadata from LunarG during the installation, which that checksum does not cover, and Section 16 states that residual risk.
+The action `actions/upload-artifact`, which the `coverage` job uses (Section 7.1), is pinned by commit SHA like every other action, and `check-workflow-pins` checks it. The step that installs the Vulkan SDK meets TOOL-21 with checksums that the workflow records (Section 7.3). The installers of the SDK for macOS and Windows also fetch metadata from LunarG during the installation, which that checksum does not cover, and Section 13 states that residual risk.
 
 TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret, or publish a crate. The workflows need no secret to check code, and a workflow that holds a secret while it runs the code of a pull request exposes that secret to the author of the pull request.
 
-`check-workflow-pins` reports the `pull_request_target` event (Section 7.8). The rest of TOOL-22 is a judgement rule.
+`check-workflow-pins` reports the `pull_request_target` event (Section 6.8). The rest of TOOL-22 is a judgement rule.
 
 The workflow keeps the `pull_request` trigger for pull requests from forks. GitHub gives a run for such a pull request a read-only token and no secrets, so the code of the pull request can neither write to the repository nor read a secret. A push to `main` or to a feature branch needs write access to the repository, so the push triggers add no way for an outside author to run code in CI.
 
-### 8.3. The Vulkan SDK on CI Runners
+### 7.3. The Vulkan SDK on CI Runners
 
 Every job of the workflow installs the pinned Vulkan software development kit (SDK) and checks it before any step that compiles the workspace. The build script of `slang-compiler-sys` links Slang, and every job compiles that crate. SCS-35 of `docs/design/slang-compiler-sys.md` states what the installation achieves.
 
@@ -728,7 +728,7 @@ System Integrity Protection is disabled on the hosted macOS runner, so `DYLD_LIB
 
 The installers for macOS and Windows are installers of the Qt Installer Framework. On the hosted runners, they run without a graphical session, accept the licence through `--accept-licenses`, select only the core component, and return when the installation is done.
 
-The macOS installer needs no `sudo` for a directory that the user owns. Both installers fetch metadata from LunarG's remote repository during the installation, and no supported option to prevent this is known, which Section 16 records as a residual risk.
+The macOS installer needs no `sudo` for a directory that the user owns. Both installers fetch metadata from LunarG's remote repository during the installation, and no supported option to prevent this is known, which Section 13 records as a residual risk.
 
 The step "Check the Slang of the Vulkan SDK" then runs `just check-vulkan-sdk`. The recipe runs `scripts/check-vulkan-sdk`, which reads the build tag of the pin with `just pin` and checks these things:
 
@@ -740,7 +740,7 @@ The script also lists the files that it finds. It removes carriage returns from 
 
 The script exits with status 1 when a check fails, including when `VULKAN_SDK` names a path that is not a directory. For that case, it prints `check-vulkan-sdk: VULKAN_SDK names <path>, which is not a directory` and checks nothing else. It exits with status 2 when it gets an argument, when `VULKAN_SDK` is unset or empty, or when `just pin` fails or prints no `SLANG_BUILD_TAG`.
 
-LunarG publishes a SHA-256 checksum of each SDK download, as 64 hexadecimal characters at a documented address of the form `https://sdk.lunarg.com/sdk/sha/<version>/<platform>/<file>.txt`, which is served from the same host as the download. A checksum fetched from that host at run time detects a corrupted download, but not a download that an attacker at the host replaced together with its checksum. The workflow therefore records the expected values and does not fetch them at run time, which the pinned version of the SDK allows, unlike the latest-version installs of Section 8.1.
+LunarG publishes a SHA-256 checksum of each SDK download, as 64 hexadecimal characters at a documented address of the form `https://sdk.lunarg.com/sdk/sha/<version>/<platform>/<file>.txt`, which is served from the same host as the download. A checksum fetched from that host at run time detects a corrupted download, but not a download that an attacker at the host replaced together with its checksum. The workflow therefore records the expected values and does not fetch them at run time, which the pinned version of the SDK allows, unlike the latest-version installs of Section 7.1.
 
 The workflow records the three checksums in its top-level `env` as `VULKAN_SDK_SHA256_LINUX`, `VULKAN_SDK_SHA256_MACOS`, and `VULKAN_SDK_SHA256_WINDOWS`, with a comment that ties them to the version that `crates/slang-compiler-sys/pin.rs` pins. The install step selects the one for `runner.os`.
 
@@ -752,7 +752,7 @@ TOOL-21 also requires a restored tree to be verified like a fresh download, whic
 
 Sections 3.6, 3.7, and 12 of `docs/design/slang-compiler-sys.md` record what each SDK ships.
 
-## 9. Dependency Policy
+## 8. Dependency Policy
 
 The file `deny.toml` configures cargo-deny, which Section 4.8 of the coding standard lists with what it owns. Section 4.8 also requires the licence allow-list to include `GPL-3.0-or-later` itself.
 
@@ -884,15 +884,15 @@ The `ignore` list of the `[advisories]` table holds five advisories by the owner
 | RUSTSEC-2026-0372 | `zvariant_derive` 5.15 | As for RUSTSEC-2026-0370 | `Cargo.lock` no longer holds `zvariant_derive` 5.15, as for RUSTSEC-2026-0370 |
 | RUSTSEC-2026-0192 | `ttf-parser` 0.25 | Slint's winit backend, through `sctk-adwaita` 0.10, in the unpublished examples package only | `Cargo.lock` no longer holds `ttf-parser` 0.25, such as after a release of winit or Slint without `sctk-adwaita` 0.10 |
 
-A Linux build of Slint links fontconfig, so the Linux jobs install its development files (Section 8.1). `check-deny` fetches the advisory database on every run, so it needs network access (Section 17.6).
+A Linux build of Slint links fontconfig, so the Linux jobs install its development files (Section 7.1). `check-deny` fetches the advisory database on every run, so it needs network access (Section 14.6).
 
-## 10. Publishing Readiness
+## 9. Publishing Readiness
 
 The architecture design owns the publishing policy in its Section 13 and the go-ahead rule ARCH-24. This section defines how the repository is kept ready to publish.
 
 TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence identifier `GPL-3.0-or-later`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that cargo-deny checks and with the minimum supported Rust version (MSRV) that Clippy reads.
 
-TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 17.3 and `README.md`. The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
+TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 14.3 and `README.md`. The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
 
 TOOL-27. Every published crate MUST carry the metadata fields that the row of `clippy::cargo_common_metadata` in Section 4.5 of the coding standard lists, inheriting those that TOOL-4 places in `[workspace.package]` and setting `description`, `keywords`, and `categories` itself. Every member that is never published MUST set `publish = false`, because Clippy reports a missing field on every member that does not set `publish = false`, so the check fails until the metadata is complete.
 
@@ -904,7 +904,7 @@ Cargo supports this layout. A `readme` that a member inherits from the workspace
 
 Cargo refuses to package a crate whose path dependency has no version (TOOL-25). Packaging one crate that depends on a member that is not published yet fails, while `cargo package --workspace` succeeds.
 
-Cargo does not include the root `LICENSE` in a packaged crate when the manifest sets only the `license` field, so how each published crate carries the licence text is open (Section 15, TQ-6).
+Cargo does not include the root `LICENSE` in a packaged crate when the manifest sets only the `license` field, so how each published crate carries the licence text is open (Section 12, TQ-6).
 
 The documentation build on docs.rs has to work without Slang, as ARCH-8 of the architecture design requires. The environment of this section, which TOOL-7 permits a recipe to add, is `DOCS_RS` set to `1` and `VULKAN_SDK` removed. The recipe `check-doc-without-slang` runs the documentation command of Section 4.8 of the coding standard in that environment.
 
@@ -922,9 +922,9 @@ The recipe `check-semver` compares each published crate with its last version on
 
 cargo-semver-checks 0.51.0 fails on a crate that has no published version, with the message "not found in registry" and exit status 101, and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace. Before the first release, a comparison with `main` would report every change to the API, which tells a reviewer nothing.
 
-How a release is carried out is open (Section 15, TQ-4).
+How a release is carried out is open (Section 12, TQ-4).
 
-## 11. Container Image Requirements
+## 10. Container Image Requirements
 
 The repository slang-rs-env defines the container image, so the changes of this section are made there and not in this repository.
 
@@ -932,7 +932,7 @@ TOOL-28. An agent MUST make each change to the container image in the repository
 
 A document that calls an installed tool missing leaves its rules as judgement rules that a reviewer checks by hand. A document that calls a missing tool installed leads an agent to build on it.
 
-TOOL-29. The container image MUST provide these, because the recipes of Section 4.2 run them, and the run-time path lets the tests start:
+TOOL-29. The container image MUST provide these, because the recipes of Section 3.2 run them, and the run-time path lets the tests start:
 
 - Every tool that Section 4.8 of the coding standard lists.
 - A nightly toolchain with the components miri and rust-src, used only for checkers, as DEP-4 of the coding standard requires, with the stable toolchain as the default.
@@ -941,15 +941,15 @@ TOOL-29. The container image MUST provide these, because the recipes of Section 
 - `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH` for every process, whether or not a login shell started it, so that a test binary finds the Slang shared library at run time (Section 4.4 of the architecture design).
 - git, CMake 3.22 or later, Ninja, and a C++17 compiler, which `test-static` needs to build Slang on the static route (Section 9.3 of `docs/design/slang-compiler-sys.md`).
 
-The image is not required to provide a toolchain for the declared `rust-version`, because `check-msrv` runs in CI and installs that toolchain on first use (Section 17.3). The Technology Decisions section of `AGENTS.md` lists what the image provides.
+The image is not required to provide a toolchain for the declared `rust-version`, because `check-msrv` runs in CI and installs that toolchain on first use (Section 14.3). The Technology Decisions section of `AGENTS.md` lists what the image provides.
 
 The image does not yet meet the item about `LD_LIBRARY_PATH`. A login shell gets both the directory of the Vulkan loader and `$VULKAN_SDK/lib`, but a process that no login shell started gets only the directory of the Vulkan loader.
 
 slang-rs-env contains the fix to the `ENV` instruction of its Containerfile, which takes effect at the next image rebuild.
 
-The gap does not affect the recipes, because each recipe that runs compiled code which loads Slang supplies the library path on its own command line (Section 4.2). Until the rebuild, a test binary that links Slang still fails to start when a process that no login shell started runs it outside a recipe (Section 17.2).
+The gap does not affect the recipes, because each recipe that runs compiled code which loads Slang supplies the library path on its own command line (Section 3.2). Until the rebuild, a test binary that links Slang still fails to start when a process that no login shell started runs it outside a recipe (Section 14.2).
 
-## 14. Assumptions to Confirm
+## 11. Assumptions to Confirm
 
 Each row is a fact that this document relies on and that has not been checked. A section that relies on one of them cites its identifier. The change that confirms or corrects an assumption states the result in the section that relies on it and removes the row.
 
@@ -957,18 +957,18 @@ An identifier is never reused, so the next assumption takes TA-8.
 
 No assumption is open.
 
-## 15. Open Questions
+## 12. Open Questions
 
 Each row is a question that this document leaves open. The design document in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row.
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
 | TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M7 |
-| TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 10)? | This document | M7 |
+| TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 9)? | This document | M7 |
 
 An identifier is never reused, so the next question takes TQ-10.
 
-## 16. Security Considerations
+## 13. Security Considerations
 
 The threat model has six parts:
 
@@ -982,13 +982,13 @@ The threat model has six parts:
 The design addresses each part:
 
 1. For dependencies, cargo-deny rejects crates with known advisories and crates from sources other than crates.io (TOOL-26), and the allow-list admits only reviewed licences (TOOL-24). `Cargo.lock` fixes every version, and the checks run inside the development container and not on the developer's host.
-2. For actions, TOOL-20 pins each one to a commit SHA, which `check-workflow-pins` enforces, and TOOL-19 limits what a compromised step can do. The checkout step does not leave the token in the git configuration of the runner (Section 8.1).
+2. For actions, TOOL-20 pins each one to a commit SHA, which `check-workflow-pins` enforces, and TOOL-19 limits what a compromised step can do. The checkout step does not leave the token in the git configuration of the runner (Section 7.1).
 3. For downloads, TOOL-21 and TOOL-23 verify every file before use, and the workflow restores nothing from a cache. The installer action carries its checksums in a manifest that its commit SHA pins.
 
-   The expected checksum of the Vulkan SDK is recorded in the workflow and not fetched from the host that serves the SDK, and the download is verified before it is unpacked or run (Section 8.3). A build script downloads nothing (SYS-5 of the coding standard).
-4. For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets, and `check-workflow-pins` reports that event. A run for a pull request from a fork gets a read-only token and no secrets (Section 8.2).
+   The expected checksum of the Vulkan SDK is recorded in the workflow and not fetched from the host that serves the SDK, and the download is verified before it is unpacked or run (Section 7.3). A build script downloads nothing (SYS-5 of the coding standard).
+4. For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets, and `check-workflow-pins` reports that event. A run for a pull request from a fork gets a read-only token and no secrets (Section 7.2).
 5. For hooks, `.pre-commit-config.yaml` pins the repository `pre-commit-hooks` to a commit SHA, and the local hooks run only recipes of this repository.
-6. For checker output, every custom checker escapes its output (Section 7.1), so a checked file cannot send a control sequence to the terminal.
+6. For checker output, every custom checker escapes its output (Section 6.1), so a checked file cannot send a control sequence to the terminal.
 
 These attacks are out of scope:
 
@@ -1003,16 +1003,16 @@ The residual risk has seven parts:
 1. A new dependency's build script and procedural macros run on the first build that includes them, before any reviewer has read them, and cargo-deny finds only vulnerabilities that are already published.
 2. A checksum shows only that a file matches what the upstream published, and the first download of a file whose upstream publishes no checksum is trusted on first use. A checksum that comes from the same host as the file, as the checksum of actionlint does, proves integrity but not origin, so an attacker who controls that host can replace the file and its checksum together. Because CI installs the latest version of each tool, a new release of a tool runs in CI without any change to this repository and before anyone has reviewed it.
 3. A pinned commit of an action is as trustworthy as the review it received when it was pinned, and the manifest of the installer action is as trustworthy as that commit.
-4. `check-deny` fetches the advisory database on every run (Section 17.6), so a tampered database could hide an advisory.
-5. `check-workflow-pins` reads workflows line by line, so a reference written in a form that it does not read (Section 7.8) can pass it. The permissions of each job, the use of secrets, and whether each download step verifies its file depend on review.
-6. The escaping covers only the custom checkers of Section 7. `scripts/check-commit-message` and the external tools that the recipes run, such as shellcheck, typos, actionlint, and Cargo, print their output without this escaping, and this document does not specify how they handle control characters. Because a backslash prints unchanged, escaped output can be ambiguous to a reader, which misleads but sends no control sequence.
-7. The installers of the Vulkan SDK for macOS and Windows fetch metadata from LunarG's remote repository during the installation (Section 8.3), and the recorded checksum does not cover that metadata, so a tampered response is not detected. Two facts limit this risk: the files that the installer installs come from the verified download, and the step selects only the core component. No supported option that installs without this access is known.
+4. `check-deny` fetches the advisory database on every run (Section 14.6), so a tampered database could hide an advisory.
+5. `check-workflow-pins` reads workflows line by line, so a reference written in a form that it does not read (Section 6.8) can pass it. The permissions of each job, the use of secrets, and whether each download step verifies its file depend on review.
+6. The escaping covers only the custom checkers of Section 6. `scripts/check-commit-message` and the external tools that the recipes run, such as shellcheck, typos, actionlint, and Cargo, print their output without this escaping, and this document does not specify how they handle control characters. Because a backslash prints unchanged, escaped output can be ambiguous to a reader, which misleads but sends no control sequence.
+7. The installers of the Vulkan SDK for macOS and Windows fetch metadata from LunarG's remote repository during the installation (Section 7.3), and the recorded checksum does not cover that metadata, so a tampered response is not detected. Two facts limit this risk: the files that the installer installs come from the verified download, and the step selects only the core component. No supported option that installs without this access is known.
 
-## 17. Operational Considerations
+## 14. Operational Considerations
 
-### 17.1. Recipes and Parameters
+### 14.1. Recipes and Parameters
 
-Section 4.2 lists every recipe. This document defines no Cargo feature.
+Section 3.2 lists every recipe. This document defines no Cargo feature.
 
 This table lists every recipe parameter and its default. Every other recipe takes no parameters.
 
@@ -1021,38 +1021,38 @@ This table lists every recipe parameter and its default. Every other recipe take
 | `check-prose` | Paths of files to check | Every Markdown file and every Rust file in the repository |
 | `check-rust-comments`, `check-doc-headings` | Paths of files to check | Every Rust file in the repository (TOOL-14) |
 | `check-doctest-attributes` | Paths of files to check | Every Rust file and every `README.md` file in the repository (TOOL-14) |
-| `check-feature-docs` | Paths of Cargo manifests to check | The workspace of the repository (Section 7.5) |
-| `check-slang-call-guard` | Paths of Rust files to check | Every Rust file under `crates/slang-compiler/src` (Section 7.9) |
-| `check-workflow-pins` | Paths of workflow and composite action files to check | Every workflow under `.github/workflows/` and every composite action under `.github/actions/` (Section 7.8) |
+| `check-feature-docs` | Paths of Cargo manifests to check | The workspace of the repository (Section 6.5) |
+| `check-slang-call-guard` | Paths of Rust files to check | Every Rust file under `crates/slang-compiler/src` (Section 6.9) |
+| `check-workflow-pins` | Paths of workflow and composite action files to check | Every workflow under `.github/workflows/` and every composite action under `.github/actions/` (Section 6.8) |
 | `check-commit-message` | The commit message file | None. The parameter is required. |
 | `merge` | The branch, and further arguments for `scripts/merge-branch` | None for the branch, which is required |
-| `install-vulkan-sdk` | The SDK version, as four numbers separated by full stops, and the expected SHA-256 checksum of the download for the platform, as 64 lowercase hexadecimal characters (Section 8.3) | None. Both are required. `just` rejects a missing or extra argument before the script runs, and the script exits with status 2 on a malformed one |
+| `install-vulkan-sdk` | The SDK version, as four numbers separated by full stops, and the expected SHA-256 checksum of the download for the platform, as 64 lowercase hexadecimal characters (Section 7.3) | None. Both are required. `just` rejects a missing or extra argument before the script runs, and the script exits with status 2 on a malformed one |
 
-### 17.2. Environment Variables
+### 14.2. Environment Variables
 
 This table lists every environment variable that the recipes, the hooks, or the checks read.
 
 | Variable | Read by | Default and behaviour when unset |
 | --- | --- | --- |
 | `CARGO_BUILD_WARNINGS` | Cargo, in the commands of Section 4.8 of the coding standard | The recipes set it to `deny` for those commands. Outside them it is unset, and Cargo reports warnings without failing. |
-| `VULKAN_SDK` | The build script of `slang-compiler-sys`, `check-vulkan-sdk`, `generate-bindings`, the regeneration test that `test-gpu`, `check-bindings`, and `coverage` run on Linux, and the `justfile`, which builds the library path assignment from it | Section 19.2 of the architecture design. The development container sets it, and on a CI runner `install-vulkan-sdk` sets it for the later steps of the job (Section 8.3). Without it, the build script stops every command that compiles the workspace, so every recipe that compiles fails except `check-doc-without-slang`, which removes it (Section 19.2 of `docs/design/slang-compiler-sys.md`). `check-vulkan-sdk` exits with status 2 when it is unset or empty, and with status 1 when it names a path that is not a directory. `generate-bindings` and the regeneration test fail when it is unset. When it is unset or empty, the library path assignment is empty. `test-static` removes it from the environment of its command. |
+| `VULKAN_SDK` | The build script of `slang-compiler-sys`, `check-vulkan-sdk`, `generate-bindings`, the regeneration test that `test-gpu`, `check-bindings`, and `coverage` run on Linux, and the `justfile`, which builds the library path assignment from it | Section 19.2 of the architecture design. The development container sets it, and on a CI runner `install-vulkan-sdk` sets it for the later steps of the job (Section 7.3). Without it, the build script stops every command that compiles the workspace, so every recipe that compiles fails except `check-doc-without-slang`, which removes it (Section 18.2 of `docs/design/slang-compiler-sys.md`). `check-vulkan-sdk` exits with status 2 when it is unset or empty, and with status 1 when it names a path that is not a directory. `generate-bindings` and the regeneration test fail when it is unset. When it is unset or empty, the library path assignment is empty. `test-static` removes it from the environment of its command. |
 | `RUNNER_TEMP`, `GITHUB_ENV`, `GITHUB_PATH` | `install-vulkan-sdk` | Set by GitHub Actions on every runner. When one of them is unset or empty, the recipe exits with status 2 and a message that names it and says that this is not a GitHub Actions runner. |
 | `SLANG_SOURCE_DIR` | The build script of `slang-compiler-sys`, and `test-static` | Section 19.2 of the architecture design. The development container does not set it. A present value selects the static route (Section 9.3 of `docs/design/slang-compiler-sys.md`), so every recipe that compiles the workspace then builds Slang from source in the `OUT_DIR` of its build, once for each target directory and profile. `test-static` fails with a message that names it when it is unset or empty. In the container, `/opt/slang` is a source tree that the route accepts. |
 | `CARGO_TARGET_DIR` | Cargo | Unset, so Cargo builds in `target/`. `test-static` sets it to `target/static` on its own command line, so the static build does not replace the dynamic build of `target/`. |
-| `LIBCLANG_PATH` | `clang-sys`, when the binding generator or its tests run | Section 19.2 of `docs/design/slang-compiler-sys.md` |
+| `LIBCLANG_PATH` | `clang-sys`, when the binding generator or its tests run | Section 18.2 of `docs/design/slang-compiler-sys.md` |
 | `DOCS_RS` | The build script of `slang-compiler-sys` | Unset, so the build proceeds on the selected route. `check-doc-without-slang` sets it to `1`. |
-| `LD_LIBRARY_PATH` | The dynamic loader on Linux, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value, so they do not depend on the path of a login shell (Section 4.2). In a login shell, the container includes `$VULKAN_SDK/lib` in it. A process that no login shell started lacks that directory until the next image rebuild (Section 11), which affects only a test binary run outside a recipe. Without it, a test binary that links Slang fails to start. On a Linux CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 8.3), so the directory appears twice in a recipe there, which is harmless. `test-static` removes it, and `DYLD_LIBRARY_PATH`, from the environment of its command. |
-| `DYLD_LIBRARY_PATH` | The dynamic loader on macOS, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value (Section 4.2). Outside a recipe, it is unset unless the developer sets it. On a macOS CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 8.3), so the directory appears twice in a recipe there. Whether the assignment on the command line reaches a test binary on a Mac with System Integrity Protection enabled is SA-7 of `docs/design/slang-compiler-sys.md`. |
-| `PATH` | The dynamic loader on Windows, when a test binary starts, and every shell | On a Windows CI runner, `install-vulkan-sdk` adds `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, and on Linux and macOS runners it adds `$VULKAN_SDK/bin` (Section 8.3). |
+| `LD_LIBRARY_PATH` | The dynamic loader on Linux, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value, so they do not depend on the path of a login shell (Section 3.2). In a login shell, the container includes `$VULKAN_SDK/lib` in it. A process that no login shell started lacks that directory until the next image rebuild (Section 10), which affects only a test binary run outside a recipe. Without it, a test binary that links Slang fails to start. On a Linux CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 7.3), so the directory appears twice in a recipe there, which is harmless. `test-static` removes it, and `DYLD_LIBRARY_PATH`, from the environment of its command. |
+| `DYLD_LIBRARY_PATH` | The dynamic loader on macOS, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value (Section 3.2). Outside a recipe, it is unset unless the developer sets it. On a macOS CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 7.3), so the directory appears twice in a recipe there. Whether the assignment on the command line reaches a test binary on a Mac with System Integrity Protection enabled is SA-7 of `docs/design/slang-compiler-sys.md`. |
+| `PATH` | The dynamic loader on Windows, when a test binary starts, and every shell | On a Windows CI runner, `install-vulkan-sdk` adds `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, and on Linux and macOS runners it adds `$VULKAN_SDK/bin` (Section 7.3). |
 | `CLAUDE_PROJECT_DIR` | The hook in `.claude/settings.json` | Set by Claude Code. The hook does not run outside it. |
 
 The workflow also sets these variables for its own steps, and no recipe reads them. Its top-level `env` holds `VULKAN_SDK_SHA256_LINUX`, `VULKAN_SDK_SHA256_MACOS`, and `VULKAN_SDK_SHA256_WINDOWS`.
 
-The step that reads the pin writes `VULKAN_SDK_VERSION`, `SLANG_BUILD_TAG`, and `SLANG_COMMIT` to the file that `GITHUB_ENV` names. The step that installs the SDK passes the version and the checksum for its platform to `install-vulkan-sdk` as arguments (Section 8.3).
+The step that reads the pin writes `VULKAN_SDK_VERSION`, `SLANG_BUILD_TAG`, and `SLANG_COMMIT` to the file that `GITHUB_ENV` names. The step that installs the SDK passes the version and the checksum for its platform to `install-vulkan-sdk` as arguments (Section 7.3).
 
-### 17.3. Platforms and Minimum Supported Rust Version
+### 14.3. Platforms and Minimum Supported Rust Version
 
-The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 8.1, with tool versions that can differ from those of the container (Section 8.1). The Vulkan SDK in CI is the pinned version on every platform (Section 8.3).
+The checks run in the development container on Linux x86_64, and CI runs them on the platforms of Section 7.1, with tool versions that can differ from those of the container (Section 7.1). The Vulkan SDK in CI is the pinned version on every platform (Section 7.3).
 
 The workspace declares `rust-version = "1.99"` (TOOL-4), which only a change of TOOL-5 raises, and `check-msrv` verifies it in the CI job `ci-only`.
 
@@ -1060,9 +1060,9 @@ cargo hack always uses the rustup toolchain named exactly like `rust-version`, w
 
 The root `.gitattributes` holds the single line `* text=auto eol=lf`. git normalizes every file that it detects as text to LF line endings in the repository and checks it out with LF on every platform, whatever the `core.autocrlf` setting of the clone. Without it, the checkout on the hosted Windows runner has CRLF line endings, which breaks a recipe that reads a file line by line, such as `pin`.
 
-The self-tests of the custom checkers do not depend on the line endings of the checkout, because their fixtures create carriage returns from placeholders at run time (Section 7.1). The recipe `pin` and `scripts/check-vulkan-sdk` still accept CRLF input, because a user's own git settings can still produce it.
+The self-tests of the custom checkers do not depend on the line endings of the checkout, because their fixtures create carriage returns from placeholders at run time (Section 6.1). The recipe `pin` and `scripts/check-vulkan-sdk` still accept CRLF input, because a user's own git settings can still produce it.
 
-### 17.4. Failing Checks
+### 14.4. Failing Checks
 
 This table says what a failure of each check means and what the developer does.
 
@@ -1070,16 +1070,16 @@ This table says what a failure of each check means and what the developer does.
 | --- | --- | --- |
 | `check-fmt` | A Rust file is not formatted, including a file that a crate includes with `include!`, or `git ls-files` failed or listed no Rust file, as its message says | Runs `just fmt`. For a failed listing, runs the recipe inside the git checkout of the repository |
 | `fmt` | `git ls-files` failed or listed no Rust file, as its message says, or rustfmt cannot parse a file | Runs the recipe inside the git checkout of the repository, or fixes the syntax error that rustfmt reports |
-| `test-static` | `SLANG_SOURCE_DIR` is unset or empty, the build script stopped the static route with a message of Section 9.6 of `docs/design/slang-compiler-sys.md`, or a test failed | Sets `SLANG_SOURCE_DIR` to a clean git checkout of the pinned commit, follows the recovery of Section 19.4 of that document, or fixes the code or the test |
-| Every recipe that compiles the workspace, except `check-doc-without-slang` | The build script of `slang-compiler-sys` stopped the build, with a message that Section 9.6 of `docs/design/slang-compiler-sys.md` lists, such as "VULKAN_SDK is not set" or another build tag | Follows the recovery for that failure in Section 19.4 of `docs/design/slang-compiler-sys.md`, such as installing the pinned SDK and setting `VULKAN_SDK`, or unsetting `SLANG_SOURCE_DIR` |
+| `test-static` | `SLANG_SOURCE_DIR` is unset or empty, the build script stopped the static route with a message of Section 9.6 of `docs/design/slang-compiler-sys.md`, or a test failed | Sets `SLANG_SOURCE_DIR` to a clean git checkout of the pinned commit, follows the recovery of Section 18.4 of that document, or fixes the code or the test |
+| Every recipe that compiles the workspace, except `check-doc-without-slang` | The build script of `slang-compiler-sys` stopped the build, with a message that Section 9.6 of `docs/design/slang-compiler-sys.md` lists, such as "VULKAN_SDK is not set" or another build tag | Follows the recovery for that failure in Section 18.4 of `docs/design/slang-compiler-sys.md`, such as installing the pinned SDK and setting `VULKAN_SDK`, or unsetting `SLANG_SOURCE_DIR` |
 | `check-clippy`, `check-doc`, `check-doc-without-slang`, `check-doctest` | A lint fired | Follows Section 4.4 of the coding standard and the lint's row in Section 4.5 |
 | `test`, `test-gpu`, `test-hw-gpu` | A test failed, a test in a GPU tier found no adapter (ARCH-23 of the architecture design), or a test binary could not start because the loader did not find the Slang shared library, as when `VULKAN_SDK` is unset in the environment of `just` | Fixes the code or the test, runs the tier on a machine with an adapter, or sets `VULKAN_SDK` to the pinned SDK so that the recipe supplies the library path |
 | `check-bindings` | The regeneration test failed, with the message for its cause that Section 7.6 of `docs/design/slang-compiler-sys.md` lists, or the filter selected no test, as on Windows and macOS | For a difference, runs `just generate-bindings` and commits both regenerated files with the change that caused it. For a missing `VULKAN_SDK`, header directory, or libclang, installs or sets what the message names. On Windows or macOS, runs the recipe on Linux |
-| `generate-bindings` | The binding generator failed, with an error of a kind that Section 7.7 of `docs/design/slang-compiler-sys.md` lists | Follows the recovery for that failure in Section 19.4 of `docs/design/slang-compiler-sys.md` |
-| `check-deny` | A licence is not allowed, an advisory applies, a crate is duplicated, or a source is not crates.io. The exit status is the sum of 1 for advisories, 2 for bans, 4 for licences, and 8 for sources | Applies Section 9: replaces or upgrades the dependency, or records an exception that TOOL-24 or TOOL-26 permits |
-| `check-prose`, `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs` | Exit status 1: a rule of the writing guide is broken at each reported `path:line`, and the message names the problem, such as "comment other than API documentation or a safety comment" or "feature 'name' is not named in a code span in the '# Features' section". Exit status 2: a file cannot be read, including a file that ends inside an unterminated literal, comment, or attribute, `cargo metadata` failed, the checker ran with no paths outside a git repository, or the setup is broken, as the message on standard error says (Section 7.1) | For status 1, fixes the text as the rule that Section 7 names requires. For status 2, fixes the file or the setup that the message names, such as by closing the unterminated item at the reported line |
-| `check-workflow-pins` | Exit status 1: a rule of Section 8.2 is broken at each reported `path:line`, such as "uses: '...' is not pinned to a full 40-character commit SHA", "workflow uses the pull_request_target event", "workflow has no top-level permissions key", or "top-level permissions '...' grant more than read access". Exit status 2: as for the other custom checkers | Pins the action to the full commit SHA of the reviewed release, removes the event, or sets the top-level permissions to `contents: read` and moves any extra permission to the job that needs it (TOOL-19) |
-| `check-slang-call-guard` | Exit status 1: a call into Slang in `slang-compiler` breaks SLC-32 of `docs/design/slang-compiler.md` at each reported `path:line`, such as "call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)". Exit status 2: as for the other custom checkers, and also a file with a bracket without its partner, or bindings that cannot be read or declare no C function or no thunk (Section 7.9) | For status 1, makes the call the only call into Slang in a closure literal passed to `abort_on_exception`, as SLC-32 requires. For status 2, fixes the file or the bindings that the message names, and regenerates the bindings with `just generate-bindings` instead of editing them |
+| `generate-bindings` | The binding generator failed, with an error of a kind that Section 7.7 of `docs/design/slang-compiler-sys.md` lists | Follows the recovery for that failure in Section 18.4 of `docs/design/slang-compiler-sys.md` |
+| `check-deny` | A licence is not allowed, an advisory applies, a crate is duplicated, or a source is not crates.io. The exit status is the sum of 1 for advisories, 2 for bans, 4 for licences, and 8 for sources | Applies Section 8: replaces or upgrades the dependency, or records an exception that TOOL-24 or TOOL-26 permits |
+| `check-prose`, `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs` | Exit status 1: a rule of the writing guide is broken at each reported `path:line`, and the message names the problem, such as "comment other than API documentation or a safety comment" or "feature 'name' is not named in a code span in the '# Features' section". Exit status 2: a file cannot be read, including a file that ends inside an unterminated literal, comment, or attribute, `cargo metadata` failed, the checker ran with no paths outside a git repository, or the setup is broken, as the message on standard error says (Section 6.1) | For status 1, fixes the text as the rule that Section 6 names requires. For status 2, fixes the file or the setup that the message names, such as by closing the unterminated item at the reported line |
+| `check-workflow-pins` | Exit status 1: a rule of Section 7.2 is broken at each reported `path:line`, such as "uses: '...' is not pinned to a full 40-character commit SHA", "workflow uses the pull_request_target event", "workflow has no top-level permissions key", or "top-level permissions '...' grant more than read access". Exit status 2: as for the other custom checkers | Pins the action to the full commit SHA of the reviewed release, removes the event, or sets the top-level permissions to `contents: read` and moves any extra permission to the job that needs it (TOOL-19) |
+| `check-slang-call-guard` | Exit status 1: a call into Slang in `slang-compiler` breaks SLC-32 of `docs/design/slang-compiler.md` at each reported `path:line`, such as "call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)". Exit status 2: as for the other custom checkers, and also a file with a bracket without its partner, or bindings that cannot be read or declare no C function or no thunk (Section 6.9) | For status 1, makes the call the only call into Slang in a closure literal passed to `abort_on_exception`, as SLC-32 requires. For status 2, fixes the file or the bindings that the message names, and regenerates the bindings with `just generate-bindings` instead of editing them |
 | A self-test recipe | A case under `scripts/fixtures/<checker>/` gave a different standard output, standard error, or exit status from the expected one, which the recipe prints after "FAIL" with the name of the case. Exit status 2 means that the checker or its cases cannot be read | Fixes the checker, or, when the change to its behaviour is intended, the expected files of the case |
 | `check-shell` | shellcheck reported a finding | Fixes the script or recipe |
 | `check-typos` | typos found a spelling mistake | Fixes the word, or accepts a correct word in `typos.toml` (TOOL-30) |
@@ -1089,7 +1089,7 @@ This table says what a failure of each check means and what the developer does.
 | `check-miri` | Miri found undefined behaviour | Fixes the unsafe code, following Section 9 of the coding standard |
 | `coverage` | A test failed, or cargo llvm-cov did not write the report. In the CI job `coverage`, the upload step also fails when `target/lcov.info` does not exist | Reads the message of cargo llvm-cov, and fixes a failing test as for `test-gpu` |
 | `pin` | Exit status 1: `crates/slang-compiler-sys/pin.rs` does not define one of the three constants in the form `pub const NAME: &str = "value";`, and the message says "crates/slang-compiler-sys/pin.rs does not define NAME as a string constant" with the name of the constant | Restores the constant in that form (Section 8.1 of `docs/design/slang-compiler-sys.md`) |
-| `install-vulkan-sdk` | Exit status 1: the checksum of the download differs from the expected one, and the message "install-vulkan-sdk: SHA-256 mismatch" gives both values, or the macOS archive does not hold exactly one installer application. Exit status 2: a malformed argument, an unset or empty `RUNNER_TEMP`, `GITHUB_ENV`, or `GITHUB_PATH`, or an unsupported platform. A missing or extra argument fails in `just` before the script runs. A failed download, unpacking, or installation stops the script with the non-zero status of the command that failed | For a mismatch, compares the checksum in the workflow with the one that LunarG publishes for the file (Section 8.3) before changing anything, because a mismatch can mean a tampered download. For a failed download, runs the job again |
+| `install-vulkan-sdk` | Exit status 1: the checksum of the download differs from the expected one, and the message "install-vulkan-sdk: SHA-256 mismatch" gives both values, or the macOS archive does not hold exactly one installer application. Exit status 2: a malformed argument, an unset or empty `RUNNER_TEMP`, `GITHUB_ENV`, or `GITHUB_PATH`, or an unsupported platform. A missing or extra argument fails in `just` before the script runs. A failed download, unpacking, or installation stops the script with the non-zero status of the command that failed | For a mismatch, compares the checksum in the workflow with the one that LunarG publishes for the file (Section 7.3) before changing anything, because a mismatch can mean a tampered download. For a failed download, runs the job again |
 | `check-vulkan-sdk` | Exit status 1: `VULKAN_SDK` names a path that is not a directory, with the message "check-vulkan-sdk: VULKAN_SDK names <path>, which is not a directory", or the SDK at `VULKAN_SDK` lacks `slang.h`, `slang-tag-version.h`, or the Slang library of the platform, defines another build tag, or has a `slangc` that fails or prints another tag, as each message after "check-vulkan-sdk:" says. Exit status 2: an argument was given, `VULKAN_SDK` is unset or empty, or `just pin` failed or printed no `SLANG_BUILD_TAG` | Installs the SDK of the pin and points `VULKAN_SDK` at it, or fixes `pin.rs` when `just pin` fails |
 | `check-features`, `check-msrv`, `check-semver` | A feature combination does not compile, the code needs a newer toolchain than `rust-version`, or the API has a breaking change | Fixes the code, raises `rust-version` under TOOL-5, or releases the change as breaking |
 
@@ -1099,21 +1099,21 @@ No agent weakens a configuration to make a check pass, as Hard Rule 6 of `AGENTS
 
 This document states no expected duration for a check. The exception is `test-static`, whose first run builds Slang from source, which takes several minutes. A later run whose build script finds a matching stamp takes seconds.
 
-A check that passes in the development container and fails in CI, or the reverse, can come from a difference in tool versions (Section 8.1). The developer compares the version in the log of the job with the version in the container before changing the code.
+A check that passes in the development container and fails in CI, or the reverse, can come from a difference in tool versions (Section 7.1). The developer compares the version in the log of the job with the version in the container before changing the code.
 
 A job that GitHub cancelled before any step ran, with the annotation "The job was not acquired by Runner of type hosted even after multiple attempts", did not fail because of the change. No hosted runner picked the job up, which is a problem of runner capacity. The developer reruns that job and judges the change by the result of the rerun.
 
-### 17.5. Logs
+### 14.5. Logs
 
 The recipes print the output of the tools they run and keep no log. GitHub Actions keeps the log of each job.
 
-The recipe `coverage` prints the output of the build and the tests and no coverage summary. With the LCOV options, cargo llvm-cov ends its output with the line `Finished report saved to target/lcov.info`. The report is the LCOV file `target/lcov.info`, which the CI job `coverage` uploads as the artifact `coverage-lcov` and GitHub keeps for 14 days (Section 8.1).
+The recipe `coverage` prints the output of the build and the tests and no coverage summary. With the LCOV options, cargo llvm-cov ends its output with the line `Finished report saved to target/lcov.info`. The report is the LCOV file `target/lcov.info`, which the CI job `coverage` uploads as the artifact `coverage-lcov` and GitHub keeps for 14 days (Section 7.1).
 
 `install-vulkan-sdk` prints the download address, the size and duration of the download, the verified checksum, the duration of the installation, the value of `VULKAN_SDK`, and the installed size. `check-vulkan-sdk` prints the files that it finds in the SDK, the content of `slang-tag-version.h`, and the output of `slangc -version`.
 
-On the static route, the build script of `slang-compiler-sys` writes the output of `cmake` and Ninja to `slang/build.log` under its `OUT_DIR`, which is inside `target/static` for `test-static` (Section 19.5 of `docs/design/slang-compiler-sys.md`).
+On the static route, the build script of `slang-compiler-sys` writes the output of `cmake` and Ninja to `slang/build.log` under its `OUT_DIR`, which is inside `target/static` for `test-static` (Section 18.5 of `docs/design/slang-compiler-sys.md`).
 
-### 17.6. Network Access
+### 14.6. Network Access
 
 `just check` needs network access. `check-deny` fetches the advisory database from <https://github.com/RustSec/advisory-db> on every run, and fails with exit status 1 when it cannot.
 
@@ -1121,13 +1121,13 @@ With a database already cached, `cargo deny --offline check`, with the global op
 
 The first run of `check-miri` after an image rebuild also needs network access, because Miri builds a sysroot and fetches the dependencies of the standard library. Later runs of `check-miri` work offline.
 
-Outside `check`, the first run of `check-msrv` on a machine downloads a toolchain (Section 17.3). `test-static` needs no network access once its Cargo dependencies are fetched, because the static route downloads nothing (SCS-28 of `docs/design/slang-compiler-sys.md`).
+Outside `check`, the first run of `check-msrv` on a machine downloads a toolchain (Section 14.3). `test-static` needs no network access once its Cargo dependencies are fetched, because the static route downloads nothing (SCS-28 of `docs/design/slang-compiler-sys.md`).
 
-`install-vulkan-sdk` downloads the SDK from `sdk.lunarg.com`. On macOS and Windows the installer also contacts LunarG's remote repository (Section 8.3).
+`install-vulkan-sdk` downloads the SDK from `sdk.lunarg.com`. On macOS and Windows the installer also contacts LunarG's remote repository (Section 7.3).
 
-### 17.7. Verifying and Merging a Branch
+### 14.7. Verifying and Merging a Branch
 
-This section gives the procedure for verifying a branch in CI and merging it. The project opens no pull requests, so a push of the branch is what runs CI on it (Section 8.1). The agent follows these steps:
+This section gives the procedure for verifying a branch in CI and merging it. The project opens no pull requests, so a push of the branch is what runs CI on it (Section 7.1). The agent follows these steps:
 
 1. It pushes the branch with a plain push, which starts one run for the last commit of the branch.
 2. It reads the run for that exact commit from the run itself, with these commands, in which `<branch>` and `<id>` are placeholders. The first prints the identifier, status, conclusion, and commit of the latest run of the branch, and the second prints each job of the run with its conclusion:
@@ -1139,22 +1139,22 @@ This section gives the procedure for verifying a branch in CI and merging it. Th
 
 3. It runs `just merge <branch>` only when the run's `headSha` is the last commit of the branch, its conclusion is `success`, and every job succeeded.
 
-The agent reads the run itself and never the exit status of a command whose output is piped into another program. The exit status of a pipeline is the status of its last program, so it says nothing about the run, and a merge gated on it can put a failing commit on `main`. A job cancelled for lack of a runner is rerun, as Section 17.4 states, and the merge waits for the rerun.
+The agent reads the run itself and never the exit status of a command whose output is piped into another program. The exit status of a pipeline is the status of its last program, so it says nothing about the run, and a merge gated on it can put a failing commit on `main`. A job cancelled for lack of a runner is rerun, as Section 14.4 states, and the merge waits for the rerun.
 
-`just merge` builds the message of the squashed commit from every commit of the branch (Section 4.2). A branch with several work-in-progress commits is therefore merged through a fresh branch.
+`just merge` builds the message of the squashed commit from every commit of the branch (Section 3.2). A branch with several work-in-progress commits is therefore merged through a fresh branch.
 
 The agent creates a new branch from `main` that holds the identical tree of the verified branch as one commit with the final message, and runs `just merge` on the fresh branch. The fresh branch holds the tree that CI verified only when the verified branch contains the current `main`. No pushed history is rewritten.
 
 `just merge` deletes the merged branch on `origin` when its tip there is part of the squash. With the fresh-branch procedure, the merged branch is the fresh one, so the branch that was pushed for CI stays on `origin`. Its local branch and worktree count as squash-merged once `main` holds its tree, so `just worktree-prune` removes them.
 
-## 18. References
+## 15. References
 
-### 18.1. Normative References
+### 15.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
-### 18.2. Informative References
+### 15.2. Informative References
 
 - [FSF-LICENSES] Free Software Foundation, "Various Licenses and Comments about Them", version dated 2026-04-22, <https://www.gnu.org/licenses/license-list.html>, read on 2026-11-11.
 - [GPL-FAQ] Free Software Foundation, "Frequently Asked Questions about the GNU Licenses", the compatibility matrix, <https://www.gnu.org/licenses/gpl-faq.html#AllCompatibility>, read on 2026-11-11.
@@ -1165,32 +1165,32 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| TOOL-3 | 10 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
-| TOOL-4 | 10 | Licence, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits. |
-| TOOL-5 | 10 | `rust-version` changes only in a change whose purpose is to raise it. |
-| TOOL-6 | 4.1 | Recipes have the name, group, and `check` membership of Section 4.2. |
-| TOOL-7 | 4.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, the environment of Section 10, or, when they run code that loads Slang, the library path assignment of SCS-32, except that a recipe that selects named tests and must fail on an empty selection adds its filter and `--no-tests=fail`, and `test-static` adds `-p slang-compiler-sys`, removes `VULKAN_SDK` and the loader path variables, sets `CARGO_TARGET_DIR=target/static`, and passes `--no-tests=fail`. |
-| TOOL-8 | 4.1 | `check` passes in the container without a hardware GPU or a display. |
-| TOOL-9 | 4.1 | No recipe for a tool before the image provides it. |
-| TOOL-10 | 5 | The profiles `default`, `gpu`, and `hw-gpu` select tests by whole module path segments, and each profile other than `default` sets its own filter. |
-| TOOL-11 | 5 | No profile retries a failed test. |
-| TOOL-12 | 5 | The test recipes pass when their profile selects no test, through `--no-tests=warn`. |
-| TOOL-13 | 6 | Commit hooks run only checks that do not compile the workspace. |
-| TOOL-14 | 7.1 | Custom checkers follow the output and exit status conventions of `scripts/check-prose`, except that a checker whose required input is missing exits with status 2 before it checks any file. |
-| TOOL-15 | 7.1 | Each custom checker has a self-test recipe in `check` that runs it on accepted and rejected inputs stored under a name that no tool reads. |
-| TOOL-16 | 7.2 | The comment checker reads Rust tokens and ignores literals. |
-| TOOL-17 | 7.7 | Landing a checker moves its rule to enforced in every document in the same change. |
-| TOOL-18 | 8.1 | Workflows run every check through a recipe. |
-| TOOL-19 | 8.2 | Workflow tokens are read-only by default, with extra permissions per job. |
-| TOOL-20 | 8.2 | Every action is pinned by a full commit SHA. |
-| TOOL-21 | 8.2 | Every download, and every file restored from a cache, is verified against a published SHA-256 checksum before use, and installer actions verify each download and do not fall back. |
-| TOOL-22 | 8.2 | No workflow uses `pull_request_target`, reads a secret, or publishes. |
-| TOOL-23 | 8.3 | The SDK step reads the pin, verifies the download, sets `VULKAN_SDK`, and makes Slang findable. |
-| TOOL-24 | 9 | The licence allow-list starts with `GPL-3.0-or-later` and grows only with a dependency. |
-| TOOL-25 | 9 | Path dependencies between members carry a version, and `bans.allow-wildcard-paths` is `false`. |
-| TOOL-26 | 9 | Advisories, duplicates, and other sources fail cargo-deny, with exceptions only per item and with a reason. |
-| TOOL-27 | 10 | Published crates carry the full metadata, and unpublished members set `publish = false`. |
-| TOOL-28 | 11 | Image changes happen in slang-rs-env, and the first change after a rebuild that adds or removes a tool updates the documents. |
-| TOOL-29 | 11 | The image provides the tools of Section 4.8, the nightly toolchain with Miri, llvm-tools, GitHub's SSH host keys, the SDK library path for every process, and git, CMake, Ninja, and a C++17 compiler for the static route. |
-| TOOL-30 | 4.1 | `taplo.toml` sets four-space indentation and excludes `target/` and `.worktrees/`, and `typos.toml` accepts the correct words that typos reports. |
-| TOOL-31 | 9 | `deny.toml` denies unused licence allow-list entries and unused advisory ignores. |
+| TOOL-3 | 9 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
+| TOOL-4 | 9 | Licence, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits. |
+| TOOL-5 | 9 | `rust-version` changes only in a change whose purpose is to raise it. |
+| TOOL-6 | 3.1 | Recipes have the name, group, and `check` membership of Section 3.2. |
+| TOOL-7 | 3.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, the environment of Section 9, or, when they run code that loads Slang, the library path assignment of SCS-32, except that a recipe that selects named tests and must fail on an empty selection adds its filter and `--no-tests=fail`, and `test-static` adds `-p slang-compiler-sys`, removes `VULKAN_SDK` and the loader path variables, sets `CARGO_TARGET_DIR=target/static`, and passes `--no-tests=fail`. |
+| TOOL-8 | 3.1 | `check` passes in the container without a hardware GPU or a display. |
+| TOOL-9 | 3.1 | No recipe for a tool before the image provides it. |
+| TOOL-10 | 4 | The profiles `default`, `gpu`, and `hw-gpu` select tests by whole module path segments, and each profile other than `default` sets its own filter. |
+| TOOL-11 | 4 | No profile retries a failed test. |
+| TOOL-12 | 4 | The test recipes pass when their profile selects no test, through `--no-tests=warn`. |
+| TOOL-13 | 5 | Commit hooks run only checks that do not compile the workspace. |
+| TOOL-14 | 6.1 | Custom checkers follow the output and exit status conventions of `scripts/check-prose`, except that a checker whose required input is missing exits with status 2 before it checks any file. |
+| TOOL-15 | 6.1 | Each custom checker has a self-test recipe in `check` that runs it on accepted and rejected inputs stored under a name that no tool reads. |
+| TOOL-16 | 6.2 | The comment checker reads Rust tokens and ignores literals. |
+| TOOL-17 | 6.7 | Landing a checker moves its rule to enforced in every document in the same change. |
+| TOOL-18 | 7.1 | Workflows run every check through a recipe. |
+| TOOL-19 | 7.2 | Workflow tokens are read-only by default, with extra permissions per job. |
+| TOOL-20 | 7.2 | Every action is pinned by a full commit SHA. |
+| TOOL-21 | 7.2 | Every download, and every file restored from a cache, is verified against a published SHA-256 checksum before use, and installer actions verify each download and do not fall back. |
+| TOOL-22 | 7.2 | No workflow uses `pull_request_target`, reads a secret, or publishes. |
+| TOOL-23 | 7.3 | The SDK step reads the pin, verifies the download, sets `VULKAN_SDK`, and makes Slang findable. |
+| TOOL-24 | 8 | The licence allow-list starts with `GPL-3.0-or-later` and grows only with a dependency. |
+| TOOL-25 | 8 | Path dependencies between members carry a version, and `bans.allow-wildcard-paths` is `false`. |
+| TOOL-26 | 8 | Advisories, duplicates, and other sources fail cargo-deny, with exceptions only per item and with a reason. |
+| TOOL-27 | 9 | Published crates carry the full metadata, and unpublished members set `publish = false`. |
+| TOOL-28 | 10 | Image changes happen in slang-rs-env, and the first change after a rebuild that adds or removes a tool updates the documents. |
+| TOOL-29 | 10 | The image provides the tools of Section 4.8, the nightly toolchain with Miri, llvm-tools, GitHub's SSH host keys, the SDK library path for every process, and git, CMake, Ninja, and a C++17 compiler for the static route. |
+| TOOL-30 | 3.1 | `taplo.toml` sets four-space indentation and excludes `target/` and `.worktrees/`, and `typos.toml` accepts the correct words that typos reports. |
+| TOOL-31 | 8 | `deny.toml` denies unused licence allow-list entries and unused advisory ignores. |
