@@ -17,8 +17,8 @@ use crate::error::{Error, ErrorKind, Result};
 
 const LOAD: &str = "load a Slang module";
 
-/// The layout snapshot of one kernel, the owned facts of Section 7.1 of
-/// `docs/design/slango.md` from which the backend builds its layouts.
+/// The layout snapshot of one kernel, the owned facts from which the
+/// backend builds its layouts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct KernelLayout {
     pub(crate) name: String,
@@ -86,8 +86,7 @@ pub(crate) enum Access {
 }
 
 /// The element type of a structured buffer, which the check of a bound
-/// buffer compares with the element type of the buffer (SLM-5 of
-/// `docs/design/slango-macros.md`).
+/// buffer compares with the element type of the buffer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ElementType {
     /// A scalar or a vector of `bool`, `int`, `uint`, or `float`, with its
@@ -210,22 +209,21 @@ pub(crate) enum RenderStage {
 }
 
 /// The layout snapshot of one vertex or fragment entry point, the owned facts
-/// of Section 7.4 of `docs/design/slango.md` from which a render pipeline
-/// builds its layouts.
+/// from which a render pipeline builds its layouts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RenderLayout {
     /// The bindings of the entry point, ordered by set and binding, each
     /// with the usage of this entry point.
     pub(crate) bindings: Vec<Binding>,
     /// The `uniform` parameters of the entry point, which a render pipeline
-    /// rejects (SLO-23), when it has any.
+    /// rejects, when it has any.
     pub(crate) immediates: Option<UniformBlock>,
     /// The vertex attributes, ordered as the walk visits them, which is
     /// empty for a fragment entry point.
     pub(crate) attributes: Vec<Attribute>,
 }
 
-/// One vertex attribute of a vertex entry point (SLO-21).
+/// One vertex attribute of a vertex entry point.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Attribute {
     pub(crate) path: String,
@@ -247,8 +245,7 @@ pub(crate) struct Offsets {
     pub(crate) location: u64,
 }
 
-/// The running sums of a walk at one variable (Sections 3.3 and 7.4 of
-/// `docs/design/slango.md`).
+/// The running sums of a walk at one variable.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Position {
     pub(crate) set: u64,
@@ -380,7 +377,7 @@ impl Role {
 ///
 /// A failure that belongs to one kernel fails the compilation. A failure that
 /// belongs to one vertex or fragment entry point, in its metadata, its walk,
-/// or its SPIR-V, becomes the rejection of its record (SLO-20).
+/// or its SPIR-V, becomes the rejection of its record.
 pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
     let (program, target, dependencies) = link(source)?;
     let layout = program.layout(target).map_err(Error::compile)?.into_value();
@@ -471,8 +468,8 @@ fn role_of(entry_point: EntryPointLayout<'_>) -> Result<Option<Role>> {
 }
 
 /// Returns the name of an entry point, or `None` for a vertex or fragment
-/// entry point whose name Slang cannot report, which the load skips
-/// (Section 7.4 of `docs/design/slango.md`), and fails for such a kernel.
+/// entry point whose name Slang cannot report, which the load skips, and
+/// fails for such a kernel.
 fn entry_point_name(entry_point: EntryPointLayout<'_>, role: Role) -> Result<Option<String>> {
     let name = entry_point.name().map_err(Error::compile);
     if !matches!(role, Role::Kernel) {
@@ -881,8 +878,8 @@ impl Walk<'_> {
         }
     }
 
-    /// Records a `Texture2D` with a `float` result, the one texture of the
-    /// supported set of Section 8.1 of `docs/design/slango.md`.
+    /// Records a `Texture2D` with a `float` result, the one texture that the
+    /// crate supports.
     fn texture(&mut self, ty: Type<'_>, path: &str, here: Position) -> Result<()> {
         let shape = ty.resource_shape();
         let flags = [
@@ -923,8 +920,7 @@ impl Walk<'_> {
     }
 
     /// Records the vertex attributes of `variable`, a parameter of a vertex
-    /// entry point or a field of one, by the rules of Section 7.4 of
-    /// `docs/design/slango.md`.
+    /// entry point or a field of one.
     fn attribute(
         &mut self,
         variable: VariableLayout<'_>,

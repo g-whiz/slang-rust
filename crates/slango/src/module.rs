@@ -135,7 +135,7 @@ impl Module {
     ///   colour format, or when `instance_attributes` names no vertex
     ///   attribute of the vertex entry point.
     /// - [`ErrorKind::UnsupportedParameter`] when either entry point has a
-    ///   parameter of a kind that this version does not support, or
+    ///   parameter of a kind that this crate does not support, or
     ///   `uniform` parameters of its own, which a render pipeline does not
     ///   accept.
     /// - [`ErrorKind::Compile`] when Slang failed on either entry point while
@@ -203,7 +203,7 @@ impl Device {
     /// - [`ErrorKind::Compile`] when Slang cannot compile the module. The
     ///   source error is the error of `slang-compiler` with Slang's messages.
     /// - [`ErrorKind::UnsupportedParameter`] when a kernel has a parameter of
-    ///   a kind that this version does not support, such as a storage
+    ///   a kind that this crate does not support, such as a storage
     ///   texture.
     /// - [`ErrorKind::MissingFeature`] when a kernel has `uniform` parameters
     ///   of its entry point and the device lacks the immediates feature or

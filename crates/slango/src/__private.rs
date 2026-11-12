@@ -4,7 +4,7 @@
 //! This module is not part of the API of this crate. Its items change with
 //! every version of the crate, without notice, and `slango-codegen` requires
 //! this crate at exactly its own version, so no other code can depend on
-//! them (SLM-6 of `docs/design/slango-macros.md`).
+//! them.
 
 use std::path::Path;
 
@@ -20,8 +20,8 @@ pub use interface::{
     Scalar, Shape, Structure, UniformStructure, ValueType, slang_type,
 };
 
-/// The version of the encoding of a layout snapshot that this version of the
-/// crate writes and reads.
+/// The version of the encoding of a layout snapshot that this crate writes
+/// and reads.
 ///
 /// The version changes whenever the bytes of the encoding, or the meaning of
 /// any of them, change. Generated code asserts at compile time that it
@@ -120,7 +120,7 @@ pub struct Precompiled {
 /// - [`ErrorKind::Compile`](crate::ErrorKind::Compile) when Slang cannot
 ///   compile the module.
 /// - [`ErrorKind::UnsupportedParameter`](crate::ErrorKind::UnsupportedParameter)
-///   when a kernel has a parameter of a kind that this version does not
+///   when a kernel has a parameter of a kind that this crate does not
 ///   support, or the snapshot is too large for the encoding.
 pub fn precompile_file(path: &Path) -> Result<Precompiled> {
     let compilation = module::compile_file(path)?;

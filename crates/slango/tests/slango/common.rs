@@ -179,8 +179,8 @@ pub(crate) fn render_pipeline(
         .expect("the render pipeline")
 }
 
-/// Returns the pipeline of the usage illustration of Section 5.4 of
-/// `docs/design/slango.md`, from the shader file `quad.slang`.
+/// Returns the pipeline of the drawing example of the crate documentation,
+/// from the shader file `quad.slang`.
 pub(crate) fn quad_pipeline(device: &Device) -> RenderPipeline {
     device
         .load_module(shader("quad.slang"))

@@ -8,9 +8,8 @@ use crate::common::{
     device_with, load, pixel_at, quad_pipeline, render_pipeline, sampler, shader,
 };
 
-/// The program of the usage illustration of Section 5.4 of
-/// `docs/design/slango.md`, as written there, with the shader file of the
-/// tests.
+/// The program of the drawing example of the crate documentation, with the
+/// shader file of the tests.
 fn illustration() -> slango::Result<()> {
     let device = Device::new(&DeviceOptions::default())?;
     let module = device.load_module(shader("quad.slang"))?;

@@ -598,7 +598,7 @@ fn shader_module(
 /// Returns the kind of the error when wgpu raises `error` while it creates
 /// the render pipeline itself: a validation error reports a mismatch between
 /// the two stages, such as of their varyings, which only a change of the
-/// shader fixes (Section 10 of `docs/design/slango.md`).
+/// shader fixes.
 fn render_pipeline_error_kind(error: &::wgpu::Error) -> ErrorKind {
     match error {
         ::wgpu::Error::Internal { .. } | ::wgpu::Error::Validation { .. } => {

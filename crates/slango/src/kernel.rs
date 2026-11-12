@@ -216,8 +216,7 @@ pub(crate) fn layout_entries(
         .collect()
 }
 
-/// Returns the wgpu binding type of a resource, by the mapping of Sections
-/// 3.3 and 3.9 of `docs/design/slango.md`.
+/// Returns the wgpu binding type of a resource.
 fn binding_type(resource: &Resource) -> ::wgpu::BindingType {
     let buffer = |ty, size| ::wgpu::BindingType::Buffer {
         ty,

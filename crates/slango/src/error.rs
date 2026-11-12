@@ -138,7 +138,7 @@ pub enum ErrorKind {
     /// the construct to avoid.
     UnsupportedShader,
     /// A kernel or an entry point of a render pipeline has a parameter of a
-    /// kind that this version does not support, such as a storage texture
+    /// kind that this crate does not support, such as a storage texture
     /// or a `ByteAddressBuffer`, or `uniform` parameters of the entry point
     /// of a render pipeline, or Slang reports a layout that this crate
     /// cannot use, such as two different layouts for one binding of the two

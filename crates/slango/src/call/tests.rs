@@ -58,9 +58,9 @@ fn uniform(path: &str, set: u32, index: u32, usage: Usage, block: UniformBlock) 
     }
 }
 
-/// The layout of the kernel `scale` of Section 5.2 of
-/// `docs/design/slango.md`, with an unused buffer at set 0, binding 2, a
-/// float4 buffer in a parameter block at set 2, and an `int` immediate.
+/// The layout of the kernel `scale` of the crate documentation, with an
+/// unused buffer at set 0, binding 2, a float4 buffer in a parameter block
+/// at set 2, and an `int` immediate.
 fn layout() -> KernelLayout {
     KernelLayout {
         name: "scale".to_owned(),

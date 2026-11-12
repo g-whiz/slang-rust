@@ -526,10 +526,11 @@ fn outside(path: &str, what: &str) -> Error {
 /// be bound to a structured buffer whose elements have the type `element`,
 /// and otherwise the Slang name of `element`, such as `float4`.
 ///
-/// A scalar or a vector matches only the Rust type of the same scalar type
-/// and number of components, and any other element type, a structure
-/// included, matches every Rust type, because the check of the stride alone
-/// covers it (SLM-5 of `docs/design/slango-macros.md`).
+/// A scalar or a vector of `bool`, `int`, `uint`, or `float` matches only
+/// the Rust type of the same scalar type and number of components. A scalar
+/// or a vector of another scalar type, such as `half2`, matches no Rust
+/// type. A structure or any other element type matches every Rust type,
+/// because the check of the stride alone covers it.
 pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<String> {
     match element {
         ElementType::Plain { scalar, components } => {

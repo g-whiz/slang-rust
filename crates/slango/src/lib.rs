@@ -215,7 +215,7 @@
 //!
 //! # Limits
 //!
-//! This version has these limits:
+//! The crate has these limits:
 //!
 //! - It runs the compute, vertex, and fragment entry points that a module
 //!   declares, and generates no shader of its own.

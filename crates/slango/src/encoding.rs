@@ -22,11 +22,10 @@ const MAX_SET: u32 = 255;
 const ENCODE: &str = "encode a layout snapshot";
 const DECODE: &str = "load a precompiled module";
 
-/// Encodes a snapshot as the private, versioned byte string of SLM-7 of
-/// `docs/design/slango-macros.md`: [`MAGIC`], [`ENCODING_VERSION`] as a
-/// little-endian `u32`, and the records of the snapshot, each integer
-/// little-endian, each count and byte length a `u32`, and each enumeration a
-/// tag byte.
+/// Encodes a snapshot as a private, versioned byte string: [`MAGIC`],
+/// [`ENCODING_VERSION`] as a little-endian `u32`, and the records of the
+/// snapshot, each integer little-endian, each count and byte length a `u32`,
+/// and each enumeration a tag byte.
 pub(crate) fn encode(compiled: &Compiled) -> Result<Vec<u8>> {
     let mut writer = Writer {
         bytes: MAGIC.to_vec(),
