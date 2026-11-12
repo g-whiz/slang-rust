@@ -281,6 +281,14 @@ fn directive_safe_path(value: &OsStr) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn path_problem(name: &str, value: Option<&OsStr>) -> String {
+    let shown = value.map_or_else(
+        || "not set".to_owned(),
+        |value| format!("\"{}\"", value.to_string_lossy().escape_debug()),
+    );
+    format!("{name} is {shown}, which is not an absolute path in UTF-8 without line breaks")
+}
+
 fn library_file(target_os: &str) -> Option<&'static str> {
     match target_os {
         "linux" => Some("libslang-compiler.so"),
@@ -299,8 +307,8 @@ fn sdk_dir(value: Option<OsString>) -> Result<PathBuf, BuildError> {
     }
     directive_safe_path(&value).ok_or_else(|| {
         BuildError(format!(
-            "{VULKAN_SDK} is \"{}\", which is not an absolute path in UTF-8 without line breaks, so the build cannot check the Slang that it names and pass its library to the linker. {}.",
-            value.to_string_lossy().escape_debug(),
+            "{}, so the build cannot check the Slang that it names and pass its library to the linker. {}.",
+            path_problem(VULKAN_SDK, Some(&value)),
             sdk_advice()
         ))
     })
@@ -437,8 +445,8 @@ fn source_dir(value: &OsStr) -> Result<PathBuf, BuildError> {
     }
     directive_safe_path(value).ok_or_else(|| {
         BuildError(format!(
-            "{SLANG_SOURCE_DIR} is \"{}\", which is not an absolute path in UTF-8 without line breaks, so the build cannot check the Slang source tree that it names and build it. {}.",
-            value.to_string_lossy().escape_debug(),
+            "{}, so the build cannot check the Slang source tree that it names and build it. {}.",
+            path_problem(SLANG_SOURCE_DIR, Some(value)),
             source_advice()
         ))
     })
@@ -447,11 +455,8 @@ fn source_dir(value: &OsStr) -> Result<PathBuf, BuildError> {
 fn out_dir(value: Option<&OsStr>) -> Result<PathBuf, BuildError> {
     value.and_then(directive_safe_path).ok_or_else(|| {
         BuildError(format!(
-            "{OUT_DIR} is {}, which is not an absolute path in UTF-8 without line breaks, so the build has no directory in which to build Slang from source. Cargo sets {OUT_DIR} for every build script, so build slang-compiler-sys through Cargo, with a target directory whose path is UTF-8.",
-            value.map_or_else(
-                || "not set".to_owned(),
-                |value| format!("\"{}\"", value.to_string_lossy().escape_debug())
-            )
+            "{}, so the build has no directory in which to build Slang from source. Cargo sets {OUT_DIR} for every build script, so build slang-compiler-sys through Cargo, with a target directory whose path is UTF-8.",
+            path_problem(OUT_DIR, value)
         ))
     })
 }
@@ -475,7 +480,8 @@ fn static_platform(host: &impl Host) -> Result<Platform, BuildError> {
     let host_triple = required(HOST)?;
     if target != host_triple {
         return Err(BuildError(format!(
-            "the target {target} differs from the host {host_triple}, and the build of Slang from source that {SLANG_SOURCE_DIR} selects cannot cross-compile, because Slang's build runs programs that it builds for the target. Build on a host of the target, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names."
+            "the target {target} differs from the host {host_triple}, and the build of Slang from source that {SLANG_SOURCE_DIR} selects cannot cross-compile, because Slang's build runs programs that it builds for the target. Build on a host of the target, or {}.",
+            dynamic_fallback()
         )));
     }
     let crt_static = text(TARGET_FEATURE)
@@ -505,7 +511,8 @@ fn static_platform(host: &impl Host) -> Result<Platform, BuildError> {
             )],
         }),
         _ => Err(BuildError(format!(
-            "the build of Slang from source that {SLANG_SOURCE_DIR} selects supports Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain, and the target {target} is none of these. Build for one of them, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names."
+            "the build of Slang from source that {SLANG_SOURCE_DIR} selects supports Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain, and the target {target} is none of these. Build for one of them, or {}.",
+            dynamic_fallback()
         ))),
     }
 }
@@ -796,8 +803,9 @@ fn start_error(invocation: &Invocation, source: Option<&Path>, error: &io::Error
         format!(" from the source tree at {}", source.display())
     });
     BuildError(format!(
-        "cannot start {} for `{invocation}`: {error}. The build of Slang from source that {SLANG_SOURCE_DIR} selects needs git, CMake 3.22 or later, and Ninja on PATH to build Slang{place}. Install the missing program, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names.",
-        invocation.program
+        "cannot start {} for `{invocation}`: {error}. The build of Slang from source that {SLANG_SOURCE_DIR} selects needs git, CMake 3.22 or later, and Ninja on PATH to build Slang{place}. Install the missing program, or {}.",
+        invocation.program,
+        dynamic_fallback()
     ))
 }
 
@@ -838,7 +846,14 @@ fn remove_if_present(host: &impl Host, path: &Path) -> Result<(), BuildError> {
 
 fn source_advice() -> String {
     format!(
-        "Set {SLANG_SOURCE_DIR} to the absolute path of the top-level directory of a git clone of Slang at the commit {SLANG_COMMIT} with its submodules, such as one made with `git clone --recursive https://github.com/shader-slang/slang`, `git checkout {SLANG_COMMIT}`, and `git submodule update --init --recursive`, or unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names"
+        "Set {SLANG_SOURCE_DIR} to the absolute path of the top-level directory of a git clone of Slang at the commit {SLANG_COMMIT} with its submodules, such as one made with `git clone --recursive https://github.com/shader-slang/slang`, `git checkout {SLANG_COMMIT}`, and `git submodule update --init --recursive`, or {}",
+        dynamic_fallback()
+    )
+}
+
+fn dynamic_fallback() -> String {
+    format!(
+        "unset {SLANG_SOURCE_DIR} to link the Slang of the Vulkan SDK {VULKAN_SDK_VERSION} that {VULKAN_SDK} names"
     )
 }
 
