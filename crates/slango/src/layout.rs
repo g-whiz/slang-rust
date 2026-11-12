@@ -362,6 +362,50 @@ impl Role {
 /// belongs to one vertex or fragment entry point, in its metadata, its walk,
 /// or its SPIR-V, becomes the rejection of its record (SLO-20).
 pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
+    let (program, target, dependencies) = link(source)?;
+    let layout = program.layout(target).map_err(Error::compile)?.into_value();
+    let mut compiled = Compiled {
+        kernels: Vec::new(),
+        render: Vec::new(),
+    };
+    for (index, entry_point) in layout.entry_point_layouts().enumerate() {
+        let Some(role) = role_of(entry_point)? else {
+            continue;
+        };
+        let Some(name) = entry_point_name(entry_point, role)? else {
+            continue;
+        };
+        let at = LinkedEntryPoint {
+            program: &program,
+            layout,
+            entry_point,
+            index,
+            target,
+        };
+        match role {
+            Role::Kernel => compiled.kernels.push(kernel_record(&at, name)?),
+            Role::Vertex | Role::Fragment => compiled.render.push(render_entry(&at, name, role)),
+        }
+    }
+    Ok(Compilation {
+        compiled,
+        dependencies,
+    })
+}
+
+/// One entry point of a linked program, with what its records read.
+struct LinkedEntryPoint<'p> {
+    program: &'p LinkedProgram,
+    layout: ProgramLayout<'p>,
+    entry_point: EntryPointLayout<'p>,
+    index: usize,
+    target: TargetIndex,
+}
+
+/// Compiles, composes, and links the module of `source` with all its entry
+/// points, and returns the program, its one target, and the paths of the
+/// files that Slang read.
+fn link(source: &Source<'_>) -> Result<(LinkedProgram, TargetIndex, Vec<String>)> {
     let global = GlobalSession::new().map_err(Error::compile)?;
     let mut options = CompilerOptions::default();
     options.vulkan_use_entry_point_name(Toggle::On);
@@ -391,73 +435,79 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
         .link()
         .map_err(Error::compile)?
         .into_value();
-    let layout = program.layout(target).map_err(Error::compile)?.into_value();
     let dependencies = dependencies(&module)?;
-    let mut compiled = Compiled {
-        kernels: Vec::new(),
-        render: Vec::new(),
-    };
-    for (index, entry_point) in layout.entry_point_layouts().enumerate() {
-        let role = match entry_point.stage().map_err(Error::compile)? {
-            Some(Stage::Compute) => Role::Kernel,
-            Some(Stage::Vertex) => Role::Vertex,
-            Some(Stage::Fragment) => Role::Fragment,
-            _ => continue,
-        };
-        let name = match entry_point.name().map_err(Error::compile) {
-            Ok(Some(name)) => name.to_owned(),
-            Ok(None) | Err(_) if !matches!(role, Role::Kernel) => continue,
-            Ok(None) => {
-                return Err(Error::new(ErrorKind::Compile, LOAD)
-                    .with_detail("Slang reports no name for an entry point".to_owned()));
-            }
-            Err(error) => return Err(error),
-        };
-        let metadata = program
-            .entry_point_metadata(index, target)
-            .map_err(Error::compile)
-            .map(slang_compiler::Compiled::into_value);
-        match role {
-            Role::Kernel => {
-                let metadata = metadata?;
-                let walk = walk(layout, entry_point, &metadata, &name, role)?;
-                let [x, y, z] = entry_point.compute_thread_group_size();
-                let thread_group_size = [
-                    walk.narrow(x, "", "a thread group size")?,
-                    walk.narrow(y, "", "a thread group size")?,
-                    walk.narrow(z, "", "a thread group size")?,
-                ];
-                let spirv = spirv(&program, index, target, &name)?;
-                compiled.kernels.push(CompiledKernel {
-                    layout: KernelLayout {
-                        thread_group_size,
-                        bindings: walk.bindings,
-                        immediates: walk.immediates,
-                        structures: walk.structures,
-                        name,
-                    },
-                    spirv,
-                });
-            }
-            Role::Vertex | Role::Fragment => {
-                let render_layout = metadata.and_then(|metadata| {
-                    walk(layout, entry_point, &metadata, &name, role).map(|walk| RenderLayout {
-                        bindings: walk.bindings,
-                        immediates: walk.immediates,
-                        attributes: walk.attributes,
-                    })
-                });
-                let spirv = spirv(&program, index, target, &name);
-                compiled
-                    .render
-                    .push(render_record(name, role, render_layout, spirv));
-            }
-        }
-    }
-    Ok(Compilation {
-        compiled,
-        dependencies,
+    Ok((program, target, dependencies))
+}
+
+/// Returns the role of an entry point by its stage, or `None` for a stage
+/// that the load ignores.
+fn role_of(entry_point: EntryPointLayout<'_>) -> Result<Option<Role>> {
+    Ok(match entry_point.stage().map_err(Error::compile)? {
+        Some(Stage::Compute) => Some(Role::Kernel),
+        Some(Stage::Vertex) => Some(Role::Vertex),
+        Some(Stage::Fragment) => Some(Role::Fragment),
+        _ => None,
     })
+}
+
+/// Returns the name of an entry point, or `None` for a vertex or fragment
+/// entry point whose name Slang cannot report, which the load skips
+/// (Section 7.4 of `docs/design/slango.md`), and fails for such a kernel.
+fn entry_point_name(entry_point: EntryPointLayout<'_>, role: Role) -> Result<Option<String>> {
+    let name = entry_point.name().map_err(Error::compile);
+    if !matches!(role, Role::Kernel) {
+        return Ok(name.ok().flatten().map(str::to_owned));
+    }
+    match name? {
+        Some(name) => Ok(Some(name.to_owned())),
+        None => Err(Error::new(ErrorKind::Compile, LOAD)
+            .with_detail("Slang reports no name for an entry point".to_owned())),
+    }
+}
+
+/// Returns the metadata of the entry point `at`.
+fn metadata(at: &LinkedEntryPoint<'_>) -> Result<Metadata> {
+    at.program
+        .entry_point_metadata(at.index, at.target)
+        .map_err(Error::compile)
+        .map(slang_compiler::Compiled::into_value)
+}
+
+/// Returns the record of the kernel `at`, whose name is `name`.
+fn kernel_record(at: &LinkedEntryPoint<'_>, name: String) -> Result<CompiledKernel> {
+    let metadata = metadata(at)?;
+    let walk = walk(at.layout, at.entry_point, &metadata, &name, Role::Kernel)?;
+    let [x, y, z] = at.entry_point.compute_thread_group_size();
+    let thread_group_size = [
+        walk.narrow(x, "", "a thread group size")?,
+        walk.narrow(y, "", "a thread group size")?,
+        walk.narrow(z, "", "a thread group size")?,
+    ];
+    let spirv = spirv(at.program, at.index, at.target, &name)?;
+    Ok(CompiledKernel {
+        layout: KernelLayout {
+            thread_group_size,
+            bindings: walk.bindings,
+            immediates: walk.immediates,
+            structures: walk.structures,
+            name,
+        },
+        spirv,
+    })
+}
+
+/// Returns the record of the vertex or fragment entry point `at`, whose
+/// name is `name`, with the first failure as its rejection.
+fn render_entry(at: &LinkedEntryPoint<'_>, name: String, role: Role) -> CompiledRender {
+    let layout = metadata(at).and_then(|metadata| {
+        walk(at.layout, at.entry_point, &metadata, &name, role).map(|walk| RenderLayout {
+            bindings: walk.bindings,
+            immediates: walk.immediates,
+            attributes: walk.attributes,
+        })
+    });
+    let spirv = spirv(at.program, at.index, at.target, &name);
+    render_record(name, role, layout, spirv)
 }
 
 /// Returns the paths of the files that Slang read to compile `module`.
