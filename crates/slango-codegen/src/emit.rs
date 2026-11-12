@@ -172,7 +172,7 @@ fn kernel_items(
             arguments.push(argument);
             field
         };
-        let what = format!("the parameter `{path}` of the kernel `{name}`");
+        let what = parameter_description(name, path);
         let access = rest
             .split('.')
             .map(|part| ident(&snake_case(part), &what))
@@ -302,10 +302,7 @@ fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Ar
         ),
     };
     Ok(Argument {
-        name: scope.take(
-            snake_case(path),
-            format!("the parameter `{path}` of the kernel `{kernel}`"),
-        )?,
+        name: argument_name(kernel, path, scope)?,
         ty,
         doc,
         borrows,
@@ -331,16 +328,24 @@ fn structure_argument(
 ) -> Result<Argument> {
     let UniformStructure { path, name } = structure;
     Ok(Argument {
-        name: scope.take(
-            snake_case(path),
-            format!("the parameter `{path}` of the kernel `{kernel}`"),
-        )?,
+        name: argument_name(kernel, path, scope)?,
         ty: structs::struct_type(name)?,
         doc: format!(
             " The value of the parameter `{path}`, whose fields the call sets one by one."
         ),
         borrows: false,
     })
+}
+
+/// Returns the field of the arguments of a kernel for the parameter at
+/// `path`, named in `scope`.
+fn argument_name(kernel: &str, path: &str, scope: &mut Scope) -> Result<Ident> {
+    scope.take(snake_case(path), parameter_description(kernel, path))
+}
+
+/// Returns the text that names the parameter at `path` in an error.
+fn parameter_description(kernel: &str, path: &str) -> String {
+    format!("the parameter `{path}` of the kernel `{kernel}`")
 }
 
 /// Returns the path of a field inside the value at `outer` relative to
