@@ -754,10 +754,8 @@ impl<'a> Emitter<'a> {
                 format!("[{}; {len}]", self.zero_expr(element, location)?)
             }
             Ty::Named(name) => {
-                let Some(item) = self.validator.included(name) else {
-                    return Err(internal(location, "a field has an excluded type by value"));
-                };
-                let rust = rust_name_of(item)?;
+                let (item, rust) =
+                    self.included_type(name, location, "a field has an excluded type by value")?;
                 match &item.kind {
                     ItemKind::Typedef(_) if self.validator.is_result_type(name) => {
                         format!("{rust}(0)")
@@ -765,20 +763,7 @@ impl<'a> Emitter<'a> {
                     ItemKind::Typedef(inner) => self.zero_expr(inner, location)?,
                     ItemKind::Enum(_) => format!("{rust}(0)"),
                     ItemKind::Record(record) if has_default(record) => format!("{rust}::default()"),
-                    ItemKind::Record(record) => {
-                        let names = field_names(&record.fields);
-                        let mut fields = Vec::new();
-                        for (field, field_name) in record.fields.iter().zip(names) {
-                            fields.push(format!(
-                                "{field_name}: {}",
-                                self.zero_expr(&field.ty, location)?
-                            ));
-                            if record.union {
-                                break;
-                            }
-                        }
-                        format!("{rust} {{ {} }}", fields.join(", "))
-                    }
+                    ItemKind::Record(record) => self.zero_record(&rust, record, location)?,
                     _ => {
                         return Err(internal(
                             location,
@@ -796,6 +781,38 @@ impl<'a> Emitter<'a> {
         })
     }
 
+    fn zero_record(
+        &mut self,
+        rust: &str,
+        record: &'a Record,
+        location: &Location,
+    ) -> Result<String> {
+        let names = field_names(&record.fields);
+        let mut fields = Vec::new();
+        for (field, field_name) in record.fields.iter().zip(names) {
+            fields.push(format!(
+                "{field_name}: {}",
+                self.zero_expr(&field.ty, location)?
+            ));
+            if record.union {
+                break;
+            }
+        }
+        Ok(format!("{rust} {{ {} }}", fields.join(", ")))
+    }
+
+    fn included_type(
+        &self,
+        name: &str,
+        location: &Location,
+        message: &str,
+    ) -> Result<(&'a Item, String)> {
+        let Some(item) = self.validator.included(name) else {
+            return Err(internal(location, message));
+        };
+        Ok((item, rust_name_of(item)?))
+    }
+
     fn value_expr(&mut self, ty: &'a Ty, value: Value, location: &Location) -> Result<String> {
         let integer = match value {
             Value::Integer(integer) => integer,
@@ -803,10 +820,8 @@ impl<'a> Emitter<'a> {
         };
         Ok(match ty {
             Ty::Named(name) => {
-                let Some(item) = self.validator.included(name) else {
-                    return Err(internal(location, "a value has an excluded type"));
-                };
-                let rust = rust_name_of(item)?;
+                let (item, rust) =
+                    self.included_type(name, location, "a value has an excluded type")?;
                 match &item.kind {
                     ItemKind::Typedef(_) if self.validator.is_result_type(name) => {
                         format!("{rust}({})", int_literal(integer))
