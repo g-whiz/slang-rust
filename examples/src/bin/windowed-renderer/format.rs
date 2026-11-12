@@ -1,5 +1,5 @@
 //! The choice of the colour format of the surface of the example
-//! `windowed-renderer`, which the tests of the examples also compile.
+//! `windowed-renderer`.
 
 use slango::TextureFormat;
 

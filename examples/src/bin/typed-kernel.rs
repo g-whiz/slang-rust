@@ -20,13 +20,6 @@
 //! error, it prints the error and each error that caused it on standard
 //! error and exits with a failure status.
 //!
-//! Without the Slang library, as on docs.rs, the macro generates only an
-//! empty `Shader`. The code therefore names the other generated items only
-//! inside the body of a function, which the documentation build does not
-//! resolve, so `just check-doc-without-slang` documents the example. A
-//! `use` declaration or the signature of a function that names such an item
-//! fails that build.
-//!
 //! Run it from the root of the workspace:
 //!
 //! ```sh

@@ -1,6 +1,5 @@
 //! The scene of the example `shader-playground`, which draws into a view of
-//! `slang-slint` and needs no window, so that the tests of the examples draw
-//! it offscreen with the same code as the window.
+//! `slang-slint` and needs no window.
 
 use std::error::Error;
 use std::path::Path;

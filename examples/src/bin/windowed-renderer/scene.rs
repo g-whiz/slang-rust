@@ -1,6 +1,5 @@
 //! The scene of the example `windowed-renderer`, which draws into any
-//! [`Texture`] and needs no window, so that the tests of the examples draw it
-//! offscreen with the same code as the window.
+//! [`Texture`] and needs no window.
 
 use std::path::Path;
 

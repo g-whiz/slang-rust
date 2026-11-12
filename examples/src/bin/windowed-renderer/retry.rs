@@ -1,6 +1,5 @@
 //! The retry of a frame for which the surface of the example
-//! `windowed-renderer` gave no texture, which the tests of the examples also
-//! compile.
+//! `windowed-renderer` gave no texture.
 
 use std::time::{Duration, Instant};
 

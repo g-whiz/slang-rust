@@ -36,7 +36,7 @@
 //! hidden, it exits with an error instead of waiting. The program needs a
 //! GPU driver or a software driver, such as lavapipe on Linux. Slint refuses
 //! an adapter that runs on the CPU, such as lavapipe, unless the environment
-//! variable `SLINT_WGPU_CPU` is `1`. The program loads the Slang shared
+//! variable `SLINT_WGPU_CPU` is set, for example to `1`. The program loads the Slang shared
 //! library of the Vulkan SDK when it starts, so `$VULKAN_SDK/lib` has to be
 //! on `LD_LIBRARY_PATH` on Linux or on `DYLD_LIBRARY_PATH` on macOS, and the
 //! SDK's `Bin` directory on `PATH` on Windows.
