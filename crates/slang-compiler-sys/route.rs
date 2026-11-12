@@ -771,15 +771,7 @@ fn verify_build(host: &impl Host, layout: &Layout, platform: &Platform) -> Resul
     let text = host
         .read(&header)
         .map_err(|error| layout_error(&format!("cannot read {}: {error}", header.display())))?;
-    let tag = parse_tag(&text).map_err(|error| match error {
-        TagError::Missing => {
-            layout_error(&format!("{} does not define {TAG_MACRO}", header.display()))
-        }
-        TagError::Malformed { line } => layout_error(&format!(
-            "line {line} of {} does not define {TAG_MACRO} as one string literal",
-            header.display()
-        )),
-    })?;
+    let tag = parse_tag(&text).map_err(|error| layout_error(&tag_problem(&header, &error)))?;
     if tag != SLANG_BUILD_TAG {
         return Err(BuildError(format!(
             "the Slang built from source reports the build tag {tag} in {}, but this version of slang-compiler-sys needs the build {SLANG_BUILD_TAG}, because its bindings match only that build.",
@@ -907,16 +899,20 @@ fn unreadable_header_error(path: &Path, error: &io::Error) -> BuildError {
     ))
 }
 
-fn tag_error(path: &Path, error: &TagError) -> BuildError {
-    let problem = match error {
+fn tag_problem(path: &Path, error: &TagError) -> String {
+    match error {
         TagError::Missing => format!("{} does not define {TAG_MACRO}", path.display()),
         TagError::Malformed { line } => format!(
             "line {line} of {} does not define {TAG_MACRO} as one string literal",
             path.display()
         ),
-    };
+    }
+}
+
+fn tag_error(path: &Path, error: &TagError) -> BuildError {
     BuildError(format!(
-        "{problem}, so the build cannot check that the Slang of the Vulkan SDK that {VULKAN_SDK} names is the build {SLANG_BUILD_TAG} that slang-compiler-sys needs. {}.",
+        "{}, so the build cannot check that the Slang of the Vulkan SDK that {VULKAN_SDK} names is the build {SLANG_BUILD_TAG} that slang-compiler-sys needs. {}.",
+        tag_problem(path, error),
         sdk_advice()
     ))
 }
