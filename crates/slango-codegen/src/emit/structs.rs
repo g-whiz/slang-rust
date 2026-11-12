@@ -5,9 +5,9 @@ use slango::__private::{
     UniformStructure, ValueType,
 };
 
-use super::{scalar_type, unsupported, value_type};
+use super::types::{scalar_type, struct_type, unsupported, value_type};
 use crate::error::{Error, ErrorKind, Result};
-use crate::names::{NAME, Scope, ident, snake_case};
+use crate::names::{NAME, Scope, snake_case};
 
 /// The parameter of a kernel through which the generator reaches a
 /// structure, which an error names.
@@ -645,12 +645,6 @@ fn many_arguments(count: usize) -> Option<TokenStream> {
             )]
         }
     })
-}
-
-/// Returns the Rust type of a generated struct, which keeps its Slang name.
-pub(super) fn struct_type(name: &str) -> Result<TokenStream> {
-    let ty = ident(name, &format!("the structure `{name}`"))?;
-    Ok(quote!(#ty))
 }
 
 #[cfg(test)]

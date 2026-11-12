@@ -2,15 +2,15 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use slango::__private::{
     Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    Shape, UniformStructure, ValueType,
+    UniformStructure,
 };
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::names::{Scope, ident, snake_case, upper_camel_case};
+use types::{GENERATE, scalar_type, struct_type, unsupported, value_type};
 
 mod structs;
-
-const GENERATE: &str = "generate the bindings";
+mod types;
 
 /// The items of `Shader` whose names no kernel field may take.
 const SHADER_ITEMS: [&str; 2] = ["load", "module"];
@@ -329,7 +329,7 @@ fn structure_argument(
     let UniformStructure { path, name } = structure;
     Ok(Argument {
         name: argument_name(kernel, path, scope)?,
-        ty: structs::struct_type(name)?,
+        ty: struct_type(name)?,
         doc: format!(
             " The value of the parameter `{path}`, whose fields the call sets one by one."
         ),
@@ -354,47 +354,12 @@ fn inside<'a>(path: &'a str, outer: &str) -> Option<&'a str> {
     path.strip_prefix(outer)?.strip_prefix('.')
 }
 
-fn scalar_type(scalar: Scalar) -> TokenStream {
-    match scalar {
-        Scalar::Bool => quote!(bool),
-        Scalar::Int32 => quote!(i32),
-        Scalar::Uint32 => quote!(u32),
-        Scalar::Float32 => quote!(f32),
-    }
-}
-
 fn scalar_name(scalar: Scalar) -> &'static str {
     match scalar {
         Scalar::Bool => "bool",
         Scalar::Int32 => "int",
         Scalar::Uint32 => "uint",
         Scalar::Float32 => "float",
-    }
-}
-
-fn value_type(value: &ValueType) -> TokenStream {
-    shape_type(&scalar_type(value.scalar), &value.shape)
-}
-
-fn shape_type(scalar: &TokenStream, shape: &Shape) -> TokenStream {
-    match shape {
-        Shape::Scalar => scalar.clone(),
-        Shape::Vector { length } => {
-            let length = Literal::u32_unsuffixed(*length);
-            quote!([#scalar; #length])
-        }
-        Shape::Matrix { rows, columns } => {
-            let rows = Literal::u32_unsuffixed(*rows);
-            let columns = Literal::u32_unsuffixed(*columns);
-            quote!([[#scalar; #columns]; #rows])
-        }
-        Shape::Array {
-            length, element, ..
-        } => {
-            let element = shape_type(scalar, element);
-            let length = Literal::u64_unsuffixed(*length);
-            quote!([#element; #length])
-        }
     }
 }
 
@@ -423,7 +388,7 @@ fn element_type(kernel: &str, path: &str, element: &ElementType) -> Result<Token
             }
         }
         ElementType::OtherPlain { name } => no_element(name),
-        ElementType::Structure(structure) => return structs::struct_type(&structure.name),
+        ElementType::Structure(structure) => return struct_type(&structure.name),
         ElementType::Composite => {
             "it is a structured buffer of a matrix, an array, or another composite type, which has no built-in element type in slango"
                 .to_owned()
@@ -434,12 +399,6 @@ fn element_type(kernel: &str, path: &str, element: &ElementType) -> Result<Token
 
 fn no_element(name: &str) -> String {
     format!("it is a structured buffer of `{name}`, which has no built-in element type in slango")
-}
-
-fn unsupported(kernel: &str, path: &str, reason: &str) -> Error {
-    Error::new(ErrorKind::Unsupported, GENERATE).with_detail(format!(
-        "the parameter `{path}` of the kernel `{kernel}` is not supported, because {reason}"
-    ))
 }
 
 #[cfg(test)]
