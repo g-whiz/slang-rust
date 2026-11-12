@@ -149,12 +149,20 @@
 //! ```
 //!
 //! The package `slang-rust-examples` in the repository of this crate holds
-//! three complete programs. `compile-and-reflect` compiles a Slang file and
-//! prints its entry points and parameters with `slang-compiler` alone.
-//! `compute-kernel` runs a kernel with two input buffers, an output buffer,
-//! and two `uniform` values, and checks its results against the same
-//! computation on the CPU. `windowed-renderer` draws a rotating textured
-//! quad into a window and loads its shader again whenever the file changes.
+//! five complete programs:
+//!
+//! - `compile-and-reflect` compiles a Slang file and prints its entry points
+//!   and parameters with `slang-compiler` alone.
+//! - `compute-kernel` runs a kernel with two input buffers, an output buffer,
+//!   and two `uniform` values, and checks its results against the same
+//!   computation on the CPU.
+//! - `windowed-renderer` draws a rotating textured quad into a window and
+//!   loads its shader again whenever the file changes.
+//! - `shader-playground` shows what a shader draws in a Slint window with two
+//!   sliders, through the crate `slang-slint`, and also reloads its shader.
+//! - `typed-kernel` runs a kernel through the typed bindings that the macro
+//!   `shader!` of the crate `slango-macros` generates, and checks its
+//!   results.
 //!
 //! # Parameters
 //!
