@@ -160,6 +160,13 @@ pub(crate) struct Macro {
     pub(crate) location: Location,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Evaluation {
+    pub(crate) expression: String,
+    pub(crate) location: Location,
+    pub(crate) what: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Value {
     Integer(i128),

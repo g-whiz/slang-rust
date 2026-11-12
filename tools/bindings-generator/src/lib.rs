@@ -191,13 +191,9 @@ fn generate_with(rules: &rules::RuleSet, header_dir: &Path) -> Result<Generated>
     for target in parse::TARGETS {
         let model = parse::parse(&index, target, &header_dir, rules.main_header)?;
         let mut selection = check::select(model, rules)?;
-        parse::evaluate(
-            &index,
-            target,
-            &header_dir,
-            rules.main_header,
-            &mut selection,
-        )?;
+        check::evaluate(&mut selection, |evaluations| {
+            parse::evaluate(&index, target, &header_dir, rules.main_header, evaluations)
+        })?;
         check::validate(&selection, rules, target)?;
         selections.push((target, selection));
     }

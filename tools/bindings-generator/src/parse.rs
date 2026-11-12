@@ -6,12 +6,10 @@ use clang::{
     Entity, EntityKind, EvaluationResult, Index, TranslationUnit, Type, TypeKind, Unsaved,
 };
 
-use crate::check::Selection;
-use crate::emit::put;
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Constant, Enum, Enumerator, Field, Function, Guid, Init, Interface, Item, ItemKind,
-    Macro, Method, Model, Name, Param, Prim, Record, Signature, Ty, Underlying, Value,
+    CType, Constant, Enum, Enumerator, Evaluation, Field, Function, Guid, Init, Interface, Item,
+    ItemKind, Macro, Method, Model, Name, Param, Prim, Record, Signature, Ty, Underlying, Value,
 };
 
 pub(crate) const TARGETS: [&str; 3] = [
@@ -854,83 +852,26 @@ fn value(result: &EvaluationResult) -> Option<Value> {
     }
 }
 
-struct Evaluation {
-    expression: String,
-    location: Location,
-    what: String,
-    target: Slot,
-}
-
-enum Slot {
-    Macro(usize),
-    Field(usize, usize),
-}
-
-fn evaluations(selection: &Selection) -> Result<Vec<Evaluation>> {
-    let mut evaluations = Vec::new();
-    for (position, selected) in selection.macros.iter().enumerate() {
-        evaluations.push(Evaluation {
-            expression: format!("({})", selected.name),
-            location: selected.location.clone(),
-            what: format!(
-                "macro {}, which a rule includes as {}",
-                selected.name, selected.reason
-            ),
-            target: Slot::Macro(position),
-        });
-    }
-    for (item_position, item) in selection.items.iter().enumerate() {
-        let ItemKind::Record(record) = &item.kind else {
-            continue;
-        };
-        for (field_position, field) in record.fields.iter().enumerate() {
-            if field.init != Init::Expression {
-                continue;
-            }
-            let field_name = field.name.clone().unwrap_or_default();
-            let what = format!(
-                "the default member initializer of {}::{field_name}",
-                item.name.cxx
-            );
-            if item.name.cxx.contains('(') {
-                return Err(Error::at(
-                    ErrorKind::Unsupported,
-                    &field.location,
-                    format!("cannot evaluate {what}, because the record has no name"),
-                ));
-            }
-            evaluations.push(Evaluation {
-                expression: format!("{}{{}}.{field_name}", item.name.cxx),
-                location: field.location.clone(),
-                what,
-                target: Slot::Field(item_position, field_position),
-            });
-        }
-    }
-    Ok(evaluations)
-}
-
 pub(crate) fn evaluate(
     index: &Index<'_>,
     target: &str,
     header_dir: &Path,
     main_header: &str,
-    selection: &mut Selection,
-) -> Result<()> {
-    let evaluations = evaluations(selection)?;
-    if evaluations.is_empty() {
-        return Ok(());
-    }
-    let mut source = format!("#include \"{main_header}\"\n");
-    for (position, evaluation) in evaluations.iter().enumerate() {
-        put(
-            &mut source,
-            format_args!(
-                "constexpr auto {EVALUATION_PREFIX}{position} = {};\n",
-                evaluation.expression
-            ),
-        );
-    }
+    evaluations: &[Evaluation],
+) -> Result<Vec<Value>> {
+    let source: String = std::iter::once(format!("#include \"{main_header}\"\n"))
+        .chain(
+            evaluations
+                .iter()
+                .enumerate()
+                .map(|(position, evaluation)| {
+                    format!(
+                        "constexpr auto {EVALUATION_PREFIX}{position} = {};\n",
+                        evaluation.expression
+                    )
+                }),
+        )
+        .collect();
     let path = header_dir.join(EVALUATION_FILE);
     let tu = index
         .parser(&path)
@@ -962,25 +903,20 @@ pub(crate) fn evaluate(
             *slot = child.evaluate().as_ref().and_then(value);
         }
     }
-    for (evaluation, value) in evaluations.iter().zip(values) {
-        let Some(value) = value else {
-            return Err(Error::at(
-                ErrorKind::Evaluation,
-                &evaluation.location,
-                format!(
-                    "cannot evaluate {} for target {target}: libclang returned no integer or floating-point value",
-                    evaluation.what
-                ),
-            ));
-        };
-        match evaluation.target {
-            Slot::Macro(position) => selection.macros[position].value = Some(value),
-            Slot::Field(item, field) => {
-                if let ItemKind::Record(record) = &mut selection.items[item].kind {
-                    record.fields[field].init = Init::Value(value);
-                }
-            }
-        }
-    }
-    Ok(())
+    evaluations
+        .iter()
+        .zip(values)
+        .map(|(evaluation, value)| {
+            value.ok_or_else(|| {
+                Error::at(
+                    ErrorKind::Evaluation,
+                    &evaluation.location,
+                    format!(
+                        "cannot evaluate {} for target {target}: libclang returned no integer or floating-point value",
+                        evaluation.what
+                    ),
+                )
+            })
+        })
+        .collect()
 }

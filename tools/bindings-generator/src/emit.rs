@@ -831,7 +831,7 @@ fn opaque_struct(name: &str) -> String {
     clippy::expect_used,
     reason = "the fmt::Write implementation of String never returns an error"
 )]
-pub(crate) fn put(out: &mut String, text: std::fmt::Arguments<'_>) {
+fn put(out: &mut String, text: std::fmt::Arguments<'_>) {
     std::fmt::Write::write_fmt(out, text).expect("internal error: writing to a String cannot fail");
 }
 

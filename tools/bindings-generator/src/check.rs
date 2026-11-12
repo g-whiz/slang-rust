@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Init, Interface, Item, ItemKind, Macro, Model, Prim, Record, Signature, Ty, Underlying,
-    Value,
+    CType, Evaluation, Init, Interface, Item, ItemKind, Macro, Model, Prim, Record, Signature, Ty,
+    Underlying, Value,
 };
 use crate::rules::{Action, MacroAction, RuleSet};
 
@@ -119,6 +119,77 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
         excluded,
         macros,
     })
+}
+
+enum Slot {
+    Macro(usize),
+    Field(usize, usize),
+}
+
+pub(crate) fn evaluate(
+    selection: &mut Selection,
+    evaluate: impl FnOnce(&[Evaluation]) -> Result<Vec<Value>>,
+) -> Result<()> {
+    let (evaluations, slots) = evaluations(selection)?;
+    if evaluations.is_empty() {
+        return Ok(());
+    }
+    for (slot, value) in slots.into_iter().zip(evaluate(&evaluations)?) {
+        match slot {
+            Slot::Macro(position) => selection.macros[position].value = Some(value),
+            Slot::Field(item, field) => {
+                if let ItemKind::Record(record) = &mut selection.items[item].kind {
+                    record.fields[field].init = Init::Value(value);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn evaluations(selection: &Selection) -> Result<(Vec<Evaluation>, Vec<Slot>)> {
+    let mut evaluations = Vec::new();
+    let mut slots = Vec::new();
+    for (position, selected) in selection.macros.iter().enumerate() {
+        evaluations.push(Evaluation {
+            expression: format!("({})", selected.name),
+            location: selected.location.clone(),
+            what: format!(
+                "macro {}, which a rule includes as {}",
+                selected.name, selected.reason
+            ),
+        });
+        slots.push(Slot::Macro(position));
+    }
+    for (item_position, item) in selection.items.iter().enumerate() {
+        let ItemKind::Record(record) = &item.kind else {
+            continue;
+        };
+        for (field_position, field) in record.fields.iter().enumerate() {
+            if field.init != Init::Expression {
+                continue;
+            }
+            let field_name = field.name.clone().unwrap_or_default();
+            let what = format!(
+                "the default member initializer of {}::{field_name}",
+                item.name.cxx
+            );
+            if item.name.cxx.contains('(') {
+                return Err(Error::at(
+                    ErrorKind::Unsupported,
+                    &field.location,
+                    format!("cannot evaluate {what}, because the record has no name"),
+                ));
+            }
+            evaluations.push(Evaluation {
+                expression: format!("{}{{}}.{field_name}", item.name.cxx),
+                location: field.location.clone(),
+                what,
+            });
+            slots.push(Slot::Field(item_position, field_position));
+        }
+    }
+    Ok((evaluations, slots))
 }
 
 fn root_owner<'a>(owners: &'a HashMap<String, String>, name: &'a str) -> &'a str {
