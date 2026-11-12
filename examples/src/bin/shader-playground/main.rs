@@ -149,12 +149,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         });
     }
 
-    app.run()?;
+    let ran = app.run();
     drop(watchdog);
     let mut state = state.borrow_mut();
     if let Some(error) = state.error.take() {
         return Err(error);
     }
+    ran?;
     if let Some(summary) = state.frames.summary() {
         println!("{summary}");
     }

@@ -102,10 +102,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         state: None,
         error: None,
     };
-    EventLoop::new()?.run_app(&mut app)?;
+    let looped = EventLoop::new()?.run_app(&mut app);
     if let Some(error) = app.error {
         return Err(error);
     }
+    looped?;
     if let Some(summary) = app.frames.summary() {
         println!("{summary}");
     }
