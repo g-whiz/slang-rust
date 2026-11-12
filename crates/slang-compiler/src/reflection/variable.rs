@@ -164,7 +164,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_GetVariable", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_GetVariable(self.raw.as_ptr())
                 })
@@ -197,7 +197,7 @@ impl<'a> VariableLayout<'a> {
                     guard::abort_on_exception("spReflectionVariableLayout_GetTypeLayout", || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionVariableLayout_GetTypeLayout(self.raw.as_ptr())
                     })
@@ -236,7 +236,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_GetOffset", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_GetOffset(self.raw.as_ptr(), category.to_raw())
                 })
@@ -271,7 +271,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_GetSpace", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_GetSpace(self.raw.as_ptr(), category.to_raw())
                 })
@@ -317,7 +317,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_GetSemanticName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_GetSemanticName(self.raw.as_ptr())
                 })
@@ -348,7 +348,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_GetSemanticIndex", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_GetSemanticIndex(self.raw.as_ptr())
                 })
@@ -391,7 +391,7 @@ impl<'a> VariableLayout<'a> {
                 guard::abort_on_exception("spReflectionVariableLayout_getStage", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariableLayout_getStage(self.raw.as_ptr())
                 })
@@ -544,7 +544,7 @@ impl<'a> Variable<'a> {
                 guard::abort_on_exception("spReflectionVariable_GetName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariable_GetName(self.raw.as_ptr())
                 })
@@ -574,7 +574,7 @@ impl<'a> Variable<'a> {
                 guard::abort_on_exception("spReflectionVariable_GetType", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariable_GetType(self.raw.as_ptr())
                 })
@@ -605,7 +605,7 @@ impl<'a> Variable<'a> {
                 guard::abort_on_exception("spReflectionVariable_GetUserAttributeCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariable_GetUserAttributeCount(self.raw.as_ptr())
                 })
@@ -659,7 +659,7 @@ impl<'a> Variable<'a> {
                 guard::abort_on_exception("spReflectionVariable_FindUserAttributeByName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariable_FindUserAttributeByName(
                         self.raw.as_ptr(),
@@ -756,7 +756,7 @@ impl<'a> UserAttributes<'a> {
                 guard::abort_on_exception("spReflectionVariable_GetUserAttribute", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionVariable_GetUserAttribute(self.variable.raw.as_ptr(), index)
                 })
@@ -874,7 +874,7 @@ impl<'a> Attribute<'a> {
                 guard::abort_on_exception("spReflectionUserAttribute_GetName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionUserAttribute_GetName(self.raw.as_ptr())
                 })
@@ -904,7 +904,7 @@ impl<'a> Attribute<'a> {
                 guard::abort_on_exception("spReflectionUserAttribute_GetArgumentCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionUserAttribute_GetArgumentCount(self.raw.as_ptr())
                 })
@@ -957,7 +957,7 @@ impl<'a> Attribute<'a> {
                 guard::abort_on_exception("spReflectionUserAttribute_GetArgumentType", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionUserAttribute_GetArgumentType(self.raw.as_ptr(), index)
                 })
@@ -996,7 +996,7 @@ impl<'a> Attribute<'a> {
                 guard::abort_on_exception("spReflectionUserAttribute_GetArgumentValueInt", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionUserAttribute_GetArgumentValueInt(
                         self.raw.as_ptr(),
@@ -1038,7 +1038,7 @@ impl<'a> Attribute<'a> {
                 guard::abort_on_exception("spReflectionUserAttribute_GetArgumentValueFloat", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionUserAttribute_GetArgumentValueFloat(
                         self.raw.as_ptr(),
@@ -1096,7 +1096,7 @@ impl<'a> Attribute<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionUserAttribute_GetArgumentValueString(
                             self.raw.as_ptr(),

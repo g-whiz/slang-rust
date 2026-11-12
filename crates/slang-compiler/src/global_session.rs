@@ -118,7 +118,7 @@ impl GlobalSession {
     #[must_use]
     #[expect(
         clippy::unused_self,
-        reason = "creation checked the build tag against the pin (SLC-5), so every global session has the same tag, and Section 6.3 of docs/design/slang-compiler.md places the accessor on the global session"
+        reason = "creation checked the build tag against the pin, so every global session has the same tag, and the accessor stays a method so that the tag is read from a global session that passed that check"
     )]
     pub fn build_tag(&self) -> &str {
         SLANG_BUILD_TAG
@@ -282,7 +282,7 @@ impl GlobalSession {
                 guard::abort_on_exception("spGetBuildTagString", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spGetBuildTagString()
                 })
@@ -303,7 +303,7 @@ impl GlobalSession {
                 guard::abort_on_exception("slang_createGlobalSession2", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     slang_createGlobalSession2(desc, out)
                 })

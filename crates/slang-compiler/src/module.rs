@@ -222,7 +222,7 @@ impl Session {
                 guard::abort_on_exception("slang_createBlob", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     slang_createBlob(ir.as_ptr().cast(), ir.len())
                 })

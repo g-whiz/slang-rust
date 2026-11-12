@@ -149,7 +149,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_getEntryPointCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_getEntryPointCount(self.raw.as_ptr())
                 })
@@ -202,7 +202,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_findEntryPointByName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_findEntryPointByName(self.raw.as_ptr(), name.as_ptr())
                 })
@@ -250,7 +250,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_getGlobalParamsVarLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_getGlobalParamsVarLayout(self.raw.as_ptr())
                 })
@@ -296,7 +296,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_GetParameterCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_GetParameterCount(self.raw.as_ptr())
                 })
@@ -367,7 +367,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_FindTypeByName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_FindTypeByName(self.raw.as_ptr(), name.as_ptr())
                 })
@@ -436,7 +436,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_GetTypeLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_GetTypeLayout(
                         self.raw.as_ptr(),
@@ -504,7 +504,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_ToJson", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_ToJson(self.raw.as_ptr(), ptr::null_mut(), &raw mut out)
                 })
@@ -560,7 +560,7 @@ impl<'a> ProgramLayout<'a> {
                     guard::abort_on_exception("spReflection_getGlobalConstantBufferBinding", || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflection_getGlobalConstantBufferBinding(self.raw.as_ptr())
                     })
@@ -590,7 +590,7 @@ impl<'a> ProgramLayout<'a> {
                 guard::abort_on_exception("spReflection_getGlobalConstantBufferSize", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_getGlobalConstantBufferSize(self.raw.as_ptr())
                 })
@@ -682,7 +682,7 @@ impl<'a> EntryPointLayouts<'a> {
                 guard::abort_on_exception("spReflection_getEntryPointByIndex", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflection_getEntryPointByIndex(self.program.raw.as_ptr(), position)
                 })
@@ -795,7 +795,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getName(self.raw.as_ptr())
                 })
@@ -832,7 +832,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getNameOverride", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getNameOverride(self.raw.as_ptr())
                 })
@@ -875,7 +875,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getStage", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getStage(self.raw.as_ptr())
                 })
@@ -923,7 +923,7 @@ impl<'a> EntryPointLayout<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionEntryPoint_getComputeThreadGroupSize(
                             self.raw.as_ptr(),
@@ -962,7 +962,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getVarLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getVarLayout(self.raw.as_ptr())
                 })
@@ -1005,7 +1005,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getResultVarLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getResultVarLayout(self.raw.as_ptr())
                 })
@@ -1052,7 +1052,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getParameterCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getParameterCount(self.raw.as_ptr())
                 })
@@ -1096,7 +1096,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_getFunction", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_getFunction(self.raw.as_ptr())
                 })
@@ -1140,7 +1140,7 @@ impl<'a> EntryPointLayout<'a> {
                 guard::abort_on_exception("spReflectionEntryPoint_hasDefaultConstantBuffer", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionEntryPoint_hasDefaultConstantBuffer(self.raw.as_ptr())
                 })
@@ -1245,7 +1245,7 @@ impl<'a> ParameterLayouts<'a> {
                         guard::abort_on_exception("spReflection_GetParameterByIndex", || {
                             #[expect(
                                 ffi_unwind_calls,
-                                reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                             )]
                             spReflection_GetParameterByIndex(program.raw.as_ptr(), index)
                         })
@@ -1266,7 +1266,7 @@ impl<'a> ParameterLayouts<'a> {
                             || {
                                 #[expect(
                                     ffi_unwind_calls,
-                                    reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                                    reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                                 )]
                                 spReflectionEntryPoint_getParameterByIndex(
                                     entry.raw.as_ptr(),

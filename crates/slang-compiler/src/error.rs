@@ -509,7 +509,7 @@ impl fmt::Display for Diagnostics {
 #[must_use]
 #[expect(
     clippy::exhaustive_structs,
-    reason = "a value and its diagnostics close the meaning of the record, which API-9 exempts, and Section 6.8 of docs/design/slang-compiler.md defines it as a passive record with two public fields (API-10)"
+    reason = "a value and its diagnostics close the meaning of the record, so it stays a passive record with two public fields"
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Compiled<T> {

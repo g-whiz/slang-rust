@@ -230,7 +230,7 @@ pub(crate) fn layout<'a, I: ComponentInterface>(
 #[non_exhaustive]
 #[expect(
     clippy::enum_variant_names,
-    reason = "each variant is named after the type that it borrows, and Section 6.6 of docs/design/slang-compiler.md names the variant ComponentType after the type ComponentType"
+    reason = "each variant is named after the type that it borrows, so the variant that borrows a ComponentType is named ComponentType"
 )]
 pub enum Component<'a> {
     /// A module, one unit of Slang source.

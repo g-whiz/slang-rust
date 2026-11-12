@@ -167,7 +167,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetType", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetType(self.raw())
                 })
@@ -202,7 +202,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getKind", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getKind(self.raw())
                 })
@@ -236,7 +236,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetSize", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetSize(self.raw(), category.to_raw())
                 })
@@ -277,7 +277,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetStride", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetStride(self.raw(), category.to_raw())
                 })
@@ -321,7 +321,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getAlignment", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getAlignment(self.raw(), category.to_raw())
                 })
@@ -361,7 +361,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetFieldCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetFieldCount(self.raw())
                 })
@@ -419,7 +419,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_findFieldIndexByName", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_findFieldIndexByName(
                         self.raw(),
@@ -472,7 +472,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetElementTypeLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetElementTypeLayout(self.raw())
                 })
@@ -513,7 +513,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetElementStride", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetElementStride(self.raw(), category.to_raw())
                 })
@@ -546,7 +546,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetElementVarLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetElementVarLayout(self.raw())
                 })
@@ -591,7 +591,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getContainerVarLayout", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getContainerVarLayout(self.raw())
                 })
@@ -627,7 +627,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetParameterCategory", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetParameterCategory(self.raw())
                 })
@@ -670,7 +670,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetCategoryCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetCategoryCount(self.raw())
                 })
@@ -717,7 +717,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetMatrixLayoutMode", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetMatrixLayoutMode(self.raw())
                 })
@@ -765,7 +765,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getBindingRangeCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getBindingRangeCount(self.raw())
                 })
@@ -834,7 +834,7 @@ impl<'a> TypeLayout<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getFieldBindingRangeOffset(self.raw(), index)
                     },
@@ -890,7 +890,7 @@ impl<'a> TypeLayout<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getExplicitCounterBindingRangeOffset(self.raw())
                     },
@@ -935,7 +935,7 @@ impl<'a> TypeLayout<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getDescriptorSetCount", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getDescriptorSetCount(self.raw())
                 })
@@ -1029,7 +1029,7 @@ impl<'a> FieldLayouts<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetFieldByIndex", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetFieldByIndex(self.layout.raw(), index)
                 })
@@ -1090,7 +1090,7 @@ impl Categories<'_> {
                 guard::abort_on_exception("spReflectionTypeLayout_GetCategoryByIndex", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_GetCategoryByIndex(self.layout.raw(), index)
                 })

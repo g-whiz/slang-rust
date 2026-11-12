@@ -113,7 +113,7 @@ pub(crate) fn call<R>(method: &str, call: impl FnOnce() -> R) -> R {
 #[cold]
 #[expect(
     clippy::panic,
-    reason = "a reentrant call is a bug in the caller's callback, and SLC-28 of docs/design/slang-compiler.md requires this panic before any call into Slang"
+    reason = "a reentrant call is a bug in the caller's callback, and Slang is not reentrant, so the guard panics before the call reaches Slang"
 )]
 fn reentrant(method: &str) -> ! {
     panic!(

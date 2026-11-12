@@ -14,7 +14,7 @@ pub(crate) enum Failure {
         not(test),
         expect(
             dead_code,
-            reason = "the custom file system that records this failure arrives in a later step, and the unit tests of the mapping use it"
+            reason = "no custom file system records this failure, and the unit tests of the mapping use it"
         )
     )]
     FileSystem,
@@ -104,7 +104,7 @@ pub(crate) fn error(operation: Operation, failure: Failure, diagnostics: Diagnos
 /// which the first row that matches decides the kind.
 #[expect(
     clippy::match_same_arms,
-    reason = "each arm is one row of the table of SLC-11, whose order decides the kind, so rows with the same kind cannot merge"
+    reason = "each arm is one row of an ordered table whose first matching row decides the kind, so rows with the same kind cannot merge"
 )]
 fn classify(class: Class, failure: Failure, diagnostics: &Diagnostics) -> ErrorKind {
     let explained = !diagnostics.is_empty();

@@ -211,7 +211,7 @@ impl<'a> BindingRange<'a> {
                 guard::abort_on_exception("spReflectionTypeLayout_getBindingRangeType", || {
                     #[expect(
                         ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                     )]
                     spReflectionTypeLayout_getBindingRangeType(self.layout.raw(), self.index)
                 })
@@ -253,7 +253,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_isBindingRangeSpecializable(
                             self.layout.raw(),
@@ -294,7 +294,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeBindingCount(
                             self.layout.raw(),
@@ -343,7 +343,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeLeafTypeLayout(
                             self.layout.raw(),
@@ -390,7 +390,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeLeafVariable(
                             self.layout.raw(),
@@ -433,7 +433,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeDescriptorSetIndex(
                             self.layout.raw(),
@@ -490,7 +490,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(
                             self.layout.raw(),
@@ -530,7 +530,7 @@ impl<'a> BindingRange<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(
                             self.layout.raw(),
@@ -690,7 +690,7 @@ impl<'a> DescriptorSet<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetSpaceOffset(
                             self.layout.raw(),
@@ -733,7 +733,7 @@ impl<'a> DescriptorSet<'a> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetDescriptorRangeCount(
                             self.layout.raw(),
@@ -873,7 +873,7 @@ impl DescriptorRange<'_> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetDescriptorRangeIndexOffset(
                             self.set.layout.raw(),
@@ -918,7 +918,7 @@ impl DescriptorRange<'_> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetDescriptorRangeDescriptorCount(
                             self.set.layout.raw(),
@@ -958,7 +958,7 @@ impl DescriptorRange<'_> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetDescriptorRangeType(
                             self.set.layout.raw(),
@@ -1010,7 +1010,7 @@ impl DescriptorRange<'_> {
                     || {
                         #[expect(
                             ffi_unwind_calls,
-                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception (FFI-7)"
+                            reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
                         )]
                         spReflectionTypeLayout_getDescriptorSetDescriptorRangeCategory(
                             self.set.layout.raw(),

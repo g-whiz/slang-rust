@@ -502,7 +502,7 @@ fn entry_point_with_stage_aborts_the_process_when_slang_lets_an_exception_escape
     );
     assert!(
         !child.stdout.contains(RETURNED),
-        "the call returned, so findAndCheckEntryPoint no longer lets the exception escape, and CA-1 may hold for it now: {all}"
+        "the call returned, so findAndCheckEntryPoint no longer lets the exception escape: {all}"
     );
     assert!(
         child.stderr.contains(
