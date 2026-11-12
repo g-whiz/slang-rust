@@ -482,13 +482,3 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLS-14 | 8 | `View`, `Error`, and `ErrorKind` are `Send` and `Sync` without a manual implementation, asserted in a test. |
 | SLS-15 | 9 | No test opens a window or needs a display. |
 | SLS-16 | 10 | Example 4 offers `--frames N` and fails after 10 seconds without a frame. |
-
-## Change Log
-
-- 2026-11-12: Audited the document as a design: removed Section 1.6 "Current State" and Section 11 "Implementation Order for M5", restated the facts of Section 3 without the record of the spike, removed dated runs, measurements, and test counts from Sections 3, 9, 10, 12, 13, 15.2, and 15.5, corrected the file layout of example 4 in Section 10, and split long paragraphs.
-- 2026-11-12: Corrected the number of tests in `ffi::shader_playground` in Section 10 from six to two.
-- 2026-11-11: Recorded step 4 of Section 11, the completed crate-level documentation and the statement of SLS-5 in `README.md`, as done in Sections 1.6 and 11, and M5 as complete.
-- 2026-11-11: Recorded step 3 of Section 11, example 4, as done in Sections 1.6, 3.1, 11, and 15.2, described the example as built with its tests and its runs with a window in Section 10, including its Slint features, recorded the licences, duplicates, and four advisories of its Slint backend in Sections 3.6, 4.2, and 14, and the cost in Section 15.5.
-- 2026-11-11: Recorded step 2 of Section 11, the view, as done in Sections 1.6, 6.3, 9, 11, and 15.2, recorded the confirmation of SLSA-2 in Sections 3.4 and 12 and removed its row, and cited the shader constraints of example 4 in Section 10.
-- 2026-11-11: Recorded step 1 of Section 11 as done. Corrected the feature set of SLS-1, removed SLSA-1, and recorded what the library alone brings and costs (Sections 3.2, 3.6, 4.2, and 15.5), what Section 9 tests, and the advisory exception (Section 14). Answered SLSQ-1 by inference and added SLSA-4 to confirm it.
-- 2026-11-11: First draft, written after the spike of M5 as the first task of M5.

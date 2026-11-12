@@ -2225,7 +2225,6 @@ An agent adds a source when it reads one to answer a design question or to suppo
 4. Add the source to the table of every topic in Section 2 that it covers, in order of usefulness, and add a topic when none fits.
 5. When a rule in `docs/rust-coding-standards.md` cites the source, add the rule to the "Cited by" field. Section 21 of that document needs no change, because it resolves every `[S-<n>]` identifier in the catalogue.
 6. If the source fills a gap in Section 4, update that gap.
-7. Add an entry to the change log.
 
 ### 6.2. Refreshing From the Upstream List
 
@@ -2236,15 +2235,10 @@ When the upstream list changes, an agent compares the current `resources.json` w
 1. An upstream entry that matches an `[IR-<n>]` entry keeps its identifier, whatever its new upstream index. The agent updates a changed URL or year in the entry and records the old value.
 2. A new upstream entry gets the next unused `[S-<n>]` identifier, following Section 6.1, and its entry says that it comes from the curated list and from which upstream commit.
 3. An upstream entry that was removed keeps its `[IR-<n>]` entry, with a note that upstream removed it and at which commit.
-4. The agent records the new upstream commit in this section and in the change log.
+4. The agent records the new upstream commit in this section.
 
 This scheme is the simplest one that keeps every existing identifier stable. New identifiers never take the `IR` prefix, so the 95 `IR` identifiers stay a fixed set tied to one commit.
 
 ### 6.3. Refreshing an Entry
 
 When an agent reads a source again, such as an entry in Section 5 that later becomes reachable, it updates the read status, the fields that the new reading changes, and the row in Section 5. When a rule in `docs/rust-coding-standards.md` gains, loses, or changes a citation, the agent updates the "Cited by" field of each source concerned and the topics that list the rule.
-
-## Change Log
-
-- 2026-11-11: Added RFC 2945 as [S-11], extended [S-5] with the rules on unwinding across an FFI boundary and [S-6] with the documentation of `catch_unwind` and of the primitive type `fn`, widened topic 2.22 to foreign exceptions and the `-unwind` ABIs, marked the gap of Section 4.4 as filled, listed [S-5] and [S-11] in Section 5 as partially read, and recorded FFI-7 as citing [S-6] and [S-11].
-- 2026-11-10: Initial version.

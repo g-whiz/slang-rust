@@ -82,7 +82,6 @@ Design documents live in the directory `docs/design/`. A design document contain
 9. Operational Considerations (REQUIRED). The content that Section 3.3 defines.
 10. References (REQUIRED when the document cites anything). Normative and Informative subsections that contain reference entries only.
 11. Appendices (OPTIONAL). Long examples, implementation pitfalls, and requirement summary tables.
-12. Change Log (REQUIRED). The record that Section 9 defines.
 
 An author MUST keep this order, because agents and reviewers find content by position and heading, and they miss content in an unexpected place. Appendix A gives a skeleton that an author can copy.
 
@@ -127,9 +126,8 @@ Other document types use a subset of the skeleton in Section 3.1, in the same or
 | Operational Considerations | Required | Optional | Optional | Optional | Optional | Optional |
 | References | If citing | If citing | If citing | If citing | If citing | If citing |
 | Appendices | Optional | Optional | Optional | Optional | Optional | Optional |
-| Change Log | Required | Required | Required | Required | Omitted | Omitted |
 
-An author omits an optional section that would be empty, because a section that says only "not applicable" adds length and no information. The README and the instruction file have no change log because their history is the history of the repository. The README has no metadata table because it is the first page a visitor sees on GitHub, and it opens with what the project is.
+An author omits an optional section that would be empty, because a section that says only "not applicable" adds length and no information. The README has no metadata table because it is the first page a visitor sees on GitHub, and it opens with what the project is.
 
 ### 3.5. Enforced and Judgement Rules
 
@@ -139,7 +137,7 @@ A guide or a standards document states, for each rule, the tool or lint that enf
 
 A design document describes the design and architecture of a system, and the boundaries and interactions between systems. An author MUST NOT put progress records in a design document or in the README, because such records bury the design that the reader needs and go stale with the next change, while the history of the repository already holds them.
 
-Progress records include what works and what does not as a status, what was tried, what each step or milestone added, completion dates, dated measurements, identifiers of continuous integration runs, and counts of tests. The change log of Section 9 records changes to the document itself and is not a progress record.
+Progress records include what works and what does not as a status, what was tried, what each step or milestone added, completion dates, dated measurements, identifiers of continuous integration runs, and counts of tests.
 
 ## 4. Prose
 
@@ -502,19 +500,20 @@ just check-prose docs/writing-documentation.md
 
 ## 9. Maintenance
 
-An author updates documentation in the same change as the code it describes, never in a later one. A document that no longer describes the code is a defect of the same severity as the code bug it would cause, because the next agent to read it implements what it says. Each document that has a change log records every change to the document as a new entry, newest first, with the date and a one-sentence description.
+An author updates documentation in the same change as the code it describes, never in a later one. A document that no longer describes the code is a defect of the same severity as the code bug it would cause, because the next agent to read it implements what it says.
+
+An author MUST NOT add a change log to a document, because the history of the repository already records every change, and a second record diverges from it. An author sets the Date field of the metadata table to the date of the last change to the document.
 
 A reviewer checks only judgement rules, because the tools in Section 7.12 and Section 8 check the rest on every change. A reviewer checks these items for every change:
 
 1. Every document and every item of API documentation that mentions the changed behaviour, files, commands, features, or configuration is updated in the same change.
-2. The change log of each touched document has a new entry.
-3. Every new term appears in the Terminology section.
-4. Every new requirement names its role and states its consequence.
-5. Every example in a Markdown document that the change affects still runs or verifies.
-6. Every section citation still points to the intended section.
-7. Every changed security considerations section states the threat model, the attacks out of scope, and the residual risk (Section 3.2).
-8. Every changed public item meets each rule that Section 7.12 marks as a judgement rule.
-9. Every changed document meets the judgement rules of Section 8.
+2. Every new term appears in the Terminology section.
+3. Every new requirement names its role and states its consequence.
+4. Every example in a Markdown document that the change affects still runs or verifies.
+5. Every section citation still points to the intended section.
+6. Every changed security considerations section states the threat model, the attacks out of scope, and the residual risk (Section 3.2).
+7. Every changed public item meets each rule that Section 7.12 marks as a judgement rule.
+8. Every changed document meets the judgement rules of Section 8.
 
 ## 10. Security Considerations
 
@@ -599,19 +598,4 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 ### 6.2. Informative References
 
 - <entry>
-
-## Change Log
-
-- <YYYY-MM-DD>: <One-sentence description.>
 ````
-
-## Change Log
-
-- 2026-11-12: Added Section 3.6, which keeps progress records out of design documents and the README, limited paragraphs to one to three sentences in Section 4.1, forbade run-on sentences in Section 4.2, and forbade citations of project documents and project history in API documentation in Section 7.1, with its row in Section 7.12.
-- 2026-11-12: Corrected in Section 7.5 the reason why a call of a procedural macro that resolves a path against the file that calls it cannot be a doctest. In a doctest, that file is the source file that holds the documentation.
-- 2026-11-11: Added to Section 7.5 the exception for an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against its invoking file, which is a `text` block whose lead-in states the reason, and extended its row in Section 7.12.
-- 2026-11-11: Added to Section 7.6 that a function that can abort the process states each condition of the abort in a paragraph of the body that begins with "Aborts", with no heading of its own, that the crate-level documentation states the general case once in such a paragraph, and that a function carries its own paragraph only when its abort was observed, and added its row to Section 7.12.
-- 2026-11-10: Widened the exemption of Section 7.9 for generated raw bindings to `# Safety` sections and safety comments, on the condition that the crate-level documentation states one shared safety contract, and added cross-references in Sections 7.2 and 7.6 and a row in Section 7.12, and replaced the feature name in the example sentence of Section 7.8 with an illustrative one.
-- 2026-11-10: Recorded in Section 8 that the Claude Code hook also runs the prose checker after an edit of a Rust file.
-- 2026-11-10: Moved the rules that the new custom checkers and the extended prose checker enforce from judgement to enforced in Sections 7.2 to 7.5, 7.8, 7.11, 7.12, and 8, and made the heading rule of Section 7.3 a MUST NOT that matches the heading checker.
-- 2026-11-10: Initial version.
