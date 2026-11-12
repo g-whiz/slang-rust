@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies the first milestone of `slango`, the high-level library for running Slang code on a GPU from Rust, and the compute kernel example that milestone M3 delivers with it. In M3, `slango` calls existing compute entry points of a Slang module on wgpu, with bindings built from Slang's reflection alone. The document starts from the facts that a spike established about Slang's SPIR-V on wgpu's validated shader path, including the mapping from reflection to wgpu bindings and the constructs that the path rejects. On those facts it defines four public types, the one public module that exposes wgpu, the loading of a module into an owned layout snapshot that frees every Slang object, the call by parameter name with its checks before dispatch, the errors, the threading, and the device features. It also specifies the tests, the example, the dependency changes, and the order of the changes that implement M3. It then specifies milestone M4, rendering. From the facts that a second spike established about vertex and fragment entry points on the same path, it defines render pipelines built from existing entry points, textures, samplers, vertex and index buffers, and a draw by parameter name with its checks, all without unsafe code. It also specifies the offscreen tests, the windowed renderer example, and the order of the changes of M4, and it defers a shader target configurable per backend. It ends with the assumptions to confirm and the open questions.
+This document specifies `slango`, the high-level library for running Slang code on a GPU from Rust, as milestones M3 and M4 define it, with the compute kernel example and the windowed renderer example. `slango` calls the existing compute entry points of a Slang module on wgpu, with bindings built from Slang's reflection alone, and draws with existing vertex and fragment entry points into a texture. The design rests on the facts about Slang's SPIR-V on wgpu's validated shader path, loads a module into an owned layout snapshot that frees every Slang object, and uses no unsafe code.
 
 ## 1. Introduction
 
@@ -18,37 +18,42 @@ This document specifies the first milestone of `slango`, the high-level library 
 
 ### 1.2. Purpose
 
-`slango` lets a Rust program load a Slang module, look up a compute kernel, set its parameters by name, dispatch it over a number of elements, and read the results, with every binding derived from reflection. For M4, it also lets the program draw with a vertex and a fragment entry point into a texture, with every binding and vertex attribute derived from reflection. This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, meets ARCH-15 to ARCH-19, and answers the questions and assumptions of that design that name this document, as Section 15 and Section 16 of this document record.
+`slango` lets a Rust program load a Slang module, look up a compute kernel, set its parameters by name, dispatch it over a number of elements, and read the results, with every binding derived from reflection. For M4, it also lets the program draw with a vertex and a fragment entry point into a texture, with every binding and vertex attribute derived from reflection.
+
+This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, and meets ARCH-15 to ARCH-19. It answers the questions and assumptions of that design that name this document, as Sections 15 and 16 record.
 
 ### 1.3. Audience
 
-The primary readers are the coding agents that implement M3 and M4 and the reviewers who check their changes. A reader is expected to know Rust but not GPU programming. Section 2.1 defines the terms that such a reader needs.
+The primary readers are the coding agents that change `slango` and the reviewers who check their changes. A reader is expected to know Rust but not GPU programming. Section 2.1 defines the terms that such a reader needs.
 
 ### 1.4. Scope
 
-This document covers the compute entry points that a Slang module already declares with `[shader("compute")]`, compiled to SPIR-V and loaded through wgpu's validated path, with buffers, constant buffers, parameter blocks, and plain `uniform` values as parameters. It covers the public types, the backend boundary, loading, the call, errors, threading, device features, tests, continuous integration (CI), the example, and the dependency changes.
+This document covers the compute entry points that a Slang module already declares with `[shader("compute")]`, compiled to SPIR-V and loaded through wgpu's validated path. Their parameters are buffers, constant buffers, parameter blocks, and plain `uniform` values. It covers the public types, the backend boundary, loading, the call, errors, threading, device features, tests, continuous integration (CI), the example, and the dependency changes.
 
-For M4, it also covers render pipelines built from the vertex and fragment entry points that a module already declares with `[shader("vertex")]` and `[shader("fragment")]`, drawing into a texture. Vertex attributes, uniforms, textures, and samplers are bound by name from reflection, as M3 binds the parameters of a kernel, and textures and samplers become parameters of kernels too. It covers the windowed renderer example as well. The rendering design is in Sections 3.9, 5.3, 5.4, 7.4, 7.5, 8.1, 8.2, 9.5, 13.4, and 13.5, and in steps 7 to 12 of Section 14, and it extends the other sections where they name M4.
+For M4, it also covers render pipelines built from the vertex and fragment entry points that a module already declares with `[shader("vertex")]` and `[shader("fragment")]`, drawing into a texture. Vertex attributes, uniforms, textures, and samplers are bound by name from reflection, as M3 binds the parameters of a kernel. Textures and samplers become parameters of kernels too.
+
+It covers the windowed renderer example as well. The rendering design is in Sections 3.9, 5.3, 5.4, 7.4, 7.5, 8.1, 8.2, 9.5, 13.4, and 13.5, and it extends the other sections where they name M4.
 
 ### 1.5. Non-Goals
 
 This document designs nothing beyond M3 and M4. These belong to later milestones: kernels generated around a plain Slang function with a positional call, broadcasting over array arguments, a tensor type with a shape, differentiation driven from Rust, and the unchecked shader passthrough path.
 
-M4 leaves out generated shaders, stages other than vertex, fragment, and compute, such as geometry, tessellation, and mesh stages, multisampling, storage textures, texture arrays, cube maps, mip-map generation, several draws in one render pass, and render bundles. `slango` offers no window, no surface configuration, and no frame loop, which belong to the caller (Section 5.3). Hot reload is no API of `slango`, and the windowed renderer example does it with the existing load (Section 13.5).
+M4 leaves out these features:
 
-A shader target configurable per backend is deferred out of M4 with no milestone assigned. Slang's SPIR-V loads and runs through wgpu's validated path on Vulkan, Direct3D 12, and Metal (Section 3.8), and a second target would need the passthrough path and unsafe code (SLO-2).
+- Generated shaders.
+- Stages other than vertex, fragment, and compute, such as geometry, tessellation, and mesh stages.
+- Multisampling, storage textures, texture arrays, cube maps, and mip-map generation.
+- Several draws in one render pass, and render bundles.
 
-### 1.6. Current State
+`slango` offers no window, no surface configuration, and no frame loop, which belong to the caller (Section 5.3). Hot reload is no API of `slango`, and the windowed renderer example does it with the existing load (Section 13.5).
 
-Step 1 of Section 14 is done, on 2026-11-11. `crates/slango` holds `Device` with `DeviceOptions` and `AdapterSelection` (Section 5.1), the error type `Error` with `ErrorKind` and `Result` (Section 10), and the public module `slango::wgpu` (Section 6), which builds a `Device` from a wgpu device and queue and returns them. Its first tests of the `gpu` tier create devices on every CI runner (Sections 3.8 and 13). Step 2 is done, on 2026-11-11. The private module `layout` holds the layout snapshot and the walk of Section 7.1, and a private helper that compiles a module from source text into one snapshot for each compute entry point, with unit tests that Miri runs and `ffi` unit tests that call Slang (Section 13.1). Until step 3, only its tests called it. Step 3 is done, on 2026-11-11. `Device::load_module` loads a Slang file and `Device::load_module_from_source` loads source text, each into a `Module` with one `Kernel` for each compute entry point, and the load creates the compute pipeline of each kernel (Sections 7.1 and 7.3). `Module::kernel` looks a kernel up by name, and `Kernel::name` and `Kernel::thread_group_size` return its name and the size of its thread group. Step 4 is done, on 2026-11-11. `Buffer::from_slice` and `Buffer::zeroed` create a `Buffer<T>` on a device, `Buffer::read` copies its elements back, and `Buffer::len` and `Buffer::is_empty` return its length (Section 8). The sealed traits `Element` and `Value` list the element types of a buffer and the Rust types of plain values (Sections 8 and 9.2). Step 5 is done, on 2026-11-11. `Kernel::call` returns a `Call`, on which `Call::set` sets a plain value and `Call::bind` binds a buffer, each by parameter path, and `Call::dispatch` and `Call::dispatch_groups` check every argument and run the kernel (Section 9). Step 6 is done, on 2026-11-11. It added the example `compute-kernel` of Section 13.3 and completed the crate-level documentation. Every step of Section 14 is done, so M3 is complete on 2026-11-11. A user can create a device, load a Slang module from a file or from source text, create buffers, set the parameters of a compute kernel by name, dispatch it, and read its results, and the example shows that whole flow. The crate has no unsafe code, because it loads every shader through wgpu's validated SPIR-V path (SLO-2). The spike that ARCH-18 requires ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3 records what it established. Section 14 gives the order of the changes that implement M3.
-
-The design of M4, rendering, exists as a draft dated 2026-11-11, in the sections that Section 1.4 lists. A second spike, for rendering, ran on 2026-11-11 as a scratch program that the repository does not keep, and Section 3.9 records what it established. Steps 7 to 12 of Section 14 give the order of the changes of M4. Step 7 is done, on 2026-11-11. The private layout snapshot records each vertex and fragment entry point with its SPIR-V, its bindings, and, for a vertex entry point, its vertex attributes, and the walk accepts textures and samplers (Sections 7.4 and 8.1). No public item changed, and a load shows one difference, in the parameter that its error may name (Section 7.4). Step 8 is done, on 2026-11-11. It added `Texture` with `TextureFormat`, `Sampler` with `SamplerOptions`, `FilterMode`, and `AddressMode`, the sealed trait `VertexElement`, the functions `texture` and `texture_from_view` of `slango::wgpu`, and the setters `Call::texture` and `Call::sampler` (Sections 8.1, 8.2, and 9.1). A user can create textures and samplers, read a texture back, and pass both to a compute kernel. Step 9 is done, on 2026-11-11. It added `Module::render_pipeline`, `RenderPipeline`, `RenderPipelineOptions`, `Blend`, and `CullMode` (Section 7.5). A user can create a render pipeline from a vertex and a fragment entry point of a module. Step 10 is done, on 2026-11-11. It added `RenderPipeline::draw` and the builder `Draw`, with the checks and the submission of Section 9.5. A user can bind vertex buffers, uniforms, textures, and samplers by name and draw into a texture, on Vulkan, Direct3D 12, and Metal. Step 11 is done, on 2026-11-11. It added the example `windowed-renderer` of Section 13.5 with its tests, and winit as a dependency of the examples package only. A user can draw into a window that the program owns and reload the shader while it runs. Step 12 is done, on 2026-11-11. It completed the manifest description and the crate-level documentation, with no change of behaviour. Every step of Section 14 is done, so M4 is complete on 2026-11-11. A user can run compute kernels, and draw with the vertex and fragment entry points of a module into a texture or into the surface of a window that the program owns. The crate-level documentation of `slango` is the detailed record.
-
-Milestone M6 changes `slango` in the order of Section 11 of `docs/design/slango-macros.md`. Its step 1 is done, on 2026-11-11. The layout snapshot records the element type of each storage buffer (Section 7.1), and a dispatch or a draw rejects a bound buffer whose element type differs from a scalar or vector element of its parameter (Section 9.3). This changes the behaviour of `Call::bind` and `Draw::bind` for every user, as Section 9.3 states. No public item was added. Step 2 is done, on 2026-11-11. It split loading into a compile and a load (Section 7.1), made the snapshot record the Slang name, size, and fields of a structure element and the structures among the plain values (Section 7.1), and added the hidden module `slango::__private`, which Section 5 of `docs/design/slango-macros.md` specifies and which is exempt from semantic versioning (SLM-6 of that design). Its trait `StructElement` gives the code that `slango-macros` generates the sealed traits (Section 8). The step changes the public API in two ways: a dispatch or a draw rejects a value of a generated struct given to `set` (Section 9.2), and the creation of a buffer rejects an element of 0 bytes (Section 8). No documented public item was added.
+A shader target configurable per backend is deferred with no milestone assigned. Slang's SPIR-V loads and runs through wgpu's validated path on Vulkan, Direct3D 12, and Metal (Section 3.8), and a second target would need the passthrough path and unsafe code (SLO-2).
 
 ### 1.7. Defects of Third-Party Components and Trusted Input
 
-`slango` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slang-compiler.md`, and applies the same stance to naga and wgpu. Shader source and file paths are trusted input. When naga rejects a module, `slango` reports naga's own text and does not screen modules for the constructs of Sections 3.5 and 3.9 in advance. The checks of the arguments of a call stay, because a safe interface needs them (Section 9.3). A defect of Slang that M3 finds is recorded in Section 3.12 of `docs/design/slang-compiler.md`, not here.
+`slango` follows Hard Rule 14 of `AGENTS.md` and Section 1.7 of `docs/design/slang-compiler.md`, and applies the same stance to naga and wgpu. Shader source and file paths are trusted input. When naga rejects a module, `slango` reports naga's own text and does not screen modules for the constructs of Sections 3.5 and 3.9 in advance.
+
+The checks of the arguments of a call stay, because a safe interface needs them (Section 9.3). A defect of Slang that `slango` finds is recorded in Section 3.12 of `docs/design/slang-compiler.md`, not here.
 
 ## 2. Requirements Language
 
@@ -58,7 +63,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### 2.1. Terminology
 
-Section 2.1 of `docs/design/architecture.md` defines adapter, buffer, compute dispatch, compute kernel, device, lavapipe, marshalling, shader passthrough, software adapter, spike, SPIR-V, and wgpu. Section 2.1 of `docs/design/slang-compiler.md` defines descriptor set, layout, parameter category, thread group, type layout, and variable layout. This document adds these terms:
+Section 2.1 of `docs/design/architecture.md` defines adapter, buffer, compute dispatch, compute kernel, device, lavapipe, marshalling, shader passthrough, software adapter, SPIR-V, and wgpu. Section 2.1 of `docs/design/slang-compiler.md` defines descriptor set, layout, parameter category, thread group, type layout, and variable layout. This document adds these terms:
 
 - bind group: The wgpu name for the set of bindings that a dispatch uses together. One bind group fills one descriptor set, and its bind group layout states the kind of each binding.
 - binding: A numbered slot in a descriptor set through which a kernel reaches a buffer.
@@ -90,27 +95,44 @@ Section 2.1 of `docs/design/architecture.md` defines adapter, buffer, compute di
 - vertex entry point: An entry point marked `[shader("vertex")]`, which computes the position of each vertex.
 - workgroup: The wgpu name for a thread group.
 
-## 3. Facts From the Spike
+## 3. Facts the Design Relies On
 
-This section is non-normative. It states each fact that a later section relies on, once, and says how it is known.
+This section is non-normative. It states each fact about Slang, naga, wgpu, and the platforms that a later section relies on, once, with its consequence for the design.
 
 ### 3.1. Sources and Evidence
 
-Each fact carries one of these marks:
+Each fact holds for wgpu 30.0.1 with the feature `spirv`, naga 30.0.1, and the pinned Slang, compiled with the session settings of Section 7.1. A fact is known in one of three ways:
 
-- (run): Verified on 2026-11-11 by a scratch program on x86_64 Linux, built in debug mode, with `slang-compiler` of the repository at commit `f4011b7`, wgpu 30.0.1 with the feature `spirv`, and naga 30.0.1. It ran on two Vulkan adapters, lavapipe of Mesa 25.0.7 and an NVIDIA GeForce RTX 4070 Laptop GPU, with identical results on both. In Section 3.8 alone, it means verified on 2026-11-11 by the `gpu` tests of step 1 of Section 14 on GitHub's hosted runners. In a fact that names step 2, it means verified on 2026-11-11 by the `ffi` tests of step 2 of Section 14 on x86_64 Linux. In a fact that names step 3, it means verified on 2026-11-11 by the work of step 3 of Section 14, in CI run 42952435667 or, where the fact says so, locally on the two Vulkan adapters of the development machine and not in CI. In a fact that names step 4, it means verified on 2026-11-11 by the work of step 4 of Section 14 on x86_64 Linux: a fact about layout through Slang's reflection and the SPIR-V decorations that the `slangc` of the pinned Vulkan SDK printed, and not on a GPU, and a fact about wgpu by creating devices on the development machine. In a fact that names step 5, it means verified on 2026-11-11 by the `gpu` tests of step 5 of Section 14, which dispatch kernels and read their results back, in CI run 42961810362 on the three adapters of Section 3.8 and locally on the two Vulkan adapters of the development machine. In a fact that names step 6, it means verified on 2026-11-11 by the tests of the example of step 6 of Section 14, in CI run 42966911977 on the three adapters of Section 3.8. In a fact that names step 7, it means verified on 2026-11-11 by the work of step 7 of Section 14 on x86_64 Linux, through Slang's reflection and the SPIR-V decorations that the `slangc` of the pinned Vulkan SDK printed, or, for a cost, by one series of measurements of a release build on the development machine. In a fact that names step 8, it means verified on 2026-11-11 by the `gpu` tests of step 8 of Section 14, which create and read textures and run compute kernels that sample them, in CI run 42996353428 on the three adapters of Section 3.8 and locally on the two Vulkan adapters of the development machine. In a fact that names step 9, it means verified on 2026-11-11 by the `gpu` tests of step 9 of Section 14, which create render pipelines and draw nothing, in CI run 43001455779 on the three adapters of Section 3.8 and locally on the two Vulkan adapters of the development machine. In a fact that names step 10, it means verified on 2026-11-11 by the `gpu` tests of step 10 of Section 14, which draw offscreen and read the pixels back, in CI run 43012187751 on the three adapters of Section 3.8 and locally on the two Vulkan adapters of the development machine. In a fact that names step 11, it means verified on 2026-11-11 by the work of step 11 of Section 14, in CI run 43021488631 on the three adapters of Section 3.8 or, where the fact says so, on the development machine only. In Section 3.9 alone, except in a fact that names step 7, step 8, step 9, or step 10, it means verified on 2026-11-11 by the spike of M4, a second scratch program with the same versions of wgpu and naga on the same two Vulkan adapters, built against `slang-compiler` of the repository at commit `e561af6`, with identical results on both adapters.
-- (read): Read in a source on 2026-11-11, which the fact names.
-- (inferred): Concluded from other facts and not verified. Every inferred fact that the design depends on is also a row of Section 15.
+- Run: A program or a test observed it. Such a fact holds on Vulkan with lavapipe and with a hardware GPU, and on the three adapters of Section 3.8 where it says so. A fact without a mark is of this kind.
+- Read: A source states it, and the fact names the source with the mark (read).
+- Inferred: It is concluded from other facts and not verified. Every inferred fact that the design depends on is a row of Section 15.
 
-### 3.2. What Ran
+### 3.2. Facts About wgpu and naga
 
-Slang compiled three kernels to SPIR-V with `slang-compiler`, the scratch program built every bind group layout and pipeline from reflection alone, dispatched each kernel, read the results back, and every value matched (run). The kernels covered a read-write structured buffer with a global `uniform`, a read-only and a read-write structured buffer with a `ConstantBuffer`, a `ParameterBlock` holding a buffer, and two entry-point `uniform` parameters, and a kernel with an unused buffer and an unused uniform (run). Through the validated path, naga also accepted control flow of every kind, generics with interface constraints, `[Differentiable]` functions with `bwd_diff` and `fwd_diff`, atomics, matrices, uniform arrays, `static const` tables, `inout` and `out` parameters, `bool` fields, `cbuffer`, and nested parameter blocks (run). No unsafe code was needed (run). The passthrough path also ran every kernel on both adapters, and it needs unsafe code and `Features::PASSTHROUGH_SHADERS` (run). wgpu 30's `Device`, `Queue`, `Buffer`, `ComputePipeline`, and `BindGroup` are `Send` and `Sync` (run), and all wgpu types are `Clone` through internal reference counting since wgpu 24 [WGPU-CHANGELOG] (read). In wgpu 30.0.1, two devices from two device requests compared equal with `==` (run on the development machine on 2026-11-11, step 4, with no test in the repository). In wgpu 30.0.1, `Device::create_shader_module` passes `ShaderRuntimeChecks::checked()`, whose `bounds_checks` is `true`, and the documentation of that field promises that a shader can only read or write the accessible region of the buffers that a bind group binds, through checks that wgpu injects when the platform cannot enforce them itself (read, source of wgpu 30.0.1 and wgpu-types 30.0.1 on 2026-11-11). `slango` creates every shader module through that method. Error scopes are per thread in wgpu 30.0.1, because `Device::push_error_scope` pushes onto the device's thread-local stack of error scopes (read, source of wgpu 30.0.1 on 2026-11-11).
+Slang's SPIR-V of compute kernels loads and runs through the validated path, with every bind group layout and pipeline built from reflection alone. This holds for read-only and read-write structured buffers, global `uniform` values, a `ConstantBuffer`, parameter blocks, `uniform` parameters of the entry point, and parameters that the code never uses.
 
-By default, Slang renames every SPIR-V entry point to `main`, and with `vulkan_use_entry_point_name(Toggle::On)` the SPIR-V entry point keeps the Slang name (run). Slang's documentation states the same default [SLANG-SPIRV] (read).
+naga also accepts these constructs on the validated path:
+
+- Control flow of every kind, and generics with interface constraints.
+- `[Differentiable]` functions with `bwd_diff` and `fwd_diff`.
+- Atomics, matrices, uniform arrays, and `static const` tables.
+- `inout` and `out` parameters, `bool` fields, `cbuffer`, and nested parameter blocks.
+
+None of this needs unsafe code. The passthrough path also runs every such kernel, but it needs unsafe code and `Features::PASSTHROUGH_SHADERS`, so `slango` does not use it (SLO-2). Section 3.5 lists what the validated path rejects.
+
+These facts about wgpu shape the ownership, the identity of a device, and the threading of `slango` (Sections 5.1, 9.3, and 11):
+
+- `Device`, `Queue`, `Buffer`, `ComputePipeline`, and `BindGroup` are `Send` and `Sync`.
+- All wgpu types are `Clone` through internal reference counting since wgpu 24 [WGPU-CHANGELOG] (read).
+- Two devices from two device requests compare equal with `==`, so `==` cannot tell two wgpu devices apart.
+- Error scopes are per thread, because `Device::push_error_scope` pushes onto the device's thread-local stack of error scopes (read, source of wgpu 30.0.1).
+- `Device::create_shader_module` passes `ShaderRuntimeChecks::checked()`, whose `bounds_checks` is `true`. The documentation of that field promises that a shader can only read or write the accessible region of the buffers that a bind group binds, through checks that wgpu injects where the platform cannot enforce them itself (read, source of wgpu 30.0.1 and wgpu-types 30.0.1). `slango` creates every shader module through that method.
+
+By default, Slang renames every SPIR-V entry point to `main`. With `vulkan_use_entry_point_name(Toggle::On)`, the SPIR-V entry point keeps the Slang name, as Slang's documentation also states [SLANG-SPIRV] (read).
 
 ### 3.3. Mapping From Reflection to wgpu
 
-This table is the core of the crate. "DTS" is `ParameterCategory::DescriptorTableSlot`. A walk starts at `ProgramLayout::global_params_var_layout` and at `EntryPointLayout::var_layout`. Outside a parameter block, the binding of a variable is the sum of `offset(DTS)` along its path, and its set is the sum of `binding_space(DTS)` along its path. Every row is (run) unless it says otherwise.
+This table is the core of the crate. "DTS" is `ParameterCategory::DescriptorTableSlot`. A walk starts at `ProgramLayout::global_params_var_layout` and at `EntryPointLayout::var_layout`. Outside a parameter block, the binding of a variable is the sum of `offset(DTS)` along its path, and its set is the sum of `binding_space(DTS)` along its path.
 
 | Slang declaration | What reflection reports | wgpu layout entry |
 | --- | --- | --- |
@@ -121,22 +143,32 @@ This table is the core of the crate. "DTS" is `ParameterCategory::DescriptorTabl
 | `uniform` parameter of the entry point | `TypeKind::ConstantBuffer` with category `PushConstantBuffer` and binding type `PushConstant`, std430 offsets | No binding. The pipeline layout's immediate size, then the immediates of the compute pass. Needs `Features::IMMEDIATES` (Section 12) |
 | `ParameterBlock<S>` | `TypeKind::ParameterBlock`, category `SubElementRegisterSpace`. Its set is the sum of `offset(SubElementRegisterSpace)` along the path, including each element variable. Bindings restart at 0, with an implicit uniform buffer first when `S` has plain values. The parent's `descriptor_sets()` leaves the block's set out | One more bind group layout at that set |
 | `ParameterBlock` inside a `ParameterBlock` | The inner set is the outer set plus 1, by the same sum | Two bind group layouts |
-| System values such as `SV_DispatchThreadID` | The type layout of `uint3 id : SV_DispatchThreadID` has a uniform size of 0 (run, step 2) | Nothing. The walk skips every plain value of uniform size 0 |
+| System values such as `SV_DispatchThreadID` | The type layout of `uint3 id : SV_DispatchThreadID` has a uniform size of 0 | Nothing. The walk skips every plain value of uniform size 0 |
 | `[numthreads(x, y, z)]` | `compute_thread_group_size()` returns `[x, y, z]` | Workgroup counts derived from element counts (Section 9.4) |
 | A parameter that the code never uses | Still listed with its binding | The SPIR-V drops it. The layout is accepted with or without its entry |
-| `Texture2D`, `SamplerState`, `RWTexture2D` | Binding types `Texture`, `Sampler`, `MutableTexture` | Not built in M3. M4 builds the first two (Sections 3.9 and 8.1), and the walk keeps rejecting the third (Section 7.1) |
+| `Texture2D`, `SamplerState`, `RWTexture2D` | Binding types `Texture`, `Sampler`, `MutableTexture` | `slango` builds the first two (Sections 3.9 and 8.1), and the walk rejects the third (Section 7.1) |
 
-For each element type of `Buffer<T>`, the reflected stride of a structured buffer of the matching Slang type equals the stride that `slango` uses for `T`, so the size of every buffer, its length times that stride, is a multiple of the stride (run, step 4).
+For each element type of `Buffer<T>`, the reflected stride of a structured buffer of the matching Slang type equals the stride that `slango` uses for `T`. The size of every buffer, its length times that stride, is therefore a multiple of the stride.
 
 ### 3.4. Layout of Plain Values
 
-Slang's default layout puts the fields of `struct Params { float scale; float3 offset; uint count; float2 pair; }` in a constant buffer at offsets 0, 16, 28, and 32, with size 48 (run). `float c[5]` in a constant buffer takes 80 bytes, with a stride of 16 (run). `float4x4`, `float3x3`, `float2x3`, and `float3` in sequence take offsets 0, 64, 112, and 144, with size 160 (run). A `bool` takes 4 bytes (run). As `uniform` parameters of an entry point, `float`, `float3`, `float4x4`, a structure of a `float` and a `uint`, and `bool` take offsets 0, 16, 32, 96, 100, and 104 in the immediates. The last value ends at 108, and the block has size 112, because std430 rounds the size of the block up to its alignment of 16 (run, step 2). These offsets differ from the layout of any Rust struct with the same fields, so `slango` writes every plain value at its reflected offset and never relies on the layout of a Rust struct (SLO-13).
+Slang's default layout of plain values differs from the layout of any Rust struct with the same fields, so `slango` writes every plain value at its reflected offset and never relies on the layout of a Rust struct (SLO-13). These examples show the difference:
 
-Slang's default matrix layout is row-major, which `defaultMatrixLayoutMode` in `slang.h` states, and `slango` sets no matrix layout (run, step 4). In that layout, a matrix of R rows and C columns is R rows, each starting at a multiple of the matrix stride. Row r starts at the value's offset plus r times its extent divided by R, and column c of a row follows at 4 bytes times c (run, step 4). The extent is the reflected size of the value, or the array stride for a matrix inside an array. It is R times 16 bytes in a uniform buffer and R times 8 or 16 bytes in the immediates, for every R and C from 2 to 4 (run, step 4). The `slangc` command line defaults to the other layout, so an experiment with it must pass `-matrix-layout-row-major` to match what `slango` compiles (run, step 4). The rule held on every adapter tested: a `float2x3` and a `float3x2` in the immediates and a `float2x3` in a constant buffer, each read element by element by the kernel, came back in row order (run, step 5).
+- `struct Params { float scale; float3 offset; uint count; float2 pair; }` in a constant buffer has its fields at offsets 0, 16, 28, and 32, with size 48.
+- `float c[5]` in a constant buffer takes 80 bytes, with a stride of 16.
+- `float4x4`, `float3x3`, `float2x3`, and `float3` in sequence take offsets 0, 64, 112, and 144, with size 160.
+- A `bool` takes 4 bytes.
+- As `uniform` parameters of an entry point, `float`, `float3`, `float4x4`, a structure of a `float` and a `uint`, and `bool` take offsets 0, 16, 32, 96, 100, and 104 in the immediates. The last value ends at 108, and the block has size 112, because std430 rounds the size of the block up to its alignment of 16.
+
+Slang's default matrix layout is row-major, as `defaultMatrixLayoutMode` in `slang.h` states, and `slango` sets no matrix layout. In that layout, a matrix of R rows and C columns is R rows, each starting at a multiple of the matrix stride. Row r starts at the value's offset plus r times its extent divided by R, and column c of a row follows at 4 bytes times c.
+
+The extent is the reflected size of the value, or the array stride for a matrix inside an array. It is R times 16 bytes in a uniform buffer and R times 8 or 16 bytes in the immediates, for every R and C from 2 to 4.
+
+Kernels that read a `float2x3` and a `float3x2` in the immediates and a `float2x3` in a constant buffer, element by element, read them in row order on every adapter of Section 3.8. The `slangc` command line defaults to the other layout, so an experiment with it must pass `-matrix-layout-row-major` to match what `slango` compiles.
 
 ### 3.5. Known Limits of the Validated Path
 
-naga rejects these valid Slang constructs, with the same text on both adapters (run). `slango` does not screen for them (Section 1.7).
+naga rejects these valid Slang constructs, with the same text on every adapter. `slango` does not screen for them (Section 1.7).
 
 | Construct | naga's error text |
 | --- | --- |
@@ -149,33 +181,44 @@ naga rejects these valid Slang constructs, with the same text on both adapters (
 | `RWTexture2D<float4>` without a `[format(...)]` | `parsing error: UnsupportedCapability(StorageImageReadWithoutFormat)` |
 | A subscript of a `Texture2D` | `Cannot textureLoad from a mipmapped image without specifying a level.` |
 
-`double`, `int64_t`, and `half` load only on a device with the matching feature, and naga otherwise names the missing capability, such as `Using 'f64' values requires the 'naga::valid::Capabilities::FLOAT64' flag` (run). 16-bit integers belong with them. On the two Vulkan adapters of the development machine, a kernel with a local `int16_t` on a device without the 16-bit integer feature failed when its shader module was created, with a validation error that names the capability `SHADER_INT16`. This was run locally on 2026-11-11 and not in CI. It corrects the spike's record of `parsing error: InvalidTypeWidth(2)` for `int16_t`. `uint16_t` was not run.
+`double`, `int64_t`, and `half` load only on a device with the matching feature. naga otherwise names the missing capability, such as `Using 'f64' values requires the 'naga::valid::Capabilities::FLOAT64' flag`.
+
+16-bit integers belong with them. A kernel with a local `int16_t` on a device without the 16-bit integer feature fails when its shader module is created. The validation error names the capability `SHADER_INT16`.
 
 ### 3.6. Costs
 
-`GlobalSession::new` took about 135 ms (134 ms and 145 ms), and a session, load, link, code generation, and reflection of a small kernel took 8 to 11 ms after it (run). A naga shader module took under 0.4 ms, layouts and a pipeline under 1 ms, and a dispatch with its wait under 1 ms, except the first dispatch of a pipeline on lavapipe, which took 15 to 20 ms (run). Each number is a single sample from a debug build and shows an order of magnitude only.
+The global session dominates the cost of a load, which is why Section 7.2 bounds how often a program can afford to load a module. Each figure is an order of magnitude:
+
+- Creating a global session takes about 100 to 135 ms, and releasing it about 25 ms.
+- A session, load, link, code generation, and reflection of a small module take about 10 ms after that.
+- A naga shader module, the layouts, and a pipeline each take under 1 ms, and so does a dispatch with its wait. The first dispatch of a pipeline on lavapipe is the exception, at 15 to 20 ms.
+- A reload of a module with a vertex and a fragment entry point, global uniforms, a constant buffer, and a parameter block takes about 155 ms with a new global session and about 12 ms with the global session kept. The work of wgpu in it takes under 1 ms.
 
 ### 3.7. Versions and Prior Art
 
-Slint 1.18.1 declares the features `unstable-wgpu-29` and `unstable-wgpu-30`, and wgpu 30.0.1 is the latest stable wgpu, with `rust-version` 1.87 (read, `cargo info` on 2026-11-11). SlangPy's documentation shows kernels generated around plain functions, broadcasting with `map()`, tensors, and differentiation through `bwds`, but its kernel cache and device layer were not read in its source [SLANGPY] (read). vulkano uses `Arc` ownership with children that hold their parents, structs of creation options, and validated calls with named unchecked variants, and a maintainer describes `GpuFuture` as hard to chain correctly while building an experimental replacement [VULKANO-2540] (read).
+Slint 1.18.1 declares the features `unstable-wgpu-29` and `unstable-wgpu-30`, and wgpu 30.0.1 declares `rust-version` 1.87 (read, `cargo info`). SlangPy's documentation shows kernels generated around plain functions, broadcasting with `map()`, tensors, and differentiation through `bwds` [SLANGPY] (read). Its kernel cache and device layer were not read in its source.
+
+vulkano uses `Arc` ownership with children that hold their parents, structs of creation options, and validated calls with named unchecked variants. A maintainer describes `GpuFuture` as hard to chain correctly while building an experimental replacement [VULKANO-2540] (read).
 
 ### 3.8. Adapters of the CI Runners
 
-In CI run 42943216478, in which all six jobs passed, the `gpu` tests created a device with `Features::IMMEDIATES` on each hosted runner, through wgpu 30.0.1 (run). The operating system, driver, and adapter names are read from the log of that run:
+The `gpu` tests run on one adapter on each hosted runner, and each adapter offers `Features::IMMEDIATES`:
 
 | Runner | Adapter | Backend | Device type | `max_immediate_size` |
 | --- | --- | --- | --- | --- |
-| `ubuntu-latest`, Ubuntu 26.04, with `mesa-vulkan-drivers` 26.0.8 | lavapipe, named `llvmpipe (LLVM 21.1.8, 256 bits)` | Vulkan | `Cpu` | 256 bytes |
+| `ubuntu-latest`, with `mesa-vulkan-drivers` | lavapipe, named `llvmpipe (...)` | Vulkan | `Cpu` | 256 bytes |
 | `windows-latest` | WARP, named `Microsoft Basic Render Driver` | Direct3D 12 | `Cpu` | 128 bytes |
 | `macos-latest` | `Apple Paravirtual device` | Metal | `IntegratedGpu` | 256 bytes |
 
-lavapipe is the only adapter of the Linux runner, so the default selection also finds it there (run). Metal offers no software adapter: on the macOS runner, `AdapterSelection::Software` returned `ErrorKind::NoAdapter` in the earlier run 42941845864 (run). In CI run 42952435667, in which all six jobs passed, the `gpu` tests loaded modules on all three adapters (run, step 3). Kernels with immediates, a global uniform, a constant buffer, a parameter block, an import, and two kernels in one module reached the creation of their compute pipelines, and a kernel that calls `frexp` failed with the same backend text on all three. In CI run 42961810362, in which all six jobs passed, the `gpu` tests dispatched kernels on all three adapters and every result was correct, with immediates, global uniforms, constant buffers, parameter blocks, and every element type of `Buffer<T>` (run, step 5). One buffer bound to a read-only and to a read-write parameter of one call failed wgpu's validation on every adapter tested (run, step 5). In CI run 42966911977, in which all six jobs passed, the example of Section 13.3 ran and passed its tests on lavapipe, WARP, and Metal (run, step 6). In the CI run of step 11, in which all six jobs passed, every job built winit 0.30.13 with the features that Section 9 of `docs/design/tooling.md` names, with no package added to the Linux runners, and the `gpu` tests of the scene of Section 13.5 passed on all three adapters (run, step 11).
+lavapipe is the only adapter of the Linux runner, so the default selection also finds it there. Metal offers no software adapter, so `AdapterSelection::Software` returns `ErrorKind::NoAdapter` on the macOS runner (Sections 5.1 and 13.1).
+
+On all three adapters, modules load, and kernels dispatch with correct results for every kind of parameter of Section 7.1 and every element type of `Buffer<T>`. A kernel that calls `frexp` fails with the same backend text on all three. One buffer bound to a read-only and to a read-write parameter of one call fails wgpu's validation on every adapter (Section 9.3).
 
 ### 3.9. Facts for Rendering
 
-This section is non-normative. Every fact in it is (run), as Section 3.1 defines the mark for this section, unless it says otherwise.
+This section is non-normative. A fact that names the adapters of Section 3.8 holds on them as well as on the two Vulkan adapters of Section 3.1.
 
-A vertex and a fragment entry point, compiled as Section 7.1 compiles a kernel, into one SPIR-V module for each entry point with `vulkan_use_entry_point_name(Toggle::On)`, loaded through the validated path and drew the expected pixels into an `Rgba8Unorm` texture that was read back. No unsafe code and no other session or target option was needed. `EntryPointLayout::stage` returns `Stage::Vertex` and `Stage::Fragment`. Every fact that the spike needed came through the safe API of `slang-compiler`.
+A vertex and a fragment entry point, compiled as Section 7.1 compiles a kernel, into one SPIR-V module for each entry point with `vulkan_use_entry_point_name(Toggle::On)`, load through the validated path and draw the expected pixels into an `Rgba8Unorm` texture. No unsafe code and no other session or target option is needed. `EntryPointLayout::stage` returns `Stage::Vertex` and `Stage::Fragment`, and every fact that rendering needs comes through the safe API of `slang-compiler`.
 
 This table states what reflection reports for the inputs and resources of render entry points, and what wgpu needs for each:
 
@@ -187,12 +230,12 @@ This table states what reflection reports for the inputs and resources of render
 | `SV_Position` as a vertex output or a fragment input | No category and no location | Nothing |
 | Varyings | Locations in declaration order, within each entry point's own structure | Matched by location. When two structures declare the same varyings in another order, `create_render_pipeline` fails with a validation error that starts `Error matching ShaderStages(FRAGMENT) shader requirements against the pipeline` |
 | A global `uniform`, a `ConstantBuffer`, and a `ParameterBlock`, used by two entry points | The bindings of Section 3.3, unchanged. The metadata of each entry point reports which bindings that stage uses | One layout entry for each binding, visible to the stages that use it. A narrower visibility fails `create_render_pipeline` with `Visibility flags don't include the shader stage`, and a wider one is accepted |
-| `uniform` parameters of the vertex and of the fragment entry point | One push constant block for each entry point, each at byte offset 0 | The two blocks alias: the fragment stage read the bytes written for the vertex stage. `RenderPass::set_immediates` takes no stage (read, wgpu 30.0.1) |
-| `Texture2D<float4>` | `TypeKind::Resource`, base shape `Texture2d`, not combined, access `Read`, result type `vector<float,4>`, category DTS | A texture entry with `sample_type: Float { filterable: true }` and `view_dimension: D2`, which the spike chose and which rendered correctly |
+| `uniform` parameters of the vertex and of the fragment entry point | One push constant block for each entry point, each at byte offset 0 | The two blocks alias: the fragment stage reads the bytes written for the vertex stage. `RenderPass::set_immediates` takes no stage (read, wgpu 30.0.1) |
+| `Texture2D<float4>` | `TypeKind::Resource`, base shape `Texture2d`, not combined, access `Read`, result type `vector<float,4>`, category DTS | A texture entry with `sample_type: Float { filterable: true }` and `view_dimension: D2` |
 | `SamplerState` | `TypeKind::SamplerState`, category DTS, at its own binding | A `Filtering` sampler entry |
-| `Sampler2D` | `TypeKind::Resource`, combined, with one binding | Rejected by naga, as the next table shows |
+| `Sampler2D` | `TypeKind::Resource`, combined, with one binding | Rejected by naga, as the last table of this section shows |
 
-The conventions of a draw are the same on every adapter that Section 3.1 names for step 10, including WARP on Direct3D 12 and the Apple paravirtual device on Metal, and need no flip from Slang or `slango` (run, step 10):
+The conventions of a draw are the same on every adapter of Section 3.8, so neither Slang nor `slango` flips anything:
 
 - Neither axis is flipped. The y axis of the vertex position points up, so a triangle in the upper left of clip space lands in the upper-left rows of the target.
 - Counter-clockwise triangles are front faces, so `CullMode::Back` discards a clockwise triangle.
@@ -203,18 +246,18 @@ The conventions of a draw are the same on every adapter that Section 3.1 names f
 - `int` and `uint` vertex attributes of one to four components arrive unchanged through `nointerpolation` varyings, including values near the 32-bit limits.
 - wgpu rejects one texture that is both sampled and the target of one draw with a validation error about conflicting usages, and the draw returns `ErrorKind::Backend`.
 
-Compute kernels that sample textures with `SampleLevel` behave alike on every adapter that Section 3.1 names for step 8, including WARP on Direct3D 12 and the Apple paravirtual device on Metal (run, step 8):
+Compute kernels that sample textures with `SampleLevel` behave alike on every adapter of Section 3.8:
 
 - The texture coordinates (0, 0) sample the top-left pixel, with no flipped axis.
 - A kernel reads a pixel of `Bgra8Unorm` or `Bgra8UnormSrgb` as red, green, blue, and alpha.
-- A channel of 128 in an sRGB format sampled to between 0.2158 and 0.2167 on the five adapters, within 1/255 of the 0.2159 that the sRGB formula gives, and to 128/255 in the matching non-sRGB format (run, step 8).
-- Linear filtering gives the interpolated value within the tolerance of 0.01 that the test states.
+- A channel of 128 in an sRGB format samples to within 1/255 of the 0.2159 that the sRGB formula gives, and to 128/255 in the matching non-sRGB format.
+- Linear filtering gives the interpolated value within a tolerance of 0.01.
 - `ClampToEdge`, `Repeat`, and `MirrorRepeat` give the expected pixels at coordinates outside the range 0 to 1.
 - All five formats of Section 8.1 are created with their usages without a device feature.
 
-The matrix rule of Section 3.4 holds for a `float4x4` global uniform. The Rust value `[[1, 0, 0, tx], [0, 1, 0, ty], [0, 0, 1, 0], [0, 0, 0, 1]]`, written row by row, translated by (tx, ty) with `mul(transform, v)` and did not translate with `mul(v, transform)`. A math type that stores columns, such as the arrays that glam's `Mat4::to_cols_array_2d` returns, therefore needs `mul(v, transform)` or a transpose.
+The matrix rule of Section 3.4 holds for a `float4x4` global uniform. The Rust value `[[1, 0, 0, tx], [0, 1, 0, ty], [0, 0, 1, 0], [0, 0, 0, 1]]`, written row by row, translates by (tx, ty) with `mul(transform, v)` and does not translate with `mul(v, transform)`. A math type that stores columns, such as the arrays that glam's `Mat4::to_cols_array_2d` returns, therefore needs `mul(v, transform)` or a transpose.
 
-naga rejects these render constructs, with the same text on both adapters, in the form of Section 3.5:
+naga rejects these render constructs, with the same text on every adapter, in the form of Section 3.5:
 
 | Construct | naga's error text |
 | --- | --- |
@@ -222,31 +265,41 @@ naga rejects these render constructs, with the same text on both adapters, in th
 | `Sampler2D` | `Shader '' parsing error: InvalidId(12)` |
 | An integer varying without `nointerpolation` | `Shader validation error: Entry point vsMain at Vertex is invalid`, followed by `@interpolate(flat) must be explicitly specified for integer I/O` |
 
-`SV_VulkanVertexID` and `SV_VulkanInstanceID` load instead, and the instance number includes the first instance of the draw. A `nointerpolation` integer varying loads. Two colour targets, `discard`, `ddx` and `ddy`, `SV_Position` read in the fragment stage, and attributes that step per instance also worked.
+`SV_VulkanVertexID` and `SV_VulkanInstanceID` load instead, and the instance number includes the first instance of the draw. A `nointerpolation` integer varying loads. Two colour targets, `discard`, `ddx` and `ddy`, `SV_Position` read in the fragment stage, and attributes that step per instance also work.
 
-`SV_VulkanVertexID` and `SV_VulkanInstanceID`, in a structure or as separate parameters, have no category `VaryingInput` and take no location, so the attributes around them keep consecutive locations, and `slangc` decorates them as built-ins without a location (run, step 7). An `int`, `uint`, or `uint2` attribute reflects as a 32-bit signed or unsigned integer with its component count (run, step 7).
+`SV_VulkanVertexID` and `SV_VulkanInstanceID`, in a structure or as separate parameters, have no category `VaryingInput` and take no location. The attributes around them therefore keep consecutive locations, and `slangc` decorates them as built-ins without a location. An `int`, `uint`, or `uint2` attribute reflects as a 32-bit signed or unsigned integer with its component count.
 
-Render pipelines are created from Slang's vertex and fragment SPIR-V on all five adapters that Section 3.1 names for step 9, including WARP on Direct3D 12 and the Apple paravirtual device on Metal, and including pipelines whose vertex entry point has `int`, `uint`, `uint2`, and `int3` attributes (run, step 9). Varyings of another type at one location fail at `create_render_pipeline` with the text that starts `Error matching ShaderStages(FRAGMENT) shader requirements against the pipeline`, and `SV_VertexID` fails at `create_shader_module` with `UnsupportedCapability(DrawParameters)`, with the same text on every adapter (run, step 9). The tests of step 9 drew nothing. In one series of 7 runs of a release build on the development machine, the load of a module with two kernels took a median of about 6 ms longer with a vertex and a fragment entry point added, a difference that also includes parsing the longer source (run, step 7).
+Render pipelines are created from Slang's vertex and fragment SPIR-V on every adapter of Section 3.8, including pipelines whose vertex entry point has `int`, `uint`, `uint2`, and `int3` attributes. Varyings of another type at one location fail at `create_render_pipeline` with the text that starts `Error matching ShaderStages(FRAGMENT) shader requirements against the pipeline`. `SV_VertexID` fails at `create_shader_module` with `UnsupportedCapability(DrawParameters)`.
 
-A reload of a module with a vertex and a fragment entry point, global uniforms, a constant buffer, and a parameter block took a median of about 155 ms with a new global session and about 11.5 ms with the global session kept, on both adapters, over 7 runs of a release build. The reload covered the session, the load, the link, the SPIR-V of both entry points, reflection, both shader modules, and the render pipeline. Of the 155 ms, creating the global session took about 107 ms and releasing it about 27 ms. The work of wgpu, both shader modules, the layouts, and the render pipeline, took under 1 ms.
+Both texts are the same on every adapter.
 
 ## 4. Crate Structure and Dependencies
 
 ### 4.1. Package and Dependencies
 
-SLO-1. `slango` MUST depend on `slang-compiler` and on wgpu of major version 30 with the feature `spirv`, and on no other crate except `pollster`, which blocks on wgpu's futures (Section 16). The list stays short because every dependency runs on every user's machine (DEP-2). Version 30 is the newest wgpu that the current Slint release supports (ARCH-19, Section 3.7). The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3). The crate has no Cargo features in M3 and M4.
+SLO-1. `slango` MUST depend on `slang-compiler` and on wgpu of major version 30 with the feature `spirv`, and on no other crate except `pollster`, which blocks on wgpu's futures. The list stays short because every dependency runs on every user's machine (DEP-2).
 
-SLO-2. `slango` MUST contain no unsafe code in M3 and M4, and MUST load every shader through the validated path only. The validated path ran every kernel that M3 needs and every render shader that M4 needs without unsafe code (Sections 3.2 and 3.9), so passthrough would add unsafe code for no need. This answers Q-19 of the architecture design for `slango` through M4.
+`slango` needs `pollster`, because wgpu 30 offers no blocking form of `Instance::request_adapter`, `Instance::enumerate_adapters`, or `Adapter::request_device`, so `slango` waits on them with `pollster::block_on`. Version 30 is the newest wgpu that the current Slint release supports (ARCH-19, Section 3.7).
+
+The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3). The crate has no Cargo features in M3 and M4.
+
+SLO-2. `slango` MUST contain no unsafe code in M3 and M4, and MUST load every shader through the validated path only.
+
+The validated path runs every kernel that M3 needs and every render shader that M4 needs without unsafe code (Sections 3.2 and 3.9), so passthrough would add unsafe code for no need. This answers Q-19 of the architecture design for `slango` through M4.
 
 ### 4.2. Licences and Duplicate Versions
 
-wgpu's dependency tree brings crates under licences that `deny.toml` did not allow, and duplicate versions of `foldhash`, `hashbrown`, and `syn`. Step 1 of Section 14 added `MIT`, `Unicode-3.0`, and `Zlib` to the licence allow-list of `deny.toml`, and a `skip` entry with a reason for each of four duplicate versions, as TOOL-24 and TOOL-26 require. The project's licence stays GPL-3.0-or-later. Section 9 of `docs/design/tooling.md` records which crates need each licence, the evidence of its compatibility, and the reason for each skip.
+wgpu's dependency tree brings crates under the licences `MIT`, `Unicode-3.0`, and `Zlib`, and duplicate versions of `foldhash`, `hashbrown`, and `syn`. The licence allow-list of `deny.toml` holds the three licences, and its `[bans]` table holds a `skip` entry with a reason for each duplicate version, as TOOL-24 and TOOL-26 require.
+
+The project's licence stays GPL-3.0-or-later. Section 9 of `docs/design/tooling.md` records which crates need each licence, the evidence of its compatibility, and the reason for each skip.
 
 ## 5. Public Types and Ownership
 
 ### 5.1. Types
 
-SLO-3. `slango` MUST provide the public types `Device`, `Module`, `Kernel`, and `Buffer<T>`, each of which holds its parent by value and is cheap to clone. It MUST create `Device` and the call through structs of options that implement `Default`. A value that holds its parent can be stored without a lifetime (OWN-3), and options can grow without a breaking change (API-6).
+SLO-3. `slango` MUST provide the public types `Device`, `Module`, `Kernel`, and `Buffer<T>`, each of which holds its parent by value and is cheap to clone. It MUST create `Device` and the call through structs of options that implement `Default`.
+
+A value that holds its parent can be stored without a lifetime (OWN-3), and options can grow without a breaking change (API-6).
 
 - `Device`: A wgpu device and its queue. It is created from options or, in the module of Section 6, from wgpu objects that the caller already holds.
 - `Module`: One loaded Slang module. It holds its `Device` and one `Kernel` for each compute entry point.
@@ -261,11 +314,11 @@ SLO-3. `slango` MUST provide the public types `Device`, `Module`, `Kernel`, and 
 
 `DeviceOptions` and `AdapterSelection` are non-exhaustive, so both can grow without a breaking change. `Device::adapter_name` returns the name of the adapter.
 
-wgpu's types are already reference counted clones (Section 3.2), so `slango` wraps no wgpu object in an `Arc` of its own. It shares its own owned data, such as a layout snapshot, through `Arc`. This follows the vulkano pattern of children that hold their parents (Section 3.7) and adopts nothing of `GpuFuture` (ARCH-16): every wait in M3 is a blocking call (CONC-6).
+wgpu's types are already reference counted clones (Section 3.2), so `slango` wraps no wgpu object in an `Arc` of its own. It shares its own owned data, such as a layout snapshot, through `Arc`. This follows the vulkano pattern of children that hold their parents (Section 3.7) and adopts nothing of `GpuFuture` (ARCH-16): every wait is a blocking call (CONC-6).
 
 ### 5.2. Usage Illustration
 
-This illustration shows the whole flow of M3. It shows the form only. The kernel `scale` in `scale.slang` multiplies each element of a buffer by a factor:
+This illustration shows the whole flow of a compute kernel. It shows the form only. The kernel `scale` in `scale.slang` multiplies each element of a buffer by a factor:
 
 ```slang
 RWStructuredBuffer<float> data;
@@ -304,9 +357,11 @@ fn main() -> slango::Result<()> {
 
 ### 5.3. Types for Rendering
 
-SLO-19. `slango` MUST provide the public types `RenderPipeline`, `Texture`, and `Sampler`, each cheap to clone and holding its `Device` and no Slang object. It MUST create `RenderPipeline` and `Sampler` through options structs that implement `Default`. As for SLO-3, a value without its parent would need a lifetime, and options without `Default` could not grow without a breaking change.
+SLO-19. `slango` MUST provide the public types `RenderPipeline`, `Texture`, and `Sampler`, each cheap to clone and holding its `Device` and no Slang object. It MUST create `RenderPipeline` and `Sampler` through options structs that implement `Default`.
 
-These are the new public items of M4:
+As for SLO-3, a value without its parent would need a lifetime, and options without `Default` could not grow without a breaking change.
+
+These are the public items of rendering:
 
 - `RenderPipeline`: A render pipeline built from a vertex and a fragment entry point of a `Module`, with the merged layout snapshot of both, its bind group layouts, and its wgpu render pipeline (Section 7.5).
 - `RenderPipelineOptions`, `Blend`, and `CullMode`: The options of a render pipeline (Section 7.5).
@@ -315,11 +370,13 @@ These are the new public items of M4:
 - `Draw`: The builder of one draw, which `RenderPipeline::draw` returns (Section 9.5).
 - `VertexElement`: The sealed trait of the element types that a vertex attribute and a buffer accept (Section 8.2).
 
-Every options type and enumeration is non-exhaustive, as `DeviceOptions` is (Section 5.1). `slango` owns no window, surface, or frame loop, and depends on no windowing crate (SLO-1). A caller that renders to a window configures the surface with wgpu, wraps the view of each frame's surface texture as a `Texture` through `slango::wgpu::texture_from_view` (Section 8.1), draws into it, and presents the frame itself.
+Every options type and enumeration is non-exhaustive, as `DeviceOptions` is (Section 5.1). `slango` owns no window, surface, or frame loop, and depends on no windowing crate (SLO-1).
+
+A caller that renders to a window configures the surface with wgpu and wraps the view of each frame's surface texture as a `Texture` through `slango::wgpu::texture_from_view` (Section 8.1). It then draws into it and presents the frame itself.
 
 ### 5.4. Usage Illustration for Rendering
 
-This illustration shows the form of a draw in M4. A `gpu` test runs the program with the path of its test shader. The file `quad.slang` samples a texture onto a quad and transforms its vertices by a uniform matrix:
+This illustration shows the form of a draw. A `gpu` test runs the program with the path of its test shader. The file `quad.slang` samples a texture onto a quad and transforms its vertices by a uniform matrix:
 
 ```slang
 struct VIn { float2 position : POSITION; float2 uv : TEXCOORD0; };
@@ -391,7 +448,9 @@ fn main() -> slango::Result<()> {
 
 SLO-4. Every public item of `slango` that names a wgpu type MUST be in one public module, such as `slango::wgpu`, which holds the constructors from wgpu objects and the accessors that return them. Every other use of wgpu MUST stay private, because a later backend then changes no other part of the public API (ARCH-15).
 
-The layout snapshot is the boundary inside the crate. The reflection walk above it knows Slang and no wgpu type, and the code below it turns the snapshot into wgpu layouts, bind groups, and dispatches. No backend trait exists (SIMP-2). This answers Q-17 of the architecture design.
+The layout snapshot is the boundary inside the crate. The reflection walk above it knows Slang and no wgpu type, and the code below it turns the snapshot into wgpu layouts, bind groups, and dispatches.
+
+No backend trait exists (SIMP-2). This answers Q-17 of the architecture design.
 
 ## 7. Loading a Module
 
@@ -399,51 +458,60 @@ The layout snapshot is the boundary inside the crate. The reflection walk above 
 
 SLO-5. `Device::load_module` MUST compile the module on the calling thread and copy into a layout snapshot the facts that the kernels need. It MUST release every Slang object before it returns, because no Slang object may then outlive the call or cross a thread (Section 11).
 
-The load reads the file as text and compiles it with `Session::load_module_from_source`, with the path of the file as the path of the module and the directory of the file as a search path. A variant takes the source text and a module name instead of a path. The session targets `TargetFormat::Spirv` with Slang's default layout, and sets `vulkan_use_entry_point_name(Toggle::On)` so that every message of wgpu names the Slang function (Section 3.2). The load generates one SPIR-V module for each compute entry point through `LinkedProgram::entry_point_code`.
+The load reads the file as text and compiles it with `Session::load_module_from_source`, with the path of the file as the path of the module and the directory of the file as a search path. A variant takes the source text and a module name instead of a path.
 
-Step 3 settled these choices, which the design left open:
+The session targets `TargetFormat::Spirv` with Slang's default layout, and sets `vulkan_use_entry_point_name(Toggle::On)` so that every message of wgpu names the Slang function (Section 3.2). The load generates one SPIR-V module for each entry point through `LinkedProgram::entry_point_code`.
+
+The load follows these rules:
 
 - `Device::load_module` takes the file stem as the module name, and the directory of the file, or `.` when the path has none, as the search path.
 - `Device::load_module_from_source` takes the module name and the source text and sets no search path, so an `import` finds only what Slang finds by default.
 - A path that is not valid UTF-8, which Slang needs, gives `ErrorKind::InvalidArgument`. So does a file that cannot be read as text, with the I/O error as the source error.
 
-Slang resolves an `import` of a sibling module relative to the path of the importing file, so the search path is not what makes such an `import` resolve. In step 2 of M6, a compile of `two_kernels.slang` without the search path still resolved its `import helpers;` and no test failed. The search path is one more directory in which Slang looks for an imported module, and no test shows an effect of it.
+Slang resolves an `import` of a sibling module relative to the path of the importing file, so the search path is not what makes such an `import` resolve. The search path is one more directory in which Slang looks for an imported module.
 
-Step 2 of M6 split the load into a compile and a load, so that a module compiled ahead of time loads through the same code (SLM-6 of `docs/design/slango-macros.md`):
+The load has two parts, so that a module compiled ahead of time loads through the same code (SLM-6 of `docs/design/slango-macros.md`):
 
 - The compile reads the file, when there is one, compiles the module, and walks it into the layout snapshot with the SPIR-V of each entry point. It also returns the paths of the files that Slang read, which the load does not need. It releases every Slang object before it returns, so SLO-5 holds for it.
 - The load creates the module on the device from the snapshot, with no call into Slang.
-- `Device::load_module` and `Device::load_module_from_source` compile and then load. `slango::__private::precompile_file` compiles a file with the same code as `Device::load_module`, and `slango::__private::load_precompiled` loads a snapshot that it decodes (Section 5.2 of `docs/design/slango-macros.md`).
 
-SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `slango`. The data is the thread group size, the immediate size, the structures among the plain values, and for each parameter its parameter path, its kind, its set and binding, whether the code uses it, and either its element stride and element type, with the layout of a structure element, or the scalar type, shape, offset, and size of each plain value. The snapshot is the backend-neutral boundary of Section 6, and a public snapshot would freeze its shape. The walk MUST follow the rules of Section 3.3, including the shift of global bindings for global plain values and the sum of `SubElementRegisterSpace` offsets for parameter blocks.
+`Device::load_module` and `Device::load_module_from_source` compile and then load. `slango::__private::precompile_file` compiles a file with the same code as `Device::load_module`, and `slango::__private::load_precompiled` loads a snapshot that it decodes (Section 5.2 of `docs/design/slango-macros.md`).
+
+SLO-6. The layout snapshot MUST hold only owned data and MUST be private to `slango`.
+
+The data is the thread group size, the immediate size, the structures among the plain values, and, for each parameter, its parameter path, its kind, its set and binding, and whether the code uses it. Each parameter also holds either its element stride and element type, with the layout of a structure element, or the scalar type, shape, offset, and size of each plain value. The snapshot is the backend-neutral boundary of Section 6, and a public snapshot would freeze its shape.
+
+The walk MUST follow the rules of Section 3.3, including the shift of global bindings for global plain values and the sum of `SubElementRegisterSpace` offsets for parameter blocks.
 
 This answers Q-31 of the architecture design, and CQ-4 of `docs/design/slang-compiler.md`, for M3. It also makes Q-30 of the architecture design, and CQ-1 of `docs/design/slang-compiler.md`, unnecessary for M3, because no Slang object leaves `load_module`.
 
-Step 2 built the snapshot as one record for each compute entry point, and step 7 added the records of vertex and fragment entry points (Section 7.4). The record of a kernel holds:
+The snapshot holds one record for each compute entry point, and one for each vertex and fragment entry point (Section 7.4). The record of a kernel holds:
 
 - The name of the entry point and its thread group size.
 - Its bindings, sorted by set and binding, each with its parameter path and a usage flag. A binding is either a storage buffer with its access, read-only or read-write, its element stride, and its element type, or a uniform buffer with its size and its plain values.
 - An optional block of immediates with its size and its plain values.
-- The structures among its plain values, in the order of the walk, each with its parameter path and Slang name, such as `params` with `Params` and `params.inner` with `Inner`. The structure that is the element of a `ConstantBuffer<S>` or a `ParameterBlock<S>` is not one of them, because its fields are parameters of their own. Step 2 of M6 added them for the generator of `slango-macros`, and the runtime does not read them.
+- The structures among its plain values, in the order of the walk, each with its parameter path and Slang name, such as `params` with `Params` and `params.inner` with `Inner`. The structure that is the element of a `ConstantBuffer<S>` or a `ParameterBlock<S>` is not one of them, because its fields are parameters of their own. These records serve the generator of `slango-macros`, and the runtime does not read them.
 
-Step 1 of M6 added the element type of a storage buffer, which the check of Section 9.3 reads (SLM-5 of `docs/design/slango-macros.md`). The walk reads it from the element type layout from which it reads the stride. An element type is one of these:
+The walk reads the element type of a storage buffer from the element type layout from which it reads the stride, and the check of Section 9.3 reads it (SLM-5 of `docs/design/slango-macros.md`). An element type is one of these:
 
 - A scalar or a vector of `bool`, `int`, `uint`, or `float`, with its number of components, 1 for a scalar.
 - A scalar or a vector of another scalar type, such as `half2`, `double`, or `uint8_t4`, with the name that Slang gives it, such as `vector<half,2>`.
-- A structure, with its Slang name, its size, and its fields, each with its name, its byte offset, and its type. A field type is a scalar, vector, matrix, or array of `bool`, `int`, `uint`, or `float`, a nested structure, or any other type with the name that Slang gives it, such as `half` or `Inner[2]`. Step 2 of M6 added this form for the generator of `slango-macros`. A structure with a field of another type still loads.
+- A structure, with its Slang name, its size, and its fields, each with its name, its byte offset, and its type. A field type is a scalar, vector, matrix, or array of `bool`, `int`, `uint`, or `float`, a nested structure, or any other type with the name that Slang gives it, such as `half` or `Inner[2]`. A structure with a field of another type still loads.
 - A composite, which is a matrix, an array, or any other type that is neither a scalar, a vector, nor a structure. The snapshot records no name, size, or fields for it.
 
 When Slang reports no type for the elements of a scalar or vector element, the load gives `ErrorKind::UnsupportedParameter`, as the walk's other checks for a missing answer of Slang do.
 
-Each plain value has its parameter path, offset, size, scalar type, and shape. A shape is a scalar, a vector with its length, a matrix with its rows and columns, or an array with its length, stride, and element shape. The walk flattens a structure into one plain value for each leaf, with a dotted path such as `params.scale`. A constant buffer or parameter block without plain values gets no uniform buffer.
+Each plain value has its parameter path, offset, size, scalar type, and shape. A shape is a scalar, a vector with its length, a matrix with its rows and columns, or an array with its length, stride, and element shape. The walk flattens a structure into one plain value for each leaf, with a dotted path such as `params.scale`.
 
-The design left these choices open, and step 2 settled them:
+A constant buffer or parameter block without plain values gets no uniform buffer.
+
+The walk names parameters and records their usage by these rules:
 
 - A field of a named `cbuffer` gets the path `Name.field`, such as `Arrays.c` for `cbuffer Arrays { float c[5]; }`, although the shader reads it as `c`.
 - A parameter of the entry point has a path without a prefix, so `uniform float factor` has the path `factor`, as a global has.
 - The unnamed uniform buffer of the global plain values has the empty path.
-- The usage of a binding comes from the metadata of the entry point, through `Metadata::is_parameter_location_used` with its set and binding. A plain value has the usage of the uniform buffer that holds it. The immediates carry no usage flag, so step 5 treats them as used.
-- The walk does not record the matrix layout mode. Step 4 settled that marshalling needs none, because the session keeps Slang's default row-major layout, whose rows the extent of a matrix places (Section 3.4).
+- The usage of a binding comes from the metadata of the entry point, through `Metadata::is_parameter_location_used` with its set and binding. A plain value has the usage of the uniform buffer that holds it. The immediates carry no usage flag, so a call treats them as used.
+- The walk does not record the matrix layout mode. Marshalling needs none, because the session keeps Slang's default row-major layout, whose rows the extent of a matrix places (Section 3.4).
 
 The walk supports these parameters and rejects every other with `ErrorKind::UnsupportedParameter`, whose text names the parameter and the kernel, the vertex entry point, or the fragment entry point:
 
@@ -456,23 +524,31 @@ The walk supports these parameters and rejects every other with `ErrorKind::Unsu
 | `bool`, `int`, `uint`, and `float` as scalars, vectors, matrices, and arrays of fixed length, including arrays of arrays | Plain values |
 | A structure of supported values | One plain value for each leaf |
 | A system value | Nothing (Section 3.3) |
-| `Texture2D` with a `float` result, and `SamplerState`, from M4 | A sampled texture or a sampler (Section 8.1) |
+| `Texture2D` with a `float` result, and `SamplerState` | A sampled texture or a sampler (Section 8.1) |
 
 Among the rejected parameters are every other resource, such as a storage texture, `Sampler2D`, or `ByteAddressBuffer`, a plain value of another scalar type, such as `double`, an array of structures or of resources, and an array without a fixed length. A failure of Slang to compile, link, or reflect the module is `ErrorKind::Compile`.
 
 ### 7.2. The Global Session for Each Load
 
-SLO-7. `Device::load_module` MUST create its own global session and release it before it returns. `slango` MUST keep no global session in a `static`, a `thread_local!`, or any hidden state, because CONC-4 forbids hidden library state. The simplest form also has no state to invalidate or to clean up at thread exit.
+SLO-7. `Device::load_module` MUST create its own global session and release it before it returns. `slango` MUST keep no global session in a `static`, a `thread_local!`, or any hidden state, because CONC-4 forbids hidden library state.
 
-The cost is about 135 ms for each load (Sections 3.6 and 3.9). That is acceptable for a program that loads a few modules once, and for the hot reload of a development tool after each save of a file, such as the example of Section 13.5. SLO-7 therefore stays through M4. A caller-held compiler or a cache of global sessions becomes an open question again only when a later need, such as loading many modules, makes the cost matter.
+The simplest form also has no state to invalidate or to clean up at thread exit.
+
+The global session makes up most of the cost of each load, well over 100 ms (Section 3.6). That is acceptable for a program that loads a few modules once, and for the hot reload of a development tool after each save of a file, such as the example of Section 13.5.
+
+SLO-7 therefore stays through M4. A caller-held compiler or a cache of global sessions becomes an open question again only when a later need, such as loading many modules, makes the cost matter.
 
 ### 7.3. Kernels and Pipelines
 
-SLO-8. `Device::load_module` MUST create the shader module, the bind group layouts, and the compute pipeline of every compute entry point before it returns. It MUST fail as a whole when any of them fails, because every error of a module then surfaces at one call. Each creation costs under 1 ms (Section 3.6).
+SLO-8. `Device::load_module` MUST create the shader module, the bind group layouts, and the compute pipeline of every compute entry point before it returns. It MUST fail as a whole when any of them fails, because every error of a module then surfaces at one call.
+
+Each creation costs under 1 ms (Section 3.6).
 
 SLO-9. `slango` MUST create each shader module inside an error scope and MUST return a rejection by naga as `ErrorKind::UnsupportedShader`, with naga's text returned unchanged as the source error (Section 10), because the text names the construct that the user must change (Section 3.5). An error that wgpu reports to its uncaptured-error handler is lost to the caller.
 
-The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A kernel has one bind group layout for each set from 0 to the last set that holds a used binding, and a set between them with no used binding gets an empty layout. A parameter that the walk rejects fails the load with `ErrorKind::UnsupportedParameter` (Section 7.1). The load checks SLO-18 before it creates the shader module of a kernel, so it fails with `ErrorKind::MissingFeature` when the kernel has immediates and the device lacks `Features::IMMEDIATES`, or when the reflected size of the immediates exceeds the device's `max_immediate_size`. Section 10 states how the load maps the errors of wgpu.
+The bind group layouts leave out every binding that the code does not use, which wgpu accepts (Section 3.3), so that the caller binds only what the kernel reads or writes. A kernel has one bind group layout for each set from 0 to the last set that holds a used binding, and a set between them with no used binding gets an empty layout. A parameter that the walk rejects fails the load with `ErrorKind::UnsupportedParameter` (Section 7.1).
+
+The load checks SLO-18 before it creates the shader module of a kernel. It fails with `ErrorKind::MissingFeature` when the kernel has immediates and the device lacks `Features::IMMEDIATES`, or when the reflected size of the immediates exceeds the device's `max_immediate_size`. Section 10 states how the load maps the errors of wgpu.
 
 `Module::kernel` looks a kernel up by its Slang name and returns a reference to it. For a name that is no compute entry point of the module, it returns `ErrorKind::InvalidArgument` with a text that lists no names. No method lists the kernels of a module.
 
@@ -480,7 +556,13 @@ The bind group layouts leave out every binding that the code does not use, which
 
 SLO-20. `Device::load_module` MUST also record the layout snapshot and the SPIR-V of every vertex and fragment entry point, and MUST NOT create their shader modules or fail on their parameters. Otherwise a render entry point that `slango` rejects would make the kernels of its module unusable.
 
-The load compiles every entry point as Section 7.1 states, with one SPIR-V module for each (Section 3.9), and still ignores the entry points of other stages. The record of a vertex or fragment entry point holds its name, its stage, its bindings and plain values as Section 7.1 defines them, with the usage of each binding from that entry point's metadata, and, for a vertex entry point, its vertex attributes. A failure that belongs to one such entry point becomes the rejection on its record, and the load goes on (SLO-20). The rejection is `ErrorKind::UnsupportedParameter` for a parameter that the walk refuses, and `ErrorKind::Compile` with Slang's text for a failure of Slang to reflect the entry point, report its metadata, or generate its SPIR-V. A rejected record keeps no SPIR-V, and `Module::render_pipeline` returns its rejection. The load skips an entry point whose name Slang cannot report, and fails as a whole only for a failure of the whole compilation or of a kernel, as before step 7. Where a module has several parameters that a load refuses, the error may now name a different one than before. Compute kernels keep their pipelines at load (SLO-8).
+The load compiles every entry point as Section 7.1 states, with one SPIR-V module for each (Section 3.9), and ignores the entry points of other stages. The record of a vertex or fragment entry point holds its name, its stage, and its bindings and plain values as Section 7.1 defines them, with the usage of each binding from that entry point's metadata. The record of a vertex entry point also holds its vertex attributes.
+
+A failure that belongs to one such entry point becomes the rejection on its record, and the load goes on (SLO-20). The rejection is `ErrorKind::UnsupportedParameter` for a parameter that the walk refuses. It is `ErrorKind::Compile` with Slang's text for a failure of Slang to reflect the entry point, report its metadata, or generate its SPIR-V.
+
+A rejected record keeps no SPIR-V, and `Module::render_pipeline` returns its rejection.
+
+The load skips an entry point whose name Slang cannot report. It fails as a whole only for a failure of the whole compilation or of a kernel, and compute kernels keep their pipelines at load (SLO-8).
 
 SLO-21. The walk MUST record each vertex attribute of a vertex entry point with its parameter path, location, scalar type, component count, and usage, because the render pipeline builds its vertex layout from reflection alone and the draw checks each buffer against it.
 
@@ -490,16 +572,21 @@ The walk records the vertex attributes by these rules:
 - The parameter path is the dotted path from the parameter's name, such as `input.position` for the field `position` of the parameter `input`. A parameter that is not a structure has its own name as its path.
 - The location is the sum of `offset(VaryingInput)` along the path (Section 3.9).
 - A field without the category `VaryingInput`, such as `SV_Position`, `SV_VulkanVertexID`, or `SV_VulkanInstanceID`, is skipped (Section 3.9). That every other system value lacks the category is assumed (SOA-6).
-- A `float`, `int`, or `uint` scalar, or a vector of 1 to 4 of them, is supported, and step 7 settled that a vector of one component is an attribute like a scalar. Every other type, such as a matrix, an array, or a `bool`, is a rejection of the walk.
+- A `float`, `int`, or `uint` scalar, or a vector of 1 to 4 of them, is supported, and a vector of one component is an attribute like a scalar. Every other type, such as a matrix, an array, or a `bool`, is a rejection of the walk.
 - The usage comes from `Metadata::is_parameter_location_used` with `ParameterCategory::VaryingInput`, space 0, and the location.
 
-The walk records no varying and no output of the fragment entry point, because wgpu matches the varyings by location (Section 3.9).
-
-Step 7 settled that the walk accepts a sampler only when its type is `SamplerState`, so it rejects `SamplerComparisonState`, which reflects with the same kind, under SLO-24.
+The walk records no varying and no output of the fragment entry point, because wgpu matches the varyings by location (Section 3.9). The walk accepts a sampler only when its type is `SamplerState`, so it rejects `SamplerComparisonState`, which reflects with the same kind, under SLO-24.
 
 ### 7.5. Render Pipelines
 
-`Module::render_pipeline` takes the name of a vertex entry point, the name of a fragment entry point, and a `RenderPipelineOptions`, and returns a `RenderPipeline`. A name that is no entry point of that stage gives `ErrorKind::InvalidArgument`, as `Module::kernel` does (Section 7.3). Each call creates a new pipeline, and `slango` keeps no cache, because a cache is hidden state (CONC-4). The topology is always a list of triangles, and front faces are counter-clockwise, which is wgpu's default. Step 9 settled the other fixed-function values: `Blend::Replace` sets no blend state, every colour channel is written, the depth test has wgpu's default stencil and bias state, and the other primitive fields and the multisample state, with one sample, are wgpu's defaults.
+`Module::render_pipeline` takes the name of a vertex entry point, the name of a fragment entry point, and a `RenderPipelineOptions`, and returns a `RenderPipeline`. A name that is no entry point of that stage gives `ErrorKind::InvalidArgument`, as `Module::kernel` does (Section 7.3). Each call creates a new pipeline, and `slango` keeps no cache, because a cache is hidden state (CONC-4).
+
+The fixed-function state of a render pipeline is this:
+
+- The topology is always a list of triangles, and front faces are counter-clockwise, which is wgpu's default.
+- `Blend::Replace` sets no blend state, and every colour channel is written.
+- The depth test has wgpu's default stencil and bias state.
+- The other primitive fields and the multisample state, with one sample, are wgpu's defaults.
 
 These are the fields of `RenderPipelineOptions`, each with its default:
 
@@ -525,9 +612,13 @@ SLO-22. `Module::render_pipeline` MUST create both shader modules, the bind grou
 6. Each vertex attribute has a vertex format (Section 8.2), otherwise `ErrorKind::UnsupportedParameter`. The walk records only attributes that have one.
 7. The bindings of the two entry points merge, otherwise `ErrorKind::UnsupportedParameter`.
 
-The pipeline merges the bindings of its two entry points, which share every global binding (Section 3.9), by set and binding. A set and binding that both entry points report must describe the same parameter path and the same resource, or the merge fails. Each merged binding is visible to exactly the stages whose metadata reports it used. A binding that neither stage uses gets no bind group layout entry, as Section 7.3 states for kernels, and stays known to the pipeline, so that a draw can accept and ignore an argument for it (Section 9.5). The bind group layouts cover the sets as Section 7.3 states for kernels.
+The pipeline merges the bindings of its two entry points, which share every global binding (Section 3.9), by set and binding. A set and binding that both entry points report must describe the same parameter path and the same resource, or the merge fails. Each merged binding is visible to exactly the stages whose metadata reports it used.
 
-The vertex state has one vertex buffer for each used attribute, in slots numbered from 0 in the order of locations, with the attribute at offset 0, a stride equal to the size of its format, and the step mode `Instance` when `instance_attributes` names its path, otherwise `Vertex`. An unused attribute gets no vertex buffer (Section 3.9). Because each used attribute takes its own vertex buffer, the device's limit on vertex buffers bounds the attributes that a vertex entry point may use in M4, and creation fails when it uses more. Section 10 states how the errors of creation map to kinds.
+A binding that neither stage uses gets no bind group layout entry, as Section 7.3 states for kernels. It stays known to the pipeline, so that a draw can accept and ignore an argument for it (Section 9.5). The bind group layouts cover the sets as Section 7.3 states for kernels.
+
+The vertex state has one vertex buffer for each used attribute, in slots numbered from 0 in the order of locations. Each attribute sits at offset 0, with a stride equal to the size of its format, and the step mode `Instance` when `instance_attributes` names its path, otherwise `Vertex`. An unused attribute gets no vertex buffer (Section 3.9).
+
+Because each used attribute takes its own vertex buffer, the device's limit on vertex buffers bounds the attributes that a vertex entry point may use, and creation fails when it uses more. Section 10 states how the errors of creation map to kinds.
 
 SLO-23. `Module::render_pipeline` MUST return `ErrorKind::UnsupportedParameter` when the vertex or the fragment entry point has `uniform` parameters of its own, because their push constant blocks alias at offset 0 and wgpu sets immediates without a stage (Section 3.9).
 
@@ -537,32 +628,42 @@ The uniforms of a render pipeline are therefore global uniforms, constant buffer
 
 SLO-10. A call MUST accept as the element type `T` of a bound `Buffer<T>` only the types of a sealed trait whose byte representation equals the std430 layout of the matching Slang element type without padding. Each such type MUST have a test that checks its size against the stride that reflection reports, because a Rust type with another layout would place every element after the first at a wrong offset (Section 3.4).
 
-The sealed trait is `Element`. Step 4 implemented it for exactly these types, whose strides the test of SLO-10 checks against reflection (Section 3.3):
+The sealed trait is `Element`, and it holds exactly these types, whose strides the test of SLO-10 checks against reflection (Section 3.3):
 
 | Rust type | Slang type | Stride in bytes |
 | --- | --- | --- |
 | `f32`, `i32`, `u32` | `float`, `int`, `uint` | 4 |
 | `[f32; 4]`, `[i32; 4]`, `[u32; 4]` | `float4`, `int4`, `uint4` | 16 |
 
-The implementation adds further types only with the test of SLO-10. A call or a draw compares `T` with the element of its parameter as Section 9.3 states.
+A further type joins `Element` only with the test of SLO-10. A call or a draw compares `T` with the element of its parameter as Section 9.3 states.
 
-Step 2 of M6 added blanket implementations of `Element`, `VertexElement`, and `Value` for every type that implements the hidden trait `slango::__private::StructElement`, which the structs that `slango-macros` generates implement (SLM-8 of `docs/design/slango-macros.md`). The traits stay sealed for users (API-8), because the hidden trait is not part of the API. Such a type has no test of SLO-10. The generated code asserts its size and field offsets against Slang's layout instead (SLM-18 of that design). A buffer of such a type binds only to a structure or a composite element (Section 9.3), a dispatch or a draw rejects a value of it given to `set` (Section 9.2), and a draw rejects a vertex buffer of it (Section 8.2). The size of a buffer is its length times the stride. Elements and the scalars of plain values (Section 9.2) are written little-endian, and elements are read the same way.
+`Element`, `VertexElement`, and `Value` have blanket implementations for every type that implements the hidden trait `slango::__private::StructElement`, which the structs that `slango-macros` generates implement (SLM-8 of `docs/design/slango-macros.md`). The traits stay sealed for users (API-8), because the hidden trait is not part of the API.
 
-These rules settle the creation of a buffer and its contents:
+Such a type has no test of SLO-10. The generated code asserts its size and field offsets against Slang's layout instead (SLM-18 of that design).
+
+A buffer of such a type binds only to a structure or a composite element (Section 9.3). A dispatch or a draw rejects a value of it given to `set` (Section 9.2), and a draw rejects a vertex buffer of it (Section 8.2).
+
+The size of a buffer is its length times the stride. Elements and the scalars of plain values (Section 9.2) are written little-endian, and elements are read the same way. These rules settle the creation of a buffer and its contents:
 
 - `Buffer::from_slice` creates a buffer that holds a copy of a slice, and `Buffer::zeroed` creates one of a given length whose bytes are zero.
 - A buffer has the usages `STORAGE`, `COPY_SRC`, `COPY_DST`, `VERTEX`, and `INDEX`, the last two for the draw (Section 8.2).
 - A buffer of length zero is allowed, and `read` returns it as an empty vector without work on the GPU. A call rejects it as an argument (Section 9.3).
-- An element of 0 bytes gives `ErrorKind::InvalidArgument` from `Buffer::from_slice` and `Buffer::zeroed`. No built-in element has 0 bytes. Step 2 of M6 added the rule, because a wrong implementation of `StructElement` with a stride of 0 would otherwise make `Buffer::read` panic.
+- An element of 0 bytes gives `ErrorKind::InvalidArgument` from `Buffer::from_slice` and `Buffer::zeroed`. No built-in element has 0 bytes, but a wrong implementation of `StructElement` with a stride of 0 would otherwise make `Buffer::read` panic.
 - No method writes new contents into an existing buffer.
 
-SLO-11. `Buffer::read` MUST block until every dispatch submitted before it has finished and MUST return the elements as a `Vec<T>`, because a caller must not observe a partial result. A blocking read is the only synchronization that M3 offers. It copies the buffer to a staging buffer, maps it, and blocks the calling thread until the device has finished.
+SLO-11. `Buffer::read` MUST block until every dispatch submitted before it has finished and MUST return the elements as a `Vec<T>`, because a caller must not observe a partial result.
+
+A blocking read is the only synchronization that `slango` offers. It copies the buffer to a staging buffer, maps it, and blocks the calling thread until the device has finished.
 
 ### 8.1. Textures and Samplers
 
-SLO-24. The walk MUST accept a `Texture2D` with a `float` result and a `SamplerState` in every stage. It MUST reject every other texture or sampler kind, including `Sampler2D`, with `ErrorKind::UnsupportedParameter`, because only these two are in the supported set of parameters (Section 7.1). This is the walk's own check of that set and no screen for a defect of naga (Section 1.7).
+SLO-24. The walk MUST accept a `Texture2D` with a `float` result and a `SamplerState` in every stage. It MUST reject every other texture or sampler kind, including `Sampler2D`, with `ErrorKind::UnsupportedParameter`, because only these two are in the supported set of parameters (Section 7.1).
 
-The snapshot records a texture as a sampled texture and a sampler as a sampler, each with its parameter path, set, binding, and usage. The backend builds the layout entries of Section 3.9, visible to the compute stage in a kernel and as Section 7.5 states in a render pipeline. The setters `texture` and `sampler` are in Sections 9.1 and 9.5. Storage textures, texture arrays, cube maps, and textures of other shapes or result types stay rejected (Section 1.5). A subscript of a texture fails as Section 3.5 states.
+This is the walk's own check of that set and no screen for a defect of naga (Section 1.7).
+
+The snapshot records a texture as a sampled texture and a sampler as a sampler, each with its parameter path, set, binding, and usage. The backend builds the layout entries of Section 3.9, visible to the compute stage in a kernel and as Section 7.5 states in a render pipeline. The setters `texture` and `sampler` are in Sections 9.1 and 9.5.
+
+Storage textures, texture arrays, cube maps, and textures of other shapes or result types stay rejected (Section 1.5). A subscript of a texture fails as Section 3.5 states.
 
 These rules settle textures:
 
@@ -581,28 +682,40 @@ These rules settle samplers. `Sampler::new` takes a device and a `SamplerOptions
 
 The other settings of a sampler, such as its mipmap filter, are wgpu's defaults, with no comparison and no anisotropy.
 
-The module `slango::wgpu` has `texture`, which returns the wgpu texture of a `Texture`, and `texture_from_view`, which wraps a wgpu texture view of a device, such as the view of a surface texture, as a `Texture` (SLO-4). No function returns the view of a `Texture`. `texture_from_view` takes the size, format, and usages from the viewed texture through `TextureView::texture` (read, wgpu 30.0.1). It gives `ErrorKind::InvalidArgument` for a format that `TextureFormat` lacks and for a texture that is not two-dimensional with one sample, one mip level, and one array layer, so that `size` and `read` describe what a kernel samples. It does not check which device the view belongs to. A call, a draw, or a read that needs a usage that such a texture lacks gives `ErrorKind::InvalidArgument`.
+The module `slango::wgpu` has `texture`, which returns the wgpu texture of a `Texture`, and `texture_from_view`, which wraps a wgpu texture view of a device, such as the view of a surface texture, as a `Texture` (SLO-4). No function returns the view of a `Texture`. `texture_from_view` takes the size, format, and usages from the viewed texture through `TextureView::texture` (read, wgpu 30.0.1).
+
+`texture_from_view` gives `ErrorKind::InvalidArgument` for a format that `TextureFormat` lacks. It does the same for a texture that is not two-dimensional with one sample, one mip level, and one array layer, so that `size` and `read` describe what a kernel samples.
+
+It does not check which device the view belongs to. A call, a draw, or a read that needs a usage that such a texture lacks gives `ErrorKind::InvalidArgument`.
 
 ### 8.2. Vertex and Index Buffers
 
 SLO-25. `slango` MUST provide a sealed trait `VertexElement`, a supertrait of `Element`, for every `Element` and the packed arrays of 2 and 3 `f32`, `i32`, or `u32`, because a vertex attribute reads packed vectors, such as `Float32x3`.
 
-Step 8 implemented `VertexElement` for `f32`, `i32`, and `u32` and for the arrays of 2, 3, and 4 of each, with the packed strides 4, 8, 12, and 16 bytes. `Element` has `VertexElement` as a supertrait and keeps its six types and their strides (Section 8). `Buffer::from_slice`, `Buffer::zeroed`, `Buffer::read`, `Buffer::len`, and `Buffer::is_empty` take the bound `VertexElement` instead of `Element`, which accepts every type that they accepted. `Call::bind` keeps the bound `Element`, because only those types have the stride test of SLO-10. Every buffer has the usages `VERTEX` and `INDEX` (Section 8). Step 9 added the mapping from the reflected scalar type and component count of an attribute to its vertex format, because the creation of a render pipeline needs it: `float` to `Float32`, `float2` to `Float32x2`, `int3` to `Sint32x3`, `uint4` to `Uint32x4`, and so on. Step 10 added the check of the element type of a vertex buffer against its attribute, such as `[f32; 2]` for a `float2` (Section 9.5). A vertex buffer of a generated struct (Section 8) has no type of a vertex attribute, so the draw rejects it with `ErrorKind::InvalidArgument`, because no vertex attribute holds a structure. An index buffer is a `Buffer<u32>`, read with `IndexFormat::Uint32`.
+`VertexElement` holds `f32`, `i32`, and `u32` and the arrays of 2, 3, and 4 of each, with the packed strides 4, 8, 12, and 16 bytes. `Element` keeps its six types and their strides (Section 8).
+
+`Buffer::from_slice`, `Buffer::zeroed`, `Buffer::read`, `Buffer::len`, and `Buffer::is_empty` take the bound `VertexElement`. `Call::bind` keeps the bound `Element`, because only those types have the stride test of SLO-10. Every buffer has the usages `VERTEX` and `INDEX` (Section 8).
+
+The reflected scalar type and component count of an attribute map to its vertex format, such as `float` to `Float32`, `float2` to `Float32x2`, `int3` to `Sint32x3`, and `uint4` to `Uint32x4`. The draw checks the element type of a vertex buffer against its attribute, such as `[f32; 2]` for a `float2` (Section 9.5). A vertex buffer of a generated struct (Section 8) has no type of a vertex attribute, so the draw rejects it with `ErrorKind::InvalidArgument`, because no vertex attribute holds a structure.
+
+An index buffer is a `Buffer<u32>`, read with `IndexFormat::Uint32`.
 
 ## 9. The Call
 
 ### 9.1. Arguments by Name
 
-A kernel's parameters are named globals and named parameters of the entry point, with no positional order, so the call addresses each one by its parameter path. `Kernel::call` returns a builder. Its setter `set` records a plain value at a parameter path, its setter `bind` records a buffer for a parameter path, and both are infallible (API-6). This answers Q-18 of the architecture design for M3.
+A kernel's parameters are named globals and named parameters of the entry point, with no positional order, so the call addresses each one by its parameter path. `Kernel::call` returns a builder.
 
-Step 5 settled these choices for the builder `Call`:
+Its setter `set` records a plain value at a parameter path, its setter `bind` records a buffer for a parameter path, and both are infallible (API-6). This answers Q-18 of the architecture design for M3.
+
+The builder `Call` follows these rules:
 
 - It borrows the kernel, the parameter paths, and the bound buffers, and clones none of them.
-- `set` and `bind` take `&mut self`, and `dispatch` and `dispatch_groups` take `&self`, so a dispatch does not consume the call, and the same call can dispatch again with the same arguments.
+- `set` and `bind` take `&mut self`, and `dispatch` and `dispatch_groups` take `&self`. A dispatch therefore does not consume the call, and the same call can dispatch again with the same arguments.
 - A later `set` or `bind` for a path replaces the earlier argument for that path, whichever setter gave it.
 - Every mistake in the arguments is reported by the dispatch, never by a setter (Section 9.3).
 
-Step 8 added the setters `texture` and `sampler`, which record a `Texture` or a `Sampler` for a parameter path under the same rules and are infallible too.
+The setters `texture` and `sampler` record a `Texture` or a `Sampler` for a parameter path under the same rules, and are infallible too.
 
 ### 9.2. Marshalling
 
@@ -610,40 +723,48 @@ SLO-12. The trait through which `set` takes a value MUST be sealed (API-8). It M
 
 SLO-13. `slango` MUST write every plain value at its reflected offset, element by element for vectors, matrices, and arrays, and MUST NOT copy the bytes of a Rust struct as a whole, because the reflected layout differs from every Rust layout (Section 3.4).
 
-The sealed trait is `Value`. Step 4 implemented it for `bool`, `i32`, `u32`, and `f32`, which stand for `bool`, `int`, `uint`, and `float`, and for arrays `[T; N]` of a value type, nested to any depth. Step 5 made `Copy` a supertrait of `Value`, so that `set` takes the value itself. A Rust array stands for any Slang structure of the same nesting:
+The sealed trait is `Value`, with `Copy` as a supertrait, so that `set` takes the value itself. It holds `bool`, `i32`, `u32`, and `f32`, which stand for `bool`, `int`, `uint`, and `float`, and arrays `[T; N]` of a value type, nested to any depth. A Rust array stands for any Slang type of the same nesting:
 
 - `[f32; 3]` stands for a vector `float3` or an array `float[3]`.
 - `[[f32; 3]; 2]` stands for a matrix `float2x3`, whose first index is the row, an array of vectors `float3[2]`, or an array of arrays `float[2][3]`.
 
-A value matches its parameter when the scalar types are equal and the lengths of the nesting are equal, from the outermost to the innermost, and the reflected size enters only when the value is written. A value that does not match gives `ErrorKind::InvalidArgument`, whose message names the parameter path, the Slang type, and the Rust type, and no byte is written. A value of a generated struct (Section 8), or an array of them, never matches, and the message names the struct by its Slang name, because a structure among the plain values is set leaf by leaf (Section 7.1). Each scalar is written at its reflected offset, and a `bool` as a 32-bit 0 or 1. A matrix is written row by row, as Section 3.4 states. Global plain values and plain values in constant buffers and parameter blocks go into uniform buffers that the call owns, and plain values of the entry point go into the immediates of the dispatch.
+A value matches its parameter when the scalar types are equal and the lengths of the nesting are equal, from the outermost to the innermost. The reflected size enters only when the value is written. A value that does not match gives `ErrorKind::InvalidArgument`, whose message names the parameter path, the Slang type, and the Rust type, and no byte is written.
+
+A value of a generated struct (Section 8), or an array of them, never matches, and the message names the struct by its Slang name, because a structure among the plain values is set leaf by leaf (Section 7.1).
+
+Each scalar is written at its reflected offset, and a `bool` as a 32-bit 0 or 1. A matrix is written row by row, as Section 3.4 states. Global plain values and plain values in constant buffers and parameter blocks go into uniform buffers that the call owns, and plain values of the entry point go into the immediates of the dispatch.
 
 ### 9.3. Validation Before Dispatch
 
-SLO-14. The dispatch MUST check, before it submits any work, that every parameter path names a parameter of the kernel and that every used parameter is set. It MUST check that every value matches its parameter (SLO-12) and that the element stride of every bound buffer equals the reflected stride. It MUST run the check of the element type of every bound buffer that SLM-5 of `docs/design/slango-macros.md` requires. It MUST check that every buffer belongs to the kernel's device and that every workgroup count is within the device's limit. It MUST return `ErrorKind::InvalidArgument` naming the parameter when a check fails, because wgpu reports these mistakes late, with less context, or not at all.
+SLO-14. The dispatch MUST check, before it submits any work, that every parameter path names a parameter of the kernel and that every used parameter is set. It MUST check that every value matches its parameter (SLO-12) and that the element stride of every bound buffer equals the reflected stride.
 
-Each `Device` carries an identity that its clones share, and a buffer belongs to the device whose identity it holds. Two `Device` values built separately from the same wgpu device therefore count as different devices.
+It MUST run the check of the element type of every bound buffer that SLM-5 of `docs/design/slango-macros.md` requires. It MUST check that every buffer belongs to the kernel's device and that every workgroup count is within the device's limit. It MUST return `ErrorKind::InvalidArgument` naming the parameter when a check fails, because wgpu reports these mistakes late, with less context, or not at all.
 
-Step 5 settled the checks of SLO-14 as these rules:
+Each `Device` carries an identity that its clones share, because `==` cannot tell two wgpu devices apart (Section 3.2). A buffer belongs to the device whose identity it holds. Two `Device` values built separately from the same wgpu device therefore count as different devices.
+
+The checks of SLO-14 follow these rules:
 
 - A parameter that the kernel does not use may be omitted. An argument given for one gets every check and is then ignored.
 - Every plain value of a used uniform buffer, and every plain value of the immediates, must be set. The immediates count as used (Section 7.1).
 - A bound buffer must not be empty.
 - An argument of one kind given for a parameter of another kind, among plain values, buffers, textures, and samplers, is rejected.
 
-Step 8 extended these rules to textures and samplers:
+Textures and samplers follow these further rules:
 
 - A texture or a sampler must belong to the kernel's device, as a buffer does.
 - A bound texture must have a colour format and the usage `TEXTURE_BINDING`. Of the colour textures, only one from `slango::wgpu::texture_from_view` can lack that usage.
 - Every texture and sampler that the kernel uses must be given.
 
-Step 1 of M6 added the check of the element type of a bound buffer (SLM-5 of `docs/design/slango-macros.md`), with these rules, which read the element type that Section 7.1 records:
+The check of the element type of a bound buffer (SLM-5 of `docs/design/slango-macros.md`) reads the element type that Section 7.1 records, with these rules:
 
 - When the element of the parameter is a scalar or a vector of `bool`, `int`, `uint`, or `float`, the Rust element type of the buffer must have the same scalar type and number of components, such as `f32` for `float` or `[u32; 4]` for `uint4`. Otherwise the error names the parameter, the Slang type, such as `float`, and the Rust type, such as `u32`.
 - When the element of the parameter is a scalar or a vector of another scalar type, no Rust element type matches it, and the error names it with the name that Slang gives it.
 - When the element of the parameter is a structure, a matrix, or an array, the stride alone is checked, so a `Buffer<[f32; 4]>` binds to a `StructuredBuffer<float2x2>` and to a buffer of a structure of 16 bytes.
 - A buffer of a generated struct (Section 8) binds only to such an element, by its stride, and never to a scalar or vector element. The error then names the struct by its Slang name.
 
-The owner decided on 2026-11-11 that a scalar or vector element matches exactly and a structure by its stride alone. The implementation of step 1 made two further choices. First, it applies the exact check to a scalar or a vector of `bool` and of every scalar type that no `Element` has, such as `half`, `double`, and the 8-bit and 16-bit integers, because SLM-5 covers every scalar and vector and the exact check is the sounder choice. No `Buffer<T>` can therefore be bound to such a parameter, although some were bound by their stride before, such as a `Buffer<u32>` to a `StructuredBuffer<bool>`. Second, it keeps the check of the stride alone for matrices and arrays, as for structures, because SLM-5 requires the exact check only for scalars and vectors.
+A scalar or vector element matches exactly, and a structure by its stride alone, by the owner's decision. The exact check also covers `bool` and every scalar type that no `Element` has, such as `half`, `double`, and the 8-bit and 16-bit integers, because SLM-5 covers every scalar and vector and the exact check is the sounder choice.
+
+No `Buffer<T>` can therefore be bound to such a parameter, such as a `Buffer<u32>` to a `StructuredBuffer<bool>`. Matrices and arrays keep the check of the stride alone, as structures do, because SLM-5 requires the exact check only for scalars and vectors.
 
 The dispatch runs the checks in this order and returns the first failure, all before any call of wgpu:
 
@@ -659,11 +780,17 @@ SLO-15. The dispatch MUST open an error scope around the work it records and sub
 
 ### 9.4. Dispatch and Results
 
-`dispatch` takes the element counts of three axes and derives each workgroup count by rounding the element count divided by the thread group size up, so the kernel guards the threads past the end itself, as the illustration of Section 5.2 does. `dispatch_groups` takes the workgroup counts directly. A workgroup count over the device's limit is an error (Section 9.3). A count of zero along any axis runs no thread, and the dispatch succeeds once the arguments pass the checks. A dispatch returns once its work is submitted, without waiting for it. Its results come back through `Buffer::read` on a buffer that the caller bound (SLO-11), which sees them because it submits its copy on the same queue after the dispatch.
+`dispatch` takes the element counts of three axes and derives each workgroup count by rounding the element count divided by the thread group size up. The kernel therefore guards the threads past the end itself, as the illustration of Section 5.2 does.
+
+`dispatch_groups` takes the workgroup counts directly. A workgroup count over the device's limit is an error (Section 9.3).
+
+A count of zero along any axis runs no thread, and the dispatch succeeds once the arguments pass the checks. A dispatch returns once its work is submitted, without waiting for it. Its results come back through `Buffer::read` on a buffer that the caller bound (SLO-11), which sees them because it submits its copy on the same queue after the dispatch.
 
 ### 9.5. The Draw
 
-`RenderPipeline::draw` returns the builder `Draw`, which follows the rules of Section 9.1 for `Call`. Its setters `set`, `bind`, `texture`, and `sampler` record parameters as those of a call do (Sections 8.1 and 9.1). A matrix is set row by row (Section 9.2), so a transform written in Rust as rows works with `mul(transform, vector)` in Slang (Section 3.9). These setters record the rest of a draw:
+`RenderPipeline::draw` returns the builder `Draw`, which follows the rules of Section 9.1 for `Call`. Its setters `set`, `bind`, `texture`, and `sampler` record parameters as those of a call do (Sections 8.1 and 9.1).
+
+A matrix is set row by row (Section 9.2), so a transform written in Rust as rows works with `mul(transform, vector)` in Slang (Section 3.9). These setters record the rest of a draw:
 
 - `vertex`: The buffer of a vertex attribute, named by its parameter path (Section 7.4).
 - `target`: The colour target, a `Texture`, which every draw needs.
@@ -681,10 +808,18 @@ The draw shares the checks of its parameters with a call, so every rule of Secti
 
 1. The given arguments: each argument of a parameter, in the order given, as Section 9.3 states, then each vertex buffer, in the order given. A vertex buffer names a vertex attribute, belongs to the device, is not empty, and has the attribute's scalar type and component count.
 2. The missing arguments: each used parameter that no argument gives, as Section 9.3 states, and then each used vertex attribute without a buffer, in the order of locations. An unused parameter or attribute may be omitted. An argument or a vertex buffer given for one gets the checks of step 1 and is then ignored, so its length does not count in step 4.
-3. The targets. A colour target is required, and it belongs to the device, has the pipeline's colour format, and has the usage `RENDER_ATTACHMENT`. A depth target is required exactly when the pipeline has a depth format. It is checked as the colour target is, against the depth format, and must have the size of the colour target. A depth given to `clear_depth` must be from 0.0 to 1.0, otherwise `ErrorKind::InvalidArgument`. This check runs even when the draw has no depth target, and such a draw ignores a valid depth.
-4. The counts. The used vertex buffers that step per vertex must have one length, and so must those that step per instance. With `submit`, the count of vertices is at most the length of the buffers per vertex. With `submit_indexed`, the index buffer belongs to the device and is not empty, and the count of indices is at most its length and is not bounded by the vertex buffers. The count of instances is at most the length of the buffers per instance, when there are any.
+3. The targets. A colour target is required, and it belongs to the device, has the pipeline's colour format, and has the usage `RENDER_ATTACHMENT`.
 
-The draw does not read the values of an index buffer (Section 17). It records and submits its work inside an error scope, and returns each error that remains as `ErrorKind::Backend`, as SLO-15 states for a dispatch. `slango` makes no check of its own that one texture is both sampled and a target of one draw. wgpu's validation rejects it on every adapter tested (Section 3.9), as it rejects aliased buffers (Section 9.3).
+   A depth target is required exactly when the pipeline has a depth format. It is checked as the colour target is, against the depth format, and must have the size of the colour target.
+
+   A depth given to `clear_depth` must be from 0.0 to 1.0, otherwise `ErrorKind::InvalidArgument`. This check runs even when the draw has no depth target, and such a draw ignores a valid depth.
+4. The counts. The used vertex buffers that step per vertex must have one length, and so must those that step per instance.
+
+   With `submit`, the count of vertices is at most the length of the buffers per vertex. With `submit_indexed`, the index buffer belongs to the device and is not empty, and the count of indices is at most its length and is not bounded by the vertex buffers. The count of instances is at most the length of the buffers per instance, when there are any.
+
+The draw does not read the values of an index buffer (Section 17). It records and submits its work inside an error scope, and returns each error that remains as `ErrorKind::Backend`, as SLO-15 states for a dispatch.
+
+`slango` makes no check of its own that one texture is both sampled and a target of one draw. wgpu's validation rejects it (Section 3.9), as it rejects aliased buffers (Section 9.3).
 
 ## 10. Errors
 
@@ -715,7 +850,7 @@ The message names the kernel, and the backend's text is returned unchanged as th
 - An error while the bind group layouts and the pipeline layout are created maps as for a kernel.
 - A validation or internal error while the render pipeline itself is created gives `UnsupportedShader`, and an out-of-memory error gives `Backend`. Such a validation error reports a mismatch between the two stages or with the pipeline, such as varyings in another order or of another type (Section 3.9), which only a change of the shader fixes.
 
-The message names both entry points, and the backend's text is returned unchanged as the source error. Every other new failure of M4 has the kind that Sections 7.4 to 9.5 state, so `ErrorKind` keeps its eight kinds.
+The message names both entry points, and the backend's text is returned unchanged as the source error. Every other failure of rendering has the kind that Sections 7.4 to 9.5 state, so `ErrorKind` has eight kinds.
 
 `NoAdapter` answers Q-22 of the architecture design.
 
@@ -723,108 +858,130 @@ The message names both entry points, and the backend's text is returned unchange
 
 SLO-17. `Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Error`, and every options type MUST be `Send` and `Sync`, asserted in a test (CONC-1). `slango` MUST implement neither trait by hand, because the types hold only wgpu objects, which are `Send` and `Sync` (Section 3.2), and owned data, so the compiler derives both.
 
-The builders `Call` and `Draw` also hold only such data, and a unit test asserts that each is `Send` and `Sync`. Clones of one kernel may be dispatched from several threads at once, each with its own `Call`, which a `gpu` test does, and clones of one render pipeline may be drawn with from several threads, which a `gpu` test does too. Each dispatch sees only its own errors, because the error scopes of wgpu 30 are per thread (Section 3.2). `load_module` uses Slang only on the calling thread, and its Slang objects never leave the call (SLO-5), which keeps every rule of Section 10 of `docs/design/slang-compiler.md`. Several threads that load modules at once each create their own global session, which Slang supports (Section 3.5 of `docs/design/slang-compiler.md`). `slango` starts no thread (CONC-4).
+The builders `Call` and `Draw` also hold only such data, and a unit test asserts that each is `Send` and `Sync`. Clones of one kernel may be dispatched from several threads at once, each with its own `Call`, and clones of one render pipeline may be drawn with from several threads, which `gpu` tests check. Each dispatch sees only its own errors, because the error scopes of wgpu 30 are per thread (Section 3.2).
+
+`load_module` uses Slang only on the calling thread, and its Slang objects never leave the call (SLO-5), which keeps every rule of Section 10 of `docs/design/slang-compiler.md`. Several threads that load modules at once each create their own global session, which Slang supports (Section 3.5 of `docs/design/slang-compiler.md`). `slango` starts no thread (CONC-4).
 
 ## 12. Device Features
 
-SLO-18. `Device::new` MUST request `Features::IMMEDIATES` with the adapter's maximum immediate size when the adapter offers the feature. The load MUST fail with `ErrorKind::MissingFeature` when a kernel has `uniform` parameters of its entry point and the device lacks the feature or a large enough immediate size, because without the feature naga rejects the module with a message about `entryPointParams` that does not name the cause (run, `Capability Capabilities(IMMEDIATES) is not supported`).
+SLO-18. `Device::new` MUST request `Features::IMMEDIATES` with the adapter's maximum immediate size when the adapter offers the feature. The load MUST fail with `ErrorKind::MissingFeature` when a kernel has `uniform` parameters of its entry point and the device lacks the feature or a large enough immediate size.
 
-The default immediate size of wgpu is 0. The adapters of the spike and of the CI runners offer 128 or 256 bytes (run, Section 3.8). `Device::new` requests no other optional feature, such as the ones that `double`, `int64_t`, and `half` need (Section 3.5). `DeviceOptions` has no field for them, because a field of type `wgpu::Features` would name a wgpu type outside the module of SLO-4. A caller who needs another feature creates the wgpu device with it and passes the device and its queue to `slango::wgpu::from_device_and_queue`. A `Device` built that way uses the features that its device has. Rendering in M4 needs no optional feature, because a render pipeline has no immediates (SLO-23), and the formats of Section 8.1 need none, as their creation and use in compute kernels on the three adapters of Section 3.8 showed (run, step 8, Section 3.9).
+Without the feature, naga rejects the module with a message about `entryPointParams` that does not name the cause, `Capability Capabilities(IMMEDIATES) is not supported`.
+
+The default immediate size of wgpu is 0, and the adapters of the CI runners offer 128 or 256 bytes (Section 3.8). `Device::new` requests no other optional feature, such as the ones that `double`, `int64_t`, and `half` need (Section 3.5). `DeviceOptions` has no field for them, because a field of type `wgpu::Features` would name a wgpu type outside the module of SLO-4.
+
+A caller who needs another feature creates the wgpu device with it and passes the device and its queue to `slango::wgpu::from_device_and_queue`. A `Device` built that way uses the features that its device has. Rendering needs no optional feature, because a render pipeline has no immediates (SLO-23) and the formats of Section 8.1 need none (Section 3.9).
 
 ## 13. Tests, CI, and the Example
 
 ### 13.1. Tests
 
-`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23). The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API. The tests of marshalling, of the checks of a call, and of the workgroup counts are pure and run under Miri. The tests of loading and of the call are `gpu` tests of the integration-test binary, in the modules `gpu::load` and `gpu::call`, with the shader files that they load under `tests/slango/shaders/`. The tests of the call dispatch kernels and assert every result, and assert the kind and text of each error of Section 9.3 and that a rejected call leaves its output buffer unchanged. The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
+`slango` has one integration-test binary (TEST-10). Every test that needs an adapter sits in a module named `gpu`, selects any adapter, and fails when it finds none (ARCH-22, ARCH-23).
+
+The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API.
+
+The tests of marshalling, of the checks of a call, and of the workgroup counts are pure and run under Miri.
+
+The tests of loading and of the call are `gpu` tests of the integration-test binary, in the modules `gpu::load` and `gpu::call`, with the shader files that they load under `tests/slango/shaders/`. The tests of the call dispatch kernels and assert every result. They also assert the kind and text of each error of Section 9.3, and that a rejected call leaves its output buffer unchanged.
+
+The test of `AdapterSelection::Software` is compiled out on macOS, because Metal has no software adapter (Section 3.8), and every other `gpu` test runs on all three platforms.
 
 ### 13.2. Continuous Integration
 
-The `check` and `coverage` jobs on Linux install lavapipe from Mesa's package `mesa-vulkan-drivers` and run the `gpu` tier. The jobs on Windows and macOS run `just test-gpu`, so they run the same tests on WARP and on hosted Metal. The tier passed on all three platforms with the tests of steps 1, 3, 5, 6, 8, 9, and 10, which create devices, load modules, dispatch kernels, sample textures, create render pipelines, and draw offscreen (Sections 3.8 and 3.9). This answers Q-21 of the architecture design.
+The `check` and `coverage` jobs on Linux install lavapipe from Mesa's package `mesa-vulkan-drivers` and run the `gpu` tier. The jobs on Windows and macOS run `just test-gpu`, so they run the same tests on WARP and on hosted Metal.
+
+The tier creates devices, loads modules, dispatches kernels, samples textures, creates render pipelines, and draws offscreen on all three platforms (Sections 3.8 and 3.9). This answers Q-21 of the architecture design.
 
 ### 13.3. The Example
 
-Example 2 of the architecture design is the headless binary target `compute-kernel` of the package `slang-rust-examples`, with its source at `examples/src/bin/compute-kernel.rs`. It takes one argument, the path of a Slang file, and runs the kernel `saxpy` of that file. Its shader, `examples/shaders/saxpy.slang`, computes `result = a * x + y` for each element of two input buffers, with the global `uniform` values `a` and `count`. The example prints the name of the adapter on standard error, and the inputs and results on standard output. It compares the results exactly with the values that it computes on the CPU, which is valid because the inputs are small whole numbers and `a` is 2.5, so every result is exact. It exits with a failure status on a mismatch or an error, and on an error it prints the error and each of its source errors on standard error. A user runs it from the workspace root, with the Slang library on the library path as the example's documentation describes:
+Example 2 of the architecture design is the headless binary target `compute-kernel` of the package `slang-rust-examples`, with its source at `examples/src/bin/compute-kernel.rs`. It takes one argument, the path of a Slang file, and runs the kernel `saxpy` of that file. Its shader, `examples/shaders/saxpy.slang`, computes `result = a * x + y` for each element of two input buffers, with the global `uniform` values `a` and `count`.
+
+The example prints the name of the adapter on standard error, and the inputs and results on standard output. It compares the results exactly with the values that it computes on the CPU. That is valid because the inputs are small whole numbers and `a` is 2.5, so every result is exact.
+
+It exits with a failure status on a mismatch or an error, and on an error it prints the error and each of its source errors on standard error. A user runs it from the workspace root, with the Slang library on the library path as the example's documentation describes:
 
 ```sh
 cargo run -p slang-rust-examples --bin compute-kernel -- examples/shaders/saxpy.slang
 ```
 
-Its three tests sit in the module `gpu` of the integration-test binary `examples/tests/examples/`, so they run on any adapter, on lavapipe in CI (ARCH-21). The error tests need an adapter too, because the example creates the device before it loads the file. The first test compares standard output with an `insta` snapshot, and the other two check that a compile error and a missing file fail with the error on standard error. Two further tests in the module `ffi`, in `ffi/compute_kernel.rs`, check `--help` and a wrong number of arguments, which fail before the example creates the device, so they need no adapter. The example needs no differentiable function, and the broadcasting case of example 2 waits for the milestone that adds broadcasting.
+Its `gpu` tests sit in the integration-test binary `examples/tests/examples/`, so they run on any adapter, on lavapipe in CI (ARCH-21). One compares standard output with an `insta` snapshot, and the others check that a compile error and a missing file fail with the error on standard error. The error tests need an adapter too, because the example creates the device before it loads the file.
+
+The tests in `ffi/compute_kernel.rs` check `--help` and a wrong number of arguments, which fail before the example creates the device, so they need no adapter. The example needs no differentiable function, and the broadcasting case of example 2 waits for the milestone that adds broadcasting.
 
 ### 13.4. Tests of Rendering
 
-The tests of the walk for vertex and fragment entry points, vertex attributes, textures, and samplers are `ffi` unit tests in `layout::tests::ffi` with `insta` snapshots, as Section 13.1 states for the walk, and step 7 added them. The merging of the bindings of two stages and the checks of SLO-26 are pure unit tests that Miri runs, in `render::tests`, which step 9 added, and in `draw::tests`, which step 10 added. The `gpu` tests of rendering sit in the module `gpu::render` of the integration-test binary, where step 9 added the tests of the creation of render pipelines and step 10 the tests that draw. These render offscreen into a `Texture`, read its pixels back, and assert them, on lavapipe, WARP, and hosted Metal in CI (Section 13.2). Their shaders, as source text in the tests or under `tests/slango/shaders/`, cover the conventions of Section 3.9, uniforms, a constant buffer, and a parameter block used by one or both stages, a sampled texture, a depth target, an indexed draw, attributes per instance, alpha blending, back-face culling, a matrix transform, and integer attributes. Further `gpu` tests assert the kind and text of each error of SLO-23 and SLO-26, that a rejected draw leaves its target unchanged, and that a compute kernel reads a texture through a sampler, which step 8 added in `gpu::sample` together with the tests of textures and samplers in `gpu::texture`.
+The tests of the walk for vertex and fragment entry points, vertex attributes, textures, and samplers are `ffi` unit tests in `layout::tests::ffi` with `insta` snapshots, as Section 13.1 states for the walk. The merging of the bindings of two stages and the checks of SLO-26 are pure unit tests that Miri runs, in `render::tests` and `draw::tests`.
+
+The `gpu` tests of rendering sit in the module `gpu::render` of the integration-test binary. They create render pipelines, render offscreen into a `Texture`, read its pixels back, and assert them, on lavapipe, WARP, and hosted Metal in CI (Section 13.2). Their shaders, as source text in the tests or under `tests/slango/shaders/`, cover these cases:
+
+- The conventions of Section 3.9 and a matrix transform.
+- Uniforms, a constant buffer, and a parameter block used by one or both stages.
+- A sampled texture, a depth target, and an indexed draw.
+- Attributes per instance, integer attributes, alpha blending, and back-face culling.
+
+Further `gpu` tests assert the kind and text of each error of SLO-23 and SLO-26, and that a rejected draw leaves its target unchanged. The tests of textures and samplers sit in `gpu::texture`, and `gpu::sample` checks that a compute kernel reads a texture through a sampler.
 
 These tests are the headless check of rendering that Q-24 of the architecture design asks for, as far as `slango` goes. Q-24 stays open for the windowed example itself, which no CI runner can show (Section 13.5).
 
 ### 13.5. The Windowed Renderer Example
 
-Example 3 of the architecture design is the binary target `windowed-renderer` of the package `slang-rust-examples`. Its source is the directory `examples/src/bin/windowed-renderer/`, with `main.rs`, which holds the window and the frame loop, and the modules `scene.rs`, `format.rs`, and `retry.rs`. The module `scene.rs` holds the scene and its reload. The module `format.rs` chooses the surface's colour format as a pure function. The module `retry.rs` schedules the retry of a frame for which the surface gave no texture and computes when the event loop wakes. The tests also compile all three modules. `main.rs` also includes `examples/src/shared/frames.rs` with a `#[path]` attribute, which parses the arguments and counts the frames of `--frames`, and which example 4 shares (Section 10 of `docs/design/slang-slint.md`). Its shader is `examples/shaders/textured-quad.slang`, with the vertex entry point `vsMain` and the fragment entry point `fsMain`. It takes the path of a Slang file and the option `--frames N`, which closes the window after `N` drawn frames, prints one line with the number of frames drawn on standard output, and exits, so that the example runs without a person. With `--frames`, the example fails with a message on standard error and a non-zero exit status when it draws no frame for 10 seconds, so that an unattended run cannot wait forever. A user runs it from the workspace root, with the Slang library on the library path and a display:
+Example 3 of the architecture design is the binary target `windowed-renderer` of the package `slang-rust-examples`. Its source is the directory `examples/src/bin/windowed-renderer/`, with these files, of which the tests also compile the three modules:
+
+- `main.rs`: The window and the frame loop.
+- `scene.rs`: The scene and its reload.
+- `format.rs`: The choice of the surface's colour format, as a pure function.
+- `retry.rs`: The retry of a frame for which the surface gave no texture, and the time at which the event loop wakes.
+
+`main.rs` also includes two shared modules with a `#[path]` attribute, which example 4 shares (Section 10 of `docs/design/slang-slint.md`). `examples/src/shared/frames.rs` parses the arguments and counts the frames of `--frames`. `examples/src/shared/watched.rs` checks the modification time of the shader.
+
+Its shader is `examples/shaders/textured-quad.slang`, with the vertex entry point `vsMain` and the fragment entry point `fsMain`. The example takes the path of a Slang file and the option `--frames N`.
+
+With `--frames`, it closes the window after `N` drawn frames, prints one line with the number of frames drawn on standard output, and exits, so that the example runs without a person. It then also fails with a message on standard error and a non-zero exit status when it draws no frame for 10 seconds, so that an unattended run cannot wait forever. A user runs it from the workspace root, with the Slang library on the library path and a display:
 
 ```sh
 cargo run -p slang-rust-examples --bin windowed-renderer -- examples/shaders/textured-quad.slang
 ```
 
-The example creates the window with winit, and the wgpu instance, surface, adapter, and device itself. It prints the adapter's name on standard error and hands the device and its queue to `slango` with `slango::wgpu::from_device_and_queue`. It configures the surface with the first format, in the surface's own order of preference, that is one of the four colour formats of `TextureFormat` (Section 8.1). When the surface offers none of them, the example exits with an error that lists the formats that the surface offers.
+The example creates the window with winit, and the wgpu instance, surface, adapter, and device itself. It prints the adapter's name on standard error and hands the device and its queue to `slango` with `slango::wgpu::from_device_and_queue`. It configures the surface with the first format, in the surface's own order of preference, that is one of the four colour formats of `TextureFormat` (Section 8.1).
+
+When the surface offers none of them, the example exits with an error that lists the formats that the surface offers.
 
 In each frame, the example wraps the view of the surface texture with `slango::wgpu::texture_from_view` and draws one indexed quad into it, with a checkerboard texture that it creates with `Texture::from_pixels` and a `float4x4` transform. The transform rotates the quad by an angle that grows with time and keeps it square at the aspect ratio of the target. The example then presents the surface texture through the wgpu queue that `slango::wgpu::queue` returns, because wgpu 30 presents through the queue.
 
-The example reloads its shader without a file-watching dependency. Before each frame, it compares the modification time of the file with the time of the last load. When the time changed, it records the new time, loads the module, and creates the pipeline again. When either fails, it prints the error and each error that caused it on standard error, keeps drawing with the old pipeline, and does not load the file again until its time changes once more. A file whose modification time cannot be read counts as unchanged, as it can be while an editor replaces it. Section 7.2 states why the cost of each reload is acceptable.
+The example reloads its shader without a file-watching dependency. Before each frame, it compares the modification time of the file with the time of the last load. When the time changed, it records the new time, loads the module, and creates the pipeline again.
 
-The scene and its reload sit in `scene.rs`, which uses the check of the modification time in `examples/src/shared/watched.rs`, shared with example 4, and which the window loop and the integration-test binary `examples/tests/examples/` both use, so that the tests run the code that the window runs (TEST-1 of the coding standard). The `gpu` tests in the module `gpu::windowed_renderer` draw the scene offscreen with the example's own shader. They check exact texels, a rotation that is not symmetric, and a quad that stays square in pixels on a wide and a tall target. They also check a failed reload that keeps the old pipeline and is not tried again, and a successful reload. Tests in the default tier start the binary to check `--help` and each argument error, which need no window, and check the choice of the colour format. The module `unattended` checks the parsing of the arguments, the frame count, and the 10-second bound of `examples/src/shared/frames.rs` with given times and no window, and the module `redraw_retry` checks the retry of `retry.rs` and the time at which the event loop wakes in the same way. The tests in the module `ffi::watched` check `watched.rs` on a file in a scratch directory, including a file that is removed and written again. No test opens a window, because the Linux runner has no display, and example 3 runs locally only (ARCH-21 of the architecture design). CI builds the example, because `check-clippy` compiles every target of the workspace. The tests run its scene on the three adapters of Section 3.8 (run, step 11).
+When either fails, the example prints the error and each error that caused it on standard error and keeps drawing with the old pipeline. It does not load the file again until its time changes once more.
 
-With a window, the example ran on the development machine on 2026-11-11 and nowhere else (run, step 11, on the development machine only):
+A file whose modification time cannot be read counts as unchanged, as it can be while an editor replaces it. Section 7.2 states why the cost of each reload is acceptable.
 
-- Under a nested Wayland compositor with the software adapter lavapipe, `--frames 60` drew 60 frames and exited. A reload of a file that did not compile printed the error with its causes while drawing went on, and a reload of the corrected file then replaced the pipeline.
-- On the container's own Wayland socket with the software adapter, `--frames 60` drew 3 frames, drew no further frame, and exited with the error of the 10-second bound, in two runs. The cause was not investigated.
-- On X11, it could not start, because the container has no Xlib library.
-- Recorded for 17.7 seconds in a private nested Wayland compositor with the software adapter, the window showed a rotating quad with the 8 by 8 checkerboard over the clear colour. Of 531 recorded frames, 520 were distinct, and the only repeated frames were three pauses of about a tenth of a second, one at each reload. A shader edited to tint the quad took effect without a restart about 0.2 seconds after it was saved, and a shader that did not compile left the tinted quad rotating while Slang's diagnostic was printed on standard error. Restoring the file restored the picture.
+The window loop and the integration-test binary `examples/tests/examples/` both use `scene.rs`, so that the tests run the code that the window runs (TEST-1 of the coding standard). The tests cover the example in these modules:
 
-It has not run with a window on Windows or macOS.
+- `gpu::windowed_renderer`: Draws the scene offscreen with the example's own shader on any adapter. It checks exact texels, a rotation that is not symmetric, and a quad that stays square in pixels on a wide and a tall target. It also checks a failed reload that keeps the old pipeline and is not tried again, and a successful reload.
+- `ffi::windowed_renderer` and `colour_format`: Start the binary to check `--help` and each argument error, which need no window, and check the choice of the colour format.
+- `unattended`: Checks the parsing of the arguments, the frame count, and the 10-second bound of `frames.rs` with given times and no window.
+- `redraw_retry`: Checks the retry of `retry.rs` and the time at which the event loop wakes, in the same way.
+- `ffi::watched`: Checks `watched.rs` on a file in a scratch directory, including a file that is removed and written again.
 
-winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependency of the examples package only. Section 9 of `docs/design/tooling.md` records its features and the duplicate versions that it brings.
+No test opens a window, because the Linux runner has no display, so example 3 runs with a window locally only (ARCH-21 of the architecture design). CI builds the example, because `check-clippy` compiles every target of the workspace, and runs its scene on the three adapters of Section 3.8. The example has these known limits with a window:
 
-## 14. Implementation Order for M3
+- On the Wayland socket of the development container, with the software adapter, it draws a few frames and then stops, so `--frames` ends with the error of the 10-second bound. The cause is unknown. Under a nested Wayland compositor, it draws, reloads, and exits as this section states.
+- On X11, it needs the Xlib library, which the development container lacks.
 
-These steps implement M3. Each step leaves `just check` passing.
-
-1. Add the crate skeleton, `Device` with `DeviceOptions`, adapter selection, the features of Section 12, `Error` and `ErrorKind`, the changes of Section 4.2, and the installation of lavapipe in the `check` job. Tests: the `Send` and `Sync` assertions of SLO-17, the `Display` text of each error kind, and a `gpu` test that creates a device and checks that it has immediates when the adapter offers them. Done on 2026-11-11, with lavapipe also installed in the `coverage` job, and all six CI jobs passed with it (Section 3.8).
-2. Add the layout snapshot and the walk of Section 3.3. Tests: `ffi` snapshot tests for global plain values, constant buffers, parameter blocks, nested parameter blocks, parameters of the entry point, system values, unused parameters, and a texture that the walk reports as unsupported. Done on 2026-11-11, with the `ffi` tests as unit tests (Section 13.1) and the snapshot as Section 7.1 describes.
-3. Add `Module`, `Kernel`, and `load_module` with the SPIR-V of each entry point, the error scope of SLO-9, and the layouts and pipelines. Tests: `gpu` tests that load the kernels of Section 3.2, a module that naga rejects, which returns `UnsupportedShader` with naga's text (TEST-6), and a kernel with uniforms of its entry point on a device without immediates, which returns `MissingFeature`. Done on 2026-11-11, with the choices of Sections 7.1 and 7.3 and the mapping of errors of Section 10. The rejected module calls `frexp`, because a 16-bit integer loads on a device with the matching feature (Section 3.5), and the tests passed on all three CI runners (Section 3.8).
-4. Add `Buffer<T>` with upload and `read`, and the marshalling of plain values. Tests: the stride test of SLO-10, pure tests that write the values of Section 3.4 at their reflected offsets, and a `gpu` round trip of a buffer. Done on 2026-11-11, with the element and value types and the rules of Sections 8 and 9.2, the identity of a device of Section 9.3, and the matrix rule of Section 3.4. The `gpu` tests passed on all three CI runners, and the writing of plain values is tested against reflected offsets only, until step 5 dispatches.
-5. Add the call builder, the checks of Section 9.3, and the dispatch. Tests: one test of each check of SLO-14, pure tests of the workgroup counts, and `gpu` tests that dispatch the kernels of Section 3.2 and assert every value. Done on 2026-11-11, with the choices of Sections 9.1, 9.3, and 9.4. The `gpu` tests passed on all three CI runners, and confirmed the matrix rule of Section 3.4 and SOA-2 (Section 3.8).
-6. Add the example of Section 13.3 with its test and the crate documentation, and update the documents that M3 makes false. Tests: the example's `gpu` test. Done on 2026-11-11, with three `gpu` tests of the example (Section 13.3), and all six CI jobs passed with it in run 42966911977 (Section 3.8). With this step, M3 is complete.
-
-These steps continue the numbering and implement M4. Each step leaves `just check` passing and adds its tests.
-
-7. Add the records of vertex and fragment entry points with their vertex attributes, and textures and samplers in the walk, with no change of the public API (Sections 7.4 and 8.1). Tests: `ffi` snapshot tests of the shaders of Section 3.9, an unused attribute, a system value, a rejected attribute type, `uniform` parameters of a render entry point, `Sampler2D`, and a module whose kernel loads while its fragment entry point is rejected. Done on 2026-11-11, with the choices of Section 7.4 and no change of public behaviour beyond the one difference of a load that Section 7.4 states, the parameter that its error may name. The tests also cover integer attributes and the bindings that two entry points share, and a `gpu` test runs a kernel of a module with a vertex and a fragment entry point.
-8. Add `Texture`, `TextureFormat`, `Sampler` with its options, `VertexElement` and the new buffer usages, the texture functions of `slango::wgpu`, and textures and samplers as arguments of a call (Sections 8.1 and 8.2). Tests: pure tests of the size checks of textures, a `gpu` round trip of `Texture::from_pixels` and `Texture::read`, a kernel that reads a texture through a sampler, and the `Send` and `Sync` assertions of SLO-17. Done on 2026-11-11, with the choices of Sections 8.1, 8.2, 9.1, and 9.3. The tests also cover every format, every sampler option, and each check of a call with a texture or a sampler, and passed on all three CI runners in run 42996353428 (Section 3.1). The mapping of element types to vertex formats moved to step 10 (Section 8.2).
-9. Add `Module::render_pipeline` with its options (Section 7.5). Tests: `gpu` tests that create the pipelines of Section 3.9, a vertex entry point that reads `SV_VertexID` and varyings that do not match, which return `UnsupportedShader` (TEST-6), `uniform` parameters of a render entry point, which return `UnsupportedParameter`, and unknown names and paths, which return `InvalidArgument`. Done on 2026-11-11, with the choices of Sections 7.5, 8.2, and 10. Pure tests of the checks and the merge run under Miri. The `gpu` tests also cover every combination of the options, bindings used by one or both stages, integer and instanced attributes, and pipelines created from clones of one module on two threads, and passed on all three CI runners in run 43001455779 (Section 3.9).
-10. Add `Draw` with its checks and its submission (Section 9.5), and the check of the element type of each vertex buffer against its attribute's vertex format (Section 8.2). Tests: one test of each check of SLO-26 and the `gpu` tests of Section 13.4. Done on 2026-11-11, with the choices of Sections 8.2 and 9.5, and with the checks of the parameters shared with the call of a kernel. The `gpu` tests also cover clones of one pipeline drawn from two threads, a draw of zero vertices or instances, and a texture both sampled and the target, and passed on all three CI runners in run 43012187751, which confirmed SOA-5 and part of SOA-6 (Section 3.9).
-11. Add the example of Section 13.5 with winit and the changes to `deny.toml` that Section 9 of `docs/design/tooling.md` records. Check: `check-clippy` builds the example and `check-deny` passes. Done on 2026-11-11, with the choices and tests of Section 13.5, and all six CI jobs passed with it in run 43021488631, which confirmed SOA-7 (Section 3.8).
-12. Complete the crate documentation, including the matrix convention of Section 9.5 and how a caller draws into a window (Section 5.3), and update the documents that M4 makes false. Done on 2026-11-11, with no change of behaviour, and all six CI jobs passed with it in run 43026403882. With this step, M4 is complete.
+winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependency of the examples package only. It builds on all three CI runners with no package added to the Linux runners. Section 9 of `docs/design/tooling.md` records its features and the duplicate versions that it brings.
 
 ## 15. Assumptions to Confirm
 
-Each row is a statement that this design relies on and that the spike did not establish. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row. An identifier is never reused.
+Each row is a statement that this design relies on and that no test or source establishes. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row.
+
+An identifier is never reused.
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 17 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
 
-Step 5 of Section 14 removed the last two rows of M3. It confirmed SOA-2, that SPIR-V through naga, with immediates, dispatches on Direct3D 12 with WARP and on Metal, in CI run 42961810362 (Section 3.8). It confirmed SOA-3, that wgpu adds bounds checks to every buffer access of a kernel on the validated path, (read, source of wgpu 30.0.1 on 2026-11-11), with the correction that wgpu injects the checks only where the platform cannot enforce them itself (Section 3.2). No test established it.
+Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 
-Step 7 of Section 14 confirmed SOA-6 in part. It confirmed that `SV_VulkanVertexID` and `SV_VulkanInstanceID` lack the category `VaryingInput` (Section 3.9), and the row keeps the rest.
-
-Step 8 of Section 14 confirmed SOA-5 in part, through compute kernels. It confirmed that the texture coordinates (0, 0) sample the top-left pixel on WARP and on Metal as on Vulkan, and that every format of Section 8.1 is created without a device feature (run, step 8, Section 3.9), and the row keeps the rest.
-
-Step 9 of Section 14 confirmed SOA-5 and SOA-6 in part, through the creation of render pipelines (run, step 9, Section 3.9). For SOA-5, it confirmed that render pipelines, including naga's translation of both stages for Direct3D 12 and Metal, are created on WARP and on Metal, and the draw itself was left to step 10. For SOA-6, it confirmed that pipelines whose vertex entry point has `int` or `uint` attributes are created on every adapter, and whether their values arrive unchanged needs the draw. Both rows keep the rest.
-
-Step 10 of Section 14 confirmed SOA-5 and part of SOA-6, by drawing offscreen (run, step 10, Section 3.9). It confirmed SOA-5, that render pipelines draw on Direct3D 12 with WARP and on Metal as on Vulkan, with the same conventions of a draw, and removed its row. For SOA-6, it confirmed that `int` and `uint` attributes, scalar or vector, arrive unchanged in a draw, and that wgpu rejects one texture that is both sampled and a target of one draw, and the row keeps the rest.
-
-Step 11 of Section 14 confirmed SOA-7 and removed its row. Every CI job built winit 0.30.13 and the example with the features that Section 9 of `docs/design/tooling.md` names, and `check-deny` passed (run, step 11, Section 3.8). The run showed no window. Whether the example draws in a window on Windows and macOS stays open under Q-24 of the architecture design (Section 13.5).
-
-Of the assumptions of the architecture design that name this document, Section 3.3 to Section 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5). Section 3.7 confirms A-10 in part, which covers the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". It did not cover typed shader interfaces generated from reflection, so A-10 stays for that pattern. A-9 holds as far as SlangPy's documentation was read (Section 3.7), and M3 does not depend on it. A-17 and A-18 are removed from the architecture design, because the `gpu` tests of this project pass on the three hosted runners (Section 3.8).
+Section 3.7 confirms A-10 in part, for the first three patterns of Section 8.3 of that design and the description of `GpuFuture`, with "replacing" read as "building an experimental replacement". A-10 stays for typed shader interfaces generated from reflection. A-9 holds as far as SlangPy's documentation states (Section 3.7), and `slango` does not depend on it.
 
 ## 16. Open Questions
 
@@ -834,21 +991,32 @@ Each row is a question that this document leaves open. The owner in the third co
 | --- | --- | --- | --- |
 | SOQ-3 | How large must a kernel be before naga's parsing at load or lavapipe's first dispatch takes long enough to matter? | This document | The milestone that first loads kernels larger than those of the example |
 
-Section 7.2 answered SOQ-1 for M4 on 2026-11-11, from the costs that Section 3.9 measured, and its row is removed. The global session for each load of SLO-7 stays.
+Of the questions of the architecture design that name this document, these sections answer or defer each:
 
-Of the questions of the architecture design that name this document, Section 18.5 answers Q-16 for `slango` through M4, Section 6 answers Q-17, Section 9.1 answers Q-18 for M3, SLO-2 answers Q-19 for `slango` through M4, SLO-1 answers Q-20, Section 10 answers Q-22, Section 13.2 answers Q-21, Section 13.4 answers Q-24 for `slango`, Section 1.5 defers Q-23 with the configurable shader target, and Section 7.1 answers Q-31 and makes Q-30 unnecessary for M3.
-
-`slango` waits on wgpu's futures with `pollster::block_on`, because wgpu 30 offers no blocking form of `Instance::request_adapter`, `Instance::enumerate_adapters`, or `Adapter::request_device`.
+- Section 18.5 answers Q-16 for `slango` through M4.
+- Section 6 answers Q-17.
+- Section 9.1 answers Q-18 for M3.
+- SLO-2 answers Q-19 for `slango` through M4.
+- SLO-1 answers Q-20.
+- Section 13.2 answers Q-21.
+- Section 10 answers Q-22.
+- Section 1.5 defers Q-23 with the configurable shader target.
+- Section 13.4 answers Q-24 for `slango`.
+- Section 7.1 answers Q-31 and makes Q-30 unnecessary for M3.
 
 ## 17. Security Considerations
 
-The threat model treats the shader source, the file paths, and the options that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states, and covers mistakes in the arguments of a call, which Section 9.3 checks. `slango` has no unsafe code (SLO-2) and no build script. Its memory safety rests on the safe APIs of wgpu and `slang-compiler`, and the safety of the GPU's memory accesses rests on naga's validation and on the bounds checks that wgpu promises on the validated path, which it injects where the platform cannot enforce them itself (Section 3.2). Slang is linked as `docs/design/slang-compiler-sys.md` specifies, and `Cargo.lock` and `cargo-deny` fix and check the versions of wgpu's dependency tree (Section 4.2).
+The threat model treats the shader source, the file paths, and the options that a program passes as trusted input from the program itself, as Hard Rule 14 of `AGENTS.md` states. It covers mistakes in the arguments of a call, which Section 9.3 checks.
+
+`slango` has no unsafe code (SLO-2) and no build script. Its memory safety rests on the safe APIs of wgpu and `slang-compiler`.
+
+The safety of the GPU's memory accesses rests on naga's validation and on the bounds checks that wgpu promises on the validated path, which it injects where the platform cannot enforce them itself (Section 3.2). Slang is linked as `docs/design/slang-compiler-sys.md` specifies, and `Cargo.lock` and `cargo-deny` fix and check the versions of wgpu's dependency tree (Section 4.2).
 
 These attacks are out of scope, because a program that loads them has already chosen to run them: a malicious shader, a shader that reaches a defect of Slang, naga, wgpu, or a driver, and a kernel that never finishes, which blocks `Buffer::read`.
 
-Rendering in M4 adds no unsafe code (SLO-2). It adds textures, samplers, and vertex and index buffers, whose sizes and formats the draw checks (SLO-26). The draw does not read the values of an index buffer, so an index past the end of a vertex buffer reaches the backend, and what a vertex fetch then reads rests on wgpu and the driver (SOA-6).
+Rendering adds textures, samplers, and vertex and index buffers, whose sizes and formats the draw checks (SLO-26). The draw does not read the values of an index buffer, so an index past the end of a vertex buffer reaches the backend, and what a vertex fetch then reads rests on wgpu and the driver (SOA-6).
 
-The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel or a draw read or write outside its buffers and textures, and a crash that a defect of Slang causes, which Section 3.12 of `docs/design/slang-compiler.md` records.
+The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel or a draw read or write outside its buffers and textures. A crash that a defect of Slang causes is also residual, and Section 3.12 of `docs/design/slang-compiler.md` records each such defect.
 
 ## 18. Operational Considerations
 
@@ -858,7 +1026,9 @@ The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel 
 
 ### 18.2. Platforms and Minimum Supported Rust Version
 
-The crate runs on x86_64 Linux with Vulkan, which the spike verified on a software and a hardware adapter. On Windows with Direct3D 12 and on macOS with Metal, it creates a device, loads modules, dispatches kernels, samples textures in them, and draws offscreen in CI, with the same conventions of a draw on all three (Sections 3.8 and 3.9). wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supported Rust version (MSRV) of 1.99.
+The crate runs on Linux with Vulkan, on a software and on a hardware adapter. On Windows with Direct3D 12 and on macOS with Metal, it creates a device, loads modules, dispatches kernels, samples textures in them, and draws offscreen in CI, with the same conventions of a draw on all three (Sections 3.8 and 3.9).
+
+wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supported Rust version (MSRV) of 1.99.
 
 ### 18.3. Failure Modes
 
@@ -881,7 +1051,8 @@ The crate runs on x86_64 Linux with Vulkan, which the spike verified on a softwa
 
 ### 18.4. Costs
 
-Each load of a module costs about 135 ms for its global session, plus 8 to 11 ms for a small module (Sections 3.6 and 7.2).
+Each load of a module pays for its own global session, well over 100 ms, plus about 10 ms for a small module (Sections 3.6 and 7.2). A program that reloads a shader therefore waits on the order of 150 ms for each reload.
+
 ### 18.5. Logs
 
 `slango` emits no logs in M3 and M4 and has no logging dependency, as `slang-compiler` does. This answers Q-16 of the architecture design for `slango` through M4.
@@ -935,6 +1106,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Audited the whole document against the code: removed Section 1.6 "Current State" and Section 14 "Implementation Order for M3", restated the facts of Section 3 timelessly without run records, dates, or the marks of each step, moved every cost to Section 3.6, moved the reason for `pollster` from Section 16 to Section 4.1, kept only the standing limits of the windowed example in Section 13.5, removed the resolved narratives of Sections 15 and 16, and split long paragraphs.
 - 2026-11-12: Recorded in the `Compile` row of Section 10 that a rejected vertex or fragment entry point has no source error, added the two `ffi` tests of `compute-kernel` to Section 13.3, and recorded in Section 13.5 that `windowed-renderer` and its scene use the shared modules `frames.rs` and `watched.rs` of `examples/src/shared/`, with the module `unattended` that tests them, and recorded the module `retry.rs` of `windowed-renderer` with the module `redraw_retry` that tests it, and the module `ffi::watched` that tests `watched.rs`.
 - 2026-11-11: Recorded step 2 of M6, the hidden module `slango::__private` of `docs/design/slango-macros.md`, in Section 1.6, with the split of loading, the corrected reason why a sibling `import` resolves, the structures among the plain values, and the structure element in SLO-6 and Section 7.1, the blanket implementations of the sealed traits and the rejection of an element of 0 bytes in Section 8, the rejection of a vertex buffer of a generated struct in Section 8.2, of a value of one in Section 9.2, and its binding in Section 9.3, and the new failure in Section 10.
 - 2026-11-11: Recorded step 1 of M6, the check of the element type of a bound buffer of SLM-5 of `docs/design/slango-macros.md`, in Section 1.6, with the element type in the snapshot in SLO-6 and Section 7.1, the comparison in Section 8, the rule, its decisions, its behaviour change, and the order of the checks of a buffer in SLO-14, Section 9.3, and Appendix A.
