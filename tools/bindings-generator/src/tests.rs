@@ -106,7 +106,7 @@ struct IRoot
     ) -> (crate::Result<Generated>, PathBuf) {
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new(test, header, tag);
-        let result = generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG);
+        let result = generate_with(rules, &headers.dir);
         (result, headers.dir.clone())
     }
 
@@ -119,7 +119,7 @@ struct IRoot
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new(test, header, pin::SLANG_BUILD_TAG);
         std::fs::write(headers.dir.join(extra.0), extra.1).expect("write the extra header");
-        generate_with(rules, &headers.dir, pin::SLANG_BUILD_TAG)
+        generate_with(rules, &headers.dir)
             .unwrap_or_else(|error| panic!("generation failed: {error}"))
             .bindings
     }
@@ -1475,7 +1475,7 @@ struct Outer
     fn generate_refuses_headers_with_another_build_tag() {
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new("other_tag", "", "2000.1-1-gdeadbeef");
-        let error = generate_with(&DEFAULT_RULES, &headers.dir, pin::SLANG_BUILD_TAG)
+        let error = generate_with(&DEFAULT_RULES, &headers.dir)
             .expect_err("a different build tag is refused");
         assert_eq!(error.kind(), ErrorKind::Version);
         let location = error.location().expect("the error has a location");
@@ -1493,8 +1493,8 @@ struct Outer
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new("missing_tag", "", pin::SLANG_BUILD_TAG);
         std::fs::remove_file(headers.dir.join("slang-tag-version.h")).expect("remove the tag");
-        let error = generate_with(&DEFAULT_RULES, &headers.dir, pin::SLANG_BUILD_TAG)
-            .expect_err("missing build tag is refused");
+        let error =
+            generate_with(&DEFAULT_RULES, &headers.dir).expect_err("missing build tag is refused");
         assert_eq!(error.kind(), ErrorKind::Version);
         assert!(error.message().contains("slang-tag-version.h"), "{error}");
     }
@@ -1502,8 +1502,8 @@ struct Outer
     #[test]
     fn generate_fails_without_the_header_directory() {
         let missing = std::env::temp_dir().join("bindings-generator-test-no-such-directory");
-        let error = generate_with(&DEFAULT_RULES, &missing, pin::SLANG_BUILD_TAG)
-            .expect_err("a missing directory is refused");
+        let error =
+            generate_with(&DEFAULT_RULES, &missing).expect_err("a missing directory is refused");
         assert_eq!(error.kind(), ErrorKind::Io);
         assert!(error.message().contains("no-such-directory"), "{error}");
     }
@@ -1848,8 +1848,8 @@ enum
         let _guard = LIBCLANG.lock().unwrap_or_else(PoisonError::into_inner);
         let headers = Headers::new("libclang_twice", "", pin::SLANG_BUILD_TAG);
         let clang = clang::Clang::new().expect("load libclang");
-        let error = generate_with(&DEFAULT_RULES, &headers.dir, pin::SLANG_BUILD_TAG)
-            .expect_err("a second instance is refused");
+        let error =
+            generate_with(&DEFAULT_RULES, &headers.dir).expect_err("a second instance is refused");
         drop(clang);
         assert_eq!(error.kind(), ErrorKind::Libclang);
         assert!(

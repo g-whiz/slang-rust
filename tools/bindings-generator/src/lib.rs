@@ -173,14 +173,10 @@ impl Generated {
 /// - [`ErrorKind::Rustfmt`] when rustfmt cannot format the text or does not
 ///   finish within 60 seconds.
 pub fn generate(header_dir: impl AsRef<Path>) -> Result<Generated> {
-    generate_with(&rules::SLANG, header_dir.as_ref(), pin::SLANG_BUILD_TAG)
+    generate_with(&rules::SLANG, header_dir.as_ref())
 }
 
-fn generate_with(
-    rules: &rules::RuleSet,
-    header_dir: &Path,
-    expected_tag: &str,
-) -> Result<Generated> {
+fn generate_with(rules: &rules::RuleSet, header_dir: &Path) -> Result<Generated> {
     let header_dir = std::fs::canonicalize(header_dir).map_err(|error| {
         Error::new(
             ErrorKind::Io,
@@ -188,7 +184,7 @@ fn generate_with(
         )
         .with_source(error)
     })?;
-    check_tag(&header_dir, expected_tag)?;
+    check_tag(&header_dir)?;
     let clang = Clang::new().map_err(|reason| libclang_error(&reason))?;
     let index = Index::new(&clang, false, false);
     let mut selections = Vec::new();
@@ -228,7 +224,7 @@ fn libclang_error(reason: &str) -> Error {
     )
 }
 
-fn check_tag(header_dir: &Path, expected_tag: &str) -> Result<()> {
+fn check_tag(header_dir: &Path) -> Result<()> {
     let path = header_dir.join(TAG_HEADER);
     let text = std::fs::read_to_string(&path).map_err(|error| {
         Error::new(
@@ -240,7 +236,7 @@ fn check_tag(header_dir: &Path, expected_tag: &str) -> Result<()> {
         )
         .with_source(error)
     })?;
-    check_tag_text(&text, &path.display().to_string(), expected_tag)
+    check_tag_text(&text, &path.display().to_string(), pin::SLANG_BUILD_TAG)
 }
 
 fn check_tag_text(text: &str, path: &str, expected_tag: &str) -> Result<()> {
