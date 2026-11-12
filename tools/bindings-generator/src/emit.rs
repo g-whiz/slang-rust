@@ -1054,6 +1054,25 @@ mod tests {
         }
 
         #[test]
+        fn format_with_reports_a_failed_write_to_a_program_that_succeeds() {
+            let text = "x".repeat(16 << 20);
+            let error = format_with("sh", &["-c", "exit 0"], &text, LONG)
+                .expect_err("the program does not read its input");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(error.message(), "cannot write the bindings to sh");
+            assert!(std::error::Error::source(&error).is_some(), "{error}");
+        }
+
+        #[test]
+        fn format_with_reports_output_that_is_not_utf8() {
+            let error = format_with("sh", &["-c", "printf '\\377'"], "", LONG)
+                .expect_err("the output is not UTF-8");
+            assert_eq!(error.kind(), ErrorKind::Rustfmt, "{error}");
+            assert_eq!(error.message(), "sh wrote text that is not UTF-8");
+            assert!(std::error::Error::source(&error).is_some(), "{error}");
+        }
+
+        #[test]
         fn format_with_stops_a_program_that_does_not_finish_in_time() {
             let start = Instant::now();
             let error = format_with(
