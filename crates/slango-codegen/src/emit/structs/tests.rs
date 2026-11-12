@@ -660,6 +660,21 @@ fn a_uniform_structure_named_like_a_parameter_conflicts() {
 }
 
 #[test]
+fn a_leaf_inside_a_uniform_structure_that_cannot_be_a_rust_identifier_conflicts() {
+    let kernel = with_structures(
+        kernel("main", vec![leaf("params.super", float(1))]),
+        vec![uniform("params", "Params")],
+    );
+    assert_eq!(
+        error(vec![kernel]),
+        (
+            ErrorKind::NameConflict,
+            "cannot name an item of the bindings: the parameter `params.super` of the kernel `main` becomes the Rust name `super`, which is not a Rust identifier".to_owned()
+        )
+    );
+}
+
+#[test]
 fn a_field_named_like_the_padding_conflicts() {
     let element = structure("Padded", 8, vec![plain("_padding0", 4, float(1))]);
     assert_eq!(
