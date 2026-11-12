@@ -56,6 +56,8 @@ mod frames;
 mod report;
 mod scene;
 mod ui;
+#[path = "../../shared/watched.rs"]
+mod watched;
 
 use std::cell::RefCell;
 use std::error::Error;

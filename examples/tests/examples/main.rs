@@ -6,3 +6,6 @@ mod colour_format;
 mod ffi;
 #[cfg(test)]
 mod gpu;
+#[cfg(test)]
+#[path = "../../src/shared/watched.rs"]
+mod watched;

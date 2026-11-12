@@ -2,13 +2,14 @@
 //! [`Texture`] and needs no window, so that the tests of the examples draw it
 //! offscreen with the same code as the window.
 
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::path::Path;
 
 use slango::{
     Buffer, Device, RenderPipeline, RenderPipelineOptions, Result, Sampler, SamplerOptions,
     Texture, TextureFormat,
 };
+
+use crate::watched::Watched;
 
 const CLEAR: [f32; 4] = [0.05, 0.05, 0.08, 1.0];
 
@@ -17,8 +18,7 @@ const CLEAR: [f32; 4] = [0.05, 0.05, 0.08, 1.0];
 #[derive(Debug)]
 pub(crate) struct Scene {
     device: Device,
-    path: PathBuf,
-    modified: Option<SystemTime>,
+    file: Watched,
     options: RenderPipelineOptions,
     pipeline: RenderPipeline,
     positions: Buffer<[f32; 2]>,
@@ -35,14 +35,13 @@ impl Scene {
     pub(crate) fn new(device: &Device, path: &Path, colour_format: TextureFormat) -> Result<Self> {
         let mut options = RenderPipelineOptions::default();
         options.colour_format = colour_format;
-        let modified = modified(path);
+        let file = Watched::new(path);
         let pipeline = load(device, path, &options)?;
         let corners = [[-1.0_f32, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
         let uvs = [[0.0_f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
         Ok(Self {
             device: device.clone(),
-            path: path.to_owned(),
-            modified,
+            file,
             options,
             pipeline,
             positions: Buffer::from_slice(device, &corners)?,
@@ -57,17 +56,13 @@ impl Scene {
     /// the one of the last load, and returns whether it replaced the
     /// pipeline.
     ///
-    /// On an error, the scene keeps its pipeline and does not try again
-    /// until the modification time changes once more. A file whose
-    /// modification time cannot be read counts as unchanged, as it can be
-    /// while an editor replaces it.
+    /// On an error, the scene keeps its pipeline. `Watched::changed` says
+    /// when the scene tries again.
     pub(crate) fn reload_if_changed(&mut self) -> Result<bool> {
-        let modified = modified(&self.path);
-        if modified.is_none() || modified == self.modified {
+        if !self.file.changed() {
             return Ok(false);
         }
-        self.modified = modified;
-        self.pipeline = load(&self.device, &self.path, &self.options)?;
+        self.pipeline = load(&self.device, self.file.path(), &self.options)?;
         Ok(true)
     }
 
@@ -104,12 +99,6 @@ impl Scene {
             .clear(CLEAR)
             .submit_indexed(&self.indices, 6, 1)
     }
-}
-
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
 }
 
 fn load(device: &Device, path: &Path, options: &RenderPipelineOptions) -> Result<RenderPipeline> {

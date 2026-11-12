@@ -52,6 +52,8 @@ mod frames;
 #[path = "../../shared/report.rs"]
 mod report;
 mod scene;
+#[path = "../../shared/watched.rs"]
+mod watched;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};

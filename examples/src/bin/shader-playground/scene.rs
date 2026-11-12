@@ -3,11 +3,12 @@
 //! it offscreen with the same code as the window.
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::path::Path;
 
 use slang_slint::View;
 use slango::{Device, RenderPipeline, RenderPipelineOptions};
+
+use crate::watched::Watched;
 
 /// The values that the scene sets by name on the shader in each draw.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,8 +26,7 @@ pub(crate) struct Uniforms {
 #[derive(Debug)]
 pub(crate) struct Scene {
     device: Device,
-    path: PathBuf,
-    modified: Option<SystemTime>,
+    file: Watched,
     view: View,
 }
 
@@ -39,12 +39,11 @@ impl Scene {
         path: &Path,
         size: [u32; 2],
     ) -> Result<Self, Box<dyn Error>> {
-        let modified = modified(path);
+        let file = Watched::new(path);
         let view = View::new(device.clone(), load(device, path)?, size)?;
         Ok(Self {
             device: device.clone(),
-            path: path.to_owned(),
-            modified,
+            file,
             view,
         })
     }
@@ -53,17 +52,13 @@ impl Scene {
     /// the one of the last load, and returns whether it replaced the view.
     ///
     /// The new view has the size of the old one, and the program sets its
-    /// image on the `Image` element. On an error, the scene keeps its view
-    /// and does not try again until the modification time changes once
-    /// more. A file whose modification time cannot be read counts as
-    /// unchanged, as it can be while an editor replaces it.
+    /// image on the `Image` element. On an error, the scene keeps its view.
+    /// `Watched::changed` says when the scene tries again.
     pub(crate) fn reload_if_changed(&mut self) -> Result<bool, Box<dyn Error>> {
-        let modified = modified(&self.path);
-        if modified.is_none() || modified == self.modified {
+        if !self.file.changed() {
             return Ok(false);
         }
-        self.modified = modified;
-        let pipeline = load(&self.device, &self.path)?;
+        let pipeline = load(&self.device, self.file.path())?;
         self.view = View::new(self.device.clone(), pipeline, self.view.size())?;
         Ok(true)
     }
@@ -89,12 +84,6 @@ impl Scene {
     pub(crate) fn view(&self) -> &View {
         &self.view
     }
-}
-
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
 }
 
 fn load(device: &Device, path: &Path) -> slango::Result<RenderPipeline> {
