@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -56,7 +56,7 @@ Step 2 added these parts:
 
 - The private module `session`, whose types `Session`, `SessionBuilder`, `Target`, and `TargetIndex` the crate root re-exports, with the building of the session descriptor and the filling of the target fields of SLC-31 (Section 6.4).
 - The private module `options`, whose types `CompilerOptions` and `OptionName` the crate root re-exports, with the crate-private types that own the memory of Slang's option entries during a call (Sections 7 and 11.4).
-- The private module `strings`, which holds the one conversion of SLC-15 from Rust text to a C string.
+- The private module `strings`, which holds the one conversion of SLC-15 from Rust text to a C string. Since 2026-11-12, it also holds the shared reading of a string that Slang returns, which reads a null pointer as `None`, and the one constructor of the error of kind `InvalidUtf8`.
 - The enumerations `MatrixLayout`, `Stage`, `OptimizationLevel`, `DebugInfoLevel`, `FloatingPointMode`, and `LineDirectiveMode` in the module `enums` (Section 6.10), and the variants `CreateSession`, `SelectTarget`, and `CreateOptionName` of `Operation` (Section 6.9).
 - The counting of `ISession` in the module `owned`, and a fake session in the module `fake` (Section 13.4).
 - The unit tests of the new modules, and the `ffi` tests of sessions in the module `ffi::session` of the integration-test binary (Section 13).
@@ -1421,6 +1421,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Recorded in Section 1.6 that the module `strings` also holds the shared reading of a string that Slang returns and the one constructor of the error of kind `InvalidUtf8`.
 - 2026-11-11: Confirmed CA-8 from the reload costs that the rendering design of `docs/design/slango.md` measured, recorded the result in Sections 3.2 and 8.5, and removed its row from Section 16.
 - 2026-11-11: Recorded in Section 17 that `docs/design/slango.md` settles CQ-1 and CQ-4 for M3, removed their rows, and pointed Sections 1.5, 9, and 10 to that document.
 - 2026-11-11: Recorded M2 as complete in Sections 1.6 and 15, deferred step 6, the custom file system, out of M2 with its reason, recorded step 7 as the closing pass of the documentation, and marked as deferred with the custom file system Sections 8 and 11.5, SLC-17, SLC-18, the documentation of SLC-27 on a file system, the test of SLC-28 in Section 13.3, CA-9, CA-11, CA-15, CQ-3, and their rows in Appendix A.
