@@ -71,13 +71,13 @@ fn read_bytes_rejects_bytes_of_another_length() {
 }
 
 /// Returns the bytes of `scalars` placed at their offsets in a zeroed
-/// element of `stride` bytes, or `None` when one is outside it.
-fn placed(stride: usize, scalars: &[(usize, [u8; 4])]) -> Option<Vec<u8>> {
+/// element of `stride` bytes, and panics when one is outside it.
+fn placed(stride: usize, scalars: &[(usize, [u8; 4])]) -> Vec<u8> {
     let mut bytes = vec![0; stride];
     for (offset, scalar) in scalars {
-        bytes.get_mut(*offset..offset + 4)?.copy_from_slice(scalar);
+        bytes[*offset..offset + 4].copy_from_slice(scalar);
     }
-    Some(bytes)
+    bytes
 }
 
 fn floats<const N: usize>(offset: usize, values: [f32; N]) -> Vec<(usize, [u8; 4])> {
@@ -97,7 +97,7 @@ fn write_bytes_puts_each_scalar_at_the_offset_of_its_field_and_zero_in_the_paddi
     scalars.extend(floats(offset_of!(Nested, gap.weight), [value.gap.weight]));
     scalars.extend(floats(offset_of!(Nested, gap.colour), value.gap.colour));
     scalars.extend(floats(offset_of!(Nested, weight), [value.weight]));
-    assert_eq!(Some(bytes_of(&value)), placed(Nested::STRIDE, &scalars));
+    assert_eq!(bytes_of(&value), placed(Nested::STRIDE, &scalars));
 
     let value = grid(9);
     let cells = value.cells.as_flattened();
@@ -113,5 +113,5 @@ fn write_bytes_puts_each_scalar_at_the_offset_of_its_field_and_zero_in_the_paddi
             .enumerate()
             .map(|(index, mask)| (offset_of!(Grid, mask) + 4 * index, mask.to_le_bytes())),
     );
-    assert_eq!(Some(bytes_of(&value)), placed(Grid::STRIDE, &scalars));
+    assert_eq!(bytes_of(&value), placed(Grid::STRIDE, &scalars));
 }
