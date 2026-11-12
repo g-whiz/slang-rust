@@ -608,12 +608,6 @@ impl<'a> Validator<'a> {
                     format!("interface {} derives from {base}, {reason}", item.name.cxx),
                 ));
             };
-            if chain.len() > self.selection.items.len() {
-                return Err(Self::unsupported(
-                    &item.location,
-                    format!("interface {} derives from itself", item.name.cxx),
-                ));
-            }
             chain.push(next);
             current = next;
         }
