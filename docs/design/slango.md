@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -935,6 +935,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Recorded in the `Compile` row of Section 10 that a rejected vertex or fragment entry point has no source error, added the two `ffi` tests of `compute-kernel` to Section 13.3, and recorded in Section 13.5 that `windowed-renderer` and its scene use the shared modules `frames.rs` and `watched.rs` of `examples/src/shared/`, with the module `unattended` that tests them.
 - 2026-11-11: Recorded step 2 of M6, the hidden module `slango::__private` of `docs/design/slango-macros.md`, in Section 1.6, with the split of loading, the corrected reason why a sibling `import` resolves, the structures among the plain values, and the structure element in SLO-6 and Section 7.1, the blanket implementations of the sealed traits and the rejection of an element of 0 bytes in Section 8, the rejection of a vertex buffer of a generated struct in Section 8.2, of a value of one in Section 9.2, and its binding in Section 9.3, and the new failure in Section 10.
 - 2026-11-11: Recorded step 1 of M6, the check of the element type of a bound buffer of SLM-5 of `docs/design/slango-macros.md`, in Section 1.6, with the element type in the snapshot in SLO-6 and Section 7.1, the comparison in Section 8, the rule, its decisions, its behaviour change, and the order of the checks of a buffer in SLO-14, Section 9.3, and Appendix A.
 - 2026-11-11: Added to Section 13.5 a recorded run of the example `windowed-renderer` with a window, whose frames showed the expected picture and the three outcomes of a reload.

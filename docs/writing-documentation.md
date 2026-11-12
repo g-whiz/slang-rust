@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -598,6 +598,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-12: Corrected in Section 7.5 the reason why a call of a procedural macro that resolves a path against the file that calls it cannot be a doctest. In a doctest, that file is the source file that holds the documentation.
 - 2026-11-11: Added to Section 7.5 the exception for an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against its invoking file, which is a `text` block whose lead-in states the reason, and extended its row in Section 7.12.
 - 2026-11-11: Added to Section 7.6 that a function that can abort the process states each condition of the abort in a paragraph of the body that begins with "Aborts", with no heading of its own, that the crate-level documentation states the general case once in such a paragraph, and that a function carries its own paragraph only when its abort was observed, and added its row to Section 7.12.
 - 2026-11-10: Widened the exemption of Section 7.9 for generated raw bindings to `# Safety` sections and safety comments, on the condition that the crate-level documentation states one shared safety contract, and added cross-references in Sections 7.2 and 7.6 and a row in Section 7.12, and replaced the feature name in the example sentence of Section 7.8 with an illustrative one.

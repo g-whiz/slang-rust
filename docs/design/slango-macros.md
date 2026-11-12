@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
@@ -236,8 +236,8 @@ The layout types stay crate-private. The generated code also asserts at compile 
 Step 2 implemented the encoding with these properties:
 
 - The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 1, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change.
-- `load_precompiled` also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic, bounds every count by the bytes left before it allocates, and accepts at most 256 levels of nested arrays or structures.
-- The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX`, so it never writes bytes that the decoder refuses.
+- `load_precompiled` also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic, bounds every count by the bytes left before it allocates, accepts at most 256 levels of nested arrays or structures, and accepts only bindings in descriptor sets up to 255, so that a load creates a bounded number of bind group layouts.
+- The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX` or a binding in a descriptor set above 255, so it never writes bytes that the decoder refuses.
 - The pure tests decode every record and variant of the snapshot back to itself, and reject every truncation of an encoding. Each byte of an encoding set to 0 or 255 either fails to decode or decodes to a snapshot that encodes to the same bytes. These tests use generated variants and exhaustive sweeps, not property tests with regression files as TEST-9 of the coding standard asks, because the step added no dependency.
 - An `ffi` test compiles each test shader of `slango` with `precompile_file` and checks that the decoded snapshot equals the snapshot that `Device::load_module` builds, render records included. The `gpu` tests run kernels from a precompiled load. No draw from a precompiled module has run.
 
@@ -575,6 +575,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Recorded in Section 5.3 that the decoder accepts only bindings in descriptor sets up to 255 and that the encoder refuses a larger set, added the compile-fail case of a string literal with a suffix to Section 10, and corrected in Section 10 the reason why the crate-level example is a `text` block and the statement that the `gpu` tests of saxpy run the bindings of the module `bindings`.
 - 2026-11-11: Recorded step 5 of Section 11, the example `typed-kernel`, as done in Sections 1.6 and 11 with its check in CI still open, described the example and its tests as built in Section 10, corrected the statement that the example runs `saxpy.slang` and is the compiled form of the crate-level example, which the `gpu` tests of saxpy are, confirmed SLMA-2 in a narrower form with its evidence in Section 3.8 and the condition in Section 6.4, removed its row from Section 12, added the known limit of Section 15.6 for a crate that names generated items outside function bodies, and widened SLMQ-3 to that crate's documentation on docs.rs, answered by M7.
 - 2026-11-11: Recorded step 4 of Section 11, the generated structs for Slang structures, as done in Sections 1.6 and 11, recorded the element form, the uniform form, the sharing of one structure name, and the lint exception of a generated `new` as built in Section 7.3, the names of structures and their fields in Section 7.4, the unsupported cases of structures with the form of their message in Section 7.5, and the tests as built in Section 10, corrected the array case of Section 7.5 to a stride that differs from the element size, confirmed SLMA-7 in Section 3.9, confirmed SLMA-6 of step 3 from its CI run in Section 3.3 and narrowed SLMA-5 without confirming it, because the macOS job also sets `DYLD_LIBRARY_PATH`, with the time of the trybuild test on Windows in Section 3.10 and the matching updates in Sections 1.6, 11, 12, 15.2, and 15.6, and removed the rows of SLMA-6 and SLMA-7 from Section 12 and kept the narrowed row of SLMA-5.
 - 2026-11-11: Recorded step 3 of Section 11, the crates `slango-codegen` and `slango-macros`, as done in Sections 1.6 and 11, recorded its costs in Section 3.10, the generator's functions, the dependencies of both crates, and the exception to DEP-2 for the exact requirement on `slango` in Section 4.2, the checks of `VULKAN_SDK` in Section 6.3, the stub without a path check in Section 6.4, the settled naming rules in Section 7.4, the unsupported cases as built in Section 7.5, the error kinds as built in Section 8, and the tests as built with the manual check of the rebuild in Section 10, confirmed SLMA-1 and removed its row from Section 12, and added the evidence for SLMA-3 to Section 4.2.

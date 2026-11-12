@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | `crates/slang-compiler-sys` and `tools/bindings-generator` |
 
 ## Abstract
@@ -1192,6 +1192,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Corrected the naming of unnamed structs and unions and their fields in Section 5.11, recorded the 60-second limit of the rustfmt run of the generator in Sections 7.4, 7.7, and 19.4, added the failure to access the `.git` entry of a required submodule to Section 9.6, and recorded in Section 9.7 that `read` replaces every byte sequence that is not UTF-8 and that `build_script::ffi` holds a ninth test.
 - 2026-11-11: Recorded in Sections 1.6 and 3.3 that a C++ exception escaped from two methods of Slang in the tests of `slang-compiler`, amended SCS-10 and SCS-11 so that every vtable entry is `"system-unwind"` and every C function `"C-unwind"`, stated in Section 5.2 that callback types stay `"C"` and in Section 5.6 how a Rust-implemented vtable stores its non-unwinding functions, amended SCS-13 and Section 5.10 for the second lint exception for `ffi_unwind_calls`, updated the illustration of Section 5.9 and the calling convention of Section 6, recorded the changed expected texts of the generator's tests in Section 7.5 and the lint exception of the smoke test and the run of `test-static` in Section 11, amended SCS-37 and Section 13 for the paragraph on exceptions in the crate documentation and for the state of `slang-compiler`, added the unwinding ABIs and an eighth residual risk to Section 18, and updated Appendix A.
 - 2026-11-11: Amended SCS-36 in Section 12 and its summary in Appendix A to cover every push and pull request that the CI workflow runs on, now that pushes to feature branches also run it.
 - 2026-11-11: Stated in Sections 3.10, 13, and 16 that the pinned Slang validates SPIR-V only when `SLANG_RUN_SPIRV_VALIDATION` is `1`, on either route, so that the missing validation on the static route observed on 2026-11-10 is no difference from the dynamic route, and that the crate documentation names only the missing optimization as a loss of the static route. Corrected the record of 2026-11-10 that Slang gives no diagnostic about SPIR-V that is not optimized on a build without `slang-glslang`: recorded in Sections 3.10, 13, and 16 the run of 2026-11-11 that showed the message on the first generation of SPIR-V in each global session, its effect with `SLANG_RUN_SPIRV_VALIDATION` set to `1`, the sizes of the SPIR-V with and without the library, and what the run did not test, stated in Section 18 that the SPIR-V of a program on the static route depends on the `slang-glslang` library that the loader finds, and added a row for the missing library to Section 19.4.

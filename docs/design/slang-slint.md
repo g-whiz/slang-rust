@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | `crates/slang-slint` and the Slint example |
 
 ## Abstract
@@ -422,6 +422,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 ## Change Log
 
+- 2026-11-12: Corrected the number of tests in `ffi::shader_playground` in Section 10 from six to two.
 - 2026-11-11: Recorded step 4 of Section 11, the completed crate-level documentation and the statement of SLS-5 in `README.md`, as done in Sections 1.6 and 11, and M5 as complete.
 - 2026-11-11: Recorded step 3 of Section 11, example 4, as done in Sections 1.6, 3.1, 11, and 15.2, described the example as built with its tests and its runs with a window in Section 10, including its Slint features, recorded the licences, duplicates, and four advisories of its Slint backend in Sections 3.6, 4.2, and 14, and the cost in Section 15.5.
 - 2026-11-11: Recorded step 2 of Section 11, the view, as done in Sections 1.6, 6.3, 9, 11, and 15.2, recorded the confirmation of SLSA-2 in Sections 3.4 and 12 and removed its row, and cited the shader constraints of example 4 in Section 10.

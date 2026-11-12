@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-11 |
+| Date | 2026-11-12 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -939,7 +939,7 @@ fn refresh(cache: &Mutex<Option<String>>, load: impl Fn() -> String) {
 
 ## 14. Testing
 
-**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute, when that module holds logic that needs a test, such as the scene of the windowed renderer (Section 13.5 of `docs/design/slango.md`). Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked. A library target in the examples package would add public items that exist only for a test, so the shared module makes the test check the code that the binary runs, as SYS-8 does for a build script, and no source in the reference list covers it, so this part of the rule is project-defined. [IR-17] [IR-10] [IR-63]
+**TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute, when that module holds logic that needs a test, such as the scene of the windowed renderer (Section 13.5 of `docs/design/slango.md`). A module that several binaries of that package need MAY sit under `examples/src/shared/`, and each binary, and the integration-test binary when the module needs a test, includes it with a `#[path]` attribute. Reason: integration tests then exercise the API as a user sees it, and a consistent name states what a failing test checked. A package of example binaries has no library crate to hold code that its binaries share, and a library target would add public items that exist only for the examples. The shared module makes the test check the code that the binary runs, as SYS-8 does for a build script. No source in the reference list covers this part of the rule, so it is project-defined. [IR-17] [IR-10] [IR-63]
 
 **TEST-2.** Cover text and structured output, such as diagnostic messages and reflection data, with `insta` snapshot tests, review their changes with `cargo insta review`, commit the snapshot files, and make the output under test deterministic. Reason: a snapshot shows a reviewer the exact change in output, and output that depends on hash order or timing makes the test flaky. [IR-17] [IR-1]
 
@@ -1179,7 +1179,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | CONC-5 | Atomic orderings match their purpose, and `SeqCst` prompts a review. |
 | CONC-6 | A blocking core, async only for external waits, no `Send + 'static` bounds unless spawning or on a trait whose objects a foreign library keeps and calls. |
 | CONC-7 | Every public `async fn` documents its cancel safety and holds nothing across `.await`. |
-| TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names, and a module of an example binary that the examples' test binary includes with `#[path]` when the module needs a test. |
+| TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names, a module of an example binary that the test binary of the examples includes with `#[path]` when the module needs a test, and modules that several example binaries share under `examples/src/shared/`. |
 | TEST-2 | Snapshot tests with `insta` for text and structured output, with deterministic output. |
 | TEST-3 | Tests that need the native library or a GPU are tagged so they can be filtered. |
 | TEST-4 | Every bug fix comes with a regression test. |
@@ -1200,6 +1200,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 
 ## Change Log
 
+- 2026-11-12: Extended TEST-1 and its row in Appendix A so that a module that several binaries of the examples package share sits under `examples/src/shared/`, and each binary and the integration-test binary include it through a `#[path]` attribute.
 - 2026-11-11: Added to Section 4.4 two kinds of expected lint exception, `clippy::partial_pub_fields` on a module of the workspace that calls `slango_macros::shader!` and `clippy::too_many_arguments` on a generated `new` of more than seven arguments, and raised the stated count from seven to nine.
 - 2026-11-11: Added to DEP-2 the exception for a member that needs another version requirement on a workspace member than the workspace entry gives, as `slango-codegen` needs an exact requirement on `slango`.
 - 2026-11-11: Replaced the stale account of milestones and workspace members in Section 1.1 with a pointer to the Project Status section of `AGENTS.md`.
