@@ -2,12 +2,22 @@ mod shader_playground;
 mod typed_kernel;
 mod windowed_renderer;
 
+use std::fs;
+use std::path::PathBuf;
 use std::process::Output;
 
-use crate::common::run;
+use crate::common::{assert_prints_usage, run};
+
+const COMPILE_AND_REFLECT: &str = env!("CARGO_BIN_EXE_compile-and-reflect");
 
 fn compile_and_reflect(file: &str) -> Output {
-    run(env!("CARGO_BIN_EXE_compile-and-reflect"), &[file])
+    run(COMPILE_AND_REFLECT, &[file])
+}
+
+fn report_of(output: Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{}: {stderr}", output.status);
+    String::from_utf8(output.stdout).expect("the report is UTF-8")
 }
 
 #[test]
@@ -29,4 +39,81 @@ fn compile_and_reflect_reports_a_compile_error_on_standard_error() {
         stderr.contains("undefined identifier 'undefinedValue'"),
         "{stderr}"
     );
+}
+
+#[test]
+fn compile_and_reflect_prints_its_usage_for_help() {
+    assert_prints_usage(
+        COMPILE_AND_REFLECT,
+        "Usage: compile-and-reflect [OPTIONS] <FILE>\n",
+    );
+}
+
+#[test]
+fn compile_and_reflect_compiles_only_the_entry_point_that_entry_names() {
+    let report = report_of(run(
+        COMPILE_AND_REFLECT,
+        &["--entry", "clear", "shaders/scale.slang"],
+    ));
+    let entry_points: Vec<&str> = report
+        .lines()
+        .filter(|line| line.starts_with("entry point "))
+        .collect();
+    assert_eq!(entry_points, ["entry point clear (Compute)"], "{report}");
+}
+
+#[test]
+fn compile_and_reflect_prints_the_code_size_in_bytes_for_the_target_that_target_names() {
+    let report = report_of(run(
+        COMPILE_AND_REFLECT,
+        &["--target", "wgsl", "shaders/scale.slang"],
+    ));
+    assert!(report.starts_with("target: wgsl\n"), "{report}");
+    let code: Vec<&str> = report
+        .lines()
+        .filter(|line| line.starts_with("  code: "))
+        .collect();
+    assert_eq!(code.len(), 2, "{report}");
+    assert!(
+        code.iter()
+            .all(|line| line.ends_with(" bytes") && !line.contains("words")),
+        "{report}"
+    );
+}
+
+#[test]
+fn compile_and_reflect_finds_an_imported_module_in_a_search_path() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("compile-and-reflect")
+        .join("search-path");
+    let modules = dir.join("modules");
+    fs::create_dir_all(&modules).expect("the scratch directory is created");
+    fs::write(
+        modules.join("helper.slang"),
+        "public float twice(float x) { return 2.0 * x; }\n",
+    )
+    .expect("the module is written");
+    let main = dir.join("main.slang");
+    fs::write(
+        &main,
+        "import helper;\n\
+         RWStructuredBuffer<float> data;\n\
+         [shader(\"compute\")]\n\
+         [numthreads(1, 1, 1)]\n\
+         void main(uint3 id : SV_DispatchThreadID) { data[id.x] = twice(data[id.x]); }\n",
+    )
+    .expect("the shader is written");
+    let main = main.to_str().expect("the scratch path is UTF-8");
+    let modules = modules.to_str().expect("the scratch path is UTF-8");
+
+    let without = run(COMPILE_AND_REFLECT, &[main]);
+    let stderr = String::from_utf8_lossy(&without.stderr);
+    assert!(!without.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("cannot open file 'helper.slang'"),
+        "{stderr}"
+    );
+
+    let report = report_of(run(COMPILE_AND_REFLECT, &["--search-path", modules, main]));
+    assert!(report.contains("entry point main (Compute)\n"), "{report}");
 }
