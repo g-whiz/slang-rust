@@ -50,12 +50,22 @@ enum Content {
 }
 
 /// A plain value whose elements follow each other with no gap, which a Rust
-/// array of the same scalars lays out alike.
+/// array of the same scalars lays out alike, with its size in bytes.
 #[derive(Debug)]
-enum Packed {
+struct Packed {
+    shape: PackedShape,
+    size: u64,
+}
+
+/// The shape of a [`Packed`] value.
+#[derive(Debug)]
+enum PackedShape {
     Scalar,
     Array { length: u64, element: Box<Packed> },
 }
+
+/// The size in bytes of each scalar that a generated struct supports.
+const SCALAR_SIZE: u64 = 4;
 
 /// A Slang structure for which the generator emits a struct, with the
 /// layout of a structured buffer when it is the element of one or a field of
@@ -129,8 +139,8 @@ impl<'a> Structures<'a> {
         for field in &structure.fields {
             let (ty, content, size) = match &field.ty {
                 FieldType::Value(value) => {
-                    let (packed, size) =
-                        packed(value).map_err(|what| field_error(&field.name, &what))?;
+                    let packed = packed(value).map_err(|what| field_error(&field.name, &what))?;
+                    let size = packed.size;
                     let content = Content::Value {
                         scalar: value.scalar,
                         packed,
@@ -539,9 +549,9 @@ impl Parts {
 /// Returns the statements that append the scalars of `value`, a plain value
 /// of the shape `packed`, to `out` in little-endian order.
 fn write_value(value: &TokenStream, packed: &Packed, depth: usize) -> TokenStream {
-    match packed {
-        Packed::Scalar => quote!(out.extend_from_slice(&#value.to_le_bytes());),
-        Packed::Array { element, .. } => {
+    match &packed.shape {
+        PackedShape::Scalar => quote!(out.extend_from_slice(&#value.to_le_bytes());),
+        PackedShape::Array { element, .. } => {
             let item = format_ident!("item{depth}");
             let inner = write_value(&quote!(#item), element, depth + 1);
             quote! {
@@ -556,31 +566,22 @@ fn write_value(value: &TokenStream, packed: &Packed, depth: usize) -> TokenStrea
 /// Returns the expression that reads a plain value of the shape `packed`
 /// from `bytes` at `offset`.
 fn read_value(scalar: &TokenStream, packed: &Packed, offset: u64) -> TokenStream {
-    match packed {
-        Packed::Scalar => {
+    match &packed.shape {
+        PackedShape::Scalar => {
             let offset = Literal::u64_unsuffixed(offset);
             quote!(#scalar::from_le_bytes(*bytes.get(#offset..)?.first_chunk()?))
         }
-        Packed::Array { length, element } => {
-            let size = packed_size(element);
-            let items =
-                (0..*length).map(|index| read_value(scalar, element, offset + index * size));
+        PackedShape::Array { length, element } => {
+            let items = (0..*length)
+                .map(|index| read_value(scalar, element, offset + index * element.size));
             quote!([#(#items),*])
         }
     }
 }
 
-fn packed_size(packed: &Packed) -> u64 {
-    match packed {
-        Packed::Scalar => 4,
-        Packed::Array { length, element } => length * packed_size(element),
-    }
-}
-
-/// Returns the shape of a plain value in a structured buffer with its size
-/// in bytes, or what the value is when a Rust array does not lay it out as
-/// Slang does.
-fn packed(value: &ValueType) -> std::result::Result<(Packed, u64), String> {
+/// Returns the shape of a plain value in a structured buffer with its size,
+/// or what the value is when a Rust array does not lay it out as Slang does.
+fn packed(value: &ValueType) -> std::result::Result<Packed, String> {
     if value.scalar == Scalar::Bool {
         return Err(match value.shape {
             Shape::Scalar => "a `bool`".to_owned(),
@@ -590,23 +591,28 @@ fn packed(value: &ValueType) -> std::result::Result<(Packed, u64), String> {
     packed_shape(&value.shape)
 }
 
-fn packed_shape(shape: &Shape) -> std::result::Result<(Packed, u64), String> {
+fn packed_shape(shape: &Shape) -> std::result::Result<Packed, String> {
+    let scalar = || Packed {
+        shape: PackedShape::Scalar,
+        size: SCALAR_SIZE,
+    };
     match shape {
-        Shape::Scalar => Ok((Packed::Scalar, 4)),
-        Shape::Vector { length } => Ok((
-            Packed::Array {
+        Shape::Scalar => Ok(scalar()),
+        Shape::Vector { length } => Ok(Packed {
+            shape: PackedShape::Array {
                 length: u64::from(*length),
-                element: Box::new(Packed::Scalar),
+                element: Box::new(scalar()),
             },
-            u64::from(*length) * 4,
-        )),
+            size: u64::from(*length) * SCALAR_SIZE,
+        }),
         Shape::Matrix { .. } => Err("a matrix".to_owned()),
         Shape::Array {
             length,
             stride,
             element,
         } => {
-            let (element, element_size) = packed_shape(element)?;
+            let element = packed_shape(element)?;
+            let element_size = element.size;
             if *stride != element_size {
                 return Err(format!(
                     "an array whose stride of {stride} bytes differs from the {element_size} bytes of its element"
@@ -617,13 +623,13 @@ fn packed_shape(shape: &Shape) -> std::result::Result<(Packed, u64), String> {
                     "an array of {length} elements of {element_size} bytes, beyond any Rust struct"
                 )
             })?;
-            Ok((
-                Packed::Array {
+            Ok(Packed {
+                shape: PackedShape::Array {
                     length: *length,
                     element: Box::new(element),
                 },
                 size,
-            ))
+            })
         }
     }
 }
