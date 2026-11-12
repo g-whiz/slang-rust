@@ -1032,6 +1032,90 @@ struct IBoth : public IRoot, public IOther
     }
 
     #[test]
+    fn generate_refuses_an_interface_whose_uuid_is_not_eleven_integers() {
+        let header = r"
+struct IOdd : public IRoot
+{
+    static SlangUUID getTypeGuid()
+    {
+        SlangUUID uuid = {};
+        return uuid;
+    }
+    virtual void act() = 0;
+};
+";
+        let error = fail("uuid_unreadable", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct IOdd"),
+            &[
+                "cannot read the UUID of interface IOdd from the body of getTypeGuid as eleven integers",
+            ],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_an_interface_that_derives_from_an_excluded_interface() {
+        const DECLARATIONS: &[DeclRule] = &[
+            DeclRule {
+                header: Some("slang.h"),
+                pattern: "IHidden",
+                action: Action::Exclude,
+                reason: "a deprecated interface",
+            },
+            DeclRule {
+                header: None,
+                pattern: "*",
+                action: Action::Include,
+                reason: "a test declaration",
+            },
+        ];
+        const RULES: RuleSet = rules(DECLARATIONS, NO_MACROS);
+        let header = r"
+struct IHidden : public IRoot
+{
+    TEST_UUID
+    virtual void hidden() = 0;
+};
+struct IChild : public IHidden
+{
+    TEST_UUID
+    virtual void act() = 0;
+};
+";
+        let error = fail_rules("base_excluded", header, &RULES);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct IChild"),
+            &["interface IChild derives from IHidden, which a rule excludes"],
+        );
+    }
+
+    #[test]
+    fn generate_refuses_an_interface_that_derives_from_a_class_that_is_not_an_interface() {
+        let header = r"
+struct Plain
+{
+    int32_t value;
+};
+struct IChild : public Plain
+{
+    TEST_UUID
+    virtual void act() = 0;
+};
+";
+        let error = fail("base_not_interface", header);
+        assert_error(
+            &error,
+            ErrorKind::Unsupported,
+            line_of(header, "struct IChild"),
+            &["interface IChild derives from Plain, which is not an included interface"],
+        );
+    }
+
+    #[test]
     fn generate_refuses_an_overloaded_method() {
         let header = r"
 struct IOverloads : public IRoot
