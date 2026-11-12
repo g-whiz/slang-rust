@@ -512,6 +512,9 @@ impl Extractor<'_> {
             || Ty::Unsupported("an unknown type".to_owned()),
             |ty| self.ty(ty),
         );
+        if ty == Ty::Named(name.cxx.clone()) {
+            return;
+        }
         self.push(Item {
             name,
             location: location.clone(),

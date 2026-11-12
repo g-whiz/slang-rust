@@ -723,6 +723,25 @@ struct IVisible : public IRoot
     }
 
     #[test]
+    fn generate_emits_a_struct_whose_typedef_precedes_its_definition() {
+        let text = generate(
+            "typedef_before_definition",
+            r"
+typedef struct Later Later;
+struct Later
+{
+    int32_t value;
+};
+",
+        );
+        assert_contains(&text, "pub struct Later {\n    pub value: i32,\n}");
+        assert!(
+            !text.contains("pub type Later"),
+            "the typedef is emitted: {text}"
+        );
+    }
+
+    #[test]
     fn generate_accepts_a_canonical_type_difference_behind_a_typedef() {
         let text = generate(
             "canonical_difference",
