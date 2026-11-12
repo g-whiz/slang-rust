@@ -4,7 +4,7 @@
 extend-ignore-re = ["\\(ba\\)\\?sh", "Rob Ede"]
 
 # Names that the Slang headers misspell, which the generated bindings keep
-# because they must match the headers (SCS-14).
+# because they must match the headers.
 [default.extend-identifiers]
 ISlangClonable = "ISlangClonable"
 ISlangClonableVtbl = "ISlangClonableVtbl"

@@ -1,6 +1,6 @@
-crates/slang-compiler/src/module.rs:3: the closure passed to abort_on_exception makes no call into Slang (SLC-32)
-crates/slang-compiler/src/module.rs:4: call of IModule::getName is inside a closure or fn nested in the closure passed to abort_on_exception (SLC-32)
-crates/slang-compiler/src/module.rs:12: the closure passed to abort_on_exception makes no call into Slang (SLC-32)
-crates/slang-compiler/src/module.rs:14: call of IModule::release is inside a closure or fn nested in the closure passed to abort_on_exception (SLC-32)
-crates/slang-compiler/src/module.rs:28: the closure passed to abort_on_exception makes no call into Slang (SLC-32)
-crates/slang-compiler/src/module.rs:30: call of IModule::release is inside a closure or fn nested in the closure passed to abort_on_exception (SLC-32)
+crates/slang-compiler/src/module.rs:3: the closure passed to abort_on_exception makes no call into Slang
+crates/slang-compiler/src/module.rs:4: call of IModule::getName is inside a closure or fn nested in the closure passed to abort_on_exception
+crates/slang-compiler/src/module.rs:12: the closure passed to abort_on_exception makes no call into Slang
+crates/slang-compiler/src/module.rs:14: call of IModule::release is inside a closure or fn nested in the closure passed to abort_on_exception
+crates/slang-compiler/src/module.rs:28: the closure passed to abort_on_exception makes no call into Slang
+crates/slang-compiler/src/module.rs:30: call of IModule::release is inside a closure or fn nested in the closure passed to abort_on_exception

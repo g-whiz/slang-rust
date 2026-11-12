@@ -13,9 +13,8 @@ except ImportError as error:
 
 USAGE = """usage: check-slang-call-guard [file.rs ...]
 
-Checks rule SLC-32 of docs/design/slang-compiler.md: in the crate
-slang-compiler, every call into Slang runs inside a closure passed to
-abort_on_exception, which is the innermost frame around exactly one such
+Checks that in the crate slang-compiler, every call into Slang runs
+inside a closure passed to abort_on_exception, which is the innermost frame around exactly one such
 call. A call into Slang is a call of a C function or of a generated thunk
 of slang-compiler-sys. The checker learns both from the generated
 bindings crates/slang-compiler-sys/src/bindings.rs of the git repository
@@ -57,7 +56,6 @@ BINDINGS = "crates/slang-compiler-sys/src/bindings.rs"
 CRATE_SOURCES = "crates/slang-compiler/src/*.rs"
 EXCLUDED_FILE = "fake.rs"
 GUARD = "abort_on_exception"
-RULE = "(SLC-32)"
 OPEN = {"(": ")", "[": "]", "{": "}"}
 CLOSE = {")": "(", "]": "[", "}": "{"}
 CLOSURE_BEFORE = {"(", "[", "{", ",", "=", ";", ":", ">", "&", "return", "break", "move"}
@@ -195,7 +193,7 @@ class FileCheck:
         self.findings = []
 
     def add(self, index, message):
-        self.findings.append((self.code.line(index), f"{message} {RULE}"))
+        self.findings.append((self.code.line(index), message))
 
     def inside(self, ranges, index):
         return any(start <= index <= end for start, end in ranges)

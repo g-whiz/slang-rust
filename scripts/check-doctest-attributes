@@ -14,9 +14,8 @@ except ImportError as error:
 
 USAGE = """usage: check-doctest-attributes [file.rs | README.md ...]
 
-Checks that no code block in documentation is marked ignore, as Section
-7.5 of docs/writing-documentation.md requires: an example that cannot run
-is marked no_run instead. Reads the fenced code blocks in the /// and //!
+Checks that no code block in documentation is marked ignore: an example
+that cannot run is marked no_run instead. Reads the fenced code blocks in the /// and //!
 documentation comments of Rust files, and in Markdown files named
 README.md, which a crate includes as doctests. Any other file is read as
 Rust. Reports a code block whose info string holds the attribute ignore,

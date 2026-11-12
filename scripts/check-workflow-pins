@@ -14,9 +14,8 @@ except ImportError as error:
 
 USAGE = """usage: check-workflow-pins [workflow.yml | action.yml ...]
 
-Checks the GitHub Actions rules of Section 8.2 of docs/design/tooling.md
-that a tool can check. In every workflow and composite action, reports a
-uses: whose reference is not a full 40-character lowercase hexadecimal
+Checks the rules on GitHub Actions workflows that a tool can check. In
+every workflow and composite action, reports a uses: whose reference is not a full 40-character lowercase hexadecimal
 commit SHA, except a local action, which starts with ./, and a docker://
 reference pinned by an @sha256: digest. In every workflow, also reports
 the pull_request_target event under the top-level on: key, a workflow

@@ -1,2 +1,2 @@
-crates/slang-compiler/src/enums.rs:3: call of Self::release is not inside a closure passed to abort_on_exception (SLC-32)
-crates/slang-compiler/src/enums.rs:8: call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)
+crates/slang-compiler/src/enums.rs:3: call of Self::release is not inside a closure passed to abort_on_exception
+crates/slang-compiler/src/enums.rs:8: call of IModule::getName is not inside a closure passed to abort_on_exception

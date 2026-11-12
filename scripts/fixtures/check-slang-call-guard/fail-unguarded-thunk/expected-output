@@ -1,3 +1,3 @@
-crates/slang-compiler/src/module.rs:3: call of IModule::getName is not inside a closure passed to abort_on_exception (SLC-32)
-crates/slang-compiler/src/module.rs:9: call of ISlangBlob::release is not inside a closure passed to abort_on_exception (SLC-32)
-crates/slang-compiler/src/reflection/layout.rs:2: call of IModule::link is not inside a closure passed to abort_on_exception (SLC-32)
+crates/slang-compiler/src/module.rs:3: call of IModule::getName is not inside a closure passed to abort_on_exception
+crates/slang-compiler/src/module.rs:9: call of ISlangBlob::release is not inside a closure passed to abort_on_exception
+crates/slang-compiler/src/reflection/layout.rs:2: call of IModule::link is not inside a closure passed to abort_on_exception

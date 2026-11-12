@@ -14,9 +14,8 @@ except ImportError as error:
 
 USAGE = """usage: check-rust-comments [file.rs ...]
 
-Checks that Rust source contains only the comments that Section 7.2 of
-docs/writing-documentation.md allows: /// and //! documentation comments,
-and safety comments. A safety comment is a run of // line comments on
+Checks that Rust source contains only these comments: /// and //!
+documentation comments, and safety comments. A safety comment is a run of // line comments on
 consecutive lines, with nothing else between them, whose first line
 starts with // SAFETY:. Reports every other line comment, including a
 comment that starts with four slashes, every block comment, including the

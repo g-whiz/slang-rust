@@ -1,1 +1,1 @@
-crates/slang-compiler/src/blob.rs:3: the closure passed to abort_on_exception makes 2 calls into Slang, ISlangBlob::getBufferSize, ISlangBlob::release, instead of exactly one (SLC-32)
+crates/slang-compiler/src/blob.rs:3: the closure passed to abort_on_exception makes 2 calls into Slang, ISlangBlob::getBufferSize, ISlangBlob::release, instead of exactly one

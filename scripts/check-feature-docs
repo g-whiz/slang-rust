@@ -18,8 +18,7 @@ except ImportError as error:
 USAGE = """usage: check-feature-docs [Cargo.toml ...]
 
 Checks that the crate-level documentation of each library in a Cargo
-workspace documents its Cargo features, as Sections 7.4 and 7.8 of
-docs/writing-documentation.md require. Reads the packages, their features,
+workspace documents its Cargo features. Reads the packages, their features,
 and their library roots from cargo metadata --no-deps, which also reports
 the feature that an optional dependency defines when no feature refers to
 it with dep:. For each package with a library target, reports a library

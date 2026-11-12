@@ -15,8 +15,8 @@ except ImportError as error:
 
 USAGE = """usage: check-doc-headings [file.rs ...]
 
-Checks the headings in the /// documentation of each Rust item against
-Section 7.3 of docs/writing-documentation.md. The only headings allowed
+Checks the headings in the /// documentation of each Rust item. The only
+headings allowed
 are the level-one standard headings # Examples, # Errors, # Panics,
 # Safety, and # Platform support, each at most once and in that order.
 Reports every other heading of any level, including a standard heading
@@ -26,8 +26,7 @@ standard heading that appears twice in one item's documentation. The
 comments between them, are one item's documentation. Lines inside fenced
 code blocks are not headings, so a hidden doctest line that starts with
 # is never reported. Crate-level and module-level documentation, written
-with //!, is not read, because Section 7.4 of the writing guide gives it
-its own headings. Documentation written as a #[doc = ...] attribute or a
+with //!, is not read, because it has its own headings. Documentation written as a #[doc = ...] attribute or a
 /** */ block comment is not read.
 With no files, checks every .rs file in the git repository that contains
 the current directory, tracked or not ignored, and prints paths relative
