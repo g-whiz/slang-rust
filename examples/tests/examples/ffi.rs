@@ -1,3 +1,4 @@
+mod compute_kernel;
 mod shader_playground;
 mod typed_kernel;
 mod windowed_renderer;

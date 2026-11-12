@@ -749,7 +749,7 @@ Example 2 of the architecture design is the headless binary target `compute-kern
 cargo run -p slang-rust-examples --bin compute-kernel -- examples/shaders/saxpy.slang
 ```
 
-Its three tests sit in the module `gpu` of the integration-test binary `examples/tests/examples/`, so they run on any adapter, on lavapipe in CI (ARCH-21). The error tests need an adapter too, because the example creates the device before it loads the file. The first test compares standard output with an `insta` snapshot, and the other two check that a compile error and a missing file fail with the error on standard error. The example needs no differentiable function, and the broadcasting case of example 2 waits for the milestone that adds broadcasting.
+Its three tests sit in the module `gpu` of the integration-test binary `examples/tests/examples/`, so they run on any adapter, on lavapipe in CI (ARCH-21). The error tests need an adapter too, because the example creates the device before it loads the file. The first test compares standard output with an `insta` snapshot, and the other two check that a compile error and a missing file fail with the error on standard error. Two further tests in the module `ffi`, in `ffi/compute_kernel.rs`, check `--help` and a wrong number of arguments, which fail before the example creates the device, so they need no adapter. The example needs no differentiable function, and the broadcasting case of example 2 waits for the milestone that adds broadcasting.
 
 ### 13.4. Tests of Rendering
 
