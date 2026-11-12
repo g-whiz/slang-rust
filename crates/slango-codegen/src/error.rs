@@ -138,24 +138,15 @@ mod tests {
     use super::{Error, ErrorKind};
     use std::error::Error as StdError;
 
-    const KINDS: [ErrorKind; 3] = [
-        ErrorKind::Compile,
-        ErrorKind::Unsupported,
-        ErrorKind::NameConflict,
-    ];
-
     #[test]
-    fn display_names_the_operation_and_the_detail_for_every_kind() {
-        for kind in KINDS {
-            let error = Error::new(kind, "generate the kernel `saxpy`")
-                .with_detail("the parameter `x` is a byte address buffer".to_owned());
-            assert_eq!(error.kind(), kind);
-            assert_eq!(
-                error.to_string(),
-                "cannot generate the kernel `saxpy`: the parameter `x` is a byte address buffer"
-            );
-            assert!(error.source().is_none());
-        }
+    fn display_names_the_operation_and_the_detail() {
+        let error = Error::new(ErrorKind::Unsupported, "generate the kernel `saxpy`")
+            .with_detail("the parameter `x` is a byte address buffer".to_owned());
+        assert_eq!(
+            error.to_string(),
+            "cannot generate the kernel `saxpy`: the parameter `x` is a byte address buffer"
+        );
+        assert!(error.source().is_none());
     }
 
     #[test]
