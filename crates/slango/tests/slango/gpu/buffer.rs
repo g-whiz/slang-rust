@@ -76,6 +76,18 @@ fn a_buffer_of_several_megabytes_reads_back_its_elements() {
 }
 
 #[test]
+fn a_buffer_of_packed_vectors_larger_than_one_upload_chunk_reads_back_its_elements() {
+    let elements: Vec<[f32; 3]> = (0_u16..20_000)
+        .map(|index| {
+            let value = f32::from(index);
+            [value, -value, value / 2.0]
+        })
+        .collect();
+    let buffer = Buffer::from_slice(&device(), &elements).expect("the buffer is created");
+    assert_eq!(buffer.read().expect("the buffer reads back"), elements);
+}
+
+#[test]
 fn an_empty_buffer_is_created_and_reads_back_no_elements() {
     let device = device();
     let empty = Buffer::<f32>::from_slice(&device, &[]).expect("the buffer is created");

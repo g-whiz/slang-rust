@@ -72,10 +72,6 @@ impl<T: VertexElement> Buffer<T> {
         if elements.is_empty() {
             return Self::zeroed(device, 0);
         }
-        let mut contents = Vec::with_capacity(elements.len().saturating_mul(T::STRIDE));
-        for element in elements {
-            element.write_bytes(&mut contents);
-        }
         let wgpu_device = device.wgpu_device();
         let ((buffer, mapped), error) = scoped(wgpu_device, || {
             let buffer = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
@@ -88,7 +84,7 @@ impl<T: VertexElement> Buffer<T> {
             });
             let mapped = buffer
                 .get_mapped_range_mut(..)
-                .map(|mut view| view.slice(..contents.len()).copy_from_slice(&contents));
+                .map(|mut view| write_elements(elements, view.slice(..)));
             buffer.unmap();
             (buffer, mapped)
         });
@@ -303,6 +299,27 @@ pub(crate) fn read_back(
         .get_mapped_range(..)
         .map_err(|error| Error::new(ErrorKind::Backend, operation).with_source(error))?;
     Ok(view.to_vec())
+}
+
+/// The number of bytes of elements that [`write_elements`] converts before
+/// it copies them into the buffer.
+const UPLOAD_CHUNK: usize = 64 * 1024;
+
+/// Writes the bytes of `elements` to the start of `out`, a chunk of
+/// [`UPLOAD_CHUNK`] bytes at a time, so that an upload holds no second copy
+/// of all its elements on the host.
+fn write_elements<T: VertexElement>(elements: &[T], mut out: ::wgpu::WriteOnly<'_, [u8]>) {
+    let mut chunk = Vec::with_capacity(UPLOAD_CHUNK);
+    let mut offset = 0;
+    for group in elements.chunks((UPLOAD_CHUNK / T::STRIDE).max(1)) {
+        chunk.clear();
+        for element in group {
+            element.write_bytes(&mut chunk);
+        }
+        let end = offset + chunk.len();
+        out.slice(offset..end).copy_from_slice(&chunk);
+        offset = end;
+    }
 }
 
 fn usages() -> ::wgpu::BufferUsages {
