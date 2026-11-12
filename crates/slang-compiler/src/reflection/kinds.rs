@@ -529,15 +529,67 @@ mod tests {
     }
 
     #[test]
-    fn every_type_kind_below_the_sentinel_converts_to_a_distinct_variant() {
-        let mut seen = Vec::new();
-        for value in 0..SlangTypeKind::SLANG_TYPE_KIND_COUNT.0 {
-            let kind = TypeKind::from_raw(SlangTypeKind(value)).expect("a listed kind");
-            assert!(!seen.contains(&kind), "{kind:?} twice");
-            seen.push(kind);
+    fn every_type_kind_below_the_sentinel_converts_to_its_variant() {
+        let pairs = [
+            (SlangTypeKind::SLANG_TYPE_KIND_NONE, TypeKind::None),
+            (SlangTypeKind::SLANG_TYPE_KIND_STRUCT, TypeKind::Struct),
+            (SlangTypeKind::SLANG_TYPE_KIND_ARRAY, TypeKind::Array),
+            (SlangTypeKind::SLANG_TYPE_KIND_MATRIX, TypeKind::Matrix),
+            (SlangTypeKind::SLANG_TYPE_KIND_VECTOR, TypeKind::Vector),
+            (SlangTypeKind::SLANG_TYPE_KIND_SCALAR, TypeKind::Scalar),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_CONSTANT_BUFFER,
+                TypeKind::ConstantBuffer,
+            ),
+            (SlangTypeKind::SLANG_TYPE_KIND_RESOURCE, TypeKind::Resource),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_SAMPLER_STATE,
+                TypeKind::SamplerState,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_TEXTURE_BUFFER,
+                TypeKind::TextureBuffer,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_SHADER_STORAGE_BUFFER,
+                TypeKind::ShaderStorageBuffer,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_PARAMETER_BLOCK,
+                TypeKind::ParameterBlock,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
+                TypeKind::GenericTypeParameter,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_INTERFACE,
+                TypeKind::Interface,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_OUTPUT_STREAM,
+                TypeKind::OutputStream,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_MESH_OUTPUT,
+                TypeKind::MeshOutput,
+            ),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_SPECIALIZED,
+                TypeKind::Specialized,
+            ),
+            (SlangTypeKind::SLANG_TYPE_KIND_FEEDBACK, TypeKind::Feedback),
+            (SlangTypeKind::SLANG_TYPE_KIND_POINTER, TypeKind::Pointer),
+            (
+                SlangTypeKind::SLANG_TYPE_KIND_DYNAMIC_RESOURCE,
+                TypeKind::DynamicResource,
+            ),
+            (SlangTypeKind::SLANG_TYPE_KIND_ENUM, TypeKind::Enum),
+        ];
+        for (raw, kind) in pairs {
+            assert_eq!(TypeKind::from_raw(raw).ok(), Some(kind), "{raw:?}");
         }
-        assert_eq!(seen.first(), Some(&TypeKind::None));
-        assert_eq!(seen.last(), Some(&TypeKind::Enum));
+        assert!((0..SlangTypeKind::SLANG_TYPE_KIND_COUNT.0).eq(pairs.iter().map(|(raw, _)| raw.0)));
         for value in [SlangTypeKind::SLANG_TYPE_KIND_COUNT.0, 1000] {
             let error = TypeKind::from_raw(SlangTypeKind(value)).expect_err("not a kind");
             assert_eq!(error.kind(), ErrorKind::Unrecognized);
@@ -545,33 +597,118 @@ mod tests {
     }
 
     #[test]
-    fn every_scalar_type_converts_to_a_distinct_variant() {
-        let mut seen = Vec::new();
-        for value in 0..=SlangScalarType::SLANG_SCALAR_TYPE_FLOAT_E5M2.0 {
-            let scalar = ScalarType::from_raw(SlangScalarType(value)).expect("a listed type");
-            assert!(!seen.contains(&scalar), "{scalar:?} twice");
-            seen.push(scalar);
+    fn every_scalar_type_converts_to_its_variant() {
+        let pairs = [
+            (SlangScalarType::SLANG_SCALAR_TYPE_NONE, ScalarType::None),
+            (SlangScalarType::SLANG_SCALAR_TYPE_VOID, ScalarType::Void),
+            (SlangScalarType::SLANG_SCALAR_TYPE_BOOL, ScalarType::Bool),
+            (SlangScalarType::SLANG_SCALAR_TYPE_INT32, ScalarType::Int32),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_UINT32,
+                ScalarType::Uint32,
+            ),
+            (SlangScalarType::SLANG_SCALAR_TYPE_INT64, ScalarType::Int64),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_UINT64,
+                ScalarType::Uint64,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT16,
+                ScalarType::Float16,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT32,
+                ScalarType::Float32,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT64,
+                ScalarType::Float64,
+            ),
+            (SlangScalarType::SLANG_SCALAR_TYPE_INT8, ScalarType::Int8),
+            (SlangScalarType::SLANG_SCALAR_TYPE_UINT8, ScalarType::Uint8),
+            (SlangScalarType::SLANG_SCALAR_TYPE_INT16, ScalarType::Int16),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_UINT16,
+                ScalarType::Uint16,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_INTPTR,
+                ScalarType::Intptr,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_UINTPTR,
+                ScalarType::Uintptr,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_BFLOAT16,
+                ScalarType::Bfloat16,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT_E4M3,
+                ScalarType::FloatE4m3,
+            ),
+            (
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT_E5M2,
+                ScalarType::FloatE5m2,
+            ),
+        ];
+        for (raw, scalar) in pairs {
+            assert_eq!(ScalarType::from_raw(raw).ok(), Some(scalar), "{raw:?}");
         }
-        assert_eq!(
-            ScalarType::from_raw(SlangScalarType::SLANG_SCALAR_TYPE_FLOAT32).ok(),
-            Some(ScalarType::Float32)
+        assert!(
+            (0..=SlangScalarType::SLANG_SCALAR_TYPE_FLOAT_E5M2.0)
+                .eq(pairs.iter().map(|(raw, _)| raw.0))
         );
         let error = ScalarType::from_raw(SlangScalarType(19)).expect_err("not a scalar type");
         assert_eq!(error.kind(), ErrorKind::Unrecognized);
     }
 
     #[test]
-    fn every_resource_access_converts_and_unknown_is_a_variant() {
-        let mut seen = Vec::new();
-        for value in 0..=SlangResourceAccess::SLANG_RESOURCE_ACCESS_FEEDBACK.0 {
-            let access = ResourceAccess::from_raw(SlangResourceAccess(value)).expect("listed");
-            assert!(!seen.contains(&access), "{access:?} twice");
-            seen.push(access);
+    fn every_resource_access_converts_to_its_variant() {
+        let pairs = [
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_NONE,
+                ResourceAccess::None,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_READ,
+                ResourceAccess::Read,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_READ_WRITE,
+                ResourceAccess::ReadWrite,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_RASTER_ORDERED,
+                ResourceAccess::RasterOrdered,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_APPEND,
+                ResourceAccess::Append,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_CONSUME,
+                ResourceAccess::Consume,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_WRITE,
+                ResourceAccess::Write,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_FEEDBACK,
+                ResourceAccess::Feedback,
+            ),
+            (
+                SlangResourceAccess::SLANG_RESOURCE_ACCESS_UNKNOWN,
+                ResourceAccess::Unknown,
+            ),
+        ];
+        for (raw, access) in pairs {
+            assert_eq!(ResourceAccess::from_raw(raw).ok(), Some(access), "{raw:?}");
         }
-        assert_eq!(
-            ResourceAccess::from_raw(SlangResourceAccess::SLANG_RESOURCE_ACCESS_UNKNOWN).ok(),
-            Some(ResourceAccess::Unknown)
-        );
+        let named = (0..=SlangResourceAccess::SLANG_RESOURCE_ACCESS_FEEDBACK.0)
+            .chain([SlangResourceAccess::SLANG_RESOURCE_ACCESS_UNKNOWN.0]);
+        assert!(named.eq(pairs.iter().map(|(raw, _)| raw.0)));
         let error = ResourceAccess::from_raw(SlangResourceAccess(8)).expect_err("not listed");
         assert_eq!(error.kind(), ErrorKind::Unrecognized);
     }

@@ -1084,19 +1084,90 @@ mod tests {
     use crate::ErrorKind;
 
     #[test]
-    fn every_named_binding_type_converts_to_a_distinct_variant() {
-        let mut seen = Vec::new();
-        let values = (0..=SlangBindingType::SLANG_BINDING_TYPE_PUSH_CONSTANT.0).chain([
+    fn every_named_binding_type_converts_to_its_variant() {
+        let pairs = [
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_UNKNOWN,
+                BindingType::Unknown,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_SAMPLER,
+                BindingType::Sampler,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_TEXTURE,
+                BindingType::Texture,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_CONSTANT_BUFFER,
+                BindingType::ConstantBuffer,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK,
+                BindingType::ParameterBlock,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_TYPED_BUFFER,
+                BindingType::TypedBuffer,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_RAW_BUFFER,
+                BindingType::RawBuffer,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER,
+                BindingType::CombinedTextureSampler,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_INPUT_RENDER_TARGET,
+                BindingType::InputRenderTarget,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_INLINE_UNIFORM_DATA,
+                BindingType::InlineUniformData,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_RAY_TRACING_ACCELERATION_STRUCTURE,
+                BindingType::RayTracingAccelerationStructure,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_VARYING_INPUT,
+                BindingType::VaryingInput,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_VARYING_OUTPUT,
+                BindingType::VaryingOutput,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_EXISTENTIAL_VALUE,
+                BindingType::ExistentialValue,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_PUSH_CONSTANT,
+                BindingType::PushConstant,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE,
+                BindingType::MutableTexture,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER,
+                BindingType::MutableTypedBuffer,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_RAW_BUFFER,
+                BindingType::MutableRawBuffer,
+            ),
+        ];
+        for (raw, kind) in pairs {
+            assert_eq!(BindingType::from_raw(raw).ok(), Some(kind), "{raw:?}");
+        }
+        let named = (0..=SlangBindingType::SLANG_BINDING_TYPE_PUSH_CONSTANT.0).chain([
             SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE.0,
             SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER.0,
             SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_RAW_BUFFER.0,
         ]);
-        for value in values {
-            let kind = BindingType::from_raw(SlangBindingType(value)).expect("a named kind");
-            assert!(!seen.contains(&kind), "{kind:?} twice");
-            seen.push(kind);
-        }
-        assert_eq!(seen.len(), 18);
+        assert!(named.eq(pairs.iter().map(|(raw, _)| raw.0)));
     }
 
     #[test]
