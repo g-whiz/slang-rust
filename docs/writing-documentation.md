@@ -135,15 +135,21 @@ An author omits an optional section that would be empty, because a section that 
 
 A guide or a standards document states, for each rule, the tool or lint that enforces it, or that the rule is a judgement rule. An author MUST assign every rule that a deterministic tool can check to that tool and MUST NOT leave it to a reviewer, because a reviewer misses findings that a tool reports every time, and a reviewer's effort is better spent on what only a reviewer can judge. When a tool could check a rule but no tool in the repository does yet, the document calls the rule a judgement rule until a tool covers it. In this guide, a rule that names no tool is a judgement rule.
 
+### 3.6. Design, Not Progress
+
+A design document describes the design and architecture of a system, and the boundaries and interactions between systems. An author MUST NOT put progress records in a design document or in the README, because such records bury the design that the reader needs and go stale with the next change, while the history of the repository already holds them.
+
+Progress records include what works and what does not as a status, what was tried, what each step or milestone added, completion dates, dated measurements, identifiers of continuous integration runs, and counts of tests. The change log of Section 9 records changes to the document itself and is not a progress record.
+
 ## 4. Prose
 
 ### 4.1. Narrative and Lists
 
-Lists are for enumeration only. A list is permitted for the steps of a procedure, for term and definition entries, for field or parameter definitions, and for enumerations of concrete items such as files, options, or states. Everything else is prose, in paragraphs of a few sentences that each carry one idea. An author MUST NOT use a list for rationale, design discussion, consequences, or any other connected argument, because a list drops the words that connect ideas, such as "because", "unless", and "therefore", and the agent then has to guess how the items relate. Tables are permitted for comparisons across options and for summaries, as Section 3.4 shows.
+Lists are for enumeration only. A list is permitted for the steps of a procedure, for term and definition entries, for field or parameter definitions, and for enumerations of concrete items such as files, options, or states. Everything else is prose, in paragraphs of one to three sentences that together form one coherent point. An author SHOULD NOT write a longer paragraph, because a long paragraph mixes several points, and the reader then has to work out which sentence each condition or reason belongs to. An author MUST NOT use a list for rationale, design discussion, consequences, or any other connected argument, because a list drops the words that connect ideas, such as "because", "unless", and "therefore", and the agent then has to guess how the items relate. Tables are permitted for comparisons across options and for summaries, as Section 3.4 shows.
 
 ### 4.2. Sentences
 
-Sentences are short, in the active voice, and in the present tense.
+Sentences are short, in the active voice, and in the present tense. An author MUST NOT write a run-on sentence, which joins independent clauses with only a comma or with a long chain of conjunctions, because the reader cannot tell which clause a condition or an exception qualifies. Each independent statement ends with a full stop.
 
 ### 4.3. Order of Ideas
 
@@ -218,6 +224,8 @@ This section governs the API documentation of every crate in the repository. Eac
 The reader of API documentation is a user who knows Rust but may know nothing about Slang, shaders, or graphics processing unit (GPU) programming. An author writes API documentation in plain English for that reader, in short sentences.
 
 An author MUST define in a short clause, or link to a definition of, every term from graphics or compilers on its first use in the documentation of each item. Examples are shader, entry point, SPIR-V, and uniform buffer. A reader often reaches one item from a search and reads nothing else, and a reader who does not know the term cannot use the item.
+
+An author MUST NOT cite in API documentation the design documents or any other document under `docs/`, their section numbers, or a rule identifier that a document of the repository defines, such as `SLC-32`. API documentation also holds no project history, such as the step or milestone that added an item. The reader sees the crate on docs.rs without the repository, so a citation points nowhere and history says nothing about how to use the API.
 
 Checked by: judgement.
 
@@ -411,6 +419,7 @@ This table summarizes how each rule in this section is checked.
 | Rule | Section | Checked by |
 | --- | --- | --- |
 | Plain English, terms defined on first use | 7.1 | Judgement |
+| No citation of documents under `docs/` or of their rule identifiers, and no project history | 7.1 | Judgement |
 | API documentation on every public item | 7.2 | rustc `missing_docs` |
 | No comments in Rust source other than those listed | 7.2 | `check-rust-comments` |
 | Only comments addressed to a human in other files | 7.2 | Judgement |
@@ -598,6 +607,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Change Log
 
+- 2026-11-12: Added Section 3.6, which keeps progress records out of design documents and the README, limited paragraphs to one to three sentences in Section 4.1, forbade run-on sentences in Section 4.2, and forbade citations of project documents and project history in API documentation in Section 7.1, with its row in Section 7.12.
 - 2026-11-12: Corrected in Section 7.5 the reason why a call of a procedural macro that resolves a path against the file that calls it cannot be a doctest. In a doctest, that file is the source file that holds the documentation.
 - 2026-11-11: Added to Section 7.5 the exception for an example that cannot compile as a doctest, such as a call of a procedural macro that resolves a path against its invoking file, which is a `text` block whose lead-in states the reason, and extended its row in Section 7.12.
 - 2026-11-11: Added to Section 7.6 that a function that can abort the process states each condition of the abort in a paragraph of the body that begins with "Aborts", with no heading of its own, that the crate-level documentation states the general case once in such a paragraph, and that a function carries its own paragraph only when its abort was observed, and added its row to Section 7.12.
