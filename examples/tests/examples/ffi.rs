@@ -1,6 +1,7 @@
 mod compute_kernel;
 mod shader_playground;
 mod typed_kernel;
+mod watched;
 mod windowed_renderer;
 
 use std::fs;
