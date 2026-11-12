@@ -10,6 +10,7 @@ use crate::guard;
 use crate::mapping;
 use crate::owned::{ComInterface, Owned};
 use crate::session::Session;
+use crate::strings::invalid_utf8;
 
 /// The bytes of a blob, read once from Slang.
 #[derive(Clone, Copy)]
@@ -115,10 +116,8 @@ pub(crate) fn take_text(
     // function, after the text is copied.
     let bytes = unsafe { bytes.as_slice() };
     let bytes = bytes.strip_suffix(&[0]).unwrap_or(bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|error| {
-        Error::new(ErrorKind::InvalidUtf8, operation)
-            .with_detail(format!("{what} is not UTF-8: {}", error.utf8_error()))
-    })
+    String::from_utf8(bytes.to_vec())
+        .map_err(|error| invalid_utf8(operation, what, error.utf8_error()))
 }
 
 /// Finishes a Slang call that writes an output object and a diagnostics blob:

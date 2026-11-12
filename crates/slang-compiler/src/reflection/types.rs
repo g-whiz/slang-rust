@@ -16,7 +16,7 @@ use slang_compiler_sys::{
 
 use super::{
     LayoutSize, Positions, ResourceAccess, ResourceShape, ScalarType, TypeKind, Variable, count,
-    index, text,
+    index,
 };
 use crate::blob;
 use crate::error::{Diagnostics, Operation, Result};
@@ -24,6 +24,7 @@ use crate::guard;
 use crate::mapping;
 use crate::owned::Owned;
 use crate::session::Session;
+use crate::strings::borrowed_str;
 
 /// A type of Slang code, such as a structure, a vector, or a Slang
 /// interface, an `interface` declaration that Slang types implement.
@@ -290,7 +291,7 @@ impl<'a> Type<'a> {
         });
         // SAFETY: the name is in the name pool of the global session, which
         // the session keeps alive for `'a` (Section 3.9).
-        unsafe { text(raw, "the name of a type") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the name of a type") }
     }
 
     /// Returns the full name of the type as Slang prints it, such as
@@ -930,7 +931,7 @@ impl<'a> Function<'a> {
         });
         // SAFETY: the name is in the name pool of the global session, which
         // the session keeps alive for `'a` (Section 3.9).
-        unsafe { text(raw, "the name of a function") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the name of a function") }
     }
 
     /// Returns an iterator over the parameters of the function, each as a

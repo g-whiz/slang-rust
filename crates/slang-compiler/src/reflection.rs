@@ -31,8 +31,6 @@
 //! that is not UTF-8 or a value of an enumeration that the pinned Slang
 //! header does not list.
 
-use std::ffi::{CStr, c_char};
-
 use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangInt};
 
 use crate::error::{Error, ErrorKind, Operation, Result};
@@ -171,41 +169,13 @@ fn out_of_range(what: &str, position: usize, count: usize) -> Error {
     ))
 }
 
-/// Reads a string that Slang returned, as text borrowed for `'a`.
-///
-/// A null pointer is `None`, and bytes that are not UTF-8 are an error of
-/// kind `InvalidUtf8` whose detail names the string as `what` (Section 6.11
-/// of `docs/design/slang-compiler.md`).
-///
-/// # Safety
-///
-/// `raw` is null or points to a NUL-terminated string that stays alive and
-/// unchanged for `'a`, which holds for the strings of reflection while the
-/// wrapper that a handle of lifetime `'a` borrows lives (Section 11.3).
-/// Breaking this is undefined behaviour.
-unsafe fn text<'a>(raw: *const c_char, what: &str) -> Result<Option<&'a str>> {
-    if raw.is_null() {
-        return Ok(None);
-    }
-    // SAFETY: `raw` is non-null, and the caller guarantees that it points to
-    // a NUL-terminated string that lives for `'a`.
-    let text = unsafe { CStr::from_ptr(raw) };
-    text.to_str().map(Some).map_err(|error| {
-        Error::new(ErrorKind::InvalidUtf8, Operation::Reflect)
-            .with_detail(format!("{what} is not UTF-8: {error}"))
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use std::ffi::c_char;
-    use std::ptr;
-
     use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE};
 
     use super::{
         Positions, binding_number, count, index, out_of_range, signed, signed_binding_number,
-        signed_index, text,
+        signed_index,
     };
     use crate::{ErrorKind, Operation};
 
@@ -258,27 +228,6 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "cannot read reflection: field 4 is past the end of the 2 that Slang reports"
-        );
-    }
-
-    #[test]
-    fn text_reads_null_as_none_and_checks_utf8() {
-        // SAFETY: a null pointer is allowed.
-        assert_eq!(unsafe { text(ptr::null(), "the name") }.ok(), Some(None));
-        let name = c"value";
-        // SAFETY: `name` is a static NUL-terminated string.
-        let read = unsafe { text(name.as_ptr(), "the name") };
-        assert_eq!(read.ok(), Some(Some("value")));
-        let invalid = [0xFF_u8, 0];
-        // SAFETY: `invalid` is NUL-terminated and outlives the call.
-        let error = unsafe { text(invalid.as_ptr().cast::<c_char>(), "the name") }
-            .expect_err("0xFF is not UTF-8");
-        assert_eq!(error.kind(), ErrorKind::InvalidUtf8);
-        assert!(
-            error
-                .to_string()
-                .starts_with("cannot read reflection: the name is not UTF-8"),
-            "{error}"
         );
     }
 

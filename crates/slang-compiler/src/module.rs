@@ -1,4 +1,3 @@
-use std::ffi::{CStr, c_char};
 use std::fmt;
 use std::iter::FusedIterator;
 use std::ptr::{self, NonNull};
@@ -18,7 +17,7 @@ use crate::options::CompilerOptions;
 use crate::owned::Owned;
 use crate::reflection::{Function, ProgramLayout};
 use crate::session::{Session, TargetIndex};
-use crate::strings::c_string;
+use crate::strings::{borrowed_str, c_string};
 
 impl Session {
     /// Loads the module `name` from the search paths of the session.
@@ -399,26 +398,6 @@ impl Session {
     }
 }
 
-/// Reads a string that Slang returned, or `None` for null, and checks it for
-/// UTF-8.
-///
-/// # Safety
-///
-/// `raw` is null or points to a C string that stays alive and unchanged for
-/// `'a`. Breaking this is undefined behaviour.
-unsafe fn borrowed_str<'a>(raw: *const c_char, operation: Operation) -> Result<Option<&'a str>> {
-    if raw.is_null() {
-        return Ok(None);
-    }
-    // SAFETY: `raw` is non-null, and the caller guarantees that it points to
-    // a C string that lives for `'a` (Section 6.11 of
-    // `docs/design/slang-compiler.md`).
-    let text = unsafe { CStr::from_ptr(raw) };
-    text.to_str().map(Some).map_err(|error| {
-        Error::new(ErrorKind::InvalidUtf8, operation).with_detail(error.to_string())
-    })
-}
-
 /// A module, one unit of Slang source that a session loaded.
 ///
 /// Slang is a compiler for shaders, the programs that run on a graphics
@@ -495,7 +474,7 @@ impl Module {
             // SAFETY: the name is a string of the name pool of the global
             // session, which `self` keeps alive through its session, and the
             // pool never changes a string (Section 3.3).
-            unsafe { borrowed_str(raw, Operation::ReadModuleName) }
+            unsafe { borrowed_str(raw, Operation::ReadModuleName, "the name of the module") }
         })
     }
 
@@ -541,7 +520,13 @@ impl Module {
             // SAFETY: the path is a string that the module holds and never
             // changes after the load (Section 3.3), and `self` keeps the
             // module alive.
-            unsafe { borrowed_str(raw, Operation::ReadModuleFilePath) }
+            unsafe {
+                borrowed_str(
+                    raw,
+                    Operation::ReadModuleFilePath,
+                    "the file path of the module",
+                )
+            }
         })
     }
 
@@ -1097,7 +1082,7 @@ impl Module {
             // SAFETY: the path is a string of a source file that the session's
             // source manager holds (Section 3.3), and `self` keeps the session
             // alive.
-            Some(unsafe { borrowed_str(raw, operation) })
+            Some(unsafe { borrowed_str(raw, operation, "a dependency file path of the module") })
         })
     }
 }

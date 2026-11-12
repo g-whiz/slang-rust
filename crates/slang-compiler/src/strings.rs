@@ -1,4 +1,5 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString, c_char};
+use std::str::Utf8Error;
 
 use crate::error::{Error, ErrorKind, Operation, Result};
 
@@ -17,10 +18,74 @@ pub(crate) fn c_string(text: &str, operation: Operation, what: &str) -> Result<C
     })
 }
 
+/// Reads a string that Slang returned, as text borrowed for `'a`.
+///
+/// A null pointer is `None`, and bytes that are not UTF-8 are an error of
+/// kind `InvalidUtf8` whose detail names the string as `what`.
+///
+/// # Safety
+///
+/// `raw` is null or points to a NUL-terminated string that stays alive and
+/// unchanged for `'a`. Breaking this is undefined behaviour.
+pub(crate) unsafe fn borrowed_str<'a>(
+    raw: *const c_char,
+    operation: Operation,
+    what: &str,
+) -> Result<Option<&'a str>> {
+    if raw.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: `raw` is non-null, and the caller guarantees that it points to
+    // a NUL-terminated string that lives for `'a`.
+    let text = unsafe { CStr::from_ptr(raw) };
+    text.to_str()
+        .map(Some)
+        .map_err(|error| invalid_utf8(operation, what, error))
+}
+
+/// Returns the error of kind `InvalidUtf8` for text from Slang that is not
+/// UTF-8, whose detail names the text as `what`.
+pub(crate) fn invalid_utf8(operation: Operation, what: &str, error: Utf8Error) -> Error {
+    Error::new(ErrorKind::InvalidUtf8, operation)
+        .with_detail(format!("{what} is not UTF-8: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::c_string;
+    use std::ffi::c_char;
+    use std::ptr;
+
+    use super::{borrowed_str, c_string};
     use crate::{ErrorKind, Operation};
+
+    #[test]
+    fn borrowed_str_reads_null_as_none_and_checks_utf8() {
+        // SAFETY: a null pointer is allowed.
+        let read = unsafe { borrowed_str(ptr::null(), Operation::Reflect, "the name") };
+        assert_eq!(read.ok(), Some(None));
+        let name = c"value";
+        // SAFETY: `name` is a static NUL-terminated string.
+        let read = unsafe { borrowed_str(name.as_ptr(), Operation::Reflect, "the name") };
+        assert_eq!(read.ok(), Some(Some("value")));
+        let invalid = [0xFF_u8, 0];
+        // SAFETY: `invalid` is NUL-terminated and outlives the call.
+        let error = unsafe {
+            borrowed_str(
+                invalid.as_ptr().cast::<c_char>(),
+                Operation::ReadModuleName,
+                "the name",
+            )
+        }
+        .expect_err("0xFF is not UTF-8");
+        assert_eq!(error.kind(), ErrorKind::InvalidUtf8);
+        assert_eq!(error.operation(), Operation::ReadModuleName);
+        assert!(
+            error.to_string().ends_with(
+                ": the name is not UTF-8: invalid utf-8 sequence of 1 bytes from index 0"
+            ),
+            "{error}"
+        );
+    }
 
     #[test]
     fn c_string_keeps_text_without_a_nul_byte() {

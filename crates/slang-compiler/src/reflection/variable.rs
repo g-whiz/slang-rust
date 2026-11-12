@@ -20,7 +20,7 @@ use slang_compiler_sys::{
 
 use super::{
     LayoutSize, LayoutUnits, Positions, Type, TypeLayout, binding_number, count, index,
-    out_of_range, text,
+    out_of_range,
 };
 use crate::blob::BindingSpace;
 use crate::enums::{ParameterCategory, Stage};
@@ -28,7 +28,7 @@ use crate::error::{Diagnostics, Error, ErrorKind, Operation, Result};
 use crate::guard;
 use crate::mapping;
 use crate::session::Session;
-use crate::strings::c_string;
+use crate::strings::{borrowed_str, c_string, invalid_utf8};
 
 /// The layout of one variable, such as a parameter or a field of a
 /// structure: its offset in each parameter category and the layout of its
@@ -328,7 +328,7 @@ impl<'a> VariableLayout<'a> {
         });
         // SAFETY: the name is held by the variable layout, which lives for
         // `'a` (Section 3.9).
-        unsafe { text(raw, "the semantic name of a variable") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the semantic name of a variable") }
     }
 
     /// Returns the index of the semantic of the variable, such as 1 for
@@ -557,7 +557,7 @@ impl<'a> Variable<'a> {
         });
         // SAFETY: the name is in the name pool of the global session or a
         // string literal, which live for `'a` (Section 3.9).
-        unsafe { text(raw, "the name of a variable") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the name of a variable") }
     }
 
     /// Returns the type of the variable, or `None` when Slang returns none.
@@ -914,7 +914,7 @@ impl<'a> Attribute<'a> {
         });
         // SAFETY: the name is in the name pool of the global session, which
         // the session keeps alive for `'a` (Section 3.9).
-        unsafe { text(raw, "the name of an attribute") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the name of an attribute") }
     }
 
     /// Returns the number of arguments of the attribute.
@@ -1157,9 +1157,11 @@ impl<'a> Attribute<'a> {
         // `docs/design/slang-compiler.md`), and `len` fits `isize` (FFI-5).
         let bytes = unsafe { slice::from_raw_parts(data.as_ptr().cast::<u8>(), len) };
         str::from_utf8(bytes).map(Some).map_err(|error| {
-            Error::new(ErrorKind::InvalidUtf8, Operation::Reflect).with_detail(format!(
-                "a string argument of an attribute is not UTF-8: {error}"
-            ))
+            invalid_utf8(
+                Operation::Reflect,
+                "a string argument of an attribute",
+                error,
+            )
         })
     }
 

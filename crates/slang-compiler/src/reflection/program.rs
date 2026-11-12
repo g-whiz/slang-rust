@@ -19,7 +19,7 @@ use slang_compiler_sys::{
 
 use super::{
     Function, LayoutSize, LayoutUnits, Positions, Type, TypeLayout, VariableLayout, binding_number,
-    count, index, text,
+    count, index,
 };
 use crate::blob::{self, BindingIndex};
 use crate::component::other_session;
@@ -29,7 +29,7 @@ use crate::guard;
 use crate::mapping;
 use crate::owned::Owned;
 use crate::session::Session;
-use crate::strings::c_string;
+use crate::strings::{borrowed_str, c_string};
 
 /// The layout of a component type for one target, the root from which every
 /// other reflection handle is reached.
@@ -833,7 +833,7 @@ impl<'a> EntryPointLayout<'a> {
         });
         // SAFETY: the name is in the name pool of the global session, which
         // the session keeps alive for `'a` (Section 3.9).
-        unsafe { text(raw, "the name of an entry point") }
+        unsafe { borrowed_str(raw, Operation::Reflect, "the name of an entry point") }
     }
 
     /// Returns the name under which the entry point appears in generated
@@ -870,7 +870,13 @@ impl<'a> EntryPointLayout<'a> {
         });
         // SAFETY: the name is in the entry point layout or the name pool,
         // which live for `'a` (Section 3.9).
-        unsafe { text(raw, "the name override of an entry point") }
+        unsafe {
+            borrowed_str(
+                raw,
+                Operation::Reflect,
+                "the name override of an entry point",
+            )
+        }
     }
 
     /// Returns the stage of the entry point, the kind of work that it does
