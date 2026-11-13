@@ -83,7 +83,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-12, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
+As of 2026-11-13, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
 
 - M0, tooling and skeleton, is complete.
 - M1, the binding generator and `slang-compiler-sys`, is complete. It delivered the pin file, the binding generator, the checked-in bindings, the build script with its dynamic and static routes, the installation of the pinned Vulkan SDK in every CI job, and the CI job `coverage`. What stays open after M1 is in the rows of Sections 15 and 16 of `docs/design/slang-compiler-sys.md`.
@@ -91,12 +91,9 @@ As of 2026-11-12, the repository is at a very early stage. The agent updates thi
 - M3, the crate `slango` and the compute kernel example, is complete on 2026-11-11. A user can load a Slang module, run a compute kernel with its parameters set by name, read its results, and run the example `compute-kernel`.
 - M4, the rendering of `slango` and the windowed renderer example, is complete on 2026-11-11. Its design is also in `docs/design/slango.md`. A user can also draw with a vertex and a fragment entry point into a texture or a window, and run the example `windowed-renderer`.
 - M5, `slang-slint` and the Slint example, is complete on 2026-11-11. A Slint program can make Slint create a wgpu device that suits `slango`, turn that device into a `slango::Device`, and show what a `slango` render pipeline draws as a Slint image. A user can run the Slint example `shader-playground`.
-- M6, `slango-macros` and its generator `slango-codegen`, is the current milestone. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
+- M6, `slango-macros` and its generator `slango-codegen`, is complete on 2026-11-13. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
 
-M6 is complete once these two tasks are done and the exit criteria of Section 15.9 of `docs/design/architecture.md` hold:
-
-1. Confirm that CI runs the `gpu` test of the example `typed-kernel` on lavapipe, WARP, and hosted Metal.
-2. Complete the crate-level documentation of `slango-macros` and `slango-codegen`, with the need for the pinned Slang at build time and the known limits of Section 14.6 of `docs/design/slango-macros.md`, and correct every statement in another document that M6 makes false.
+M7, publishing, is the next milestone of the roadmap. No work on it has begun.
 
 What exists and works:
 
@@ -156,12 +153,14 @@ What exists and works:
   - It has no unsafe code. The crate's API documentation is the detailed record.
   - Its pure tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slang_slint/` passed locally on 2026-11-11 (Section 9 of `docs/design/slang-slint.md`).
 - `crates/slango-codegen`, the library crate that holds the generator of `slango-macros`, with publication metadata, `slango` with an exact version, `proc-macro2`, and `quote` as its dependencies, and `insta`, `prettyplease`, and `syn` as its development dependencies.
-  - Its public API covers `generate`, `generate_precompiled`, and the error type `Error` with its `ErrorKind` of three kinds. It has no unsafe code. The crate's API documentation is the detailed record.
+  - Its public API covers `generate`, `generate_precompiled`, and the error type `Error` with its `ErrorKind` of three kinds and its method `report`. It has no unsafe code. Its crate-level documentation says when to use it instead of the macro and why it requires `slango` with an exact version. The crate's API documentation is the detailed record.
   - Its pure unit tests run under Miri, and the `ffi` tests of its integration-test binary `tests/codegen/` compare the generated code with `insta` snapshots.
 - `crates/slango-macros`, the procedural macro crate, with publication metadata, `slango-codegen` with an exact version and `syn` as its dependencies, and `slango` and `trybuild` as its development dependencies.
   - Its one macro, `shader!`, compiles a Slang file with the pinned Slang while the crate builds and generates a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take (Sections 6 and 7 of `docs/design/slango-macros.md`).
   - Its build script gives the macro library an rpath to `$VULKAN_SDK/lib` on Linux and macOS and, when `DOCS_RS` is present, makes the macro emit a stub (Sections 6.3 and 6.4 of that design).
+  - Its crate-level documentation states what building a crate that calls the macro needs, how failures appear, the exact versions that tie it to `slango`, the lint exceptions that a calling module may need, the stub that a documentation build without Slang gets, and the known limits.
   - Its integration-test binary `tests/macros/` holds pure tests that Miri runs, `ffi` tests, and `gpu` tests that passed locally on 2026-11-11 (Section 10 of that design).
+  - In CI run 43300696682 on `main`, for commit `376f10a`, the `gpu` test `gpu::typed_kernel_advances_the_particles_and_prints_the_checked_results` of the examples passed on lavapipe on Linux, WARP on Windows, and Metal on macOS.
 - `examples/`, the unpublished package `slang-rust-examples`, with these examples and their tests:
   - `compile-and-reflect` compiles a Slang file and prints its entry points and parameters.
   - `compute-kernel` runs a compute kernel with `slango` and checks its results.
@@ -179,7 +178,7 @@ What exists and works:
 - The design of `slang-compiler` and the compile-and-reflect example, `docs/design/slang-compiler.md`, a draft that milestone M2 implemented except for the custom file system.
 - The design of `slango` and the compute kernel example, `docs/design/slango.md`, a draft that milestone M3 implemented, and that also holds the design of M4, rendering, which M4 implemented.
 - The design of `slang-slint` and the Slint example, `docs/design/slang-slint.md`, a draft that milestone M5 implemented.
-- The design of `slango-macros` and its generator `slango-codegen`, `docs/design/slango-macros.md`, a draft that milestone M6 implements.
+- The design of `slango-macros` and its generator `slango-codegen`, `docs/design/slango-macros.md`, a draft that milestone M6 implemented.
 
 `just check` passes in the development container and in CI. The tests of the binding generator, including the regeneration test on Linux, and the tests of `slang-compiler-sys` run in the default tier.
 
