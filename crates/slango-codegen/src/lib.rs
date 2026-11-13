@@ -3,21 +3,28 @@
 //!
 //! [Slang](https://shader-slang.org) is a language for shaders, the programs
 //! that run on a graphics processing unit (GPU). This crate is the generator
-//! behind the macro `shader!` of `slango-macros`, which is the crate to use in
-//! a program. It compiles a Slang file with `slango`, as
-//! `slango::Device::load_module` does, and returns the Rust code of the
-//! bindings: a struct `Shader`, which loads the compiled module, and for each
-//! compute entry point, or kernel, a struct that runs it with an arguments
-//! struct that has one typed field for each parameter, and for each Slang
-//! structure that a kernel takes, a struct of the same name. The generated
-//! code embeds the compiled module and calls `slango` at run time, so a
-//! crate that contains it depends on `slango` of exactly the version that
-//! this crate requires.
+//! behind the macro `shader!` of the crate `slango-macros`, which is the
+//! crate that a program uses. Call this crate directly only to work with the
+//! generated code outside a macro call, such as to print it.
 //!
-//! [`generate`] compiles a file and generates its bindings, and
-//! [`generate_precompiled`] generates the bindings of a module that is
-//! already compiled. Every failure is an [`Error`], whose [`Error::kind`]
-//! says what went wrong.
+//! [`generate`] compiles a Slang file with [`slango`], as
+//! [`slango::Device::load_module`] does, and returns the Rust code of its
+//! bindings. [`generate_precompiled`] returns the bindings of a module that
+//! is already compiled. The documentation of `shader!` describes the
+//! generated items.
+//!
+//! The generated code embeds the compiled module and calls hidden items of
+//! `slango` that keep no stability between versions. The input of
+//! [`generate_precompiled`] is such an item too. This crate therefore
+//! requires `slango` of exactly its own version, and a crate that contains
+//! the generated code depends on the `slango` of that version.
+//!
+//! Every failure is an [`Error`]. Its [`Error::kind`] is
+//! [`ErrorKind::Compile`] when Slang cannot read or compile the file,
+//! [`ErrorKind::Unsupported`] when the generator has no Rust type for a
+//! parameter or a field, and [`ErrorKind::NameConflict`] when the names of
+//! the module give no distinct Rust names. [`Error::report`] gives the text
+//! of an error with each of its causes.
 //!
 //! # Examples
 //!
@@ -36,13 +43,16 @@
 //!
 //! # Platform support
 //!
-//! The crate runs wherever `slango` builds, on 64-bit Linux, Windows, and
-//! macOS.
+//! The crate supports the platforms of [`slango`], which are Linux on x86-64,
+//! Windows on x86-64, and macOS on Apple silicon and on x86-64.
 //!
-//! # The Slang library
+//! # Finding the Slang library
 //!
-//! The crate compiles Slang through `slango`, which links the Slang library
-//! as the crate `slang-compiler-sys` describes.
+//! `slango` links the Slang library through `slang-compiler-sys`, as the
+//! [crate documentation of `slango`](slango) describes. With the Slang
+//! shared library of the Vulkan SDK, a program that uses this crate needs
+//! that library when it starts, even when it calls only
+//! [`generate_precompiled`], which makes no call into Slang.
 
 mod emit;
 mod error;

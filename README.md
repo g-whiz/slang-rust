@@ -27,7 +27,9 @@ Building the workspace needs these tools and libraries:
 - The LunarG Vulkan software development kit (SDK) 1.4.363.1, from <https://vulkan.lunarg.com>, with the environment variable `VULKAN_SDK` set to its directory. The SDK ships the Slang library that the crates link dynamically.
 - On Linux, the development files of fontconfig, such as the package `libfontconfig-dev`, because Slint links fontconfig.
 
-The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or the SDK ships another Slang build. A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then.
+The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or the SDK ships another Slang build.
+
+A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then. On Windows, the compiler then also needs the SDK's `Bin` directory on `PATH`. The crate-level documentation of `slango-macros` says how the compiler finds the Slang library on each platform, and what the macro generates when the documentation builds without Slang, as on docs.rs.
 
 On Linux, `VULKAN_SDK` names the `x86_64` directory of the SDK. These commands set it and build the workspace, with a placeholder path:
 

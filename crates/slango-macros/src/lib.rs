@@ -3,25 +3,29 @@
 //!
 //! [Slang](https://shader-slang.org) is a language for shaders, the programs
 //! that run on a graphics processing unit (GPU). `slango` runs the compute
-//! entry points of a Slang module, its kernels, and sets each of their
-//! parameters by name, so a misspelled name or a value of the wrong type
-//! fails only when the program runs. The macro [`shader!`] of this crate
-//! turns these mistakes into compile errors: it compiles the Slang file with
-//! the Slang library while the crate that calls it builds, and generates a
-//! struct `Shader` with a typed kernel for each compute entry point, whose
-//! arguments struct has one field of the matching Rust type for each
-//! parameter. The generated code calls `slango`, so a crate that uses the
-//! macro also depends on `slango`. The generator itself is the crate
-//! `slango-codegen`.
+//! entry points of a Slang module, its kernels, and sets each parameter by
+//! name. A misspelled name or a value of the wrong type therefore fails only
+//! when the program runs.
+//!
+//! The macro [`shader!`] turns these mistakes into compile errors. It
+//! compiles a Slang file while the calling crate builds, and generates a
+//! struct `Shader` with a typed kernel for each compute entry point. The
+//! documentation of [`shader!`] lists every generated item.
+//!
+//! Use the macro when the Slang file is part of the crate, and the runtime
+//! API of `slango` when a program chooses its shaders while it runs. The
+//! generator behind the macro is the crate [`slango_codegen`].
+//!
+//! The generated code names `slango` by the path `::slango`, so the calling
+//! crate depends on `slango` directly, under that name, as well as on this
+//! crate. `slango` does not re-export the macro.
 //!
 //! # Examples
 //!
 //! This example calls the macro for a Slang file beside the Rust file and
 //! runs its kernel `saxpy`, which computes `result = a * x + y`. The macro
 //! resolves the path against the directory of the Rust file that calls it.
-//! In a doctest, that file is the source file of this crate that holds the
-//! documentation, so the path of the example does not resolve there, and the
-//! example is not a doctest:
+//! A doctest has no Slang file beside it, so the example is not a doctest:
 //!
 //! ```text
 //! mod saxpy {
@@ -39,25 +43,108 @@
 //! }
 //! ```
 //!
+//! The example program `typed-kernel` in the repository of this crate calls
+//! the macro in the same way, runs the kernel, and checks its results.
+//!
+//! # Compile errors
+//!
+//! The macro reports every failure as a compile error at the call. The
+//! message is the text of the error and of each of its causes, as
+//! [`slango_codegen::Error::report`] gives it, and the causes of a Slang
+//! file that does not compile hold the messages of Slang. The documentation
+//! of [`shader!`] lists the failures.
+//!
+//! # Versions
+//!
+//! This crate requires [`slango_codegen`] of exactly its own version. That
+//! crate explains why `slango` must have the same version too, so depend on
+//! the `slango` of the same version as this crate.
+//!
+//! The generated code also checks at compile time that the `slango` it
+//! builds against encodes compiled modules as the generator did. A mismatch
+//! fails to compile at that check, or fails when `Shader::load` runs.
+//!
+//! # Lints
+//!
+//! The generated `Shader` keeps its module in a private field beside the
+//! public field of each kernel. A generated struct with padding keeps the
+//! padding in private fields. A crate that enables the Clippy lint
+//! `clippy::partial_pub_fields` therefore puts an `#[expect]` of that lint,
+//! with a reason, on the module that calls the macro.
+//!
+//! A generated `new` with more than seven arguments carries an `#[expect]`
+//! of `clippy::too_many_arguments`. A crate that raises the Clippy setting
+//! `too-many-arguments-threshold` to that number of arguments or more gets
+//! the warning `unfulfilled_lint_expectations` on that `new`.
+//!
+//! # Documentation without Slang
+//!
+//! When the environment variable `DOCS_RS` is present while this crate
+//! builds, as on docs.rs, the macro reads no file and calls no Slang. It
+//! generates only an empty, documented struct `Shader`, so the other
+//! generated items are absent from the documentation of the calling crate.
+//!
+//! A crate that names another generated item outside the body of a
+//! function, such as in a `use` declaration, a function signature, or a
+//! struct field, then fails to build its documentation. A crate that names
+//! those items only inside function bodies, in expressions and in the type
+//! annotations of `let`, builds it.
+//!
+//! # Limits
+//!
+//! The macro has these limits:
+//!
+//! - A C++ exception that escapes Slang during the expansion ends the
+//!   compiler, with one line on standard error and no compile error.
+//! - The compiled code that the macro embeds depends on the Slang of the
+//!   machine that builds the crate. Slang built from source without its
+//!   SPIR-V optimizer can produce code that `slango` rejects with
+//!   `slango::ErrorKind::UnsupportedShader` when `Shader::load` runs.
+//! - The generated code holds the absolute paths of the Slang file and of
+//!   every file that Slang read for it, on the machine that builds the
+//!   crate.
+//! - A new file that would change how an `import` resolves does not make
+//!   Cargo build the crate again.
+//! - Each call runs Slang again on every compilation of the calling crate.
+//! - A release build compiles `slango` and its dependencies twice, once for
+//!   the program and once for the macro, which runs inside the compiler.
+//! - The program loads the Slang library when it starts, through `slango`,
+//!   although `Shader::load` makes no call into Slang.
+//!
 //! # Features
 //!
 //! This crate has no Cargo features.
 //!
 //! # Platform support
 //!
-//! The macro runs on 64-bit Linux, Windows, and macOS, wherever `slango`
-//! builds.
+//! The crate supports the platforms of `slango`, which are Linux on x86-64,
+//! Windows on x86-64, and macOS on Apple silicon and on x86-64.
 //!
-//! # The Slang library
+//! # Finding the Slang library
 //!
-//! The macro calls the Slang library inside the compiler, so building a
-//! crate that uses it needs the pinned Slang, as the crate
-//! `slang-compiler-sys` describes. On Linux and macOS, the build script of
-//! this crate stores the library directory of the Vulkan SDK that
-//! `VULKAN_SDK` names in the macro library, so the compiler finds the Slang
-//! library without a library path. On Windows, the directory of
-//! `slang-compiler.dll` must be on `PATH`. When `DOCS_RS` is set, the macro
-//! generates only an empty struct `Shader` and calls no Slang.
+//! The macro runs Slang inside the compiler, so building a crate that calls
+//! it needs the pinned Slang, as building `slango` does. That is the Vulkan
+//! SDK that `VULKAN_SDK` names, or the source tree that `SLANG_SOURCE_DIR`
+//! names, as the crate `slang-compiler-sys` describes.
+//!
+//! With the Vulkan SDK, the macro library links the Slang shared library, so
+//! the compiler has to find that library when it loads the macro. Without
+//! it, every build of a crate that calls the macro fails with error `E0463`,
+//! which names the crate `slango_macros` and not the missing library.
+//!
+//! On Linux and macOS, the build script of this crate stores
+//! `$VULKAN_SDK/lib` in the macro library as its rpath, a directory in which
+//! the dynamic loader looks, so the build needs no library path. The build
+//! script stops when `VULKAN_SDK` is not valid UTF-8 or contains a comma,
+//! which the linker would misread.
+//!
+//! On macOS, also put `$VULKAN_SDK/lib` on `DYLD_LIBRARY_PATH`, because the
+//! rpath alone may not suffice there. On Windows, a library has no rpath, so
+//! `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, has to be on `PATH`
+//! when the compiler runs.
+//!
+//! With Slang built from source and linked statically, the macro library
+//! needs no Slang shared library.
 
 use proc_macro::TokenStream;
 use syn::LitStr;
@@ -83,34 +170,43 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 ///   number of thread groups, and `kernel`, which returns the
 ///   `slango::Kernel`.
 /// - For each kernel, an arguments struct, such as `SaxpyArgs`, with one
-///   public field for each parameter, named after its path in snake case: a
-///   `bool`, `i32`, `u32`, or `f32`, an array of them for a vector, a matrix,
-///   or an array, a `&slango::Buffer` of `i32`, `u32`, `f32`, or an array of
-///   four of them for a structured buffer, a `&slango::Texture`, or a
-///   `&slango::Sampler`. A structure among the values or the elements of a
-///   structured buffer has the generated struct of that structure as its
-///   type.
+///   public field for each parameter, named after its path in snake case. A
+///   plain value is a `bool`, `i32`, `u32`, or `f32`, or an array of them for
+///   a vector, a matrix, or an array. A structured buffer is a
+///   `&slango::Buffer` of `i32`, `u32`, `f32`, or an array of four of them.
+///   A texture is a `&slango::Texture`, and a sampler a `&slango::Sampler`.
+///   A structure among the values or the elements of a structured buffer has
+///   the generated struct of that structure as its type.
 /// - For each Slang structure that a kernel takes, a struct of the same name
 ///   with one public field for each field of the structure and a `const fn
-///   new` that takes them all. A structure that is the element of a
-///   structured buffer gets the layout that Slang gives it there: the struct
-///   is `#[repr(C)]`, holds private padding wherever the layout has a gap,
-///   asserts its size and the offset of each field at compile time, and
-///   binds as the element of a `slango::Buffer`. A structure that is only a
-///   value has no padding, because a dispatch sets each of its fields by its
-///   path. Each structure is generated once, however many kernels take it.
+///   new` that takes them all. Each structure is generated once, however
+///   many kernels take it.
 ///
-/// A dispatch sets each parameter through the runtime API of `slango` by
-/// its path, so every check of `slango` still runs. The crate builds again
-/// whenever the Slang file or a file that it imports changes.
+/// A structure that is the element of a structured buffer gets the layout
+/// that Slang gives it there. Its struct is `#[repr(C)]`, holds private
+/// padding wherever the layout has a gap, and asserts its size and the
+/// offset of each field at compile time. It binds as the element of a
+/// `slango::Buffer`, and code creates it with `new`, because the private
+/// padding rules out a struct literal.
 ///
-/// The macro reports each failure as a compile error at the path: a Slang
-/// file that cannot be read or compiled, with the messages of Slang, a
-/// parameter for which the macro has no Rust type, such as a structured
-/// buffer of `float3` or a 64-bit scalar, a field of a structure in a
-/// structured buffer that a Rust struct cannot lay out as Slang does, such as
-/// a `bool`, a matrix, or a `float3[2]`, and two Slang names that give the
-/// same Rust name, such as two different structures of one name.
+/// A structure that is only a value has no padding, because a dispatch sets
+/// each of its fields by its path through the runtime API of `slango`, so
+/// every check of `slango` still runs.
+///
+/// The crate builds again whenever the Slang file or a file that it imports
+/// changes.
+///
+/// The macro reports each of these failures as a compile error at the call:
+///
+/// - Input other than one string literal.
+/// - A Slang file that cannot be read or compiled.
+/// - A parameter for which the macro has no Rust type, such as a structured
+///   buffer of `float3` or a 64-bit scalar.
+/// - A field of a structure in a structured buffer that a Rust struct cannot
+///   lay out as Slang does, such as a `bool`, a matrix, or a `float3[2]`.
+/// - Two Slang names that give the same Rust name, such as two different
+///   structures of one name, or a Slang name that gives no usable Rust name,
+///   such as `self`.
 ///
 /// # Examples
 ///
