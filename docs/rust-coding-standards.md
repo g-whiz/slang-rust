@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -29,7 +29,7 @@ This document applies to every Rust crate, build script, example, test, and tool
 - The binding generator: a tool that parses the Slang headers with libclang and writes the raw bindings.
 - Examples of varying complexity, which double as a testbed.
 
-Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are deferred and out of scope. Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
+Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are planned and do not exist yet (Section 15 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
 
 This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate.
 

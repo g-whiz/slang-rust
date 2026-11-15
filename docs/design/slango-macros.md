@@ -562,7 +562,7 @@ The change that confirms or corrects it states the result in Section 3 and in th
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The second release, in M11 |
+| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M8 |
 | SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run |
 
 ## 12. Open Questions
@@ -570,7 +570,7 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | Identifier | Question | Answered by |
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
-| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M11, at the second release |
+| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M8, at the first release |
 
 An identifier is never reused.
 

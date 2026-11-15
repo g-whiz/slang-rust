@@ -93,7 +93,7 @@ As of 2026-11-15, the repository is at a very early stage. The agent updates thi
 - M5, `slang-slint` and the Slint example, is complete on 2026-11-11. A Slint program can make Slint create a wgpu device that suits `slango`, turn that device into a `slango::Device`, and show what a `slango` render pipeline draws as a Slint image. A user can run the Slint example `shader-playground`.
 - M6, `slango-macros` and its generator `slango-codegen`, is complete on 2026-11-13. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
 
-On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. M7, the rework of `slang-compiler-sys` and the binding generator, is the next milestone. No work on it has begun.
+On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. M7, the rework of the native crates, is the next milestone. No work on it has begun.
 
 What exists and works:
 
@@ -428,7 +428,7 @@ The planned crates are:
 
 - `slang-compiler-sys`: The raw bindings only, generated and checked in, with a build script that links the native library and the manifest key `links = "slang-compiler"`. Its directory holds the checked-in bindings, the pin, and the build script, which links the Slang of an installed Vulkan SDK or builds Slang from source and links it statically, as Project Status describes.
 
-  M7 plans to generate the bindings in every build, remove the checked-in bindings, and make static linking of a cloned Slang a Cargo feature that is on by default (Section 15.10 of `docs/design/architecture.md`). Until M7 changes the code, the rules of this file that describe the checked-in bindings and the two routes still bind it.
+  M7 plans to generate the bindings in every build, remove the checked-in bindings, add the crates `slang-src` and `slang-glslang-sys`, and make static linking of a cloned Slang the opt-in Cargo feature `vendored`, with dynamic linking to the Slang of an installed Vulkan SDK as the default (Section 15.10 of `docs/design/architecture.md`). Until M7 changes the code, the rules of this file that describe the checked-in bindings and the two routes still bind it.
 - `slang-compiler`: Safe, idiomatic wrappers over `slang-compiler-sys`, with no graphics processing unit (GPU) dependency. Its compile and reflection API exists, as Project Status describes.
 
   Every wrapper holds the object that Slang created it from, and no wrapper, builder that holds one, reflection handle, or iterator over them is `Send` or `Sync`. A call that returns diagnostics returns its value together with them on success. Every failure is the crate's one `Error` type, whose kind callers match on (Sections 5.2, 6.8, 6.9, and 10 of `docs/design/slang-compiler.md`).
@@ -449,7 +449,7 @@ The planned crates are:
 
   - `SessionBuilder::build` fills the floating-point mode, the line directive mode, the scalar layout, and the method of generating SPIR-V of each target descriptor. It takes each from the target's options, otherwise the session's, and reads it exactly as Slang reads it, so that a setting of the session is not silently overwritten (SLC-31 of `docs/design/slang-compiler.md`).
   - `SessionBuilder::build` rejects `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` in the options of a target with `ErrorKind::InvalidArgument`, because the pinned Slang never reads them there (SLC-6).
-- `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its only runtime backend today is wgpu. M10 plans slang-rhi as its default backend, with wgpu kept behind a Cargo feature, and later milestones add pipeline kinds on the slang-rhi backend only (Sections 15.13 to 15.21 of `docs/design/architecture.md`). It first offers a runtime call API driven by reflection, and its first milestone, M3, covers compute kernels compiled to SPIR-V only.
+- `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its only runtime backend today is wgpu. M10 plans slang-rhi as an opt-in backend behind the Cargo feature `rhi`, with wgpu kept as the default backend, and later milestones add pipeline kinds on the slang-rhi backend only (Sections 15.13 to 15.21 of `docs/design/architecture.md`). It first offers a runtime call API driven by reflection, and its first milestone, M3, covers compute kernels compiled to SPIR-V only.
 
   In M3 it calls existing compute entry points only, which are functions marked `[shader("compute")]`, with bindings built from reflection. Generated kernels around plain Slang functions, broadcasting over array arguments, and differentiable functions belong to later milestones (Section 8.1 of the architecture design).
 
@@ -461,7 +461,7 @@ The planned crates are:
 - `slang-slint`: An extension to Slint that provides a view backed by a Slang render pipeline, built on `slango`, with wgpu only, permanently. In M5 it is a minimal view that hands a texture that `slango` draws to an ordinary Slint `Image` element, on a narrow range of Slint versions with wgpu 30 only. Slint creates the device from a configuration that `slang-slint` supplies (SLS-1, SLS-6, and SLS-9 of `docs/design/slang-slint.md`).
 
   The licence consequence of depending on Slint is in Section 4.2 of `docs/design/slang-slint.md`.
-- The binding generator: A tool in this repository that parses the Slang headers with libclang. It is not published yet. M7 plans to make it a published crate and a build dependency of `slang-compiler-sys` (Section 15.10 of `docs/design/architecture.md`).
+- The binding generator: A tool in this repository that parses the Slang headers with libclang. It is not published yet. M7 plans to make it the published crate `slang-bindgen` and a build dependency of `slang-compiler-sys` (Section 15.10 of `docs/design/architecture.md`).
 - The examples, which also serve as the integration testbed and are not published:
   - A command-line program that compiles and reflects Slang source.
   - A headless compute kernel, which later gains a broadcasting case and a differentiable function.
