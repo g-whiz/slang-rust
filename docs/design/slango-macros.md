@@ -219,7 +219,7 @@ SLM-23. `slango-codegen` MUST have exactly one Cargo feature, `vendored = ["slan
 
 With Cargo resolver 3, Cargo resolves the features of a host dependency apart from those of the target. The copy of Slang that the macro links while the user's crate builds is a host dependency, and the copy that the user's program links is a target dependency, so the feature `vendored` of `slango` does not reach the macro's copy, and that of `slango-macros` does not reach the program's copy.
 
-A program that needs no Vulkan SDK at build time therefore enables `vendored` on both `slango` and `slango-macros`. A vendored build with the macro can build Slang twice, once for the host and once for the target, in the commands that Section 8 of `docs/design/slang-src.md` lists, and that section states the remedies: the cache directory and, for release builds, a `build-override` profile.
+A program that needs no Vulkan SDK at build time therefore enables `vendored` on both `slango` and `slango-macros`. The two copies are still built from one clone and one native build, because the host and target units of a project share the shared folder of `slang-src`. Only where `slang-src` finds no tag of Cargo above `OUT_DIR` does each unit build Slang again (Section 8 of `docs/design/slang-src.md`).
 
 This illustration shows the dependencies of such a program:
 
@@ -597,7 +597,7 @@ The residual risk is a defect in Slang that corrupts memory inside rustc during 
 
 Each crate has one Cargo feature, `vendored`, off by default, which it forwards to the crate below (SLM-23). The build script of `slango-macros` reads `VULKAN_SDK`, which sets the rpath (SLM-12).
 
-Building a crate that uses the macro needs what building `slango` needs, once for the macro's copy of Slang and once for the program's (Section 17.1 of `docs/design/slango.md`). Without the feature on `slango-macros`, the macro's copy needs the Vulkan SDK at `VULKAN_SDK` and libclang. With it, the macro's copy is built from source through `slang-src`, whose environment variables Section 14.2 of `docs/design/slang-src.md` lists.
+Building a crate that uses the macro needs what building `slango` needs, once for the macro's copy of Slang and once for the program's (Section 17.1 of `docs/design/slango.md`). Without the feature on `slango-macros`, the macro's copy needs the Vulkan SDK at `VULKAN_SDK` and libclang. With it, the macro's copy is built from source through `slang-src`, which has no environment variable of its own and keeps its clone and the built libraries in the shared folder that both copies use (Section 9 of `docs/design/slang-src.md`).
 
 ### 14.2. Platforms and Minimum Supported Rust Version
 
@@ -623,7 +623,7 @@ Neither crate emits logs (SLM-4).
 
 ### 14.5. Costs
 
-Section 3.10 states the build-time costs of the macro: each call runs on every compilation of the crate that contains it, a release build compiles the runtime dependencies twice, and the first trybuild run is slow. With the feature `vendored`, some commands also build Slang twice, which Section 8 of `docs/design/slang-src.md` states with its remedies.
+Section 3.10 states the build-time costs of the macro: each call runs on every compilation of the crate that contains it, a release build compiles the runtime dependencies twice, and the first trybuild run is slow. With the feature `vendored`, some commands run the build scripts that build Slang once for the host and once for the target. The second run uses the clone and the libraries that the first left in the shared folder, so Slang is built once for each target directory, except in the known limits of Section 8 of `docs/design/slang-src.md`.
 
 ### 14.6. Known Limits
 

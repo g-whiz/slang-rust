@@ -37,7 +37,7 @@ This document covers the wrapper build and its options, what the crate links, th
 This document does not cover:
 
 - The build of Slang itself, which `docs/design/slang-compiler-sys.md` specifies.
-- How the tree is obtained and the cache directory scheme, which `docs/design/slang-src.md` specifies.
+- How the tree is obtained and the scheme of the shared folder, which `docs/design/slang-src.md` specifies.
 - The code of `slang-compiler` that installs the loader, which `docs/design/slang-compiler.md` specifies. This document states the contract that the code meets.
 - Downstream compilers other than slang-glslang, such as the DirectX Shader Compiler (DXC), NVRTC, or the LLVM host target, which the shim passes to Slang's default loader unchanged.
 - A loader for the dynamic route, where the Vulkan SDK ships slang-glslang next to the Slang shared library.
@@ -56,7 +56,7 @@ This document uses the terms that these documents define:
 - Section 2.2 of `docs/rust-coding-standards.md`, such as interface, interface pointer, native library, and `-sys` crate.
 - Section 2.1 of `docs/design/architecture.md`, such as CMake, global session, slang-glslang, SPIR-V, vendored build, and vendored route.
 - Section 2.1 of `docs/design/slang-compiler-sys.md`, such as build tag and host.
-- Section 2.1 of `docs/design/slang-src.md`, such as cache directory, cache entry, cache key, dependent build script, recorded Slang, and source tree.
+- Section 2.1 of `docs/design/slang-src.md`, such as dependent build script, entry, entry key, recorded Slang, shared folder, source tree, and stamp file.
 
 This document calls those files the writing guide, the coding standard, the architecture design, the sys design, and the `slang-src` design. It adds these terms:
 
@@ -96,7 +96,7 @@ The crate is created under the licence of Slang, `Apache-2.0 WITH LLVM-exception
 
 SGL-2. The build script MUST build the wrapper project with CMake and the Ninja generator out of tree, in `OUT_DIR/build`, reading the source tree in place from `DEP_SLANG_SRC_ROOT`. It MUST NOT copy the tree and MUST NOT write into it. It MUST run every CMake command with `PYTHONDONTWRITEBYTECODE=1` in its environment.
 
-glslang and SPIRV-Tools write nothing into their source directories except the Python bytecode of the grammar table generator of SPIRV-Tools, which `PYTHONDONTWRITEBYTECODE=1` suppresses (Section 13, SGLA-2). A build in place then needs no copy, and two builds can read one tree at once, such as a host and a target build or a build from a shared clone in the cache directory. A write into the tree would break SYS-5 and change a local checkout that the user named.
+glslang and SPIRV-Tools write nothing into their source directories except the Python bytecode of the grammar table generator of SPIRV-Tools, which `PYTHONDONTWRITEBYTECODE=1` suppresses (Section 13, SGLA-2). A build in place then needs no copy, and two builds can read one tree at once, such as the builds of two profiles that read the one clone in the shared folder. A write into the tree would break SYS-5 and race with another build that reads the clone.
 
 The wrapper project adds the submodules `external/spirv-headers`, `external/spirv-tools`, and `external/glslang` of the source tree with `add_subdirectory` and `EXCLUDE_FROM_ALL`, in that order, and defines the static library `slang-glslang-static` from the glue code and the loader shim. The build script builds the one target `slang-glslang-static`, and CMake builds every library that it links first.
 
@@ -127,9 +127,9 @@ These are the options that the wrapper project sets before it adds the submodule
 | `ENABLE_GLSLANG_BINARIES` | `OFF` | No command-line tools |
 | `BUILD_EXTERNAL` | `OFF` | No further downloads |
 
-The build script passes `-DCMAKE_BUILD_TYPE=Release`, `-DSLANG_SOURCE_DIR=<root>`, `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<OUT_DIR>/lib`, and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` to the configure step. With the Microsoft toolchain, it passes the runtime library option that the vendored route of `slang-compiler-sys` passes, so that both builds use one runtime (Section 9.3 of the sys design).
+The build script passes `-DCMAKE_BUILD_TYPE=Release`, `-DSLANG_TREE_DIR=<root>`, `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<OUT_DIR>/lib`, and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` to the configure step. With the Microsoft toolchain, it passes the runtime library option that the vendored route of `slang-compiler-sys` passes, so that both builds use one runtime (Section 9.3 of the sys design).
 
-SGL-4. The build script MUST check after the build that each of the five libraries of this table exists as a file in `OUT_DIR/lib`, named `lib<name>.a`, or `<name>.lib` with the Microsoft toolchain, and MUST emit these link instructions, in this order, followed by the C++ standard library of the target as the vendored route of `slang-compiler-sys` emits it:
+SGL-4. The build script MUST check after the build that each of the five libraries of this table exists as a file in `OUT_DIR/lib`, named `lib<name>.a`, or `<name>.lib` with the Microsoft toolchain. It MUST emit a search path for the directory `lib` of its entry in the shared folder (SGL-6) and these link instructions, in this order, followed by the C++ standard library of the target as the vendored route of `slang-compiler-sys` emits it:
 
 | Library | Content |
 | --- | --- |
@@ -141,13 +141,15 @@ SGL-4. The build script MUST check after the build that each of the five librari
 
 A library that the build did not produce would otherwise fail in the linker of the user's program with a message that does not name the cause. Each library precedes the libraries that it uses, which the static linkers of Linux need. The library `SPIRV` that glslang also builds holds no code and is not linked.
 
-SGL-5. The build script MUST stop the build when `TARGET` differs from `HOST`, and for a target other than Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain, with the content of the messages that Section 9.6 of the sys design gives for SCS-43. Its dependency on the vendored `slang-compiler-sys` refuses the same targets, and a build of slang-glslang for a target that Slang is not built for has no use.
+SGL-5. The build script MUST stop the build only where a correct build is impossible: when `TARGET` differs from `HOST`, because its dependency, the vendored `slang-compiler-sys`, cannot cross-compile Slang, and for a target whose C++ runtime library has no link rule of SCS-43 of the sys design, because the link of its C++ libraries would fail, with the content of the messages that Section 9.6 of the sys design gives for SCS-43. It MUST NOT stop the build because a target is not one of the tested targets, which the build script of `slang-compiler-sys` states in its warning (SCS-65 of the sys design).
 
-SGL-6. The build script MUST use the cache directory when `DEP_SLANG_SRC_CACHE_DIR` is present, with the entry protocol of SRC-16 and the cache key of SRC-17 of the `slang-src` design, under the directory `slang-glslang-sys` of the cache directory. The `files` input of the key covers `native/CMakeLists.txt` and `native/loader.cpp`. An entry holds the five libraries under `lib`.
+The link rules of the two crates are the same, so this crate links on every target on which the vendored `slang-compiler-sys`, its dependency, links. A build of slang-glslang for a target that Slang is not built for has no use.
 
-The build takes minutes, and a cache that only one of the two native crates used would leave half of the double build of Section 8 of the `slang-src` design in place.
+SGL-6. The build script MUST keep the five libraries of each verified build in an entry of the directory `slang-glslang-sys` of the shared folder that `DEP_SLANG_SRC_SHARED_DIR` names, with the entry protocol of SRC-16 and the entry key of SRC-17 of the `slang-src` design, and MUST use a complete entry whose inputs equal those of the current build instead of building. The `files` input of the key covers `native/CMakeLists.txt` and `native/loader.cpp`. An entry holds the five libraries under `lib`, the file `inputs`, and the stamp file.
 
-SGL-7. The build script MUST emit `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, which CMake reads, and `cargo::rerun-if-changed` for the file `inputs` of a cache entry that it uses. A change of these inputs changes the libraries, and a build that does not rerun links libraries that no longer match them (SYS-1). Cargo reruns the build script when a file of the crate changes, such as the wrapper project or the shim, and when the metadata of `slang-src` changes (Section 15, SRCA-1, of the `slang-src` design).
+The build takes minutes, and Cargo gives each profile and each host or target unit its own `OUT_DIR`, so the build would otherwise repeat for every profile and for a procedural macro that links Slang (Section 8 of the `slang-src` design). With the shared folder, it runs once for each set of inputs in a target directory.
+
+SGL-7. The build script MUST emit `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, which CMake reads, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses. A change of these inputs changes the libraries, and a build that does not rerun links libraries that no longer match them (SYS-1). Cargo reruns the build script when a file of the crate changes, such as the wrapper project or the shim, and when the metadata of `slang-src` changes (Section 15, SRCA-1, of the `slang-src` design).
 
 The build script follows SYS-4 and SYS-8: it runs `cmake` and `ninja --version` with `std::process::Command`, checks every exit status, writes their output to `OUT_DIR/build.log`, and on a failure returns an error that names the command, the log, and its last 40 lines. Its logic is in `build_logic.rs`, behind a host trait, which the build script and the tests both include, and the real host is in `system.rs`.
 
@@ -155,7 +157,7 @@ The build script follows SYS-4 and SYS-8: it runs `cmake` and `ninja --version` 
 
 SGL-8. The loader shim MUST implement `ISlangSharedLibraryLoader` so that a request whose file name, after any directory and an optional `lib` prefix, starts with `slang-glslang` returns a library whose `findSymbolAddressByName` returns the address of each of the nine functions of Section 3 by its name and null for any other name. It MUST pass every other request to the default loader unchanged and return its result.
 
-A match on the prefix also answers a Slang whose numeric version differs from the recorded one, such as a selected commit, whose module name carries its own version. Every other library goes to the default loader, so DXC, NVRTC, and the LLVM host target load from the file system as they do without the shim (Section 13, SGLA-4). A shim that refused every other name would disable those downstream compilers in a vendored build.
+A match on the prefix also answers a Slang whose numeric version differs from the recorded one, such as the commit of a fork of `slang-src` patched in through `[patch]` (SRC-22 of the `slang-src` design), whose module name carries its own version. Every other library goes to the default loader, so DXC, NVRTC, and the LLVM host target load from the file system as they do without the shim (Section 13, SGLA-4). A shim that refused every other name would disable those downstream compilers in a vendored build.
 
 SGL-9. The loader shim MUST reach the default loader through `Slang::DefaultSharedLibraryLoader::getSingleton()` from the internal header of the source tree that it compiles against. `getSharedLibraryLoader` returns null while the default loader is installed (Section 3), and a reimplementation of the default loader in the shim would drift from Slang's. The shim compiles against the header of the same tree that `slang-compiler-sys` builds, so a change of that internal name fails the build of this crate instead of misbehaving at run time.
 
@@ -202,7 +204,7 @@ A build of this crate needs, at build time:
 
 - git, CMake 3.22 or later, Ninja, a C++20 compiler, and Python 3 on `PATH`, because the grammar table generator of SPIRV-Tools is a Python script.
 - On Windows, the developer environment of the Microsoft toolchain, in which Ninja finds the compiler (Section 13, SGLA-6).
-- The source tree of `slang-src`, which needs network access or a local checkout.
+- The source tree of `slang-src`, which needs network access for the first build in a target directory.
 
 At run time, the program needs no file of slang-glslang. The crate documentation states these requirements.
 
@@ -210,7 +212,7 @@ At run time, the program needs no file of slang-glslang. The crate documentation
 
 The crate has one integration-test binary, `tests/glslang/`, with these modules:
 
-- `build_script`: The pure tests of `build_logic.rs` against a fake host. They cover the arguments of each CMake run, the environment with `PYTHONDONTWRITEBYTECODE`, the link instructions and their order for each supported target, every failure of the build script with its message, the refusal of cross-compilation, and the use of a cache entry. They run under Miri.
+- `build_script`: The pure tests of `build_logic.rs` against a fake host. They cover the arguments of each CMake run, the environment with `PYTHONDONTWRITEBYTECODE`, the link instructions and their order for each kind of target that has a link rule, every failure of the build script with its message, the refusal of cross-compilation and of a target without a link rule, no refusal of an untested target that has one, and the use and storage of an entry of the shared folder with its stamp file. They run under Miri.
 - `build_script::ffi`: The tests of `system.rs`, which start processes and write files, so they sit in a module named `ffi`, which Miri skips.
 - `ffi`: A test that calls `slang_glslang_sys_loader`, loads `slang-glslang-<numeric version>` through it, and asserts that each of the nine names returns a non-null address and an unknown name returns null. A second test asserts that a request for another library name reaches the default loader, by loading a library that the platform always has and that Slang's naming finds.
 
@@ -218,13 +220,13 @@ The test that shows the effect, that a vendored global session with the loader i
 
 ## 10. Crate Documentation
 
-SGL-14. The crate-level documentation MUST state what the crate builds and why, the requirements of Section 8, that `slang-compiler` with its feature `vendored` installs the loader, how a direct user of `slang-compiler-sys` installs it, the `# Safety` contract of SGL-13, and the risk of Section 11 for a program that links another copy of glslang or SPIRV-Tools. It MUST contain a `# Features` section that says the crate has no Cargo features and a `# Platform support` section. A user who links Slang statically without the loader gets SPIR-V that is not optimized and no build error, so the documentation is the only place that tells the user.
+SGL-14. The crate-level documentation MUST state what the crate builds and why, the requirements of Section 8, that `slang-compiler` with its feature `vendored` installs the loader, how a direct user of `slang-compiler-sys` installs it, the `# Safety` contract of SGL-13, and the risk of Section 11 for a program that links another copy of glslang or SPIRV-Tools. It MUST also state the shared folder as SRC-20 of the `slang-src` design lists it, and name no environment variable of `slang-src`, because none exists. It MUST contain a `# Features` section that says the crate has no Cargo features and a `# Platform support` section with the rule of SGL-5. A user who links Slang statically without the loader gets SPIR-V that is not optimized and no build error, so the documentation is the only place that tells the user.
 
 ## 11. Security Considerations
 
 The threat model has four parts:
 
-1. The source tree comes from `slang-src`, which fetches it by commit hash or takes a checkout that the user names (Section 13 of the `slang-src` design), and the wrapper build runs its CMake scripts and its Python script with the user's permissions.
+1. The source tree comes from `slang-src`, which fetches it by commit hash (Section 13 of the `slang-src` design), and the wrapper build runs its CMake scripts and its Python script with the user's permissions.
 2. Slang calls the loader for every library that a global session loads, including the name of a downstream compiler that a shader's options select.
 3. The program that links this crate can link another copy of glslang or SPIRV-Tools, such as through a crate that builds shaderc.
 4. An attacker who can place a library on the loader path of the program, or in a directory that Slang searches, can have the default loader load it.
@@ -233,13 +235,14 @@ Unsafe code and foreign function interface (FFI) invariants. The crate's only un
 
 Untrusted shader source and file paths. The shim answers the name of slang-glslang from linked code and so removes one library that the default loader would otherwise search for on the file system. Every other name goes to the default loader unchanged, so the shim neither adds nor removes any other path that Slang can load from.
 
-Build scripts that run native builds. The build script runs CMake, Ninja, the compiler, and the Python script of SPIRV-Tools on the source tree, writes only under `OUT_DIR` and the cache directory that the user names, and writes nothing into the tree (SGL-2). The wrapper project turns off every component that downloads, and the configure step disconnects `FetchContent` (SGL-3).
+Build scripts that run native builds. The build script runs CMake, Ninja, the compiler, and the Python script of SPIRV-Tools on the source tree, writes only under `OUT_DIR` and its entries in the shared folder of the Cargo target directory (SGL-6), and writes nothing into the tree (SGL-2). The wrapper project turns off every component that downloads, and the configure step disconnects `FetchContent` (SGL-3).
 
 Dependencies. The crate depends on `slang-src` with its exact version and on `slang-compiler-sys`. glslang and SPIRV-Tools come from the gitlinks of the recorded commit, so the commit hash fixes their content.
 
 These attacks are out of scope:
 
-- A source tree whose content is malicious, which the user chose by selecting a commit or naming a checkout.
+- A source tree whose content is malicious, which the user chose by patching in a fork of `slang-src`.
+- An attacker with write access to the target directory, who can place any library in an entry, as Section 13 of the `slang-src` design states.
 - A library that an attacker places where the default loader finds it, which is the same exposure that a program without this crate has.
 - Attacks on the repository itself, which are a matter of access control.
 
@@ -261,8 +264,7 @@ This table lists every environment variable that the build script reads or sets,
 
 | Variable | Read by | Default and behaviour when absent |
 | --- | --- | --- |
-| `DEP_SLANG_SRC_ROOT`, `DEP_SLANG_SRC_COMMIT`, `DEP_SLANG_SRC_BUILD_TAG` | The build script | Set by Cargo from the metadata of `slang-src`. Absence stops the build, with a message that the crate has to depend on `slang-src` directly. |
-| `DEP_SLANG_SRC_CACHE_DIR` | The build script | Absent, so the build script builds in `OUT_DIR` only. When present, it uses the cache directory (SGL-6). |
+| `DEP_SLANG_SRC_ROOT`, `DEP_SLANG_SRC_COMMIT`, `DEP_SLANG_SRC_BUILD_TAG`, `DEP_SLANG_SRC_SHARED_DIR` | The build script | Set by Cargo from the metadata of `slang-src`. Absence stops the build, with a message that the crate has to depend on `slang-src` directly. The last names the shared folder, in which the build script keeps its entries (SGL-6). |
 | `OUT_DIR`, `TARGET`, `HOST` | The build script | Set by Cargo. Absence, or an `OUT_DIR` that is not an absolute path in UTF-8 without line breaks, stops the build. |
 | `NUM_JOBS` | The build script | Set by Cargo. A whole number becomes `--parallel` of `cmake --build`. |
 | `PYTHONDONTWRITEBYTECODE` | Set to `1` by the build script for every CMake command | The value of the environment is never used (SGL-2). |
@@ -271,7 +273,7 @@ This table lists every environment variable that the build script reads or sets,
 
 ### 12.3. Platforms and Minimum Supported Rust Version
 
-The crate supports the targets of the vendored route: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS, without cross-compilation (SGL-5). It uses the workspace's `rust-version`.
+The crate links on every target for which a link rule exists, which is Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain, without cross-compilation (SGL-5). It is tested on the targets of the vendored CI jobs, and every other target on which it links is untested and unsupported (Section 6 of the sys design). It uses the workspace's `rust-version`.
 
 ### 12.4. Failure Modes
 
@@ -282,7 +284,7 @@ This table lists the failure modes of the crate, how each is reported, and the r
 | `cmake`, `ninja`, the compiler, or Python is missing | The error of the build script, with the program and the reason | Install it, or, on Windows, build in the developer environment of the Microsoft toolchain |
 | The configure or build step fails | The error of the build script, with the command, the log path, and its last 40 lines | Read the log and fix the toolchain that it names |
 | A library of SGL-4 is missing after the build | The error of the build script, with the path | Check the source tree. Another layout of glslang needs a change of the wrapper project and of this design |
-| The target differs from the host, or is not supported | The error of the build script, with both triples (SGL-5) | Build on a host of the target, or build without `vendored` |
+| The target differs from the host, or has no link rule for its C++ runtime library | The error of the build script, with both triples (SGL-5) | Build on a host of the target, or build without `vendored` |
 | The internal name of the default loader changed in the source tree | The compiler, while it builds the shim | Change the shim and this design for the new Slang, or use the recorded commit |
 | Duplicate symbols with another copy of glslang or SPIRV-Tools | The linker of the user's program | Remove the other copy, or build without `vendored`, where Slang loads slang-glslang as a separate module |
 | The loader is not installed on a global session of a vendored Slang | Slang, in the diagnostics of the first generation of SPIR-V, while the call succeeds (Section 3.10 of the sys design) | Install the loader as Section 6 states |
@@ -335,10 +337,10 @@ This table lists every labelled requirement of this document with a one-line sum
 | SGL-1 | 4 | `links = "slang-glslang"`, the exact version of `slang-src`, the vendored `slang-compiler-sys`, and no features. |
 | SGL-2 | 4 | The wrapper project builds out of tree in `OUT_DIR`, reads the source tree in place, never writes into it, and runs with `PYTHONDONTWRITEBYTECODE=1`. |
 | SGL-3 | 4 | Slang's options for glslang and SPIRV-Tools, static PIC libraries, no tests, executables, installation, or mimalloc, and C++20 with the Windows definitions. |
-| SGL-4 | 4 | The five libraries exist after the build and are linked in order, followed by the C++ standard library. |
-| SGL-5 | 4 | No cross-compilation, and only the three supported kinds of target. |
-| SGL-6 | 4 | The cache directory is used with the entry protocol and key of `slang-src`. |
-| SGL-7 | 4 | Rerun instructions for the variables that CMake reads and for a used cache entry. |
+| SGL-4 | 4 | The five libraries exist after the build and are linked in order from the entry, followed by the C++ standard library. |
+| SGL-5 | 4 | A stop only for cross-compilation and for a target without a link rule for its C++ runtime library, never for an untested target. |
+| SGL-6 | 4 | The libraries live in an entry of the shared folder, with the entry protocol and key of `slang-src`. |
+| SGL-7 | 4 | Rerun instructions for the variables that CMake reads and for the stamp file of the used entry. |
 | SGL-8 | 5 | The shim answers names that start with `slang-glslang` with the nine linked functions and passes every other name to the default loader. |
 | SGL-9 | 5 | The shim reaches the default loader through Slang's internal singleton, compiled against the same tree. |
 | SGL-10 | 5 | The loader and library are static, stateless objects whose reference counting frees nothing. |

@@ -47,7 +47,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
    Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions in `crates/slang-compiler-sys/tests/sys/symbols.rs` are never edited by hand, and the agent changes them only by running the binding generator again (FFI-1, COM-9).
 
-   No file in the repository contains a secret. A build script installs nothing, writes only inside `OUT_DIR` or the cache directory that the user names, and reaches no network, except the build script of `slang-src`, which fetches the Slang tree by full commit hash and the tags of a commit that the user selects (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
+   No file in the repository contains a secret. A build script installs nothing, writes only inside `OUT_DIR` or the shared folder in the Cargo target directory of the build, and reaches no network, except the build script of `slang-src`, which clones the recorded commit of the Slang tree by its full hash (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
 8. **Every action is a `just` recipe.** Every command, build step, and check is a recipe in the root `justfile`, which is one flat file with `[group]` attributes and no `just` modules, because modules hide their recipes from `just --list`. The agent invokes no script under `scripts/` directly when a recipe wraps it.
 
    Every recipe has a help comment, and every shell script starts with `#!/usr/bin/env bash` and `set -euo pipefail`. Every shell script and every recipe that contains shell is `shellcheck`-clean. Section 3.2 of `docs/design/tooling.md` lists every recipe, and Validating Changes names the recipes to run for each kind of change.
@@ -202,7 +202,7 @@ What does not exist yet:
 - The recipe `check-semver`, which arrives with the first release in M8.
 - The CI job `semver`, which arrives in M8.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
-- Everything that the design of M7 specifies and the code lacks: the crates `slang-bindgen`, `slang-src`, and `slang-glslang-sys`, the Cargo feature `vendored` of every crate that forwards it, the build information `BUILD_INFO` and the bindings generated in every build, the recipes `recorded-slang`, `test-vendored`, and `check-vendored`, and the vendored CI jobs.
+- Everything that the design of M7 specifies and the code lacks: the crates `slang-bindgen`, `slang-src`, and `slang-glslang-sys`, the Cargo feature `vendored` of every crate that forwards it, the build information `BUILD_INFO` and the bindings generated in every build, the shared folder in the Cargo target directory, the warning on an untested target, the recipes `recorded-slang`, `test-vendored`, and `check-vendored`, and the vendored CI jobs.
 
 The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states.
 
@@ -361,7 +361,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and pinned, the examples, the test tiers, platform support, publishing, and the roadmap.
 - `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image.
-- `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator, which is authoritative for the scope and shape of the generated bindings, the supported targets, the generator, the pin file, the build script on both routes, and the tests of the crate.
+- `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator, which is authoritative for the scope and shape of the generated bindings, the tested targets, the generator, the pin file, the build script on both routes, and the tests of the crate.
 - `docs/design/slang-compiler.md`: The design of `slang-compiler` and the compile-and-reflect example, which is authoritative for these topics:
   - The facts about Slang that the safe crate relies on.
   - Its ownership model, public API, errors, and compiler options.
@@ -491,7 +491,7 @@ No recorded version gates a build. The build records the build tag of the Slang 
 Slang is obtained in exactly one of two ways (Section 4 of `docs/design/architecture.md`):
 
 - By default, the dynamic route links the Slang of an installed Vulkan SDK at `VULKAN_SDK`.
-- The opt-in Cargo feature `vendored`, which every crate between a user and `slang-compiler-sys` forwards, selects the vendored route. It builds Slang from the source tree that `slang-src` clones or takes from `SLANG_SOURCE_DIR` and links it statically.
+- The opt-in Cargo feature `vendored`, which every crate between a user and `slang-compiler-sys` forwards, selects the vendored route. It builds Slang from the source tree that `slang-src` clones and links it statically. `slang-src` has no environment variable of its own, and the clone and the built libraries live in the shared folder in the Cargo target directory, which every profile and every host and target unit of a project share (Section 4.3 of `docs/design/architecture.md`).
 
 No environment variable selects the route, the build never falls back from one route to the other, and there is no prebuilt download. The recipes pass an explicit list of features and never `--all-features`, and only `test-vendored`, `check-vendored`, and the vendored CI jobs build the vendored route (Section 3 of `docs/design/tooling.md`).
 

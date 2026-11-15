@@ -781,7 +781,7 @@ SLC-5. Creating a global session MUST read the build tag of the loaded library t
 
 This is the check of ARCH-34 of the architecture design. The build script records the build tag of the headers that it generated the bindings from and compares it with nothing (SCS-52 and SCS-53 of the sys design), so this comparison is the only version check. A library of another Slang build has layouts and vtables that differ from the bindings, so any call through an object that such a library created, including a read of its build tag, is already undefined behaviour, and the check catches a library that the dynamic loader found somewhere other than the SDK whose headers the build read.
 
-The crate is written and tested against the recorded Slang. A build against another Slang, from another SDK or a commit that the user selects, passes this check when the loaded library is the one of the build, and is best effort (ARCH-31). The crate adds no check and no code for another version.
+The crate is written and tested against the recorded Slang. A build against another Slang, from another SDK or from a fork of `slang-src` that the user patches in (SRC-22 of `docs/design/slang-src.md`), passes this check when the loaded library is the one of the build, and is best effort (ARCH-31). The crate adds no check and no code for another version.
 
 SLC-34. With the feature `vendored`, creating a global session MUST install the loader of `slang-glslang-sys` on the new global session before it returns it, by passing the result of `slang_glslang_sys::slang_glslang_sys_loader()` to the generated thunk of `IGlobalSession::setSharedLibraryLoader`, inside `abort_on_exception` like every other call into Slang (SLC-32, SGL-12 of `docs/design/slang-glslang-sys.md`). When the call fails, the creation MUST return the error that SLC-11 maps from its result code and release the new global session. Without the feature, the crate MUST NOT call `setSharedLibraryLoader`.
 
@@ -1098,7 +1098,7 @@ A silent truncation turns a malformed size into an out-of-bounds access (TYPE-5)
 
 A binding space and a binding number, such as the `space` and `index` of `Metadata::is_parameter_location_used`, hold a `u64`. They are numbers that the shader or Slang assigns in the target's binding model, not positions in a list that the crate holds.
 
-Slang passes them as `SlangUInt`, which is 64 bits on every supported platform, so the conversion with `try_from` cannot fail there. Each is a newtype of its own, because the two numbers are distinct units that a caller could otherwise swap without an error (TYPE-8).
+Slang passes them as `SlangUInt`, which is 64 bits on every target that the bindings allow, so the conversion with `try_from` cannot fail there. Each is a newtype of its own, because the two numbers are distinct units that a caller could otherwise swap without an error (TYPE-8).
 
 SLC-13. An accessor whose Slang function can return `SLANG_UNBOUNDED_SIZE` or `SLANG_UNKNOWN_SIZE`, which includes the size of a type layout and the element count of an array type, MUST return the enum `reflection::LayoutSize` with the variants `Finite(u64)`, `Unbounded`, and `Unknown`, directly or inside `LayoutUnits`. An accessor of a binding space or a binding number instead returns `None` for either sentinel, and the newtype of SLC-12 otherwise.
 
@@ -1349,7 +1349,7 @@ The vtable functions of the Rust-implemented COM objects are defined `extern "sy
 
 The generated vtable structs declare their entries `extern "system-unwind"` (SCS-10 of the sys design), and a function of another ABI does not coerce to the type of the field. So the crate stores each function in its field through a conversion of the function pointer to the type of the field.
 
-The documentation of the type `fn` in [RUST-STD] states that this is ABI-compatible when the caller's ABI is `"system-unwind"` and the callee's is `"system"`. On every supported platform, which are all 64-bit (Section 6 of the sys design), `"system"`, `"C"`, and their unwinding forms are the same calling convention.
+The documentation of the type `fn` in [RUST-STD] states that this is ABI-compatible when the caller's ABI is `"system-unwind"` and the callee's is `"system"`. On every target that the bindings allow, which are all 64-bit (Section 6 of the sys design), `"system"`, `"C"`, and their unwinding forms are the same calling convention.
 
 Defining the functions `extern "system-unwind"` instead is rejected, because a panic, such as from the user's destructor that `release` runs, would then unwind into Slang. The fake of Section 13.4 defines its functions `extern "system-unwind"`, which is sound only because nothing but Rust calls the fake.
 
@@ -1394,7 +1394,7 @@ A method returns the plain value, or an `Option` where Slang can return null (SL
 
 A pair of count and by-index functions becomes one method that reads the count and returns a named iterator whose items are the handle (API-2). These iterators follow these rules:
 
-- The counts that most of them read are unsigned integers of at most 64 bits, which fit in `usize` on every supported platform, so creating them cannot fail. A pair whose count is signed, such as `getBindingRangeCount`, returns a `Result` of the iterator (SLC-12).
+- The counts that most of them read are unsigned integers of at most 64 bits, which fit in `usize` on every target that the bindings allow, so creating them cannot fail. A pair whose count is signed, such as `getBindingRangeCount`, returns a `Result` of the iterator (SLC-12).
 - Each call of `next` passes a position below the count (SLC-20), and a position at which Slang returns null yields no item. So the iterator implements `FusedIterator` and `DoubleEndedIterator`, reports the count as the upper bound of `size_hint`, and does not implement `ExactSizeIterator`, which would not hold (API-2).
 - On a layout handle, the iterator over layouts carries the suffix `_layouts`, so that it differs from the iterator over the matching non-layout items. `ProgramLayout::entry_point_layouts` returns `EntryPointLayouts`, `ProgramLayout::parameter_layouts` and `EntryPointLayout::parameter_layouts` return `ParameterLayouts`, and `TypeLayout::field_layouts` returns `FieldLayouts`. `Type::fields` returns `Fields`, and `Function::parameters` returns `Parameters`.
 
@@ -1926,7 +1926,7 @@ It MUST also state these rules and facts, because a user reads the crate page fi
 - The parent rule of Section 5.2.
 - The diagnostics shape of Section 6.8.
 - The limits of a statically linked Slang without the loader (Section 6.3).
-- What a default build and a vendored build need, the environment variables of `slang-src`, and its cache directory, in a short paragraph that links to the crate documentation of `slang-compiler-sys` and `slang-src`, which state them in full (SCS-37 of the sys design, SRC-20 of `docs/design/slang-src.md`).
+- What a default build and a vendored build need, and the shared folder of `slang-src` in the Cargo target directory, in a short paragraph that links to the crate documentation of `slang-compiler-sys` and `slang-src`, which state them in full (SCS-37 of the sys design, SRC-20 of `docs/design/slang-src.md`).
 - That the crate is written and tested against the recorded Slang, and that another Slang is best effort (ARCH-31).
 - The process-level inputs of Section 18.2.
 - The behaviour of `catch_unwind` under `panic = "abort"`.
@@ -2106,7 +2106,7 @@ The variables that the build script of `slang-compiler-sys` reads are listed in 
 
 ### 18.3. Platforms and Minimum Supported Rust Version
 
-The crate supports the platforms of `slang-compiler-sys`, which the sys design calls its supported targets: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS (Section 6 of the sys design). Every fact of Section 3 marked (run) was observed on x86_64 Linux, and the CI jobs on Windows and macOS confirm those that the `ffi` tests exercise (CA-2).
+The crate has the platforms of `slang-compiler-sys`. Its tested targets are x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS, and every other 64-bit target is allowed, untested, and unsupported (Section 6 of the sys design). Every fact of Section 3 marked (run) was observed on x86_64 Linux, and the CI jobs on Windows and macOS confirm those that the `ffi` tests exercise (CA-2).
 
 The crate needs no graphics backend. It uses the workspace's `rust-version`, which `check-msrv` verifies.
 

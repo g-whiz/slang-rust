@@ -297,7 +297,7 @@ Nine kinds of lint exception are expected and follow fixed forms:
 
 An `#[expect]` on the `mod` declaration of the generated module covers every lint that fires in the module's file, including the lints that fire on `#[allow]` attributes inside the file. On generated code in the style of bindgen, these lints fired: `non_camel_case_types`, `non_snake_case`, `non_upper_case_globals`, `missing_docs`, `clippy::exhaustive_structs`, and `clippy::exhaustive_enums`. When the generated code contains its own `#[allow(...)]` attributes, `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` fire as well, and when the module brings in its code with `include!`, `missing_debug_implementations` fires as well.
 
-It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The build script of `slang-compiler-sys` generates the bindings of the recorded Slang into `OUT_DIR`, and the crate includes them in the module `bindings`. Compiled with the workspace lint tables and warnings denied, exactly nine lints fire on them, the same on the four supported targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS.
+It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The build script of `slang-compiler-sys` generates the bindings of the recorded Slang into `OUT_DIR`, and the crate includes them in the module `bindings`. Compiled with the workspace lint tables and warnings denied, exactly nine lints fire on them, the same on the four tested targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS.
 
 Section 5.10 of `docs/design/slang-compiler-sys.md` lists them with the number of findings of each. The exception on `mod bindings;` lists exactly these lints, so no expectation is unfulfilled on any of the four targets.
 
@@ -1018,13 +1018,13 @@ Reason: two allocators that free each other's memory cause double frees and heap
 
 **SYS-1.** Emit `cargo::rerun-if-changed` for every file that the build script reads and `cargo::rerun-if-env-changed` for every environment variable that it reads, using the `cargo::` form of the instructions. Declare every custom `cfg` with `cargo::rustc-check-cfg` next to the instruction that sets it.
 
-When the script reads a large git work tree, it may instead emit `cargo::rerun-if-changed` only for the files that record the commit and the state of the work tree, the `HEAD` and `index` files of its git directory. This holds only if the script reads the commit of the tree through git on every run.
+When the script reads a large git work tree, it may instead emit `cargo::rerun-if-changed` only for the files that record the commit and the state of the work tree, the `HEAD` and `index` files of its git directory. This holds only if the script reads the commit of the tree through git on every run. When the tree lies in an entry that is never changed after it is created, keyed by its commit, the script may instead emit `cargo::rerun-if-changed` only for the stamp file of that entry (SRC-16 of `docs/design/slang-src.md`).
 
 Reason: a script that emits no rerun instruction reruns whenever any file of the package changes. A missing instruction leaves a stale build after its input changes, and an undeclared `cfg` triggers `unexpected_cfgs`.
 
 A tree of thousands of files is too large to watch on every build. A checkout or a commit rewrites the files that record its state, so the script runs again after every git operation that changes the tree.
 
-The exception leaves one gap: an edit of a tracked file that no git operation follows does not rerun the script, so the design document of a build script that uses the exception states that gap, as Section 10 of `docs/design/slang-src.md` does. [S-3]
+The exception for the `HEAD` and `index` files leaves one gap: an edit of a tracked file that no git operation follows does not rerun the script, so the design document of a build script that uses it states that gap. An entry that is never changed has no such gap, and a removed entry reruns the script through its stamp file. [S-3]
 
 **SYS-2.** Read environment variables in the build script when it runs, with `std::env::var` or `std::env::var_os`, and never with `env!` or `option_env!`. Reason: `env!` and `option_env!` read the value when the build script itself is compiled, so a later change of the variable has no effect until the script is rebuilt.
 
@@ -1034,10 +1034,10 @@ The exception leaves one gap: an edit of a tracked file that no git operation fo
 
 **SYS-5.** Write only inside `OUT_DIR`, do not assume that it is empty, and never write to a source tree, reach the network, or install packages. Two exceptions hold, and only these:
 
-- The build script of `slang-src` MAY reach the network, and only for what ARCH-35 of the architecture design permits: the Slang tree by full commit hash with its required submodules, and for a commit that the user selects, the history and tags that give its build tag (Sections 6.3 and 6.4 of `docs/design/slang-src.md`).
-- A build script MAY write into the cache directory that the user names with `SLANG_SRC_CACHE_DIR`, and only when `slang-src` passes it on (SRC-15 of `docs/design/slang-src.md`).
+- The build script of `slang-src` MAY reach the network, and only for what ARCH-35 of the architecture design permits: the clone of the recorded commit of the Slang tree by its full hash, with its required submodules (Section 6.1 of `docs/design/slang-src.md`).
+- A build script MAY write into the shared folder that `slang-src` finds in the Cargo target directory of the build and exports, and only into its own entries there (SRC-16 and SRC-23 of `docs/design/slang-src.md`).
 
-Reason: registry sources are read-only, builds have to work offline and in sandboxes, and a build script that changes the user's system is a security risk. One crate that fetches by a hash that git verifies keeps the only network access in one reviewable place, which the user can replace with a local checkout, and the cache directory exists only when the user asks for it. [S-3] [S-4]
+Reason: registry sources are read-only, builds have to work offline and in sandboxes, and a build script that changes the user's system is a security risk. One crate that fetches by a hash that git verifies keeps the only network access in one reviewable place, needed only for the first build in a target directory. The shared folder lies inside the target directory that Cargo created for the build, so it writes nothing that `cargo clean` does not remove. [S-3] [S-4]
 
 **SYS-6.** Record the build tag of the Slang that the build links, read from the headers that the build generates the bindings from, in the build information of `slang-compiler-sys`, and do not compare it with any recorded version at build time. The design document defines how the build script reads the build tag.
 
@@ -1364,7 +1364,7 @@ This table records each disagreement between sources, or between a source and a 
 | `#![deny(warnings)]` in source | Recommended: [IR-68]. Anti-pattern: [IR-5]. `CARGO_BUILD_WARNINGS=deny`: [IR-4] | `CARGO_BUILD_WARNINGS=deny` in the check (Section 4.2) | New compiler warnings would break users' builds, and `-D warnings` invalidates the build cache. |
 | Iterator return types | `impl Iterator`: [IR-83]. Named types: [IR-17], [IR-8]. `Vec`: [IR-93] | Named types in public APIs, `Vec` for computed results, `impl Iterator` in private code (API-2) | Tier 1 names iterator types after their methods, and a named type can gain traits. |
 | `Send` by default, or thread-affine handles | Public types `Send`: [S-10]. Raw-pointer handles neither: [S-1], [IR-27] | Neither for foreign handles until the Slang documentation proves otherwise (FFI-9) | Tier 1 wins, and a wrong `Send` is undefined behaviour while a missing one is only an inconvenience. |
-| Checked-in or build-time bindings | Build time: [S-2]. Pre-generated: [S-4], [S-10]. Compare test: [S-3] | Generated by the binding generator in the build script of every build, from the headers of the linked Slang, and never checked in (COM-9, TEST-8) | It is a project decision: a build accepts the Slang of any SDK or a commit that the user selects, and only bindings from the linked headers stay sound, at the cost of libclang on every user's machine (Section 14.2 of `docs/design/architecture.md`). |
+| Checked-in or build-time bindings | Build time: [S-2]. Pre-generated: [S-4], [S-10]. Compare test: [S-3] | Generated by the binding generator in the build script of every build, from the headers of the linked Slang, and never checked in (COM-9, TEST-8) | It is a project decision: a build accepts the Slang of any SDK or of a fork of `slang-src` that the user patches in, and only bindings from the linked headers stay sound, at the cost of libclang on every user's machine (Section 14.2 of `docs/design/architecture.md`). |
 | Documenting `-sys` items | Do not document them: [S-4]. Document every unsafe function: [S-10] | Lint exceptions on the generated module only, with one shared safety contract in the crate-level documentation in place of `# Safety` sections and safety comments (Section 7.9 of the writing guide, UNS-6) | Generated items mirror the Slang documentation, while hand-written items stay fully documented. |
 | Panics in callbacks | Convert with `catch_unwind`: [S-1]. Last resort only: [S-10]. Abort at `extern "C"`: [S-5] | Catch only to return a failure code, otherwise abort (FFI-7) | Both positions hold in their case, and tier 1 states the abort. |
 | Async by default, or blocking | Async by default: [IR-77]. Costs of async: [IR-78], [IR-88] | A blocking core with async at the edges (CONC-6) | Shader compilation is CPU-bound, and async bounds would spread through the API. |
@@ -1432,7 +1432,7 @@ Third, a build script runs on the user's machine with the user's permissions and
 
 The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep sizes and indexes from input in range, and ERR-5 turns malformed input into an error instead of a panic. The design document of the safe crate states which files Slang can read through include paths and module search paths, as Section 3.2 of the writing guide requires.
 
-For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids installs, network access except what ARCH-35 permits to the build script of `slang-src`, and writes outside `OUT_DIR` except into the user's cache directory, and SYS-6 and SYS-7 fix where the native library comes from and how its version is recorded. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
+For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids installs, network access except what ARCH-35 permits to the build script of `slang-src`, and writes outside `OUT_DIR` except into the shared folder in the Cargo target directory, and SYS-6 and SYS-7 fix where the native library comes from and how its version is recorded. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
 
 These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it.
 
@@ -1521,11 +1521,11 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | FFI-9 | Foreign handles are neither `Send` nor `Sync` until the Slang documentation proves otherwise. |
 | FFI-10 | Open-ended C values are integer newtypes with constants, never Rust enums. |
 | FFI-11 | Memory is freed by the library that allocated it. |
-| SYS-1 | A rerun instruction for every input, or only for the `HEAD` and `index` files of a large git work tree whose commit the script reads on every run, the `cargo::` form, and declared custom `cfg` names. |
+| SYS-1 | A rerun instruction for every input, or only for the `HEAD` and `index` files of a large git work tree whose commit the script reads on every run, or only for the stamp file of an entry that is never changed, the `cargo::` form, and declared custom `cfg` names. |
 | SYS-2 | Build scripts read environment variables when they run, never with `env!` or `option_env!`. |
 | SYS-3 | The target platform comes from `CARGO_CFG_TARGET_*`, never `cfg!`. |
 | SYS-4 | Every spawned process has its exit status checked, and a failure is returned as an error from `main`. |
-| SYS-5 | Writes only inside `OUT_DIR` or the user's cache directory, no installs, and no network access except what ARCH-35 permits to the build script of `slang-src`. |
+| SYS-5 | Writes only inside `OUT_DIR` or the shared folder in the Cargo target directory, no installs, and no network access except the clone of the recorded commit that ARCH-35 permits to the build script of `slang-src`. |
 | SYS-6 | The build records the build tag of the Slang that it links and compares it with no recorded version. |
 | SYS-7 | Slang comes from an installed Vulkan SDK by default, or from a static build of the tree of `slang-src` with the Cargo feature `vendored`, never through an environment variable, never with a fallback, and from nothing else. |
 | SYS-8 | Build script logic lives in a file that `build.rs` and a test both include, behind a small trait for everything it reads, runs, or writes, with a test for every route and failure, and the real implementation of the trait may live in an included file with its own tests. |
