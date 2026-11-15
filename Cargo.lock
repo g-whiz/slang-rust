@@ -3676,6 +3676,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "slang-compiler-sys",
+ "slang-glslang-sys",
 ]
 
 [[package]]
@@ -3684,6 +3685,15 @@ version = "0.1.0"
 dependencies = [
  "find-msvc-tools",
  "slang-bindgen",
+ "slang-src",
+]
+
+[[package]]
+name = "slang-glslang-sys"
+version = "0.1.0"
+dependencies = [
+ "find-msvc-tools",
+ "slang-compiler-sys",
  "slang-src",
 ]
 

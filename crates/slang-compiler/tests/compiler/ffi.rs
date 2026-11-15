@@ -11,6 +11,8 @@ mod session;
 mod settings;
 #[cfg(test)]
 mod support;
+#[cfg(all(test, feature = "vendored"))]
+mod vendored;
 
 use std::thread;
 

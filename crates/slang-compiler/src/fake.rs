@@ -69,6 +69,10 @@ pub(crate) enum Event {
         object: &'static str,
         method: &'static str,
     },
+    SetSharedLibraryLoader {
+        object: &'static str,
+        loader: usize,
+    },
     LinkWithOptions {
         object: &'static str,
         options: Vec<OptionSnapshot>,
@@ -105,6 +109,16 @@ impl Event {
 
     pub(crate) fn call(object: &'static str, method: &'static str) -> Self {
         Self::Call { object, method }
+    }
+
+    pub(crate) fn set_shared_library_loader(
+        object: &'static str,
+        loader: *mut ISlangSharedLibraryLoader,
+    ) -> Self {
+        Self::SetSharedLibraryLoader {
+            object,
+            loader: loader.addr(),
+        }
     }
 
     pub(crate) fn find_capability(object: &'static str, name: &str) -> Self {
@@ -617,8 +631,9 @@ pub(crate) const FAKE_CAPABILITY: (&str, i32) = ("fake_capability", 42);
 
 /// A fake `IGlobalSession`, whose only working methods are the counting
 /// methods, `getBuildTagString`, `checkCompileTargetSupport`, `findProfile`
-/// and `findCapability`, which know one name each, and `createSession`, which
-/// records the descriptor and creates a [`FakeSession`].
+/// and `findCapability`, which know one name each, `setSharedLibraryLoader`,
+/// which records the loader, and `createSession`, which records the
+/// descriptor and creates a [`FakeSession`].
 pub(crate) struct FakeGlobalSession;
 
 type GlobalSessionObject = FakeObject<IGlobalSessionVtbl, GlobalSessionState>;
@@ -779,9 +794,15 @@ unsafe extern "system-unwind" fn add_builtins(
 }
 
 unsafe extern "system-unwind" fn set_shared_library_loader(
-    _: *mut IGlobalSession,
-    _: *mut ISlangSharedLibraryLoader,
+    this: *mut IGlobalSession,
+    loader: *mut ISlangSharedLibraryLoader,
 ) {
+    // SAFETY: `GLOBAL_SESSION_VTABLE` belongs to a live `GlobalSessionObject`
+    // only.
+    let object = unsafe { GlobalSessionObject::from_this(this) };
+    object
+        .log
+        .push(Event::set_shared_library_loader(object.name, loader));
 }
 
 unsafe extern "system-unwind" fn get_shared_library_loader(

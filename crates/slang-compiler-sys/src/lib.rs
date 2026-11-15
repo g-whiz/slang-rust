@@ -149,7 +149,12 @@
 //!   no item of the API, so code that compiles without it compiles with it.
 //!   Cargo unifies features, so one crate of a build that enables it makes the
 //!   whole build link the static Slang, and enabling every feature of this
-//!   crate enables it as well.
+//!   crate enables it as well. Every crate of this project between a program
+//!   and this crate, which are slang-compiler, slango, slango-codegen,
+//!   slango-macros, and slang-slint, has a feature `vendored` that forwards
+//!   to this one, and the feature of slang-compiler also installs the loader
+//!   of the crate slang-glslang-sys, which the static Slang needs to optimize
+//!   SPIR-V.
 //!
 //! # Platform support
 //!
@@ -271,7 +276,13 @@
 //! `compiler-core`, `core`, `cmark-gfm`, `miniz`, and `lz4`, and the C++
 //! standard library of the target: `stdc++` on Linux and `c++` on macOS. With
 //! the Microsoft toolchain, the runtime library that the target feature
-//! `crt-static` selects provides it. Cargo copies the static libraries into
+//! `crt-static` selects provides it. It also links the system libraries that
+//! Slang's own build links: `pthread` and `dl` on Linux, which Slang's
+//! library `core` declares, and with the Microsoft toolchain the libraries
+//! that `cmake` links into every program and library by default, which are
+//! `kernel32`, `user32`, `gdi32`, `winspool`, `shell32`, `ole32`,
+//! `oleaut32`, `uuid`, `comdlg32`, and `advapi32`, because Slang's code calls
+//! functions of some of them without declaring them. Cargo copies the static libraries into
 //! the library of this crate, so a program that links it needs no Slang
 //! library at run time.
 //!
@@ -295,9 +306,16 @@
 //! returns diagnostics that begin with `failed to load downstream compiler
 //! 'spirv-opt'` while it succeeds, and the SPIR-V is not optimized. When the
 //! dynamic loader finds a slang-glslang shared library, Slang loads it
-//! instead, so the output then depends on the environment of the program. On
-//! either route, Slang validates the SPIR-V that it generates only when the
-//! environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`.
+//! instead, so the output then depends on the environment of the program.
+//! The crate slang-glslang-sys builds slang-glslang from the same source tree
+//! and provides that loader. slang-compiler with its feature `vendored`
+//! installs it on every global session that it creates, and a program that
+//! uses this crate directly depends on slang-glslang-sys and installs the
+//! loader through `IGlobalSession::setSharedLibraryLoader` on each global
+//! session, before the global session generates any code, as the
+//! documentation of slang-glslang-sys shows. On either route, Slang validates
+//! the SPIR-V that it generates only when the environment variable
+//! `SLANG_RUN_SPIRV_VALIDATION` is `1`.
 //!
 //! The manifest key `links` of this crate is `slang-compiler`, so the build
 //! script of a crate that depends on this one reads what this build links

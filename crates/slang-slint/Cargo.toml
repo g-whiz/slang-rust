@@ -11,6 +11,9 @@ license = "GPL-3.0-or-later"
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = ["slango/vendored"]
+
 [dependencies]
 slango.workspace = true
 slint = { workspace = true, features = [

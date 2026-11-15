@@ -39,7 +39,10 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: enables the feature `vendored` of
+//!   slango, which links a Slang built from source statically into the
+//!   program that runs the generator, in place of the Slang shared library of
+//!   a Vulkan SDK. It adds and removes no item of the API.
 //!
 //! # Platform support
 //!

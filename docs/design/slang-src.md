@@ -459,7 +459,7 @@ No recipe runs the pure tests under Miri, which is a known gap. Every recipe tha
 
 ## 13. Crate Documentation
 
-SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 when the build includes slang-glslang. They MUST also state the shared folder:
+SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 on `PATH` for the build of slang-glslang, under the name `python3` or `python`, because an installation of Python 3 on Windows may provide only `python`. They MUST also state the shared folder:
 
 - That it is the directory `slang-src` in the Cargo target directory, or in the build directory when Cargo uses a separate one.
 - That every profile, and both the host and target units, of a project use it, so a procedural macro and the program clone and build Slang once.
@@ -471,7 +471,7 @@ They MUST NOT name an environment variable of `slang-src`, because none exists (
 
 The crate-level documentation also states:
 
-- That the crate builds nothing and is a dependency of `slang-compiler-sys` and `slang-glslang-sys` under their vendored builds.
+- That the crate builds nothing and is a dependency of `slang-compiler-sys` under its feature `vendored` and of `slang-glslang-sys`, which exists only for that build and has no feature.
 - The recorded commit, its build tag, and the version of the crate, and that the version of a release names the commit (Section 7.2). The tests of SRC-11 keep them equal to `recorded.rs` and the manifest.
 - How to build another commit through `[patch]`, and that it is best effort (SRC-22).
 - What the crate fetches and from where, the git settings of SRC-8, that it honours `CARGO_NET_OFFLINE`, and that it runs nothing from the tree (Section 14).
@@ -580,8 +580,8 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| SRCQ-1 | Do the clone and the copy and build tree of `slang-compiler-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or does the build script need a shorter layout on Windows? | This document, with `docs/design/slang-compiler-sys.md` | M7 |
-| SRCQ-3 | Which recipe runs the pure tests of `slang-src` under Miri, and how does it keep the build script from cloning a second time in the target directory of Miri (Section 12)? | `docs/design/tooling.md`, with this document | M7 |
+| SRCQ-1 | Do the clone, the copy and build tree of `slang-compiler-sys`, and the build tree of `slang-glslang-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or does a build script need a shorter layout on Windows? The build tree of `slang-glslang-sys` is the deepest, because CMake mirrors the absolute path of each source outside the wrapper project under `CMakeFiles/<target>.dir/` (Section 4 of `docs/design/slang-glslang-sys.md`). | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | M7 |
+| SRCQ-3 | Which recipe runs the pure tests of `slang-src` and of the build script of `slang-glslang-sys` under Miri, and how does it keep the build scripts from cloning and building a second time in the target directory of Miri (Section 12, Section 9 of `docs/design/slang-glslang-sys.md`)? | `docs/design/tooling.md`, with this document | M7 |
 
 The next question takes SRCQ-4.
 

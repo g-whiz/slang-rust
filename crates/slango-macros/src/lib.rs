@@ -98,7 +98,28 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: enables the feature `vendored` of
+//!   slango-codegen, so that the macro compiles with a Slang built from
+//!   source and linked statically into the macro, in place of the Slang
+//!   shared library of a Vulkan SDK, and the build needs no Vulkan SDK for
+//!   the macro. It adds and removes no item of the API.
+//!
+//! Cargo resolves the features of the macro, which runs on the build
+//! machine, apart from those of the program. The feature `vendored` of
+//! slango therefore does not reach the Slang that the macro links, and the
+//! feature of this crate does not reach the Slang that the program links. A
+//! program that needs no Vulkan SDK at build time enables `vendored` on both:
+//!
+//! ```toml
+//! [dependencies]
+//! slango = { version = "0.1", features = ["vendored"] }
+//! slango-macros = { version = "0.1", features = ["vendored"] }
+//! ```
+//!
+//! Both copies of Slang are built once from one source tree, because the
+//! macro and the program share the shared folder of the Cargo target
+//! directory in which the crate slang-src keeps the source tree and the
+//! built libraries.
 //!
 //! # Platform support
 //!

@@ -8,10 +8,10 @@ existing_library_path := if library_path_variable == "" { "" } else { env(librar
 slang_library_path := if library_path_variable == "" { "" } else if vulkan_sdk == "" { "" } else { library_path_variable + "=" + quote(vulkan_sdk / "lib" + if existing_library_path == "" { "" } else { ":" + existing_library_path }) }
 
 # The packages that the vendored build compiles, separated by spaces, which test-vendored and check-vendored select with -p
-vendored_packages := "slang-src slang-compiler-sys"
+vendored_packages := "slang-src slang-glslang-sys slang-compiler-sys slang-compiler"
 
 # The Cargo feature that selects the vendored build, which test-vendored and check-vendored enable
-vendored_features := "slang-compiler-sys/vendored"
+vendored_features := "slang-compiler/vendored"
 
 # The environment of the vendored recipes: no Vulkan SDK and no loader path, so nothing can load the Slang of an SDK, and their own target directory, so the vendored build does not replace the build of target/
 vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny"
@@ -198,7 +198,7 @@ recorded-slang:
         printf '%s=%s\n' "${name}" "${value}"
     done
 
-# Run the tests and doctests of the vendored build in target/vendored, without VULKAN_SDK and without a loader path. Its first run clones the recorded Slang commit, which needs network access, and builds Slang from source, which takes several minutes
+# Run the tests and doctests of the vendored build in target/vendored, without VULKAN_SDK and without a loader path, and then the tests of slango-macros that expand the macro, with only the feature vendored of slango-macros, which reaches Slang through slango-codegen, slango, and slang-compiler. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-glslang from source, which takes several minutes
 [group('rust')]
 test-vendored:
     #!/usr/bin/env bash
@@ -210,8 +210,9 @@ test-vendored:
     done
     {{ vendored_environment }} cargo nextest run "${packages[@]}" --features "{{ vendored_features }}" --profile default --no-tests=fail
     {{ vendored_environment }} cargo test --doc "${packages[@]}" --features "{{ vendored_features }}"
+    {{ vendored_environment }} cargo nextest run -p slango-macros --features slango-macros/vendored --profile default --no-tests=fail -E 'test(/^(bindings|structs)::/)'
 
-# Run Clippy and build the API documentation of the vendored build in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning. Its first run clones the recorded Slang commit, which needs network access, and builds Slang from source, which takes several minutes
+# Run Clippy and build the API documentation of the vendored build in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, and then Clippy on slang-slint with only its feature vendored, which reaches Slang through slango. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-glslang from source, which takes several minutes
 [group('checks')]
 check-vendored:
     #!/usr/bin/env bash
@@ -223,6 +224,7 @@ check-vendored:
     done
     {{ vendored_environment }} cargo clippy "${packages[@]}" --features "{{ vendored_features }}" --all-targets
     {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
+    {{ vendored_environment }} cargo clippy -p slang-slint --features slang-slint/vendored
 
 # Check that the vendored build kept its Slang clone in the shared folder target/vendored/slang-src and nowhere else under target/vendored, and print where it is, whether Cargo tagged target/vendored, and the size of the folder
 [group('checks')]
@@ -251,7 +253,7 @@ check-vendored-shared-folder:
     find "${target}" -path "${shared}" -prune -o -type d -name slang-src -print0 >"${listing}"
     others=()
     while IFS= read -r -d '' dir; do
-        if [[ -d "${dir}/src" ]]; then
+        if [[ -e "${dir}/src/${commit}/tree/.git" ]]; then
             others+=("${dir}")
         fi
     done <"${listing}"
@@ -330,32 +332,32 @@ check-fmt:
 # Run Clippy on every target of the workspace, failing on any warning
 [group('checks')]
 check-clippy:
-    CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --all-targets
+    CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
 
 # Build the API documentation of the workspace, failing on any rustdoc warning
 [group('checks')]
 check-doc:
-    CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --no-deps
+    CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
 
 # Run the doctests of the workspace
 [group('checks')]
 check-doctest:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
 
 # Run the tests of the default tier, which need no GPU adapter
 [group('rust')]
 test:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --profile default --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile default --no-tests=warn
 
 # Run the tests of the default and GPU tiers, which need any GPU adapter, including lavapipe
 [group('rust')]
 test-gpu:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --profile gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile gpu --no-tests=warn
 
 # Run every test, including the hardware GPU tier, which needs a hardware GPU
 [group('rust')]
 test-hw-gpu:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --profile hw-gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile hw-gpu --no-tests=warn
 
 # Check licences, security advisories, duplicate crates, and crate sources with cargo-deny, which needs network access
 [group('checks')]
@@ -380,19 +382,19 @@ check-unused-deps:
 # Run the tests under Miri on the nightly toolchain to find undefined behaviour
 [group('checks')]
 check-miri:
-    cargo +nightly miri nextest run --workspace --exclude slang-src --no-tests=warn
+    cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
 
 # Check that every combination of Cargo features compiles, run by CI only
 [group('checks')]
 check-features:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --all-targets --feature-powerset --exclude-features vendored
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --feature-powerset --exclude-features vendored
 
 # Check that the workspace builds with the toolchain of its declared rust-version, run by CI only
 [group('checks')]
 check-msrv:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --all-targets --rust-version
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
 
 # Write a test coverage report to target/lcov.info, run by CI only
 [group('rust')]
 coverage:
-    {{ slang_library_path }} cargo llvm-cov nextest --workspace --exclude slang-src --profile gpu --no-tests=warn --lcov --output-path target/lcov.info
+    {{ slang_library_path }} cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --profile gpu --no-tests=warn --lcov --output-path target/lcov.info

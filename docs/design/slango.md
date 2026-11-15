@@ -283,7 +283,7 @@ SLO-1. `slango` MUST depend on `slang-compiler` and on wgpu of major version 30 
 
 The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3).
 
-SLO-27. `slango` MUST have exactly one Cargo feature, `vendored = ["slang-compiler/vendored"]`, off by default, and MUST NOT read it in its own code. The feature only forwards the choice of the vendored route to `slang-compiler`, so that a user who depends on `slango` alone can link a statically built Slang (Section 19.1 of the architecture design, SLC-33 of `docs/design/slang-compiler.md`).
+SLO-27. `slango` MUST have exactly one Cargo feature, `vendored = ["slang-compiler/vendored"]`, off by default, and MUST NOT read it in its own code. The feature only forwards the choice of the vendored route to `slang-compiler`, so that a user who depends on `slango` alone can link a statically built Slang (Section 19.1 of the architecture design, SLC-33 of `docs/design/slang-compiler.md`). No `gpu` test of `slango` runs on the vendored route. The forward is checked through the commands of `test-vendored` and `check-vendored` for `slango-macros` and `slang-slint`, which both reach `slang-compiler` through `slango` (TOOL-7 of `docs/design/tooling.md`).
 
 SLO-2. `slango` MUST contain no unsafe code in M3 and M4, and MUST load every shader through the validated path only.
 

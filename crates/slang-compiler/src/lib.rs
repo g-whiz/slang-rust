@@ -142,7 +142,14 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: links a Slang that slang-compiler-sys
+//!   builds from source statically, in place of the Slang shared library of a
+//!   Vulkan SDK, and installs the loader of the crate slang-glslang-sys on
+//!   every global session that this crate creates, so that the static Slang
+//!   optimizes SPIR-V. It adds and removes no item of the API, so code that
+//!   compiles without it compiles with it. What such a build needs is in the
+//!   crate documentation of slang-src, the crate that obtains the Slang
+//!   source tree, and in [Finding the Slang library](#finding-the-slang-library).
 //!
 //! # Platform support
 //!
@@ -155,11 +162,39 @@
 //! # Finding the Slang library
 //!
 //! `slang-compiler-sys` finds the Slang library and links it, as its
-//! [crate documentation](slang_compiler_sys) describes. That is the Slang
-//! shared library of the Vulkan SDK of the build, which the dynamic
-//! loader has to find when the program starts. Creating a global session
-//! checks that the loaded library is the build that this crate was built for,
-//! and fails with [`ErrorKind::VersionMismatch`] when it is not.
+//! [crate documentation](slang_compiler_sys) describes. By default, that is
+//! the Slang shared library of the Vulkan SDK of the build, which the dynamic
+//! loader has to find when the program starts, and the build needs the SDK
+//! and libclang. With the feature `vendored`, the build clones the Slang
+//! source tree, builds Slang from it, and links it statically, so the program
+//! needs no Slang library at run time. That build needs no Vulkan SDK but
+//! needs libclang, the programs `git`, `cmake`, and `ninja`, a C++
+//! compiler, Python 3, and network access for its first build in a target
+//! directory, and it keeps the clone
+//! and the built libraries in the shared folder `slang-src` of the Cargo
+//! target directory, which every profile of a project shares. The crate
+//! documentation of `slang-compiler-sys` and of `slang-src` state both in
+//! full. Creating a global session checks that the loaded library is the
+//! build that this crate was built for, and fails with
+//! [`ErrorKind::VersionMismatch`] when it is not.
+//!
+//! The crate is written and tested against the Slang that the version of
+//! `slang-src` that `slang-compiler-sys` requires records, and another Slang
+//! is best effort.
+//!
+//! A statically linked Slang has no slang-glslang of its own, the part of
+//! Slang that optimizes SPIR-V. With the feature `vendored` of this crate,
+//! every global session that this crate creates gets the loader of
+//! `slang-glslang-sys`, which provides it from the program. A global session
+//! that [`GlobalSession::from_raw`] adopts gets no loader, and neither does a
+//! build that enables the feature `vendored` of `slang-compiler-sys` but not
+//! that of this crate. Such a global session loads slang-glslang only when the
+//! dynamic loader finds a shared library of it, and otherwise returns SPIR-V
+//! that is not optimized. The only sign is in the [`Diagnostics`] of the
+//! first successful generation of SPIR-V in each global session, which begin
+//! with `error[E00100]: failed to load downstream compiler 'spirv-opt'`. What
+//! [`GlobalSession::check_target_support`] returns for SPIR-V on a statically
+//! linked Slang is not established.
 //!
 //! # Process-level inputs
 //!
@@ -182,7 +217,9 @@
 //! - The library path of the dynamic loader, which is `LD_LIBRARY_PATH` on
 //!   Linux, `DYLD_LIBRARY_PATH` on macOS, and `PATH` on Windows: it decides
 //!   which Slang shared library the program loads, as
-//!   [Finding the Slang library](#finding-the-slang-library) describes.
+//!   [Finding the Slang library](#finding-the-slang-library) describes. A
+//!   statically linked Slang does not need it, and with the feature
+//!   `vendored` of this crate, its SPIR-V does not depend on it.
 
 #![expect(
     unsafe_code,

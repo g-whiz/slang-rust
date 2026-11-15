@@ -4,8 +4,9 @@
 //! [Slang](https://shader-slang.org) is a shader compiler. The crates
 //! `slang-compiler-sys` and `slang-glslang-sys` can build Slang and parts of
 //! its source tree from source and link them statically, which is the
-//! vendored build that their Cargo feature `vendored` selects. This crate is
-//! their dependency under that feature. Its build script obtains the source
+//! vendored build that the Cargo feature `vendored` of `slang-compiler-sys`
+//! selects and that `slang-glslang-sys` exists for. This crate is their
+//! dependency in that build. Its build script obtains the source
 //! tree that they build from, and the crate builds nothing itself and has no
 //! API. A program does not depend on it directly.
 //!
@@ -73,7 +74,7 @@
 //! - The program `cmake`, version 3.22 or later.
 //! - The program `ninja`.
 //! - A C++ compiler.
-//! - The program `python3`, version 3 of Python.
+//! - Python 3 on `PATH`, which the build of slang-glslang needs.
 //! - Network access for its first build in a Cargo target directory.
 //!
 //! A build without the Cargo feature `vendored` links the Slang of an

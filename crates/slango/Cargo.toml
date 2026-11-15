@@ -11,6 +11,9 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = ["slang-compiler/vendored"]
+
 [dependencies]
 pollster.workspace = true
 slang-compiler.workspace = true

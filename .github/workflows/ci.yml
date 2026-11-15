@@ -224,15 +224,18 @@ jobs:
       - name: Show the version of git, which clones Slang
         run: git --version
       - *install-libclang
-      - name: Install CMake, Ninja, and a C++ compiler where the runner image lacks them
+      - name: Install CMake, Ninja, a C++ compiler, Python 3, and the development files of fontconfig, which Slint links, where the runner image lacks them
         if: runner.os == 'Linux'
         run: |
           missing=()
-          for tool in cmake:cmake ninja:ninja-build c++:g++; do
+          for tool in cmake:cmake ninja:ninja-build c++:g++ python3:python3 pkg-config:pkg-config; do
             if ! command -v "${tool%%:*}" >/dev/null; then
               missing+=("${tool#*:}")
             fi
           done
+          if ! pkg-config --exists fontconfig 2>/dev/null; then
+            missing+=(libfontconfig-dev)
+          fi
           if [[ "${#missing[@]}" -ne 0 ]]; then
             sudo apt-get update
             sudo apt-get install --yes --no-install-recommends "${missing[@]}"
@@ -244,6 +247,17 @@ jobs:
           if [[ "${RUNNER_OS}" != Windows ]]; then
             c++ --version
           fi
+      - name: Show the Python 3 that the build of slang-glslang runs, and stop when the runner image has none
+        run: |
+          for program in python3 python; do
+            if command -v "${program}" >/dev/null && "${program}" -c 'import sys; sys.exit(sys.version_info[0] != 3)' 2>/dev/null; then
+              printf '%s: ' "$(command -v "${program}")"
+              "${program}" --version
+              exit 0
+            fi
+          done
+          printf '::error::The runner image provides no Python 3 as python3 or python on PATH, which the build of slang-glslang needs, because SPIRV-Tools generates some of its sources with a Python script\n'
+          exit 1
       - name: Run Clippy and the documentation build of the vendored build, and show how long it took
         if: matrix.os == 'ubuntu-latest'
         run: time just check-vendored

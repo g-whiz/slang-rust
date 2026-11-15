@@ -100,6 +100,13 @@ const SLANG_OPTIONS: [&str; 27] = [
     "-DSLANG_USE_SCCACHE=OFF",
 ];
 
+const LINUX_SYSTEM_LIBRARIES: [&str; 2] = ["pthread", "dl"];
+
+const MSVC_DEFAULT_LIBRARIES: [&str; 10] = [
+    "kernel32", "user32", "gdi32", "winspool", "shell32", "ole32", "oleaut32", "uuid", "comdlg32",
+    "advapi32",
+];
+
 const ARCHIVE_OUTPUT_OPTION: &str = "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=";
 
 const GIT_REPOSITORY_VARIABLES: [&str; 15] = [
@@ -290,6 +297,7 @@ struct Source {
 struct Platform {
     msvc: bool,
     cxx_library: Option<&'static str>,
+    system_libraries: &'static [&'static str],
     configure_options: Vec<String>,
 }
 
@@ -439,7 +447,7 @@ fn vendored_route(host: &impl Host, directives: &mut Vec<String>) -> Result<(), 
     for library in STATIC_LIBRARIES {
         directives.push(format!("cargo::rustc-link-lib=static={library}"));
     }
-    if let Some(library) = platform.cxx_library {
+    for library in platform.cxx_library.iter().chain(platform.system_libraries) {
         directives.push(format!("cargo::rustc-link-lib=dylib={library}"));
     }
     push_metadata(directives, &include, &lib, "static", &source.build_tag);
@@ -792,16 +800,19 @@ fn platform(host: &impl Host, target: &str, host_triple: &str) -> Result<Platfor
         ("linux", "gnu") => Ok(Platform {
             msvc: false,
             cxx_library: Some("stdc++"),
+            system_libraries: &LINUX_SYSTEM_LIBRARIES,
             configure_options: Vec::new(),
         }),
         ("macos", _) => Ok(Platform {
             msvc: false,
             cxx_library: Some("c++"),
+            system_libraries: &[],
             configure_options: Vec::new(),
         }),
         ("windows", "msvc") => Ok(Platform {
             msvc: true,
             cxx_library: None,
+            system_libraries: &MSVC_DEFAULT_LIBRARIES,
             configure_options: vec![
                 format!(
                     "-DCMAKE_MSVC_RUNTIME_LIBRARY={}",
@@ -1248,8 +1259,9 @@ fn store_entry(
         .map_err(|error| shared_error("write", &inputs_file, &error))?;
     let stamp = temporary.join("stamp");
     host.write(&stamp, "")
-        .and_then(|()| host.set_modified(&stamp, SystemTime::UNIX_EPOCH + STAMP_TIME))
         .map_err(|error| shared_error("write", &stamp, &error))?;
+    host.set_modified(&stamp, SystemTime::UNIX_EPOCH + STAMP_TIME)
+        .map_err(|error| shared_error("set the modification time of", &stamp, &error))?;
     let entry = entries.join(key);
     if replace {
         host.remove_dir_all(&entry)

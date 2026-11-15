@@ -261,7 +261,11 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: enables the feature `vendored` of
+//!   slang-compiler, so that a program that depends on this crate alone
+//!   links a Slang built from source statically, in place of the Slang shared
+//!   library of a Vulkan SDK. It adds and removes no item of the API. The
+//!   crate documentation of slang-compiler says what that build needs.
 //!
 //! # Platform support
 //!

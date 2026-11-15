@@ -173,7 +173,10 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: enables the feature `vendored` of
+//!   slango, so that a Slint program that depends on this crate links a
+//!   Slang built from source statically, in place of the Slang shared library
+//!   of a Vulkan SDK. It adds and removes no item of the API.
 //!
 //! # Licence
 //!

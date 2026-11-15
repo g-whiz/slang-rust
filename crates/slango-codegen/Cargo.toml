@@ -11,6 +11,9 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = ["slango/vendored"]
+
 [dependencies]
 proc-macro2.workspace = true
 quote.workspace = true

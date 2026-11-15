@@ -177,7 +177,7 @@ This answers Q-19 and Q-16 of the architecture design for `slang-slint`.
 
 The crate inherits the workspace lints. Its manifest has no `[package.metadata.docs.rs]` table, because docs.rs is not supported (Section 4.5 of `docs/design/architecture.md`).
 
-SLS-17. `slang-slint` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, off by default, and MUST NOT read it in its own code. A Slint program that depends on `slang-slint` then links a statically built Slang by enabling the feature on the crate that it depends on (Section 19.1 of the architecture design, SLO-27 of `docs/design/slango.md`).
+SLS-17. `slang-slint` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, off by default, and MUST NOT read it in its own code. A Slint program that depends on `slang-slint` then links a statically built Slang by enabling the feature on the crate that it depends on (Section 19.1 of the architecture design, SLO-27 of `docs/design/slango.md`). `check-vendored` runs Clippy on `slang-slint` with only this feature and without a Vulkan SDK, which fails when a forward between `slang-slint` and `slang-compiler` is broken (TOOL-7 of `docs/design/tooling.md`).
 
 ### 4.2. Licences
 

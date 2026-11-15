@@ -11,8 +11,12 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = ["slang-compiler-sys/vendored", "dep:slang-glslang-sys"]
+
 [dependencies]
 slang-compiler-sys.workspace = true
+slang-glslang-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta.workspace = true

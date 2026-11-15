@@ -937,6 +937,12 @@ fn stamp_file() -> PathBuf {
 }
 
 const CMAKE_VERSION: &str = "cmake version 3.31.6";
+const LINUX_LINKS: &[&str] = &["stdc++", "pthread", "dl"];
+const MACOS_LINKS: &[&str] = &["c++"];
+const WINDOWS_LINKS: &[&str] = &[
+    "kernel32", "user32", "gdi32", "winspool", "shell32", "ole32", "oleaut32", "uuid", "comdlg32",
+    "advapi32",
+];
 const COMPILER_VERSION: &str = "c++ (GCC) 15.2.1 20260101";
 
 fn finished(code: i32, stdout: &str, stderr: &str) -> Finished {
@@ -1126,7 +1132,7 @@ fn vendored_reruns() -> Vec<String> {
     reruns
 }
 
-fn vendored_links(entry: &Path, cxx: Option<&str>) -> Vec<String> {
+fn vendored_links(entry: &Path, dynamic: &[&str]) -> Vec<String> {
     let lib = entry.join("lib");
     let mut directives = vec![format!("cargo::rustc-link-search=native={}", lib.display())];
     for library in [
@@ -1139,7 +1145,11 @@ fn vendored_links(entry: &Path, cxx: Option<&str>) -> Vec<String> {
     ] {
         directives.push(format!("cargo::rustc-link-lib=static={library}"));
     }
-    directives.extend(cxx.map(|library| format!("cargo::rustc-link-lib=dylib={library}")));
+    directives.extend(
+        dynamic
+            .iter()
+            .map(|library| format!("cargo::rustc-link-lib=dylib={library}")),
+    );
     directives.extend([
         format!(
             "cargo::metadata=include={}",
@@ -1208,7 +1218,7 @@ fn vendored_route_builds_stores_and_links_a_static_slang_without_reading_vulkan_
         "cargo::rerun-if-changed={}",
         entry_dir().join("stamp").display()
     ));
-    expected.extend(vendored_links(&entry_dir(), Some("stdc++")));
+    expected.extend(vendored_links(&entry_dir(), LINUX_LINKS));
     assert_eq!(directives, expected);
     assert_vulkan_sdk_unread(&host);
     assert_eq!(
@@ -1464,7 +1474,7 @@ fn vendored_route_with_a_matching_stamp_skips_the_copy_and_the_configure_step() 
     host.files.push((stamp_file(), stamp.clone()));
     let (directives, result) = run(&host);
     assert_eq!(result, Ok(()));
-    assert!(directives.ends_with(&vendored_links(&entry_dir(), Some("stdc++"))));
+    assert!(directives.ends_with(&vendored_links(&entry_dir(), LINUX_LINKS)));
     assert_eq!(
         ran(&host),
         [
@@ -1552,7 +1562,7 @@ fn vendored_route_uses_a_complete_entry_without_building() {
         "cargo::rerun-if-changed={}",
         entry_dir().join("stamp").display()
     ));
-    expected.extend(vendored_links(&entry_dir(), Some("stdc++")));
+    expected.extend(vendored_links(&entry_dir(), LINUX_LINKS));
     assert_eq!(directives, expected);
     assert_eq!(
         ran(&host),
@@ -1739,14 +1749,14 @@ fn target_host(os: &str, env: &str, feature: &str, triple: &str) -> FakeHost {
 }
 
 #[test]
-fn vendored_route_links_the_archives_and_cxx_library_of_each_kind_of_target() {
-    for (os, env, feature, triple, cxx, archive, runtime) in [
+fn vendored_route_links_the_archives_cxx_and_system_libraries_of_each_kind_of_target() {
+    for (os, env, feature, triple, dynamic, archive, runtime) in [
         (
             "linux",
             "gnu",
             "",
             "aarch64-unknown-linux-gnu",
-            Some("stdc++"),
+            LINUX_LINKS,
             "lib{}.a",
             None,
         ),
@@ -1755,7 +1765,7 @@ fn vendored_route_links_the_archives_and_cxx_library_of_each_kind_of_target() {
             "",
             "",
             "aarch64-apple-darwin",
-            Some("c++"),
+            MACOS_LINKS,
             "lib{}.a",
             None,
         ),
@@ -1764,7 +1774,7 @@ fn vendored_route_links_the_archives_and_cxx_library_of_each_kind_of_target() {
             "msvc",
             "",
             "x86_64-pc-windows-msvc",
-            None,
+            WINDOWS_LINKS,
             "{}.lib",
             Some("MultiThreadedDLL"),
         ),
@@ -1773,7 +1783,7 @@ fn vendored_route_links_the_archives_and_cxx_library_of_each_kind_of_target() {
             "msvc",
             "crt-static",
             "x86_64-pc-windows-msvc",
-            None,
+            WINDOWS_LINKS,
             "{}.lib",
             Some("MultiThreaded"),
         ),
@@ -1813,7 +1823,7 @@ fn vendored_route_links_the_archives_and_cxx_library_of_each_kind_of_target() {
         assert_toolchain(&host, triple, runtime.is_some());
         let entry = entries_dir().join(fnv1a(inputs.as_bytes()));
         assert!(
-            directives.ends_with(&vendored_links(&entry, cxx)),
+            directives.ends_with(&vendored_links(&entry, dynamic)),
             "{triple}: {directives:?}"
         );
         assert_eq!(
@@ -2500,7 +2510,7 @@ fn vendored_route_names_the_action_and_the_path_of_each_shared_folder_operation_
         (
             FileOp::SetModified,
             temporary.join("stamp"),
-            shared_message("write", &temporary.join("stamp")),
+            shared_message("set the modification time of", &temporary.join("stamp")),
         ),
         (
             FileOp::Rename,

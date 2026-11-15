@@ -773,7 +773,7 @@ This is the success with error wording of Section 3.6. So the crate returns it a
 
 The crate reports a failed generation of SPIR-V assembly with the kind that SLC-11 maps from Slang's failure signal, and a failed load of a standard module as it reports any failed load (Section 6.5).
 
-What `check_target_support` returns on the vendored route is not established. The crate documentation states this limit, with a link to the crate documentation of `slang-compiler-sys`.
+What `check_target_support` returns on the vendored route is not established (CQ-7). The crate documentation states this limit, with a link to the crate documentation of `slang-compiler-sys`.
 
 A thread may hold any number of global sessions of the crate at once, because Slang documents no limit (Section 3.5). The label SLC-29 is retired and never reused (Section 1.6).
 
@@ -783,9 +783,13 @@ This is the check of ARCH-34 of the architecture design. The build script record
 
 The crate is written and tested against the recorded Slang. A build against another Slang, from another SDK or from a fork of `slang-src` that the user patches in (SRC-22 of `docs/design/slang-src.md`), passes this check when the loaded library is the one of the build, and is best effort (ARCH-31). The crate adds no check and no code for another version.
 
-SLC-34. With the feature `vendored`, creating a global session MUST install the loader of `slang-glslang-sys` on the new global session before it returns it, by passing the result of `slang_glslang_sys::slang_glslang_sys_loader()` to the generated thunk of `IGlobalSession::setSharedLibraryLoader`, inside `abort_on_exception` like every other call into Slang (SLC-32, SGL-12 of `docs/design/slang-glslang-sys.md`). When the call fails, the creation MUST return the error that SLC-11 maps from its result code and release the new global session. Without the feature, the crate MUST NOT call `setSharedLibraryLoader`.
+SLC-34. With the feature `vendored`, creating a global session MUST install the loader of `slang-glslang-sys` on the new global session before it returns it, by passing the result of `slang_glslang_sys::slang_glslang_sys_loader()` to the generated thunk of `IGlobalSession::setSharedLibraryLoader`, inside `abort_on_exception` like every other call into Slang (SLC-32, SGL-12 of `docs/design/slang-glslang-sys.md`). Without the feature, the crate MUST NOT call `setSharedLibraryLoader`.
+
+`setSharedLibraryLoader` returns `void` in the recorded Slang, so the installation has no result code, cannot fail, and maps no error.
 
 A global session that generated SPIR-V before the installation has already failed to load `slang-glslang` and keeps the failure for its life (Section 3.11), so the installation comes before any other use. A global session adopted through `from_raw` gets no loader, because the caller created it.
+
+The crate-private function that creates a global session takes the loader as an `Option<*mut ISlangSharedLibraryLoader>`. `GlobalSession::new` and `GlobalSessionBuilder::build` reach it through one function that passes the loader of `slang-glslang-sys` with the feature and `None` without it. The unit test on the fake therefore passes a loader of its own and runs under Miri, while the default build never reaches the call. The call of `slang_glslang_sys_loader` is not a call into Slang, so it runs outside `abort_on_exception`, with a safety comment.
 
 Creation runs these steps in this order, and the first step that fails ends it:
 
@@ -793,7 +797,7 @@ Creation runs these steps in this order, and the first step that fails ends it:
 2. Read the build tag through `spGetBuildTagString` and compare it with the build information (SLC-5).
 3. Build the descriptor from the settings of the builder, and call `slang_createGlobalSession2`.
 4. Adopt the new reference (Section 5.3).
-5. With the feature `vendored`, install the loader (SLC-34).
+5. With the feature `vendored`, install the loader (SLC-34). This step cannot fail.
 
 On a mismatch of the build tag, nothing is created and nothing is released. The crate reads the build tag once, and never again through `IGlobalSession::getBuildTagString`.
 
@@ -1744,6 +1748,7 @@ Unit tests that need no Slang cover these cases:
 - The comparison of SLC-5 with the build tag of the build information, with a build tag of another build, with a prefix of that build tag, and with a missing build tag.
 - The order of creation of Section 6.3, through a private function of `GlobalSession` that takes the read of the build tag and the call that creates as closures, so that a test records which of them ran.
 - A build tag of another build and a missing build tag fail with `VersionMismatch` after the read alone. A failing result code and a null output fail after the creating call. A matching build tag adopts the created global session with the descriptor that the builder set.
+- SLC-34 on the fake: a loader passed to the private function of creation is installed on the created global session, which the fake records as the event `SetSharedLibraryLoader` with the address of the loader, before the function returns the global session and before its release when it is dropped.
 - The text of `Error`'s `Display`, part by part (Section 6.9).
 - The counting behaviours of Section 5.3 on the fake, and the cast of Section 5.4 to an interface that the object lacks and with a null output.
 - The checks of an entry point position and a target index before any call.
@@ -1806,10 +1811,10 @@ The module `ffi::settings` holds a test for each behaviour of a setting that nee
 7. A capability permits code that needs it only under the raw option `RestrictiveCapabilityCheck`, which the test sets (Section 3.7).
 8. `link_with_options`: the three layout options change the code but not the reflected layout, `preserve_parameters` changes the code as on the session, `vulkan_use_entry_point_name` and `debug_info` change nothing, and options added after code was generated from the same object have no effect. The test of the reflected layout reads it through `layout`.
 
-The tests of this crate run on both routes: through the test recipes on the dynamic route, where the SDK provides `slang-glslang`, and through `test-vendored` with the feature `vendored` (SCS-63 of the sys design). The module `ffi::vendored`, compiled only with the feature `vendored`, holds the test of the loader that `docs/design/slang-glslang-sys.md` assigns to this crate (Section 9 of that design):
+The tests of this crate run on both routes: through the test recipes on the dynamic route, where the SDK provides `slang-glslang`, and through `test-vendored` with the feature `vendored` (SCS-63 of the sys design). The module `ffi::vendored`, compiled only with the feature `vendored`, holds the two tests of the loader that `docs/design/slang-glslang-sys.md` assigns to this crate (Section 9 of that design). Both compile one compute shader to SPIR-V with the profile `spirv_1_5` in a new session. The entry point calls a helper function from two places, and the optimizer inlines it, so the optimized SPIR-V holds one `OpFunction` and no `OpFunctionCall`:
 
-- A global session that `GlobalSession::new` created generates optimized SPIR-V from a shader that the optimizer changes, and the first generation returns no diagnostic of a missing downstream compiler.
-- A global session created through the raw bindings without the loader, in the same process, returns unoptimized SPIR-V and the diagnostics of Section 3.11 on its first generation, when the dynamic loader finds no `slang-glslang` shared library, as under `test-vendored` on Linux and macOS.
+- `a_global_session_of_the_crate_optimizes_spirv_through_the_installed_loader`: a global session that `GlobalSession::new` created returns SPIR-V with one function and no call, and diagnostics without `failed to load downstream compiler 'spirv-opt'`.
+- `a_global_session_without_the_loader_returns_unoptimized_spirv_and_names_the_missing_optimizer`: a global session created through `slang_createGlobalSession2` of the raw bindings and adopted with `from_raw`, in the same process, returns SPIR-V with more than one function and at least one call, and diagnostics that name the missing `spirv-opt` and `slang-glslang`. This holds when the dynamic loader finds no `slang-glslang` shared library, as under `test-vendored`, which removes the loader path variables.
 
 No test of this crate depends on how the environment of a dynamic build provides `slang-glslang`, because the SDK always ships it (Section 3.11).
 
@@ -2021,12 +2026,13 @@ An identifier is never reused, and the next assumption takes CA-18.
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-7.
+Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-8.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | CQ-3 | Can the bound `Send + Sync` of `FileSystem` be relaxed while every wrapper stays on one thread, which CONC-6 would prefer (Section 8.3), given that tightening it again later would be a breaking change? | This document | Answered with the custom file system, before the trait is first released |
 | CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 is reported as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M8 |
+| CQ-7 | What does `check_target_support` return for SPIR-V and SPIR-V assembly on a statically linked Slang, with and without the loader of `slang-glslang-sys`? The crate documentation states that it is not established (Section 6.3) | This document, by a test under `test-vendored` | M7 |
 
 ## 17. Security Considerations
 
@@ -2088,7 +2094,7 @@ The residual risk has five parts:
 
 ### 18.1. Cargo Features
 
-The crate has one Cargo feature, `vendored`, off by default, which selects the vendored route of `slang-compiler-sys` and installs the loader of `slang-glslang-sys` (SLC-33, SLC-34). The examples package forwards the feature to each crate it depends on that has it, so that a build of the examples with it links one statically built Slang (Section 19.1 of the architecture design).
+The crate has one Cargo feature, `vendored`, off by default, which selects the vendored route of `slang-compiler-sys` and installs the loader of `slang-glslang-sys` (SLC-33, SLC-34). The examples package forwards the feature to each crate it depends on that has it, which are `slang-compiler`, `slang-slint`, `slango`, and `slango-macros`, so that a build of the examples with it links one statically built Slang (Section 19.1 of the architecture design). No recipe builds the examples with the feature.
 
 ### 18.2. Environment Variables
 
@@ -2112,12 +2118,11 @@ The crate needs no graphics backend. It uses the workspace's `rust-version`, whi
 
 ### 18.4. Failure Modes
 
-This table lists the failure modes of the crate, the error kind that reports each, and the recovery.
+This table lists the failure modes of the crate, the error kind that reports each, and the recovery. The installation of the loader of `slang-glslang-sys` under the feature `vendored` has no row, because it cannot fail (SLC-34).
 
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
 | The loaded library is not the Slang of the build information of `slang-compiler-sys` | `VersionMismatch`, with both build tags (SLC-5) | Make the dynamic loader find the library of the SDK that the build used |
-| The loader of `slang-glslang-sys` cannot be installed, under the feature `vendored` | The kind that SLC-11 maps from the result code of `setSharedLibraryLoader` (SLC-34) | Report it with the build information |
 | A target needs a downstream compiler that is missing | `Unsupported` from `check_target_support`, or the error of the code generation call, or a success with error wording (SLC-9). For SPIR-V on a statically linked Slang without the loader of `slang-glslang-sys`, the wording arrives only in the diagnostics of the first code generation in each global session (Section 6.3) | Install the SDK's optional libraries, enable the feature `vendored` of this crate for a statically linked Slang, or choose another target |
 | An invalid setting of the session or a target | `InvalidArgument` or `NotFound` from `SessionBuilder::build` (SLC-6) | Correct the setting that the error names |
 | A target whose options set `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, or `DisableWarning`, which the recorded Slang reads only from the session | `InvalidArgument` from `SessionBuilder::build`, with a text that names the target's position and the option (SLC-6) | Set the option in the options of the session |

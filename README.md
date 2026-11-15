@@ -6,13 +6,14 @@ The crates let a Rust program compile Slang code, read the parameters it declare
 
 ## Crates
 
-The workspace holds eight crates. No crate is published yet.
+The workspace holds nine crates. No crate is published yet.
 
 | Crate | Purpose |
 | --- | --- |
 | `slang-compiler-sys` | Raw bindings to the native Slang library, which its build script generates from the headers of the Slang that it links. Bindings are Rust declarations that let Rust code call a library written in another language. |
 | `slang-bindgen` | The binding generator, which reads the Slang headers with libclang and writes the raw bindings for `slang-compiler-sys`. |
 | `slang-src` | The crate that obtains the Slang source tree for a build of Slang from source, which `slang-compiler-sys` uses with its feature `vendored`. |
+| `slang-glslang-sys` | The crate that builds slang-glslang, the part of Slang that optimizes SPIR-V, from the same source tree, and gives it to a Slang built from source. |
 | `slang-compiler` | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency. It compiles Slang code to output formats such as SPIR-V, the binary shader format of Vulkan, and reflects the parameters of compiled code with their types, memory layouts, and bindings. |
 | `slango` | A high-level library that runs Slang code on the GPU through wgpu, a Rust graphics library. It loads a Slang module, runs a compute kernel with its parameters set by name, reads the results back, and draws with a vertex and a fragment entry point into a texture. |
 | `slango-macros` | The macro `shader!`, which compiles a Slang file while the calling crate builds and generates a typed Rust struct for each compute kernel and for each Slang structure that a kernel takes. A misspelled parameter or a value of the wrong type is then a compile error. |
@@ -43,25 +44,28 @@ cargo build --workspace
 
 ## Building Slang From Source
 
-With the Cargo feature `vendored`, `slang-compiler-sys` builds Slang from source and links it statically. The build then needs no Vulkan SDK, and the program needs no Slang shared library at run time. Only `slang-compiler-sys` has the feature so far.
+With the Cargo feature `vendored`, Slang is built from source and linked statically. The build then needs no Vulkan SDK, and the program needs no Slang shared library at run time. `slang-compiler`, `slango`, `slango-macros`, and `slang-slint` each have the feature and forward it down to `slang-compiler-sys`. The feature of `slang-compiler` also adds `slang-glslang-sys`, so a vendored build optimizes SPIR-V.
+
+A program that calls the macro `shader!` enables `vendored` on both `slango` and `slango-macros`, because the macro's copy of Slang and the program's copy are built apart.
 
 A build with the feature needs these tools:
 
 - git and network access for the first build in a Cargo target directory, which clones the recorded Slang commit through `slang-src`.
-- CMake 3.22 or later, Ninja, and a C++ compiler. On Windows, the build finds the Microsoft C++ compiler of an installation of Visual Studio itself and needs no developer command prompt.
+- CMake 3.22 or later, Ninja, and a C++20 compiler. On Windows, the build finds the Microsoft C++ compiler of an installation of Visual Studio itself and needs no developer command prompt.
+- Python 3 on `PATH`, as `python3` or `python`, for the build of slang-glslang.
 - libclang, as for every build.
 
 The first build takes several minutes. The clone and the built libraries are kept in the folder `slang-src` of the Cargo target directory, which every build of the project shares, so later builds take seconds. `cargo clean` removes the folder.
 
 These limits hold:
 
-- A vendored build emits SPIR-V that Slang does not optimize, because the build does not include slang-glslang, the module through which Slang optimizes SPIR-V.
-- The vendored build is tested on Linux, macOS, and Windows with the Microsoft toolchain. On Windows, it is tested only with the Visual Studio of the GitHub Actions runner and in a target directory of usual depth.
+- A program that enables `vendored` only on `slang-compiler-sys` gets SPIR-V that Slang does not optimize, unless it installs the loader of `slang-glslang-sys` itself.
+- The vendored build with the optimizer is tested on the GitHub Actions runners for Linux, macOS, and Windows with the Microsoft toolchain. On Windows, it is tested only with the Visual Studio of the runner and in a target directory of usual depth.
 
-The crate-level documentation of `slang-compiler-sys` and of `slang-src` says more. This command builds the crate with the feature:
+The crate-level documentation of `slang-compiler-sys`, `slang-src`, and `slang-glslang-sys` says more. This command builds `slang-compiler` with the feature:
 
 ```sh
-cargo build -p slang-compiler-sys --features vendored
+cargo build -p slang-compiler --features vendored
 ```
 
 ## Examples
@@ -121,7 +125,7 @@ Each crate has its own licence, given here as an SPDX licence expression. Each c
 
 | Crate | Licence | Licence text |
 | --- | --- | --- |
-| `slang-compiler-sys` and `slang-src` | `Apache-2.0 WITH LLVM-exception`, the licence of Slang | [`LICENSE-APACHE-LLVM`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE-LLVM) |
+| `slang-compiler-sys`, `slang-src`, and `slang-glslang-sys` | `Apache-2.0 WITH LLVM-exception`, the licence of Slang | [`LICENSE-APACHE-LLVM`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE-LLVM) |
 | `slang-bindgen`, `slang-compiler`, `slango`, `slango-macros`, and `slango-codegen` | `MIT OR Apache-2.0`, at your option | [`LICENSE-MIT`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-MIT) and [`LICENSE-APACHE`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE) |
 | `slang-slint` | `GPL-3.0-or-later` | [`LICENSE-GPL`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-GPL) |
 

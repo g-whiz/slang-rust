@@ -269,6 +269,8 @@ The static library has no slang-glslang, which Slang's build produces only as a 
 
 `slang-glslang-sys` builds slang-glslang as static libraries and gives Slang a loader for them, which `slang-compiler` installs in a vendored build (`docs/design/slang-glslang-sys.md`). The recorded Slang validates the SPIR-V that it generates only when the environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, on either route.
 
+The rest of this section applies only to a global session on which no loader is installed. A program has one when it uses `slang-compiler-sys` directly with the feature `vendored` and installs no loader, or when it adopts a global session that it created itself into `slang-compiler` (SLC-34 of `docs/design/slang-compiler.md`).
+
 When no loader is installed and the dynamic loader finds no `slang-glslang` shared library, the static build behaves as follows:
 
 - The first generation of SPIR-V in each global session succeeds and returns diagnostics that begin `error[E00100]: failed to load downstream compiler 'spirv-opt'`, followed by notes that name the libraries that Slang could not load.
@@ -997,7 +999,7 @@ The 27 options of `SLANG_OPTIONS` select a release build, `SLANG_LIB_TYPE=STATIC
 
 They also exclude Dawn and Tint. With the Microsoft toolchain, the build script adds `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` when `CARGO_CFG_TARGET_FEATURE` holds `crt-static`, and `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` otherwise, and it adds `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF`, so that no build needs the submodule `external/mimalloc`, which `slang-src` does not require (Section 3.4 of the `slang-src` design).
 
-When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. The rerun instruction for the stamp file of the entry comes after the warning of SCS-65 on an untested target, because the build script knows the entry only once it has computed the key in step 7. In this listing, `<lib>` and `<include>` stand for the directories `lib` and `include` of the entry in the shared folder, and the last link instruction depends on the target:
+When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. The rerun instruction for the stamp file of the entry comes after the warning of SCS-65 on an untested target, because the build script knows the entry only once it has computed the key in step 7. In this listing, `<lib>` and `<include>` stand for the directories `lib` and `include` of the entry in the shared folder, and the link instructions after `lz4` depend on the target. This listing is the one for Linux:
 
 ```text
 cargo::rustc-link-search=native=<lib>
@@ -1008,6 +1010,8 @@ cargo::rustc-link-lib=static=cmark-gfm
 cargo::rustc-link-lib=static=miniz
 cargo::rustc-link-lib=static=lz4
 cargo::rustc-link-lib=dylib=stdc++
+cargo::rustc-link-lib=dylib=pthread
+cargo::rustc-link-lib=dylib=dl
 cargo::metadata=include=<include>
 cargo::metadata=lib=<lib>
 cargo::metadata=linkage=static
@@ -1015,6 +1019,16 @@ cargo::metadata=build_tag=<build tag>
 ```
 
 The C++ standard library is `dylib=stdc++` on Linux and `dylib=c++` on macOS. With the Microsoft toolchain, the build script emits no instruction for it.
+
+SCS-69. On the vendored route, the build script MUST emit, after the C++ standard library, a `dylib` link instruction for each system library of the constant of its kind of target in `route.rs`:
+
+| Kind of target | System libraries | Source of the list |
+| --- | --- | --- |
+| Linux with the GNU C library | `pthread`, `dl` | `Threads::Threads` and `${CMAKE_DL_LIBS}`, which `source/core/CMakeLists.txt` of the source tree links into `core` |
+| macOS | None | Threads are part of libSystem, and `CMAKE_DL_LIBS` is empty on Darwin |
+| Windows with the Microsoft toolchain | `kernel32`, `user32`, `gdi32`, `winspool`, `shell32`, `ole32`, `oleaut32`, `uuid`, `comdlg32`, `advapi32` | `CMAKE_CXX_STANDARD_LIBRARIES`, which CMake initializes to these ten for the Microsoft compiler and links into every program and library of Slang's own build |
+
+Slang's CMake declares no Windows system library for `core`, `compiler-core`, or `slang`, and Slang's own DLL gets them only from CMake's default. Its code still calls them, such as `SHFileOperationW` of shell32 in `Path::removeNonEmpty` of `source/core/slang-io.cpp`, and the link line of rustc for a Windows target has no shell32. Without the list, a link on Windows that pulls in `Slang::Path::removeNonEmpty` fails with `LNK2019: unresolved external symbol __imp_SHFileOperationW`. The ten libraries are import libraries of the Windows SDK, which add nothing to a program that calls none of their functions. Whether a program that pulls in other objects of the archives needs a library outside the ten is SA-18.
 
 The link kind is plain `static`, so Cargo copies the archives into the rlib of the crate. A test binary linked on the vendored route depends only on the C++ and C runtime libraries of the system, and an entry of the shared folder that is removed after the build does not break the binaries already built.
 
@@ -1024,11 +1038,11 @@ Without the probe, a missing Ninja would stop the build only after a copy of the
 
 It MUST pass `-DSLANG_VERSION_FULL=` with the build tag of `slang-src` and `-DSLANG_VERSION_NUMERIC=` with its numeric part. Without the first, the library reports the modification time of the program as its build tag (Section 3.6), which the run-time check of the safe crate rejects, and without the second, the configure step fails (Section 3.10).
 
-It MUST disable the optional components and everything that downloads, and pass `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, because only `slang-src` reaches the network (ARCH-35). It MUST link the six static libraries of Section 3.10 and the C++ standard library of the target, or else the link fails with undefined references.
+It MUST disable the optional components and everything that downloads, and pass `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, because only `slang-src` reaches the network (ARCH-35). It MUST link the six static libraries of Section 3.10, the C++ standard library of the target, and the system libraries of SCS-69, or else the link fails with undefined references.
 
 SCS-43. On the vendored route, the build script MUST stop the build when `TARGET` differs from `HOST`, because Slang's build runs programs that it builds for the target, so a cross-compilation fails deep inside CMake or Ninja.
 
-It MUST also stop the build for a target whose C++ runtime library has no link rule. The rules cover Linux with the GNU C library, which links `stdc++`, macOS, which links `c++`, and Windows with the Microsoft toolchain, which links no extra library, each with its archive names. A guess for another target would fail in the linker, so the build cannot be correct there. These are the only refusals of the vendored route for a target, and the dynamic route refuses no target for its platform (SCS-65).
+It MUST also stop the build for a target whose C++ runtime library has no link rule. The rules cover Linux with the GNU C library, which links `stdc++`, macOS, which links `c++`, and Windows with the Microsoft toolchain, which links no extra C++ library, each with its archive names and the system libraries of SCS-69. A guess for another target would fail in the linker, so the build cannot be correct there. These are the only refusals of the vendored route for a target, and the dynamic route refuses no target for its platform (SCS-65).
 
 SCS-44. The build script MUST run every git command with `GIT_OPTIONAL_LOCKS=0` and with the 15 repository variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` removed from its environment. Those are the variables that `git rev-parse --local-env-vars` lists, such as `GIT_DIR` and `GIT_INDEX_FILE`.
 
@@ -1083,7 +1097,7 @@ The paths under `OUT_DIR` of the copy and the build tree stay within the path le
 
 SCS-63. The recipe `test-vendored` MUST run the tests of `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `vendored` of `slang-compiler`, in the target directory `target/vendored`, with `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` removed from the environment, and MUST fail when it selects no test.
 
-The recipe selects the packages and the feature through the `justfile` variables of TOOL-7 of the tooling design, which name each of these crates only once it exists and the feature reaches it, and the feature of `slang-compiler-sys` while no crate above it has one.
+The recipe selects the packages and the feature through the `justfile` variables of TOOL-7 of the tooling design, which name these four crates and the feature `slang-compiler/vendored`.
 
 Without `VULKAN_SDK` and the loader path, a test binary that still needed the Slang shared library could not start, and a build script that still read the SDK would fail, so the tests pass only when the link is static. A separate target directory keeps the vendored build from replacing the dynamic build of `target/`, which every other recipe uses.
 
@@ -1182,7 +1196,7 @@ The first nine rows belong to the dynamic route, the next three to both routes, 
 | The configure or build step of `cmake` exits with a failure (SCS-48) | The command, the exit status, or that a signal ended the program, the name of the step, the path of the log, and its last 40 lines, or that the log cannot be read with the reason |
 | A static library is not a file, or the version header of the build tree cannot be read, lacks `SLANG_TAG_VERSION`, or defines it malformed (SCS-47) | "the build of Slang from source finished, but", the problem with the path, and that the build produced another layout than the one that this version of the crate expects |
 | The version header of the build tree defines another build tag (SCS-47) | The build tag, the path of the header, and the build tag of `slang-src`, with the reason that the bindings and the build information name that build tag |
-| An entry of the shared folder or its lock cannot be created, inspected, listed, locked, written, renamed, or removed, or the include directory of the source tree cannot be listed (SCS-56) | "cannot" with the action and the path, the reason that the operating system gives, and that removing the entry, or running `cargo clean`, when no build runs is safe |
+| An entry of the shared folder or its lock cannot be created, inspected, listed, locked, written, renamed, or removed, the modification time of the stamp file of a new entry cannot be set, or the include directory of the source tree cannot be listed (SCS-56) | "cannot" with the action and the path, which for the stamp file is "cannot write" when the file cannot be written and "cannot set the modification time of" when only its time cannot be set, the reason that the operating system gives, and that removing the entry, or running `cargo clean`, when no build runs is safe |
 
 A variable is present when the environment contains it, whatever its value.
 
@@ -1230,6 +1244,8 @@ The logic reaches the environment, the file system, the generator, and other pro
 
 The dynamic route uses only `var`, `read`, `kind`, `host_os`, `write`, and `generate`. The other methods serve only the vendored route.
 
+The build logic of `slang-glslang-sys` repeats parts of `route.rs` and `system.rs` as copies, for the reason that Section 4.1 of `docs/design/slang-glslang-sys.md` gives, so a change to the shared parts is checked against that copy in the same change.
+
 The function `configure` takes a host and a vector of instructions, appends each Cargo instruction to the vector, and returns `Result<(), BuildError>`. `System` implements the methods with `std::env::var_os`, `std::fs`, `std::process::Command`, `std::env::consts::OS`, `std::process::id`, `find-msvc-tools`, and `slang-bindgen`. It starts each program with standard input closed, and it keeps each lock file open in a field until the process exits.
 
 The logic names no type of `slang-bindgen`, so the test binary compiles `route.rs` without the generator.
@@ -1256,8 +1272,8 @@ The tests of the module `build_script` cover:
   - The exact list of instructions without a read of `VULKAN_SDK`.
   - The programs with their arguments and environment, including the build tag of `slang-src` in the configure step.
   - The copy and the stamp written after the build, a matching stamp that skips the copy and the configure step, and the removal of stale files.
-  - The archives and the C++ standard library of each kind of target that has a link rule, and the stop on a target without one (SCS-43).
-  - The use of a complete entry, the replacement of an entry whose inputs, archives, or headers differ, the storage of a new entry by rename with its stamp file written last with the old modification time, the removal of only the temporary directories of the same key, and the rerun instruction for that stamp file.
+  - The archives, the C++ standard library, and the system libraries of each kind of target that has a link rule, as the full list of link instructions for Linux on x86-64 and on aarch64, macOS, and Windows with and without `crt-static`, and the stop on a target without one (SCS-43, SCS-69).
+  - The use of a complete entry, the replacement of an entry whose inputs, archives, or headers differ, the storage of a new entry by rename with its stamp file written last with the old modification time, a failure to write the stamp file and a failure to set its time as two separate messages, the removal of only the temporary directories of the same key, and the rerun instruction for that stamp file.
   - The key on the compiler and the variables that CMake reads, and the forms of `CXX` that the compiler probe reads.
   - With the Microsoft toolchain, the stop when the lookup finds no compiler, with where it looked, and the environment of the toolchain on both `cmake` runs.
   - The removal of `CMakeCache.txt` when the stamp differs.
@@ -1418,7 +1434,7 @@ The crate-level documentation has these parts:
   The second is marked `no_run`. It creates a global session through `slang_createGlobalSession2`, reads its build tag through `IGlobalSession::getBuildTagString`, compares it with `BUILD_INFO.slang_build_tag`, releases the session, and returns an error when the session cannot be created or the tag differs.
 
   Its lead-in says that it needs the Slang shared library at run time on the dynamic route, which the dynamic loader must find as `# Linking Slang` describes. Each `unsafe` block in it has a safety comment.
-- `# Features`: the feature `vendored`, off by default, what it changes, that every crate above forwards it, and that `--all-features` enables it.
+- `# Features`: the feature `vendored`, off by default, what it changes, that every crate between a program and this crate forwards it, naming `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, and `slang-slint`, that the feature of `slang-compiler` also installs the loader of `slang-glslang-sys`, and that `--all-features` enables it.
 - `# Platform support`: the four tested targets of Section 6, that every other 64-bit target is allowed, untested, and unsupported, with the warning and the field `tested_target` of SCS-65, and the stops of SCS-66 and SCS-43 with their reasons. It also says that the dynamic route runs with its tests in CI on x86_64 Linux, x86_64 Windows, and aarch64 macOS, the vendored route on the same three, and x86_64 macOS only as a type check (Section 6).
 - `# Linking Slang`: both routes, for a user, as the next list describes.
 - `# Safety`: the shared safety contract, the rules of Section 3.9 with reflection and component type defined, what happens when a C++ exception escapes a call, that no interface struct implements `Send` or `Sync`, and the promise that an implementation of the unsafe trait `Interface` makes.
@@ -1428,7 +1444,7 @@ The section `# Linking Slang` says these things:
 - That the feature `vendored` selects the vendored route, that no environment variable selects a route, and that the build never falls back from one route to the other.
 - That every build needs libclang, found through `LIBCLANG_PATH` or the standard locations, with how to install it on each platform.
 - For the dynamic route as Section 9.2 specifies it, it names the LunarG Vulkan SDK and its download address, says which directory `VULKAN_SDK` names on each platform, that the build accepts the Slang of any SDK and records its build tag, the link from `$VULKAN_SDK/lib`, the failures that stop the build, and the rule of SCS-41 for a target of another operating system.
-- For the vendored route as Section 9.3 specifies it, it says that `slang-src` obtains the source tree and links to its documentation for another Slang commit through `[patch]`. It names git, CMake 3.22 or later, Ninja, a C++ compiler, and network access for the first build in a target directory as requirements, and describes the copy, the build, the log, the six static libraries with the C++ standard library of each kind of target that has a link rule, and the refusal of cross-compilation. It says that with the Microsoft toolchain the build finds `cl.exe` itself, needs no developer command prompt, stops with an error that says where it looked when it finds none, and honours `VCToolsVersion` (SCS-68).
+- For the vendored route as Section 9.3 specifies it, it says that `slang-src` obtains the source tree and links to its documentation for another Slang commit through `[patch]`. It names git, CMake 3.22 or later, Ninja, a C++ compiler, and network access for the first build in a target directory as requirements, and describes the copy, the build, the log, the six static libraries with the C++ standard library and the system libraries of SCS-69 of each kind of target that has a link rule, and the refusal of cross-compilation. It says that with the Microsoft toolchain the build finds `cl.exe` itself, needs no developer command prompt, stops with an error that says where it looked when it finds none, and honours `VCToolsVersion` (SCS-68).
 - The shared folder, in which the built libraries live, with the content that SRC-20 of the `slang-src` design lists. It names no environment variable of `slang-src`, because none exists.
 - That the vendored build of this crate alone leaves out slang-glslang, with the consequences of Section 3.10, and that `slang-compiler` with its feature `vendored` installs the loader of `slang-glslang-sys`, which a direct user installs as `slang-glslang-sys` documents. The recorded Slang validates SPIR-V on neither route unless `SLANG_RUN_SPIRV_VALIDATION` is `1`.
 - The `links` metadata of each route (SCS-54).
@@ -1487,8 +1503,9 @@ The change in the last column confirms or corrects it, states the result in the 
 | SA-14 | With `crt-static` among the target features, `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` reaches every library of the vendored build, so the static runtime matches Rust's choice. The default runtime `MultiThreadedDLL` links without a mismatch (Section 9.3) | Section 9.3 | A vendored build on Windows with `-C target-feature=+crt-static` that links without a runtime mismatch |
 | SA-15 | The headers of Slang releases near the recorded one generate without a change of the rule set, so that another Slang version is best effort and not impossible | Section 4.2 | A run of the binary of SCS-60 on the headers of the newest Slang release when the recorded Slang next moves |
 | SA-17 | On a machine with another version of Visual Studio than that of the hosted Windows runner, or with several installations, the lookup of SCS-68 finds a compiler that builds Slang, and the path of `cl.exe` in the entry key tells the installations apart | SCS-68, SCS-56 | A vendored build on such a machine, by the owner or a developer with one |
+| SA-18 | With the Microsoft toolchain, the ten system libraries of SCS-69 resolve every Windows API symbol that any Rust program can pull out of Slang's archives and those of `slang-glslang-sys`. The test binaries of `test-vendored` link with them on the hosted Windows runner, which confirms the ten for the objects that those binaries pull in, including `SHFileOperationW` of `slang-io.cpp.obj` | SCS-69 | A link on Windows of a program that uses more of Slang than the tests do, such as the examples package with the feature `vendored` |
 
-The next assumption takes SA-18.
+The next assumption takes SA-19.
 
 Assumption A-6 of the architecture design, that a dependency's build script cannot set the rpath of the final binary, also applies to this design and stays where the architecture design records it.
 
@@ -1616,6 +1633,7 @@ This table lists the failure modes that this design defines, how each is reporte
 | A program linked on the vendored route has no loader of `slang-glslang-sys` installed and finds no `slang-glslang` shared library at run time, so its SPIR-V is not optimized | Slang, only in the diagnostics of the first generation of SPIR-V in each global session, which begin `error[E00100]: failed to load downstream compiler 'spirv-opt'` while the call succeeds (Section 3.10) | Use `slang-compiler` with its feature `vendored`, which installs the loader, or install it as `slang-glslang-sys` documents |
 | The process already holds a libclang instance | The generator, with an error of kind `Libclang` that says so (Section 7.7) | Call `generate` from one thread at a time. A later call works once the earlier one has returned (SCS-67) |
 | A C function of the bindings is not exported by the library | The linker, when it links the test binary of `slang-compiler-sys` for the native-symbol test (Section 11) | Make the build use headers and a library of the same Slang |
+| With the Microsoft toolchain, the link of a program on the vendored route reports an unresolved external symbol of the Windows API, such as `LNK2019: unresolved external symbol __imp_SHFileOperationW` | The linker of the program | The list of SCS-69 misses the import library that defines the symbol. An agent adds it to the constant of `route.rs`, or of `build_logic.rs` of `slang-glslang-sys` when an object of slang-glslang needs it, and to this design, and corrects SA-18 |
 
 ### 18.5. Logs
 
@@ -1696,3 +1714,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | SCS-66 | 6 | On both routes, a target whose pointer width is not 64 stops the build before the generation. |
 | SCS-67 | 7.1 | The first call of `generate` keeps libclang loaded until the process exits, through a static handle of `clang-sys`, without unsafe code. |
 | SCS-68 | 9.3 | With the Microsoft toolchain, the vendored route finds `cl.exe` with `find-msvc-tools`, gives its environment to the `cmake` runs only, and stops when it finds none. |
+| SCS-69 | 9.3 | After the C++ standard library, the vendored route links the system libraries of its kind of target: `pthread` and `dl` on Linux, none on macOS, and CMake's ten default libraries with the Microsoft toolchain. |

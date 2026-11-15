@@ -10,6 +10,14 @@ license.workspace = true
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = [
+    "slang-compiler/vendored",
+    "slang-slint/vendored",
+    "slango/vendored",
+    "slango-macros/vendored",
+]
+
 [dependencies]
 pollster.workspace = true
 slang-compiler.workspace = true

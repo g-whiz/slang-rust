@@ -4,6 +4,7 @@ members = [
     "crates/slang-bindgen",
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
+    "crates/slang-glslang-sys",
     "crates/slang-slint",
     "crates/slang-src",
     "crates/slango",
@@ -43,6 +44,7 @@ quote = "1.0.47"
 slang-bindgen = { path = "crates/slang-bindgen", version = "=0.1.0" }
 slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
+slang-glslang-sys = { path = "crates/slang-glslang-sys", version = "0.1.0" }
 slang-slint = { path = "crates/slang-slint", version = "0.1.0" }
 slang-src = { path = "crates/slang-src", version = "=0.1.0-slang.2026.17.0.25.gc7954ebd1" }
 slango = { path = "crates/slango", version = "0.1.0" }

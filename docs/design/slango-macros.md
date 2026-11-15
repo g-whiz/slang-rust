@@ -215,7 +215,7 @@ SIMP-4 of the coding standard prefers functions to macros. The macro is the deli
 
 ### 4.3. Cargo Features
 
-SLM-23. `slango-codegen` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, and `slango-macros` MUST have exactly one Cargo feature, `vendored = ["slango-codegen/vendored"]`, both off by default, and each crate MUST NOT read its feature in its own code. Every crate between a user and `slang-compiler-sys` forwards the feature (Section 19.1 of the architecture design).
+SLM-23. `slango-codegen` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, and `slango-macros` MUST have exactly one Cargo feature, `vendored = ["slango-codegen/vendored"]`, both off by default, and each crate MUST NOT read its feature in its own code. Every crate between a user and `slang-compiler-sys` forwards the feature (Section 19.1 of the architecture design). The crate documentation of `slango-macros` states the split of host and target features below, with the illustration of the manifest.
 
 With Cargo resolver 3, Cargo resolves the features of a host dependency apart from those of the target. The copy of Slang that the macro links while the user's crate builds is a host dependency, and the copy that the user's program links is a target dependency, so the feature `vendored` of `slango` does not reach the macro's copy, and that of `slango-macros` does not reach the program's copy.
 
@@ -228,6 +228,10 @@ This illustration shows the dependencies of such a program:
 slango = { version = "0.1", features = ["vendored"] }
 slango-macros = { version = "0.1", features = ["vendored"] }
 ```
+
+The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.
+
+The recipes do not check the separation of host and target features for a crate that depends on both crates. When `slango-macros` is the package under test, Cargo unifies the features of its dependencies with those of its development dependency `slango`, so the test binary does not keep the two copies apart. The need for the feature on both crates is an assumption that no recipe checks. It is expected to hold on every platform, and the expected failure with the feature on only one crate is the error of `slang-compiler-sys` that `VULKAN_SDK` is not set.
 
 ## 5. Changes to `slango`
 
@@ -518,6 +522,8 @@ Further `ffi` tests of `slango-codegen` check:
 - The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a move of the recorded Slang can change it (SLM-22).
 - The module `ffi` also compares the size, stride, and field offsets of generated structs with what `precompile_file` reflects. They cover tail padding, a gap between fields, arrays, nested structures, and a `new` of eight arguments.
 - The module `gpu` runs saxpy through `dispatch` and through `dispatch_groups` with a count that stops inside the last group, against values computed on the CPU. It also runs a kernel over a buffer of particles with a nested structure, a uniform structure `Step` that nests the structure `Wind`, and a uniform `Motion` that the element form of `Motion` serves. It compares the whole buffer exactly with values computed on the CPU.
+
+On the vendored route, `test-vendored` runs only the modules `bindings` and `structs` of `slango-macros`, with only its feature `vendored` (Section 4.3). The trybuild case of `ffi` cannot run there. trybuild passes the features of the crate under test to the project that it generates, but not those of its development dependency `slango`, so the `slango` of that project takes the dynamic route and stops without `VULKAN_SDK`. That is a limit of the test harness, not of the crates. The `gpu` tests do not run on the vendored route either.
 
 A missing file is no trybuild case, because its expected text would hold an error message of the operating system that differs on Windows, and the `ffi` test of `slango-codegen` covers it. The comparison with `precompile_file` uses the description of `slango`, so a wrong description that is consistent with itself passes it. The `gpu` test is the independent check of the stride, through the stride check of `bind`.
 

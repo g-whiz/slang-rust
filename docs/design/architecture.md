@@ -519,7 +519,7 @@ Each crate of the workspace has the licence of its kind, as this table shows. Th
 
 | Kind | Crates | Licence |
 | --- | --- | --- |
-| A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, and the planned `slang-src`, `slang-glslang-sys`, and `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
+| A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, `slang-src`, `slang-glslang-sys`, and the planned `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
 | The Slint view | `slang-slint` | `GPL-3.0-or-later` |
 | Every other crate | `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, the binding generator `slang-bindgen`, the planned `slang-rhi`, and the unpublished examples package | `MIT OR Apache-2.0` |
 
@@ -720,7 +720,7 @@ Several milestones replace requirements of this document that the code satisfies
   - Recipes that pass an explicit list of Cargo features instead of `--all-features`, which would force a vendored build.
   - One CI job per operating system that builds and tests `vendored`.
 
-  Slang's CMake build builds slang-glslang only as a module that Slang loads at run time. A C++ test linked it into a statically linked Slang through `IGlobalSession::setSharedLibraryLoader`, and that Slang emitted optimized SPIR-V with no diagnostic, so the design starts from such a loader. The Rust side of the loader is a deliverable of M7 (Section 17, Q-32).
+  Slang's CMake build builds slang-glslang only as a module that Slang loads at run time. A C++ test linked it into a statically linked Slang through `IGlobalSession::setSharedLibraryLoader`, and that Slang emitted optimized SPIR-V with no diagnostic, so the design starts from such a loader. The Rust side of the loader is a deliverable of M7, and its tests answer Q-32 (Section 17).
 - Owner decisions that bind it:
   - Every build generates the bindings with libclang in the build script, from the headers of the Slang that it links, and no package contains pregenerated bindings.
   - The binding generator is published as its own crate, `slang-bindgen`, a build dependency of `slang-compiler-sys` and later of `slang-rhi-sys`.
@@ -931,11 +931,12 @@ Each row is a question that this document leaves open. The design document in th
 | Q-23 | How is the shader target configured per backend? | The design of the configurable shader target | Deferred with no milestone assigned (Section 15.22) |
 | Q-24 | Can the windows of examples 3 and 4 be checked headless, and how? | A design document, written when a CI runner can show a window | Not scheduled |
 | Q-29 | What is the design of the path-tracing demo? | The design of M14 | M14 |
-| Q-32 | Does the in-process loader of `slang-glslang-sys` give a vendored build optimized SPIR-V on Linux, Windows, and macOS? A C++ test answers it in principle, and the Rust side remains to be built (Section 15.10) | `docs/design/slang-glslang-sys.md` | M7 |
 | Q-35 | How does the build script of `slang-rhi-sys` obtain the dependencies that the CMake build of slang-rhi downloads, and how does an offline or sandboxed build get them? | `docs/design/slang-rhi-sys.md` | M9 |
 | Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
 | Q-39 | Does the feature `rhi` of `slango` imply `vendored`, so that Slang and slang-rhi always come from one Slang tree? | `docs/design/slang-rhi-sys.md` | M9 |
+
+Q-32, whether the in-process loader of `slang-glslang-sys` gives a vendored build optimized SPIR-V on Linux, Windows, and macOS, is answered yes for the hosted runners of the three platforms by the vendored tests of `slang-compiler` and `slang-glslang-sys` (Section 9 of `docs/design/slang-glslang-sys.md`).
 
 ## 18. Security Considerations
 

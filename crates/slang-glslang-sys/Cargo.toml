@@ -1,0 +1,26 @@
+[package]
+name = "slang-glslang-sys"
+description = "glslang and SPIRV-Tools built statically for a vendored Slang, with the in-process loader through which it optimizes SPIR-V."
+keywords = ["slang", "glslang", "spirv", "shader", "ffi"]
+categories = ["external-ffi-bindings", "graphics"]
+links = "slang-glslang"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0 WITH LLVM-exception"
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+slang-compiler-sys = { workspace = true, features = ["vendored"] }
+slang-src.workspace = true
+
+[build-dependencies]
+find-msvc-tools.workspace = true
+
+[dev-dependencies]
+find-msvc-tools.workspace = true
+
+[lints]
+workspace = true

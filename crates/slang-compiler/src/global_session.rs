@@ -3,8 +3,8 @@ use std::fmt;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
-    BUILD_INFO, IGlobalSession, SlangGlobalSessionDesc, SlangResult, slang_createGlobalSession2,
-    spGetBuildTagString,
+    BUILD_INFO, IGlobalSession, ISlangSharedLibraryLoader, SlangGlobalSessionDesc, SlangResult,
+    slang_createGlobalSession2, spGetBuildTagString,
 };
 
 use crate::enums::{LanguageVersion, TargetFormat, Toggle};
@@ -310,16 +310,24 @@ impl GlobalSession {
                 })
             }
         };
+        #[cfg(feature = "vendored")]
+        // SAFETY: the loader goes only to the global session that `create`
+        // makes, which belongs to the vendored Slang that this program links.
+        let loader = Some(unsafe { slang_glslang_sys::slang_glslang_sys_loader() });
+        #[cfg(not(feature = "vendored"))]
+        let loader = None;
         // SAFETY: `create` calls the creation function of the linked Slang
         // library, whose build tag `build_tag` reports, and on success that
         // function returns a global session with one new reference that only
-        // this thread has.
-        unsafe { Self::create_with(builder, method, build_tag, create) }
+        // this thread has. `loader` is the static loader of the program's
+        // vendored Slang, or absent.
+        unsafe { Self::create_with(builder, method, build_tag, create, loader) }
     }
 
     /// Creates a global session with `create`, after the check of the build
     /// tag against the build information has passed, so that nothing reaches a library of
-    /// another build except the call that reads its build tag.
+    /// another build except the call that reads its build tag, and installs
+    /// `loader` on it when one is given, before any other use.
     ///
     /// # Safety
     ///
@@ -327,12 +335,15 @@ impl GlobalSession {
     /// written a non-null pointer, that pointer points to a live global
     /// session of the library whose build tag `build_tag` reports, the caller
     /// owns one reference to it, and only this thread has the pointer.
-    /// Breaking this is undefined behaviour.
+    /// `loader`, when given, points to a shared library loader that stays
+    /// valid for as long as that global session lives. Breaking this is
+    /// undefined behaviour.
     unsafe fn create_with<'tag>(
         builder: &GlobalSessionBuilder,
         method: &str,
         build_tag: impl FnOnce() -> Option<&'tag CStr>,
         create: impl FnOnce(&SlangGlobalSessionDesc, &mut *mut IGlobalSession) -> SlangResult,
+        loader: Option<*mut ISlangSharedLibraryLoader>,
     ) -> Result<Self> {
         guard::call(method, || {
             check_build_tag(build_tag())?;
@@ -352,6 +363,17 @@ impl GlobalSession {
             // session of the library whose build tag matched the build information, with one
             // reference that this thread alone owns.
             let raw = unsafe { Owned::adopt(raw) };
+            if let Some(loader) = loader {
+                // SAFETY: `raw` points to the live global session that this
+                // thread alone owns, the caller of `create_with` guarantees
+                // that `loader` outlives it, and the call runs with the Slang
+                // call guard raised.
+                unsafe {
+                    guard::abort_on_exception("IGlobalSession::setSharedLibraryLoader", || {
+                        IGlobalSession::setSharedLibraryLoader(raw.as_ptr(), loader);
+                    });
+                }
+            }
             Ok(Self { raw })
         })
     }
@@ -487,9 +509,11 @@ mod tests {
     use std::cell::RefCell;
     use std::ffi::{CStr, CString};
     use std::panic::{AssertUnwindSafe, catch_unwind};
-    use std::ptr;
+    use std::ptr::{self, NonNull};
 
-    use slang_compiler_sys::{BUILD_INFO, IGlobalSession, SlangGlobalSessionDesc, SlangResult};
+    use slang_compiler_sys::{
+        BUILD_INFO, IGlobalSession, ISlangSharedLibraryLoader, SlangGlobalSessionDesc, SlangResult,
+    };
 
     use super::{GlobalSession, GlobalSessionBuilder, check_build_tag};
     use crate::fake::{Event, FakeGlobalSession, Log, panic_message};
@@ -532,6 +556,7 @@ mod tests {
                     *out = created;
                     result
                 },
+                None,
             )
         };
         (global, calls.into_inner())
@@ -616,6 +641,7 @@ mod tests {
                     *out = fake.as_ptr();
                     SlangResult::SLANG_OK
                 },
+                None,
             )
         }
         .expect("the creator succeeds");
@@ -629,6 +655,44 @@ mod tests {
         assert_eq!(
             log.events(),
             [Event::release("global", 0), Event::freed("global")]
+        );
+    }
+
+    #[test]
+    fn create_with_a_loader_installs_it_on_the_created_global_session_before_returning_it() {
+        let log = Log::new();
+        let recorded = recorded();
+        let fake = FakeGlobalSession::create(&log, "global", SlangResult::SLANG_OK);
+        let loader = NonNull::<ISlangSharedLibraryLoader>::dangling().as_ptr();
+        // SAFETY: `fake` is a new fake global session of the Slang of the
+        // build with one reference, which only this thread has and
+        // `create_with` adopts, and the fake records the loader without
+        // reading through it.
+        let global = unsafe {
+            GlobalSession::create_with(
+                &GlobalSessionBuilder::default(),
+                "Test::create",
+                || Some(recorded.as_c_str()),
+                |_, out| {
+                    *out = fake.as_ptr();
+                    SlangResult::SLANG_OK
+                },
+                Some(loader),
+            )
+        }
+        .expect("the creator succeeds");
+        assert_eq!(
+            log.events(),
+            [Event::set_shared_library_loader("global", loader)]
+        );
+        drop(global);
+        assert_eq!(
+            log.events(),
+            [
+                Event::set_shared_library_loader("global", loader),
+                Event::release("global", 0),
+                Event::freed("global")
+            ]
         );
     }
 
