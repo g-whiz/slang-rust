@@ -157,7 +157,7 @@ None of these crates enters through `slang-slint`, which enables no backend and 
 
 ### 4.1. Package and Dependencies
 
-SLS-1. `slang-slint` MUST depend on `slango` and on `slint` with the version requirement `~1.18`, default features off, and the features `compat-1-18`, `std`, and `unstable-wgpu-30`, and on no other crate. Slint marks this API unstable (Section 3.2), so a wider range lets a minor release of Slint break the builds of users (ARCH-20).
+SLS-1. `slang-slint` MUST depend on `slango` with its feature `wgpu` named in the dependency (SLO-30 of `docs/design/slango.md`), and on `slint` with the version requirement `~1.18`, default features off, and the features `compat-1-18`, `std`, and `unstable-wgpu-30`, and on no other crate. Slint marks this API unstable (Section 3.2), so a wider range lets a minor release of Slint break the builds of users (ARCH-20).
 
 Slint 1.18 does not compile without the first two features (Section 3.2), and this answers Q-25 of the architecture design. The crate reaches wgpu's types through `slint::wgpu_30::wgpu`, which is the wgpu 30 that `slango` uses (Section 3.2), so it needs no direct dependency on wgpu. `slint` is in `[workspace.dependencies]` with its default features off, and each member adds the features it needs (DEP-2).
 
@@ -239,9 +239,9 @@ SLS-10. `View::draw` MUST return the `slango::Draw` of the view's pipeline with 
 
 The view offers no depth target. An application with a pipeline that has a depth format passes a `Depth32Float` texture of the view's size to `Draw::depth`, and replaces it whenever `View::resize` returns `true`. This works with no code of the view.
 
-SLS-11. `View::to_image` MUST return a `slint::Image` that shares the view's current texture, from a clone of its wgpu texture, because an image of a copy would not show later draws (Section 3.4).
+SLS-11. `View::to_image` MUST return a `slint::Image` that shares the view's current texture, from a clone of the wgpu texture that `slango::wgpu::texture` returns, because an image of a copy would not show later draws (Section 3.4).
 
-A `TextureImportError` gives `ErrorKind::TextureImport` with Slint's error as the source. The application sets the image on its `Image` element after `View::new` and after each resize that returns `true`. Every later draw into the same texture shows on the next frame that Slint renders.
+A `TextureImportError` gives `ErrorKind::TextureImport` with Slint's error as the source. When `slango::wgpu::texture` returns `None`, because the texture has no wgpu texture (SLO-31 of `docs/design/slango.md`), `to_image` gives `ErrorKind::TextureImport` without a source error. That case cannot occur while wgpu is the only backend of `slango`. The application sets the image on its `Image` element after `View::new` and after each resize that returns `true`. Every later draw into the same texture shows on the next frame that Slint renders.
 
 ### 6.2. Resize
 
@@ -317,7 +317,7 @@ SLS-13. `slang-slint` MUST have one public error type `Error` and the alias `Res
 | Kind | Meaning |
 | --- | --- |
 | `UnsupportedGraphicsApi` | The `GraphicsAPI` that `device` received is not wgpu 30, such as when the application chose a renderer on OpenGL |
-| `TextureImport` | Slint rejected the texture of `View::to_image`. The source error is Slint's `TextureImportError` |
+| `TextureImport` | Slint rejected the texture of `View::to_image`, and the source error is Slint's `TextureImportError`, or the texture has no wgpu texture, with no source error (SLS-11) |
 | `InvalidSize` | A size given to `View::new` or `View::resize` has a width or a height of zero |
 | `Slango` | `slango` failed, such as when it created a texture. The source error is the error of `slango` |
 
@@ -446,7 +446,7 @@ The `rust-version` of Slint (Section 3.2) is below the workspace's minimum suppo
 | A size has a width or a height of zero | `InvalidSize` | Skip resizing and drawing until the element has an area |
 | A texture larger than the device allows | `Slango`, with `slango`'s `InvalidArgument` as the source | Use a smaller element or another adapter |
 | The pipeline's colour format is not `Rgba8Unorm` | `slango`'s `InvalidArgument` at the draw | Create the pipeline with the default options |
-| Slint rejects the texture | `TextureImport`, with Slint's error as the source | Report it as a defect of `slang-slint` |
+| Slint rejects the texture, or the texture has no wgpu texture (SLS-11) | `TextureImport`, with Slint's error as the source when Slint rejected it | Report it as a defect of `slang-slint` |
 | A build on Linux without the development files of fontconfig | The build script of `yeslogic-fontconfig-sys` fails | Install them, such as `libfontconfig-dev` |
 
 ### 14.4. Logs
@@ -470,7 +470,7 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| SLS-1 | 4.1 | Depend on `slango` and on `slint` `~1.18` with `compat-1-18`, `std`, and `unstable-wgpu-30` and default features off, and on nothing else. |
+| SLS-1 | 4.1 | Depend on `slango` with the feature `wgpu` named, and on `slint` `~1.18` with `compat-1-18`, `std`, and `unstable-wgpu-30` and default features off, and on nothing else. |
 | SLS-2 | 4.1 | A new minor version of Slint is admitted only after all tests run again and ARCH-19 is checked. |
 | SLS-3 | 4.1 | The library enables no windowing backend or renderer of Slint. |
 | SLS-4 | 4.1 | No unsafe code and no logs. |
@@ -480,7 +480,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLS-8 | 5.2 | The library installs no rendering notifier. |
 | SLS-9 | 6.1 | `View::new` takes a device, a pipeline, and a size, and creates an `Rgba8Unorm` texture. |
 | SLS-10 | 6.1 | `View::draw` returns `slango`'s draw with the view's texture as its colour target and nothing else set. |
-| SLS-11 | 6.1 | `View::to_image` returns a `slint::Image` that shares the current texture. |
+| SLS-11 | 6.1 | `View::to_image` returns a `slint::Image` that shares the current texture, and `TextureImport` when the texture has no wgpu texture. |
 | SLS-12 | 6.2 | `View::resize` replaces the texture only on a new size, reports it, and keeps the texture on an error. |
 | SLS-13 | 7 | One `Error` type with the four kinds of Section 7. |
 | SLS-14 | 8 | `View`, `Error`, and `ErrorKind` are `Send` and `Sync` without a manual implementation, asserted in a test. |

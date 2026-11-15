@@ -189,9 +189,9 @@ The owner approved `slango-codegen` as a separate published crate, and Sections 
 
 Only the tests format the tokens with `prettyplease`.
 
-`slango-codegen` depends on `slango`, `proc-macro2`, and `quote`. For its tests only, it depends on `syn` with the features `full`, `parsing`, and `printing`, on `prettyplease`, and on `insta`.
+`slango-codegen` depends on `slango` with its feature `wgpu` named (SLO-30 of `docs/design/slango.md`), `proc-macro2`, and `quote`. For its tests only, it depends on `syn` with the features `full`, `parsing`, and `printing`, on `prettyplease`, and on `insta`.
 
-`slango-macros` depends on `slango-codegen` and on `syn` with the features `parsing`, `printing`, and `proc-macro`. For its tests only, it depends on `slango` and `trybuild`. It needs no `proc-macro2` of its own.
+`slango-macros` depends on `slango-codegen` and on `syn` with the features `parsing`, `printing`, and `proc-macro`. For its tests only, it depends on `slango`, with its feature `wgpu` named, and on `trybuild`. It needs no `proc-macro2` of its own.
 
 Both crates are published, because a published crate cannot depend on an unpublished one.
 
@@ -199,7 +199,7 @@ SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, a
 
 Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it.
 
-The requirement on `slango` cannot come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry as `0.1.0`. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0" }` in its own manifest, with a comment that cites SLM-2. This is the exception to DEP-2 that the coding standard states.
+The requirement on `slango` cannot come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry as `0.1.0`. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0", features = ["wgpu"] }` in its own manifest, with a comment that cites SLM-2. This is the exception to DEP-2 that the coding standard states.
 
 With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node `slango v0.1.0` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 

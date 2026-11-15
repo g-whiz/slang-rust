@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies how the deterministic checks of the slang-rust repository are configured and run. It defines the `just` recipes, the aggregate check that runs before every merge, the nextest profiles for the test tiers, and the git hooks. It also specifies the custom checkers that move rules from review to a tool and the continuous integration workflow that runs all of these checks.
+This document specifies how the deterministic checks of the slang-rust repository are configured and run. It defines the `just` recipes, the aggregate check that runs before every merge, the nextest profiles for the test tiers, and the git hooks. It also specifies the custom checkers that move rules from review to a tool, the continuous integration workflow that runs all of these checks, and the release procedure with its check for breaking changes and its hosted documentation.
 
 ## 1. Introduction
 
@@ -26,7 +26,7 @@ The primary readers are the coding agents that add or change a recipe, a checker
 
 ### 1.4. Scope
 
-This document covers the tool configuration files, the workspace manifest fields that are not lints, the recipes, the nextest configuration, the hooks, the custom checkers, the CI workflow, the cargo-deny policy, publishing readiness, and the requirements on the container image.
+This document covers the tool configuration files, the workspace manifest fields that are not lints, the recipes, the nextest configuration, the hooks, the custom checkers, the CI workflow and the documentation workflow, the cargo-deny policy, publishing readiness, the versions of a release, the check for breaking changes, the hosted documentation, the review of the public API before a release, the release procedure, and the requirements on the container image.
 
 ### 1.5. Non-Goals
 
@@ -77,12 +77,13 @@ It adds these terms:
 
 ### 3.1. Rules
 
-The `justfile` stays one flat file with `[group]` attributes, a help comment on every recipe, and shell that is `shellcheck`-clean, as Hard Rule 8 of `AGENTS.md` requires. It has four groups:
+The `justfile` stays one flat file with `[group]` attributes, a help comment on every recipe, and shell that is `shellcheck`-clean, as Hard Rule 8 of `AGENTS.md` requires. It has five groups:
 
 - `checks`: The checks, their self-tests, `check-vulkan-sdk`, and `hooks-install`.
 - `rust`: The recipes that change files, print the recorded Slang, or run tests and are not checks.
 - `git`: `merge` and `worktree-prune`.
 - `ci`: The recipes that only the CI workflow runs, which is `install-vulkan-sdk`.
+- `release`: The recipes of the release procedure that build the hosted documentation, publish, tag, or yank, which are `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank` (Section 9.6).
 
 The recipe `default` has no group. Section 14.1 lists every recipe that takes parameters.
 
@@ -113,13 +114,27 @@ Each of the two extra commands proves the forward of one crate above `slang-comp
 
 Neither command proves that Cargo keeps the features of a procedural macro on the host apart from those of the program in a crate that depends on both, and neither covers the forward of the examples package.
 
+TOOL-41 permits one more departure, for `doc-site`, which runs the documentation command on the vendored route for the crates of `release_packages` (Section 9.4).
+
 TOOL-32. The workspace manifest MUST list every member except `slang-src` and `slang-glslang-sys` in `default-members`, and every command of Section 4.8 of the coding standard that passes `--workspace` MUST also pass `--exclude slang-src --exclude slang-glslang-sys`. The build scripts of these two crates clone Slang and build glslang, which only a vendored build needs (Section 3.1 of the architecture design). `--workspace` ignores `default-members`, so the exclusions keep them out of the recipes, and `default-members` keeps them out of a plain `cargo build` in the root of the workspace.
 
 A command names only packages and features that the workspace has, because Cargo and cargo-hack warn about or refuse an argument that names a missing package or feature.
 
 No command of Section 4.8 passes `--all-features`, because it would turn on the feature `vendored` and build Slang from source in every check (SCS-50 of `docs/design/slang-compiler-sys.md`). A command names each feature that it enables with `--features`.
 
-`vendored` is the only Cargo feature of the workspace, so the commands name none and build the default features of each crate, and the feature powerset of `check-features` leaves `vendored` out with `--exclude-features vendored`. A later feature that the checks have to build is added by name to the commands of Section 4.8.
+The workspace has two Cargo features: `vendored`, off by default in every crate that has it, and `wgpu`, the default feature of `slango` (SLO-28 of `docs/design/slango.md`). The commands name no feature and build the default features of each crate, so they build `slango` with `wgpu` and never with `vendored`. The feature powerset of `check-features` leaves `vendored` out with `--exclude-features vendored`. A later feature that the checks have to build is added by name to the commands of Section 4.8.
+
+TOOL-48. `check-features` MUST check every combination of the features of each package, except the combinations of `slango` without `wgpu`. Without `wgpu`, the crate root of `slango` stops the compilation on purpose with one `compile_error!` (SLO-29 of `docs/design/slango.md`), and the powerset of cargo-hack includes the empty combination, so the recipe would always fail.
+
+The recipe adds `--at-least-one-of wgpu` to the cargo hack command of Section 4.8, which becomes this:
+
+```sh
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --feature-powerset --exclude-features vendored --at-least-one-of wgpu
+```
+
+Every other member that depends on `slango` names `wgpu` in that dependency (SLO-30 of `docs/design/slango.md`), so each combination of its own features builds `slango` with the feature. The option is meant to leave the packages that have no feature `wgpu` checked as before. `--exclude-features vendored` already names a feature that `slang-bindgen` lacks without an error, but how cargo-hack treats `--at-least-one-of` for such a package is TA-14.
+
+If TA-14 does not hold, the recipe runs two commands instead. The first is the command of Section 4.8 as it stands, with `--exclude slango` added. The second is `CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --at-least-one-of wgpu`. The change that adds the feature records whichever form works in Section 4.8 of the coding standard, as TOOL-7 requires.
 
 The formatting command of Section 4.8 ends with the list of every Rust file that git tracks or does not ignore. `fmt` and `check-fmt` compute that list with `git ls-files`, and it is part of the command, not an addition.
 
@@ -191,9 +206,16 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes |
 | `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` |
 | `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` |
-| `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature and leaves out `vendored` (TOOL-32) | No, the CI job `ci-only` runs it |
+| `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature, leaves out `vendored` (TOOL-32), and skips the combinations of `slango` without `wgpu` (TOOL-48) | No, the CI job `ci-only` runs it |
 | `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 14.3) |
-| `check-semver` | `checks` | Planned for M8, with the first release, and not yet in the `justfile`: cargo semver-checks against the last published version of each published crate (Section 9) | No, the planned CI job `semver` runs it |
+| `check-semver` | `checks` | cargo semver-checks with `--workspace --exclude slang-src --exclude slang-glslang-sys --default-features`, against the last release of each crate on crates.io (TOOL-38). The change that follows the first release adds it, and it does not exist before (TOOL-39) | No, because it fetches each baseline from crates.io and builds every crate twice. The CI job `semver` runs it |
+| `check-package` | `checks` | Compares `release_packages` with the members without `publish = false`, checks the `documentation` field of each crate, prints `cargo package --list` and runs `cargo package --no-verify` for each crate of `release_packages`, and checks each `.crate` file (TOOL-45). Available on Linux and macOS only (Section 9.6) | No, the release procedure runs it |
+| `check-release` | `checks` | Reads each crate of `release_packages` from crates.io and checks its version, its `documentation` field, and that the address answers (Section 9.6) | No, it checks a release after the publish |
+| `doc-site` | `release` | The documentation command of Section 4.8 on the vendored route for the crates of `release_packages`, the index page, and the checks of the site (TOOL-41). Its first run in `target/vendored` clones Slang and builds Slang and slang-glslang | No, the release procedure and the documentation workflow run it |
+| `publish-dry-run` | `release` | `cargo publish --dry-run` for the crates of `release_packages`, and the record of the verified commit in `target/publish-dry-run.commit` (Section 9.6). Available on Linux and macOS only | No, the release procedure runs it |
+| `publish` | `release` | `cargo publish --no-verify` for the given crates, by default those of `release_packages`, after the checks of Section 9.6. Only the owner runs it, with a token (TOOL-46). Available on Linux and macOS only | No, it publishes |
+| `tag-release` | `release` | Creates and pushes the tag `v<version>` and creates the GitHub release with the given notes (Section 9.6). It needs the owner's go-ahead | No, it tags and deploys |
+| `yank` | `release` | `cargo yank` of one version of one crate (Section 9.8). Only the owner runs it, with a token (TOOL-46) | No, it changes crates.io |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 7.1) |
 
 `check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines (Section 4).
@@ -352,6 +374,10 @@ The allow list of `.claude/settings.json` lets Claude Code run these commands wi
 - `shellcheck` and `git status`.
 
 Claude Code asks before it runs any other recipe, such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `check-slang-call-guard`, or `check-slang-call-guard-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
+
+TOOL-47. The allow list MUST NOT hold a recipe that publishes, tags, deploys, or yanks, which are `publish`, `tag-release`, and `yank`, or any command that runs one of them, such as `cargo publish` or `gh release`. Each of them acts in public and needs the owner's go-ahead (Section 9.6), and an entry in the allow list would let an agent run it without asking.
+
+The other recipes of the release procedure stay off the allow list as well, by a choice of the design: `check-semver`, `check-package`, `check-release`, `doc-site`, and `publish-dry-run`. Each of them reaches the network or builds Slang from source, as `check-vendored` does, and none of them is part of `check`.
 
 ## 6. Custom Checkers
 
@@ -531,7 +557,7 @@ This table summarizes the workflow pin checker.
 | Reads | Every `.yml` and `.yaml` file under `.github/workflows/`, and every `action.yml` and `action.yaml` file under `.github/actions/`. A file named `action.yml` or `action.yaml` is read as a composite action, and any other file as a workflow |
 | Reports | In every workflow and composite action, a `uses:` whose reference is not a full 40-character lowercase hexadecimal commit SHA. In every workflow, also the `pull_request_target` event under the top-level `on:` key, a workflow without a top-level `permissions:` key or with an empty one, and a top-level permission other than `read` or `none`, such as `write-all` or `contents: write` |
 
-A local action, whose reference starts with `./`, needs no commit SHA. A `docker://` reference passes only when it is pinned by an `@sha256:` digest. The checker does not check the permissions of a job, so whether a job that requests more than read access needs it stays a judgement rule, and so does the part of TOOL-22 about secrets and publishing.
+A local action, whose reference starts with `./`, needs no commit SHA. A `docker://` reference passes only when it is pinned by an `@sha256:` digest. The checker does not check the permissions of a job, so whether a job that requests more than read access needs it stays a judgement rule, and so does the part of TOOL-22 about secrets, publishing, and `id-token: write`. The documentation workflow of Section 7.5 sets `contents: read` at its top level and requests `pages: write` and `id-token: write` on its deploy job alone, so it passes the checker with no change to the checker.
 
 The checker reads each file line by line and does not use a YAML parser, and its usage text states the limits that follow from this:
 
@@ -683,6 +709,8 @@ justfile:14: cites the project document docs/design/tooling.md
 
 One workflow, `.github/workflows/ci.yml`, runs on every push to `main`, on every push to a branch that matches `feature/**`, and on every pull request. The project opens no pull requests, so a plain push of a feature branch is how a branch is verified before it merges (Section 14.7), and each such push starts one run. The `pull_request` trigger stays so that a pull request from a fork runs the same jobs, with a read-only token and no secrets (Section 7.2).
 
+A second workflow, `.github/workflows/documentation.yml`, builds and deploys the hosted documentation on a push of a release tag (Section 7.5). The rest of this section concerns `ci.yml`.
+
 The `concurrency` group of a run on `main` is the run itself, and nothing cancels it, so every commit on `main` keeps its own result. For any other git reference, such as a feature branch or a pull request, the group is the workflow and the reference, and `cancel-in-progress` is true, so a new push cancels the earlier run for that reference.
 
 Every job has a timeout of 60 minutes, and every `run` step uses Bash, also on Windows. The checkout step sets `persist-credentials: false`, so the token is not left in the git configuration of the runner for later steps.
@@ -696,7 +724,7 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 | `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just check` |
 | `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` |
 | `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` |
-| `semver` | Not yet named | Linux x86_64 | `just check-semver`. Planned for M8, with the first release, and not yet in the workflow (Section 9) |
+| `semver` | Check for breaking changes on Linux | `ubuntu-latest`, Linux x86_64 | `just check-semver`. Added by the change that follows the first release, and absent before it (TOOL-39) |
 | `coverage` | Measure test coverage on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just coverage`, then the upload of `target/lcov.info` as the artifact `coverage-lcov` |
 | `vendored` | Test the vendored build on `ubuntu-latest`, on `windows-latest`, and on `macos-latest` | A matrix of `ubuntu-latest`, `windows-latest`, and `macos-latest`, with `fail-fast: false` | `just check-vendored` on Linux, and `just test-vendored` and `just check-vendored-shared-folder` on each platform (Section 7.4) |
 
@@ -718,6 +746,7 @@ Every job except `vendored` runs its steps in the same order. It checks out the 
 - The `test` job runs `just check-clippy`, `just check-doctest`, and `just test-gpu`.
 - The `ci-only` job installs fontconfig and runs the recipe of its matrix entry.
 - The `coverage` job installs lavapipe and fontconfig, runs `just coverage`, and uploads the report.
+- The `semver` job, once it exists, runs `just check-semver`. It installs no adapter and no fontconfig, because the check builds only the libraries of the crates of the release, and none of them depends on Slint.
 
 The workflow defines the steps that check out the repository, install libclang, install and check the SDK, install lavapipe, and install fontconfig once, with YAML anchors. It reuses them in the other jobs, so each of these steps is the same in every job that runs it.
 
@@ -730,7 +759,7 @@ CI installs the tools on each runner, because no container image is published fo
 - The Rust toolchains, through rustup, which the hosted runners provide. Each job installs the stable toolchain with the minimal profile and the components that it needs, which are rustfmt and clippy in the `check` job, clippy in the `test` job and in the `vendored` job on Linux, none in the `ci-only` job and the `vendored` jobs on Windows and macOS, and llvm-tools in the `coverage` job.
 
   `check-fmt` needs rustfmt, and cargo llvm-cov needs llvm-tools. The `check` job also installs the nightly toolchain with the components miri and rust-src, and lets rustup choose an older nightly when the latest one lacks a component.
-- `just` in every job, cargo-nextest in the `check`, `test`, `coverage`, and `vendored` jobs, shellcheck, typos, taplo, cargo-machete, and cargo-deny in the `check` job, cargo-hack in the `ci-only` job, and cargo-llvm-cov in the `coverage` job, through the action `taiki-e/install-action`, pinned by commit SHA. The action installs prebuilt binaries and verifies the SHA-256 checksum of each one against the manifest of versions and checksums that it carries. The workflow sets `fallback: none`, so the action fails instead of installing a tool by a route that its manifest does not cover.
+- `just` in every job, cargo-nextest in the `check`, `test`, `coverage`, and `vendored` jobs, shellcheck, typos, taplo, cargo-machete, and cargo-deny in the `check` job, cargo-hack in the `ci-only` job, cargo-llvm-cov in the `coverage` job, and cargo-semver-checks in the `semver` job (TA-20), through the action `taiki-e/install-action`, pinned by commit SHA. The action installs prebuilt binaries and verifies the SHA-256 checksum of each one against the manifest of versions and checksums that it carries. The workflow sets `fallback: none`, so the action fails instead of installing a tool by a route that its manifest does not cover.
 - actionlint, in the `check` job, through an inline step. It reads the latest release from GitHub, downloads the release archive for Linux x86_64 and the checksums file of the same release, verifies the archive with `sha256sum --check --strict`, and fails on a mismatch before it extracts the archive.
 - libclang, in every job that builds `slang-compiler-sys`, because every build of `slang-compiler-sys` generates its bindings with libclang (SCS-64 of `docs/design/slang-compiler-sys.md`), and the tests of `slang-bindgen` load it on Linux. On Linux, the step runs `sudo apt-get update` and `sudo apt-get install --yes --no-install-recommends libclang-dev`. It meets TOOL-21 because apt verifies the signature of the distribution's package index and the SHA-256 checksum of each package against that index, and refuses a package that fails either check.
 
@@ -774,9 +803,11 @@ Section 13 states the residual risk. Whether each step meets TOOL-21 is a judgem
 
 The action `actions/upload-artifact`, which the `coverage` job uses (Section 7.1), is pinned by commit SHA like every other action, and `check-workflow-pins` checks it. The step that installs the Vulkan SDK meets TOOL-21 with checksums that the workflow records (Section 7.3). The installers of the SDK for macOS and Windows also fetch metadata from LunarG during the installation, which that checksum does not cover, and Section 13 states that residual risk.
 
-TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret, or publish a crate. The workflows need no secret to check code, and a workflow that holds a secret while it runs the code of a pull request exposes that secret to the author of the pull request.
+TOOL-22. A workflow MUST NOT use the `pull_request_target` event, read a secret, or publish a crate, except that the deploy job of TOOL-42 MAY request the OpenID Connect (OIDC) token of its run through `id-token: write`. The workflows need no secret to check code, and a workflow that holds a secret while it runs the code of a pull request exposes that secret to the author of the pull request.
 
-`check-workflow-pins` reports the `pull_request_target` event (Section 6.8). The rest of TOOL-22 is a judgement rule.
+`check-workflow-pins` reports the `pull_request_target` event (Section 6.8). The rest of TOOL-22, including which job requests `id-token: write`, is a judgement rule.
+
+The exception is narrow because the OIDC token is not a stored secret. GitHub issues it to that one run, and only a user with write access to the repository can start the deploy job, by pushing a tag or, in the fallback of Section 7.5, by starting the workflow by hand, while no pull request can. A deployment to GitHub Pages publishes no crate.
 
 The workflow keeps the `pull_request` trigger for pull requests from forks. GitHub gives a run for such a pull request a read-only token and no secrets, so the code of the pull request can neither write to the repository nor read a secret. A push to `main` or to a feature branch needs write access to the repository, so the push triggers add no way for an outside author to run code in CI.
 
@@ -880,6 +911,38 @@ The job reaches the network only through the clone of `slang-src`, which fetches
 A vendored build takes several minutes on a machine with many cores (Section 3.10 of `docs/design/slang-compiler-sys.md`), and a hosted runner has fewer. The job keeps the timeout of 60 minutes of every job. On Linux, macOS, and Windows, a run from an empty target directory that builds Slang and slang-glslang is expected to fit that timeout with a wide margin.
 
 The job is the only place where the vendored routes run on Windows and macOS, so it also confirms SRCA-3 of `docs/design/slang-src.md` and the assumptions of `docs/design/slang-glslang-sys.md` that name the vendored CI job.
+
+### 7.5. The Documentation Workflow
+
+TOOL-42. The hosted documentation of Section 9.4 MUST be built and deployed by a workflow of its own, `.github/workflows/documentation.yml`, which runs only on a push of a tag that matches `v*`. Its top-level permissions MUST be `contents: read`. Its deploy job MUST request `pages: write` and `id-token: write`, the permissions that a deployment to GitHub Pages needs [GH-PAGES-WORKFLOW], and every other job MUST NOT request more than the top level grants.
+
+`ci.yml` runs the code of every pull request, so a separate workflow keeps the permissions that change the public site out of every run that a pull request or a branch can start. The design chooses a separate file over a job of `ci.yml` for this reason. Only a user with write access to the repository can push a tag, and the release procedure pushes one only after the owner's go-ahead (Section 9.6).
+
+The workflow has two jobs on `ubuntu-latest`, each with the timeout of 60 minutes of every job:
+
+| Job | Name | Permissions | Steps |
+| --- | --- | --- | --- |
+| `build` | Build the documentation site | The top-level `contents: read` | Checks out the tag with `persist-credentials: false`, installs the stable toolchain with the minimal profile, installs `just` through the installer action of Section 7.1, makes libclang available, installs and prints the vendored tools as steps 5 to 7 of Section 7.4 do on Linux, runs `just doc-site`, and uploads `target/vendored/doc` with `actions/upload-pages-artifact` |
+| `deploy` | Deploy the documentation site | `pages: write` and `id-token: write`, and no other | Needs `build`. Runs in the environment `github-pages` with the address `${{ steps.deployment.outputs.page_url }}`, and runs `actions/deploy-pages` in the step with the identifier `deployment` |
+
+Besides the checkout and installer actions that `ci.yml` pins, the workflow uses these actions, each pinned to the commit of its release (TOOL-20):
+
+| Action | Release | Commit SHA |
+| --- | --- | --- |
+| `actions/upload-pages-artifact` | v5.0.0 | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
+| `actions/deploy-pages` | v5.0.1 | `368f82528645a54fb793d4d04e342629a3f51346` |
+
+The workflow does not use `actions/configure-pages`, of which v6.0.0 is commit `45bfe0192ca1faeb007ade9deae92b16b8254a0d`. Its input `enablement` can turn Pages on only with a token other than `GITHUB_TOKEN` [CONFIGURE-PAGES], which TOOL-22 rules out, and rustdoc writes relative links, so the site needs no base address from it (TA-15). The owner turns Pages on in the settings of the repository instead (Section 9.6).
+
+The `concurrency` group of the workflow is `pages`, with `cancel-in-progress` false, so a deployment that has started finishes. The workflow caches nothing, so each run clones Slang and builds Slang and slang-glslang from an empty target directory, as the `vendored` job does.
+
+GitHub Pages limits a published site to 1 GB and a deployment to 10 minutes [GH-PAGES-LIMITS], and `doc-site` checks the size (TOOL-41). The artifact may hold no symbolic or hard link [UPLOAD-PAGES-ARTIFACT]. The site is public, because the repository is public (TA-16).
+
+The workflow cannot share the YAML anchors of `ci.yml`, so its steps that install libclang and the vendored tools are copies of those of `ci.yml`. A change to one of these steps changes both workflows in the same change, which is a judgement rule.
+
+To deploy the site of a tag again, such as after a failed deployment, the owner reruns the workflow run of that tag. A rerun changes the public site, so it needs the owner's go-ahead like the push of the tag.
+
+The environment `github-pages` is expected to allow deployments only from the default branch until the owner adds a rule for the tags, which step 6 of Section 9.6 does (TA-21). If the environment cannot allow tags, the workflow gains the trigger `workflow_dispatch`, and its deploy job runs only for a run that the owner starts on `main`. The owner starts it right after `tag-release`, while `main` is still the commit of the tag, so the site still shows the release. TOOL-42 then names both triggers, in the change that finds the limit.
 
 ## 8. Dependency Policy
 
@@ -1032,9 +1095,11 @@ The `ignore` list of the `[advisories]` table holds five advisories by the owner
 
 A Linux build of Slint links fontconfig, so the Linux jobs install its development files (Section 7.1). `check-deny` fetches the advisory database on every run, so it needs network access (Section 14.6).
 
-## 9. Publishing Readiness
+## 9. Publishing and Releases
 
-The architecture design owns the publishing policy in its Section 13 and the go-ahead rule ARCH-24. This section defines how the repository is kept ready to publish.
+The architecture design owns the publishing policy in its Section 13 and the go-ahead rule ARCH-24. This section defines how the repository is kept ready to publish, which crates a release publishes and at which versions, the check for breaking changes, the hosted documentation, the review of the public API, and the release procedure.
+
+### 9.1. Metadata and Licence Files
 
 TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence expression `MIT OR Apache-2.0`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that ARCH-36 of the architecture design assigns and with the minimum supported Rust version (MSRV) that Clippy reads.
 
@@ -1042,7 +1107,7 @@ The one exception is the `license` field of a member that ARCH-36 assigns anothe
 
 TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 14.3 and `README.md`. The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
 
-TOOL-27. Every published crate MUST carry the metadata fields that the row of `clippy::cargo_common_metadata` in Section 4.5 of the coding standard lists, inheriting those that TOOL-4 places in `[workspace.package]` and setting `description`, `keywords`, and `categories` itself. Every member that is never published MUST set `publish = false`, because Clippy reports a missing field on every member that does not set `publish = false`, so the check fails until the metadata is complete.
+TOOL-27. Every published crate MUST carry the metadata fields that the row of `clippy::cargo_common_metadata` in Section 4.5 of the coding standard lists, inheriting those that TOOL-4 places in `[workspace.package]` and setting `description`, `keywords`, `categories`, and the `documentation` field of TOOL-40 itself. Every member that the next release does not publish MUST set `publish = false`, as TOOL-35 states. Clippy reports a missing field on every member that does not set `publish = false`, so the check fails until the metadata is complete.
 
 TOOL-3. An agent MUST create the examples as one workspace member, the package `slang-rust-examples` at `examples/`, with `publish = false`, in which each example is a binary target. One package needs one manifest with one `publish = false`, one integration-test binary under TEST-10 of the coding standard, and one place for shared helpers.
 
@@ -1065,15 +1130,251 @@ The root texts are these:
 
 The repository has no `NOTICE` file.
 
-`slang-bindgen`, `slang-src`, and `slang-glslang-sys` are published crates (Section 3.1 of the architecture design), so TOOL-27 applies to them. Every release of `slang-src` needs a release of each crate that requires it exactly (SRC-14 of `docs/design/slang-src.md`, ARCH-32 of the architecture design), which the release procedure has to cover. TQ-4 is where that procedure is decided.
+`slang-bindgen`, `slang-src`, and `slang-glslang-sys` are published crates (Section 3.1 of the architecture design), so TOOL-27 applies to them. Every release of `slang-src` needs a release of each crate that requires it exactly (SRC-14 of `docs/design/slang-src.md`, ARCH-32 of the architecture design), which TOOL-36 covers.
 
-docs.rs is not supported, and no recipe builds the documentation without Slang (Sections 4.5 and 13 of the architecture design). `check-doc` builds the documentation like any other build, so it needs the Vulkan SDK and libclang, and CI builds and hosts the documentation of the published crates from M8 on. No manifest has a `[package.metadata.docs.rs]` table.
+### 9.2. The Crates of a Release and Their Versions
 
-The recipe `check-semver` compares each published crate with its last version on crates.io. It arrives in M8 with the first release, together with the CI job `semver`, because only then does each published crate have a published version to compare with.
+TOOL-35. The `justfile` MUST hold the packages of the next release once, in the variable `release_packages`, in the order in which they depend on each other, and every recipe of the release procedure MUST read them from there. Every other member MUST set `publish = false` in its manifest. A second list can diverge from the first. Cargo refuses to publish a member with `publish = false` even when a command names it, so the manifest and not care keeps a member out of a release.
 
-cargo-semver-checks 0.51.0 fails on a crate that has no published version, with the message "not found in registry" and exit status 101, and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace. Before the first release, a comparison with `main` would report every change to the API, which tells a reviewer nothing.
+For the first release, `release_packages` holds `slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros`, the crates that Section 13 of the architecture design assigns to it. Two members set `publish = false`:
 
-How a release is carried out is open (Section 12, TQ-4).
+- The examples package, which is never published.
+- `slang-slint`, which belongs to the second release. The change that prepares the second release removes the field and adds the crate to `release_packages`.
+
+`check-package` fails when the members without `publish = false` differ from `release_packages` (Section 9.6).
+
+TOOL-36. Every release MUST publish every crate of `release_packages` at a version that crates.io does not hold yet. The crates other than `slang-src` MUST share the version of `[workspace.package]`, and every exact requirement between members MUST name the version of the same release. `slang-src` MUST take a new version under SRC-13 of `docs/design/slang-src.md` in every release, with a new patch number when its recorded commit is unchanged.
+
+The reason is the exact requirements of the workspace:
+
+| Crate | Requires exactly | Where the requirement is declared |
+| --- | --- | --- |
+| `slang-compiler-sys` | `slang-bindgen`, as a build dependency, and `slang-src` | `[workspace.dependencies]` |
+| `slang-glslang-sys` | `slang-src` | `[workspace.dependencies]` |
+| `slango-macros` | `slango-codegen` | `[workspace.dependencies]` |
+| `slango-codegen` | `slango` | The manifest of `slango-codegen` (SLM-2 of `docs/design/slango-macros.md`) |
+
+A crate that requires another exactly cannot move to a new version of it without a release of its own. Publishing every crate in every release, at one shared version, is the simplest rule that keeps every exact requirement satisfiable, and the tag of a release then names the version of every crate except `slang-src`. The cost, a new version of a crate that did not change, is a choice of the design.
+
+Every crate stays below version 1.0 (Section 13 of the architecture design). Below 1.0, Cargo treats a change of the minor number as breaking and a change of the patch number as compatible [CARGO-SEMVER].
+
+TOOL-37. The change that follows a release MUST raise the version of `[workspace.package]` to the next patch number, together with every exact requirement that names it. A later change that breaks the public API of a crate of the release MUST raise the minor number in the same change. `check-semver` compares each crate with its last release, so it then accepts a compatible change and fails a breaking change until the minor number is raised.
+
+The first release publishes the versions that the manifests hold, `0.1.0` and the version of `slang-src` that SRC-13 derives from the recorded Slang. `slang-src` keeps its version between releases, and the change that prepares a release gives it the new version that TOOL-36 requires.
+
+### 9.3. The Check for Breaking Changes
+
+TOOL-38. The recipe `check-semver` MUST run cargo-semver-checks on every crate of `release_packages` except `slang-src` and `slang-glslang-sys`, against the last release on crates.io, with the default features of each crate and no other feature. Without an explicit choice, the tool enables every feature whose name does not look unstable [CSC-README], which would turn on `vendored` and clone and build Slang from source for each crate and again for each baseline.
+
+The recipe runs this command, whose options rest on TA-10. The change that adds the recipe also records the command in Section 4.8 of the coding standard, the owner of the command lines (TOOL-7):
+
+```sh
+cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --default-features
+```
+
+The command selects the crates in this way:
+
+- In a workspace, the tool skips every member with `publish = false` unless a command names it [CSC-SRC], so `--workspace` selects the crates of `release_packages` (TOOL-35). The exclusions are those of TOOL-32.
+- The baseline of each crate is the newest version on crates.io that is neither a pre-release nor yanked, and otherwise the newest version [CSC-SRC].
+- With the default features, `slango` builds with its feature `wgpu` (SLO-28 of `docs/design/slango.md`), and no crate enables `vendored`. Every build takes the dynamic route, so the recipe needs `VULKAN_SDK` and libclang for the current crates and for the baselines (TA-11).
+
+The exit status is 0 when the tool finds no breaking change, 100 when it finds one, and 101 when the check cannot complete [CSC-README].
+
+`slang-src` and `slang-glslang-sys` are left out, because the check cannot help with them. They build only on the vendored route, so checking them would clone and build Slang and slang-glslang for the current crates and again for the baselines in every run. Their Rust API is empty or one foreign function, and their real interface is their `links` metadata and their build behaviour, which the tool cannot see. ARCH-32 of the architecture design and SRC-13 of `docs/design/slang-src.md` govern their versions.
+
+The check also cannot detect a change of the generated bindings that a new recorded Slang causes. The current `slang-compiler-sys` and its baseline both generate their bindings from the headers of the same installed Slang, so both sides show the same bindings. Whether a move of the recorded Slang is breaking stays with ARCH-32 and the change that moves it (Section 8.2 of `docs/design/slang-compiler-sys.md`).
+
+The tool checks procedural macro crates as well as libraries [CSC-SRC]. For `slango-macros`, it sees the exported macro `shader!`, so it reports its removal, but it sees neither the grammar of the macro's input nor the shape of the generated code. The generated code calls the hidden module `__private` of `slango`, which is exempt from semantic versioning (SLM-6 of `docs/design/slango-macros.md`), and the exact requirements of TOOL-36 tie the three crates together. Whether the tool treats `#[doc(hidden)]` items as outside the public API is TA-12. `slango-codegen` is a library, and the tool checks it like any other.
+
+TOOL-39. The recipe `check-semver` and the CI job `semver` MUST be added by the change that follows the first release, together with the raise of TOOL-37, and not before. From then on, the job MUST run `just check-semver` in every run of the workflow.
+
+Before the first release, no crate has a version to compare with. cargo-semver-checks then fails each crate with "not found in registry" [CSC-SRC] and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace, and a comparison with `main` reports every change to the API, which tells a reviewer nothing.
+
+`check-semver` stays outside `check`, as `check-features` and `check-msrv` do. It fetches each baseline from crates.io, so it needs network access, and it builds every crate twice, once for the current version and once for the baseline. CI runs it in every run of the workflow.
+
+### 9.4. Hosted Documentation
+
+TOOL-40. The manifest of each crate of `release_packages` MUST set the `documentation` field to the address of its documentation on the hosted site, `https://g-whiz.github.io/slang-rust/<crate>/`, in which `<crate>` is the crate name with each hyphen replaced by an underscore. Without the field, crates.io links each crate to docs.rs [CARGO-MANIFEST], which cannot build these crates.
+
+The addresses for the first release are these:
+
+| Crate | `documentation` |
+| --- | --- |
+| `slang-bindgen` | `https://g-whiz.github.io/slang-rust/slang_bindgen/` |
+| `slang-src` | `https://g-whiz.github.io/slang-rust/slang_src/` |
+| `slang-compiler-sys` | `https://g-whiz.github.io/slang-rust/slang_compiler_sys/` |
+| `slang-glslang-sys` | `https://g-whiz.github.io/slang-rust/slang_glslang_sys/` |
+| `slang-compiler` | `https://g-whiz.github.io/slang-rust/slang_compiler/` |
+| `slango` | `https://g-whiz.github.io/slang-rust/slango/` |
+| `slango-codegen` | `https://g-whiz.github.io/slang-rust/slango_codegen/` |
+| `slango-macros` | `https://g-whiz.github.io/slang-rust/slango_macros/` |
+
+The host is the default address of GitHub Pages for the project site of the repository `g-whiz/slang-rust`. A custom domain would change every field and is not part of this design. `check-package` checks each field (Section 9.6).
+
+The site holds the documentation of the latest release only, built from its tag (Section 7.5). A user who follows the link of the current version reads the API that the version has, while a site built from `main` would describe API that no release has. The link of an older version then shows the documentation of a newer one, which TQ-12 leaves open.
+
+TOOL-41. The recipe `doc-site` MUST build the site with the documentation command of Section 4.8 of the coding standard, under a departure from TOOL-7 like that of the vendored recipes. It runs the command with `-p` for every package of `release_packages` in place of the workspace options, with the features `slang-compiler/vendored` and `slango-macros/vendored`, and with the value of the `justfile` variable `vendored_environment` before it. It then writes the index page and checks the site.
+
+For the first release, the command is this:
+
+```sh
+env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny cargo doc --no-deps -p slang-bindgen -p slang-src -p slang-compiler-sys -p slang-glslang-sys -p slang-compiler -p slango -p slango-codegen -p slango-macros --features slang-compiler/vendored,slango-macros/vendored
+```
+
+The site is built on the vendored route, by a choice of the design, for these reasons:
+
+- `slang-src` and `slang-glslang-sys` build only on that route (TOOL-32), and one command writes all eight crates into one directory with one search index.
+- The dynamic route for six crates and the vendored route for two would need both the Vulkan SDK and the vendored tools, and two runs of rustdoc.
+- `check-vendored` already builds the documentation of four of the crates on this route.
+
+The cost is the clone of Slang and the build of Slang and slang-glslang in a run from an empty target directory, which takes about as long as `check-vendored`. Whether the one command documents all eight crates is TA-13.
+
+The command enables `slango-macros/vendored` as well, because the copy of Slang that the macro links is a host dependency, which the feature of `slang-compiler` does not reach (Section 4.3 of `docs/design/slango-macros.md`). Without it, and without `VULKAN_SDK`, the build of the macro stops. The public API of each crate is the same on both routes, so the site describes what a user of either route gets.
+
+rustdoc's own index page needs unstable options [RUSTDOC-UNSTABLE]. After the command, the recipe therefore writes `target/vendored/doc/index.html`, a plain HTML page with one link to the documentation of each crate of `release_packages`, in that order, and nothing else. The recipe generates the page in every run, and no file of the repository holds it (Hard Rule 10 of `AGENTS.md`).
+
+The recipe then checks the site against the limits of GitHub Pages:
+
+- It fails when `target/vendored/doc` holds a symbolic link, which the artifact of the deployment may not contain [UPLOAD-PAGES-ARTIFACT].
+- It prints the size of the site with `du -sh`, and fails when the site is larger than 1 GB, the limit of a published site [GH-PAGES-LIMITS].
+
+`doc-site` builds only, and deploys nothing. The documentation workflow of Section 7.5 runs it and deploys its output.
+
+docs.rs builds the documentation of every version published on crates.io, with no network access [DOCSRS-BUILDS], and offers no documented setting that stops the build of a crate. This confirms A-25 of the architecture design. docs.rs is not supported (Section 13 of the architecture design), so a user who opens docs.rs for one of these crates finds a failed build:
+
+- The build of `slang-compiler-sys`, and of every crate that depends on it, stops in its build script on the dynamic route without `VULKAN_SDK`, or without libclang (Section 9.6 of `docs/design/slang-compiler-sys.md`).
+- The build of `slang-src`, and of `slang-glslang-sys`, needs the network to clone Slang.
+
+A failed build on docs.rs shows a page that says that docs.rs failed to build the crate, with a link to the log, as an example page of another crate shows. `slang-bindgen` has no build script that needs Slang, so docs.rs may build it, and this design depends on neither outcome. The crates.io page of each crate links to the hosted site through its `documentation` field (TOOL-40), and no manifest has a `[package.metadata.docs.rs]` table or a code path for docs.rs.
+
+### 9.5. Review of the Public API
+
+TOOL-43. Before every release, each crate of `release_packages` MUST have a review of its whole public API against the judgement rules of this section. Each finding of a broken rule MUST be fixed before the release, or deferred by the owner and recorded as an open question in the design document of the crate. A published version locks in its API, and a tool checks only the rules that it implements (Hard Rule 4 of `AGENTS.md`).
+
+The review checks these rules, and no rule that a configured tool already reports:
+
+- The rules of Appendix A of the coding standard that concern the public API: API-1 to API-16, TYPE-1 to TYPE-4, TYPE-8, ERR-1 to ERR-4, CONC-1, CONC-6, CONC-7, DEP-1, DEP-3, SIMP-1, and SIMP-2.
+- The rules of Section 7 of the writing guide on API documentation that no checker enforces (Section 7.12 of the writing guide).
+- The items of the checklist of the Rust API Guidelines, IR-8 of `docs/rust-references.md` [API-GUIDELINES], that the rules above do not cover and no tool checks, such as C-QUESTION-MARK, C-FAILURE, C-LINK, and C-HIDDEN.
+
+These tools already cover API hygiene, so the review does not repeat them:
+
+| Tool | What it covers |
+| --- | --- |
+| `clippy::exhaustive_enums`, `clippy::exhaustive_structs` | A decision about `#[non_exhaustive]` on every public enumeration and every struct whose fields are all public (API-9, C-STRUCT-PRIVATE) |
+| `clippy::partial_pub_fields` | Structs that mix public and private fields |
+| rustc `missing_docs`, `missing_debug_implementations`, `unreachable_pub`, `unnameable_types` | Documentation on every public item, `Debug` on every public type (C-DEBUG), and the visibility of items |
+| The pedantic group of Clippy, such as `missing_errors_doc`, `missing_panics_doc`, and `must_use_candidate` | The `# Errors` and `# Panics` sections and `#[must_use]` |
+| The rustdoc lints | Broken intra-doc links and other faults of the documentation |
+| `clippy::cargo_common_metadata` | The metadata of each manifest (C-METADATA) |
+| `check-doc-headings`, `check-feature-docs`, `check-doctest-attributes`, `check-prose` | The headings of item documentation, the `# Features` section, `ignore` in doctests, and the prose of API documentation |
+| `check-semver`, after the first release | Breaking changes against the last release |
+
+The agent runs the review once for each crate. The `review` skill reviews the diff of a branch, so it does not fit a review of a whole surface. The agent therefore gives each reviewer the crate's documentation as `doc-site` writes it, the sources of the crate's public items, and the list of rules above, and the reviewer cites the rule identifier or checklist item of each finding, as in a review of a diff.
+
+The review writes no document (Hard Rule 10 of `AGENTS.md`). Its findings go into the agent's report to the owner, each becomes a fix on a feature branch or a deferred open question, and the report under `.code-review/`, when one is written, stays local and ignored by git. A finding of a broken rule blocks the release until it is fixed or the owner defers it, and a finding that breaks no rule, such as a preference of wording, does not.
+
+### 9.6. Release Procedure
+
+TOOL-44. A release MUST follow the steps of this section in their order. An agent MUST NOT perform a step that this section reserves for the owner, or that needs the owner's go-ahead, without the owner's explicit go-ahead in the current session. A published version can never be overwritten or deleted [CARGO-PUBLISHING], so a step out of order can publish a version that stays wrong.
+
+The steps are these, and the third column says who performs each:
+
+| Step | Action | Performed by |
+| --- | --- | --- |
+| 1 | Check the preconditions below | An agent |
+| 2 | Draft the release notes | An agent, through the `writer` agent |
+| 3 | Run `just check-package` | An agent |
+| 4 | Run `just doc-site` | An agent |
+| 5 | Run `just publish-dry-run` | An agent |
+| 6 | For the first release only, set the source of GitHub Pages to "GitHub Actions" in the settings of the repository [GH-PAGES-WORKFLOW], and add to the environment `github-pages` a deployment rule that allows tags that match `v*` (TA-21) | The owner, because it changes settings outside the repository's files |
+| 7 | Give the go-ahead to publish the commit of steps 3 to 5 (ARCH-24 of the architecture design) | The owner |
+| 8 | Run `just publish` with a token (Section 9.7) | The owner |
+| 9 | Run `just tag-release <notes>`, which tags the commit, creates the GitHub release, and so deploys the documentation (Section 7.5) | The owner, or an agent after the owner's go-ahead |
+| 10 | Run `just check-release` after the documentation workflow of the tag concluded `success` | An agent |
+| 11 | Make the change that follows the release: the raise of TOOL-37, after the first release the recipe `check-semver` and the CI job `semver` (TOOL-39), and the update of Project Status in `AGENTS.md` | An agent, on a feature branch, as Section 14.7 describes |
+
+The preconditions of step 1 are these:
+
+- `main` holds the change that prepares the release: the versions of TOOL-36, the `documentation` fields of TOOL-40, `release_packages`, and `publish = false` on every other member (TOOL-35).
+- The review of the public API of Section 9.5 is complete, and every finding that blocks the release is fixed.
+- The CI run of the last commit of `main` concluded `success` with every job, as the commands of Section 14.7 show.
+- The release steps run in the main checkout at that commit, with no uncommitted change, on Linux or macOS (TOOL-33). The development container meets this.
+
+The release notes of step 2 go into the body of the GitHub release of step 9, from a file outside the repository, and summarize the changes since the previous tag, or the crates and their purpose for the first release. The project keeps no changelog file, because Hard Rule 10 of `AGENTS.md` admits no document outside `README.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/`, and the GitHub release of each tag holds its notes.
+
+The manifests already carry the metadata that crates.io shows: `description`, `license`, `repository`, `keywords`, `categories`, `readme`, and `rust-version`, and the change that prepares the first release adds `documentation`. No crate sets `homepage`, because crates.io shows the repository, and the hosted site is the `documentation` link.
+
+These recipes carry out the release. The recipes `check-package`, `publish-dry-run`, and `publish`, which package, are available only on Linux and macOS, through the `[unix]` attribute of `just`, so that packaging follows the symbolic links of TOOL-33:
+
+| Recipe | What it runs |
+| --- | --- |
+| `check-package` | It reads the members from `cargo metadata --no-deps --format-version 1` and fails when those without `publish = false` differ from `release_packages`. It fails when the `documentation` field of a crate differs from TOOL-40. It prints `cargo package --list` for each crate, runs `cargo package --no-verify` with `-p` for each crate, and checks each `.crate` file under `target/package/` as TOOL-45 requires |
+| `publish-dry-run` | `cargo publish --dry-run` with `-p` for each package that it is given, by default every crate of `release_packages`, which packages and compiles every given crate in the order of their dependencies, as if the others were published [RUST-1.90]. A dependency outside the given list resolves to its version on crates.io (TA-17). It needs the Vulkan SDK and libclang for the dynamic route, and network access and the vendored tools for `slang-src` and `slang-glslang-sys`, which the development container provides. On success, it writes the commit of `HEAD` and the list of the given packages to `target/publish-dry-run.commit` |
+| `publish` | It refuses to run unless `GITHUB_ACTIONS` is unset, `CARGO_REGISTRY_TOKEN` is set and not empty, the working tree has no uncommitted change, `HEAD` equals `origin/main` after a fetch, and `HEAD` and the list of packages that it is given, by default every crate of `release_packages`, equal the commit and the list in `target/publish-dry-run.commit`. It then runs `cargo publish --no-verify` with `-p` for each of those packages (Section 9.7) |
+| `tag-release` | It refuses to run unless `HEAD` equals `origin/main`. It reads the version of `[workspace.package]` from `cargo metadata`, creates the annotated tag `v<version>` on `HEAD`, pushes it to `origin`, and runs `gh release create v<version> --verify-tag --title v<version> --notes-file <notes>` |
+| `check-release` | For each crate of `release_packages`, it reads the version from crates.io with `curl` and a generic user agent and prints whether crates.io holds the version of the manifest, so that its output also lists the crates that a failed publish left out (Section 9.7). It fails when crates.io lacks the version of the manifest, when the `documentation` field there differs from TOOL-40, or when that address does not answer with HTTP status 200 (TA-19) |
+| `yank` | `cargo yank --version <version> <package>`, with the checks of `publish` on `GITHUB_ACTIONS` and `CARGO_REGISTRY_TOKEN` (Section 9.8) |
+
+TOOL-45. A release MUST be packaged on Linux or macOS (TOOL-33), and `check-package` MUST fail on a `.crate` file that breaks one of these conditions:
+
+- It is no larger than 10,000,000 bytes, below the limit of 10 MB that crates.io sets on a `.crate` file [CARGO-PUBLISHING].
+- It holds no symbolic link.
+- It holds each licence file of the crate under its conventional name (TOOL-33), as a regular file whose content equals the root text.
+- It holds `README.md`.
+- It holds no path under a directory named `target` or `.git`.
+- When crates.io already holds the version of the crate, its files equal those of the published `.crate` file, which the recipe downloads, except `.cargo_vcs_info.json`, which names the commit (TA-19).
+
+`check-package` packages every crate of `release_packages`, including those already published, on purpose. The last condition is how the recovery of Section 9.7 shows that a fix left every published crate unchanged.
+
+The conditions keep out what a package must never hold. Cargo flattens a symbolic link to its target [CARGO-PACKAGE], so a link in the package means a checkout without link support, whose file holds only a path. The generated bindings and the clone of Slang live in `OUT_DIR` and the shared folder of the target directory, never in a package directory (Hard Rule 7 of `AGENTS.md`), and a clone would also exceed the size limit. `cargo package` refuses a working tree with uncommitted changes, because no recipe passes `--allow-dirty`.
+
+`check-package` does not show that a package compiles. `publish-dry-run` shows that every package compiles from its own contents against the packages of the others, that the version requirements between them resolve (TA-17), and that the build of `slang-src` and `slang-glslang-sys` works from the packaged files. It does not show that crates.io accepts the packages, such as their names and metadata, and it uploads nothing.
+
+### 9.7. Publishing, Authentication, and Partial Failure
+
+TOOL-46. Every publish and every yank MUST be run by the owner, with an API token of crates.io that is passed in `CARGO_REGISTRY_TOKEN` to that one command. The token MUST NOT be stored in the repository, in a secret of a workflow, in Cargo's credentials file, or in the environment of a process that an agent starts or inherits. A holder of the token can publish versions that can never be deleted, and Hard Rule 7 of `AGENTS.md` keeps every secret out of the repository.
+
+The first publish of a new crate needs an API token, because a trusted publisher can be configured only for a crate that already exists [CRATES-TP-2025, RFC3691]. The owner creates a token for the release, limited to publishing new crates and new versions, to the crates of `release_packages`, and to a short expiry date, and revokes it after the release (TA-18).
+
+The owner runs the publish in a terminal of their own in the development container, and reads the token without echo, so that it appears neither on the command line nor in the shell history:
+
+```sh
+read -rs token
+CARGO_REGISTRY_TOKEN="${token}" just publish
+unset token
+```
+
+`publish` passes `--no-verify`, by a choice of the design, so that no build script runs while the token is in the environment. A verification build runs the build script of every dependency, and a build script inherits the environment of Cargo. `publish-dry-run` has already verified the same commit and the same crates, which `publish` checks through `target/publish-dry-run.commit`.
+
+Trusted Publishing from a workflow is deferred, with no change for the first release. It would need a workflow that publishes, which TOOL-22 forbids, a trusted publisher configured on crates.io for each crate, and the action `rust-lang/crates-io-auth-action` [CRATES-AUTH-ACTION] with `id-token: write`. TQ-11 asks whether the second release moves to it.
+
+Cargo publishes the selected crates in the order of their dependencies and waits for each to appear in the index before the next [CARGO-PUBLISH, RUST-1.90] (TA-17). For the first release, the order is that of `release_packages`: `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
+
+Publishing several crates is not atomic [RUST-1.90], and a published version can never be overwritten or deleted [CARGO-PUBLISHING]. When one crate fails, the crates before it are public for good. The recovery always works on the crates that are not published yet, which this section calls the remaining crates, and never runs a dry run or a publish of a version that crates.io already holds. Whether Cargo refuses a dry run of such a version is not confirmed, and the design does not depend on the answer.
+
+The recovery starts the same way in every case. An agent runs `just check-release`, whose output lists which crates of `release_packages` crates.io holds, because a crate whose upload succeeded can still fail while Cargo waits for the index. The remaining crates are the others, in the order of `release_packages`. The owner then continues in one of three ways.
+
+1. A transient failure, such as a lost connection or a timeout while Cargo waits for the index, needs no change. On the same commit, an agent runs `just publish-dry-run` with the remaining crates, and the owner runs `just publish` with the same list.
+2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, `README.md`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5 with the remaining crates, step 7, and step 8 with the remaining crates then run on the new commit, at the versions of the release. The tag of step 9 names the new commit.
+3. A failure that needs a change to a published crate cannot reuse that version, so the release starts again from step 1 with the next patch number for every crate, as TOOL-36 requires. The versions already published stay, and the owner yanks one of them only under Section 9.8.
+
+Path 2 keeps the versions of the release, because every requirement of a remaining crate on a published one names the published version. For example, when `slang-glslang-sys`, the fourth crate of the first release, fails:
+
+- `slang-bindgen`, `slang-src`, and `slang-compiler-sys` are on crates.io at `0.1.0` and the version of `slang-src`, published from the first commit.
+- The remaining crates are `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
+- `slang-glslang-sys` requires `slang-src` exactly and `slang-compiler-sys` at `0.1.0`, and `slang-compiler` requires `slang-compiler-sys` at `0.1.0`. The dry run of the remaining crates resolves these requirements to the published versions on crates.io, so it shows that the remaining crates build against them.
+- The fix changes no file of the three published crates, so the new commit holds their published contents, and the tag on the new commit still describes every crate of the release.
+
+Path 3 applies instead when the cause lies in one of the three published crates. That crate cannot get a second `0.1.0`, and the exact requirements of TOOL-36 tie the crates together, so every crate moves to `0.1.1` and `slang-src` to its next patch number. `slang-bindgen` `0.1.0` and the other published versions stay on crates.io, and stay usable unless Section 9.8 applies.
+
+crates.io can delete a whole crate within 72 hours of its publication [CRATES-DELETE], under further conditions that the sources state differently. This design does not rely on it.
+
+### 9.8. Yanking
+
+The owner yanks a version with `just yank <package> <version>` only when the version is unsound, fails to build for every user, or was published with wrong contents. When one defect affects several crates of a release, the owner yanks each of them. A yank needs the owner's go-ahead and a token that may yank, under TOOL-46.
+
+A yank only stops new lock files from selecting the version. Existing lock files keep it, and nothing is deleted [CARGO-YANK]. A yank does not remove a secret that a package holds [CARGO-PUBLISHING], so such a secret is revoked where it was issued. A yank is followed by a release with the next patch number under TOOL-36.
 
 ## 10. Container Image Requirements
 
@@ -1092,6 +1393,7 @@ TOOL-29. The container image MUST provide these, because the recipes of Section 
 - `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH` for every process, whether or not a login shell started it, so that a test binary finds the Slang shared library at run time (Section 4.4 of the architecture design).
 - libclang, which every build of `slang-compiler-sys` and the recipe `check-slang-call-guard` load to generate the bindings (SCS-64 of `docs/design/slang-compiler-sys.md`).
 - git, CMake 3.22 or later, Ninja, and a C++20 compiler, which `test-vendored` and `check-vendored` need to build Slang and slang-glslang on the vendored route, and Python 3 for the build of slang-glslang (Section 9.3 of `docs/design/slang-compiler-sys.md` and Section 8 of `docs/design/slang-glslang-sys.md`).
+- `gh` and curl, which `tag-release` and `check-release` run (Section 9.6).
 
 The image is not required to provide a toolchain for the declared `rust-version`, because `check-msrv` runs in CI and installs that toolchain on first use (Section 14.3). The Technology Decisions section of `AGENTS.md` lists what the image provides.
 
@@ -1105,9 +1407,24 @@ The gap does not affect the recipes, because each recipe that runs compiled code
 
 Each row is a fact that this document relies on and that has not been checked. A section that relies on one of them cites its identifier. The change that confirms or corrects an assumption states the result in the section that relies on it and removes the row.
 
-An identifier is never reused, so the next assumption takes TA-10.
+An identifier is never reused, so the next assumption takes TA-22.
 
-This document has no open assumption. TA-9, that the hosted Windows and macOS runners provide Python 3 that the build of slang-glslang finds, is confirmed: the build of slang-glslang ran on both, and the step of Section 7.4 found Python 3 as `python3` on both. A new assumption gets a row in a table with the columns Identifier, Assumption, What depends on it, and Where it is confirmed.
+TA-9, that the hosted Windows and macOS runners provide Python 3 that the build of slang-glslang finds, is confirmed: the build of slang-glslang ran on both, and the step of Section 7.4 found Python 3 as `python3` on both.
+
+| Identifier | Assumption | What depends on it | Where it is confirmed |
+| --- | --- | --- | --- |
+| TA-10 | cargo-semver-checks 0.51.0 accepts `--workspace`, `--exclude`, and `--default-features` in the meaning of TOOL-38, whose help text was not read | TOOL-38 | The first run of `check-semver`, in the change that follows the first release |
+| TA-11 | cargo-semver-checks runs the build scripts of the current crates and of the baselines, with the environment of the recipe, so they find `VULKAN_SDK` and libclang | Section 9.3 | The first run of `check-semver` |
+| TA-12 | cargo-semver-checks treats an item with `#[doc(hidden)]`, such as the module `__private` of `slango`, as outside the public API | Section 9.3 | The first change to `__private` after the first release. If the tool reports such a change, the release takes the next minor number, or `__private` gets a lint exception of the tool, if it has one |
+| TA-13 | One `cargo doc` on the vendored route, with the features of TOOL-41, documents all eight crates into one site with no symbolic link, smaller than 1 GB, within the timeout of 60 minutes on a hosted Linux runner | TOOL-41, Section 7.5 | The first run of `doc-site` in the development container and the first run of the documentation workflow |
+| TA-14 | cargo-hack applies `--at-least-one-of wgpu` only to the packages that have the feature `wgpu`, and checks every other package as before | TOOL-48 | The code step that adds the feature `wgpu`, by a run of the changed `check-features`. If it does not hold, the two commands of Section 3.1 replace the one |
+| TA-15 | `actions/deploy-pages` deploys the artifact of `actions/upload-pages-artifact` without `actions/configure-pages`, its job needs no `contents: read`, and GitHub provides the environment `github-pages` once the source of Pages is "GitHub Actions" | Section 7.5 | The first run of the documentation workflow |
+| TA-16 | A GitHub Pages site of a public repository is public | Sections 7.5 and 9.4 | `check-release` after the first release, which reads each address without credentials |
+| TA-17 | `cargo package` and `cargo publish` with several `-p` options package each crate against the packages of the others, as `--workspace` does, publish them in the order of their dependencies, and wait for each in the index. An exact requirement such as `=0.1.0-slang.2026.17.0.25.gc7954ebd1` selects that pre-release. A dry run of a subset resolves each dependency outside the subset to its version on crates.io | Sections 9.6 and 9.7 | `check-package` and `publish-dry-run` for the order and the requirements, the first publish for the wait, and the first recovery of Section 9.7, if one is needed, for a subset |
+| TA-18 | crates.io lets an API token be limited to publishing new crates and new versions, to named crates, and to an expiry date | TOOL-46 | The owner, when creating the token of the first release |
+| TA-19 | The crates.io API returns the `documentation` field of a crate at `https://crates.io/api/v1/crates/<crate>` and its versions at `https://crates.io/api/v1/crates/<crate>/<version>`, and crates.io serves the published `.crate` file at `https://static.crates.io/crates/<crate>/<crate>-<version>.crate` | Sections 9.6 and 9.7 | The first run of `check-release`, and the first run of `check-package` after a crate is published |
+| TA-20 | `taiki-e/install-action` installs cargo-semver-checks from its manifest, verified against a checksum, as TOOL-21 requires | Section 7.1 | The change that adds the CI job `semver` |
+| TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*`, and the owner can add such a rule | Sections 7.5 and 9.6 | The owner, in step 6 of Section 9.6, and the first run of the documentation workflow |
 
 ## 12. Open Questions
 
@@ -1115,13 +1432,16 @@ Each row is a question that this document leaves open. The design document in th
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
-| TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, where the crates.io token is kept outside the repository, and how the release ensures that it packages on Linux or macOS, so that the licence files are regular files in each package (TOOL-33)? | This document | M8 |
+| TQ-11 | Do the releases after the first move from an API token to Trusted Publishing from a workflow, which needs a change of TOOL-22, a trusted publisher on crates.io for each crate, and the action `rust-lang/crates-io-auth-action`, of which v1.0.6 is commit `3268eb413133e2960fa4ae0e963ca76380c54cd9` (Section 9.7)? | This document | M11 |
+| TQ-12 | Does the hosted site keep the documentation of each released version in a directory of its own, so that the link of an older version shows that version? The deployment replaces the whole site, so it would need to rebuild or keep every earlier version, and no official guidance on such directories was found (Section 9.4) | This document | M11 |
 
-An identifier is never reused, so the next question takes TQ-11.
+TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.8.
+
+An identifier is never reused, so the next question takes TQ-13.
 
 ## 13. Security Considerations
 
-The threat model has six parts:
+The threat model has eight parts:
 
 1. A dependency, a build script, or a procedural macro in the dependency graph is malicious or compromised. It runs with the permissions of the developer or the job whenever a check compiles the workspace, including Clippy, the documentation build, and the tests.
 2. An action that a workflow uses is compromised, or its owner moves a tag to different code.
@@ -1129,6 +1449,8 @@ The threat model has six parts:
 4. The author of a pull request tries to read a secret or to write to the repository through CI.
 5. A pre-commit hook repository changes the code that its hooks run.
 6. A file or a file name that a checker reads, such as one in a pull request, holds terminal control sequences. A checker that printed them unchanged would send them to the terminal of the developer, which is terminal escape injection.
+7. An attacker obtains the crates.io token and publishes versions of the crates, which can never be deleted, or a release publishes a package with wrong contents.
+8. An attacker uses the deployment of the hosted documentation to change the public site.
 
 The design addresses each part:
 
@@ -1140,6 +1462,8 @@ The design addresses each part:
 4. For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets, and `check-workflow-pins` reports that event. A run for a pull request from a fork gets a read-only token and no secrets (Section 7.2).
 5. For hooks, `.pre-commit-config.yaml` pins the repository `pre-commit-hooks` to a commit SHA, and the local hooks run only recipes of this repository.
 6. For checker output, every custom checker escapes its output (Section 6.1), so a checked file cannot send a control sequence to the terminal.
+7. For the token, TOOL-46 keeps it out of the repository, CI, Cargo's credentials file, and every agent's environment, limits its scopes and lifetime, and passes it to one command. `publish` runs no build script while the token is in its environment, because it passes `--no-verify` after the dry run verified the same commit. TOOL-22 keeps publishing out of every workflow, TOOL-47 keeps the release recipes off the allow list, and `check-package` checks the contents of every package before the publish (TOOL-45).
+8. For the site, only the deploy job of a workflow that runs on a tag holds `pages: write` and `id-token: write` (TOOL-42). Pushing a tag needs write access to the repository, and the actions of the workflow are pinned by commit SHA (TOOL-20).
 
 These attacks are out of scope:
 
@@ -1149,7 +1473,7 @@ These attacks are out of scope:
 
 The topics of unsafe code, foreign function interface invariants, untrusted shader source, and file paths do not apply, because this document defines no code that calls Slang or compiles shader source.
 
-The residual risk has seven parts:
+The residual risk has nine parts:
 
 1. A new dependency's build script and procedural macros run on the first build that includes them, before any reviewer has read them, and cargo-deny finds only vulnerabilities that are already published.
 2. A checksum shows only that a file matches what the upstream published, and the first download of a file whose upstream publishes no checksum is trusted on first use. A checksum that comes from the same host as the file, as the checksum of actionlint does, proves integrity but not origin, so an attacker who controls that host can replace the file and its checksum together. Because CI installs the latest version of each tool, a new release of a tool runs in CI without any change to this repository and before anyone has reviewed it.
@@ -1158,6 +1482,8 @@ The residual risk has seven parts:
 5. `check-workflow-pins` reads workflows line by line, so a reference written in a form that it does not read (Section 6.8) can pass it. The permissions of each job, the use of secrets, and whether each download step verifies its file depend on review.
 6. The escaping covers only the custom checkers of Section 6. `scripts/check-commit-message` and the external tools that the recipes run, such as shellcheck, typos, actionlint, and Cargo, print their output without this escaping, and this document does not specify how they handle control characters. Because a backslash prints unchanged, escaped output can be ambiguous to a reader, which misleads but sends no control sequence.
 7. The installers of the Vulkan SDK for macOS and Windows fetch metadata from LunarG's remote repository during the installation (Section 7.3), and the recorded checksum does not cover that metadata, so a tampered response is not detected. Two facts limit this risk: the files that the installer installs come from the verified download, and the step selects only the core component. No supported option that installs without this access is known.
+8. During `just publish`, the token is in the environment of `just` and Cargo in the development container, so a process in the container that can read that environment, or a compromised Cargo, can take it. The limits of TA-18 bound what it can do, and the owner revokes the token after the release.
+9. A compromised action of the documentation workflow, or a compromised dependency of a crate whose build script runs in `doc-site`, can change the site of a release. It cannot publish a crate or write to the repository, because the deploy job holds no other permission.
 
 ## 14. Operational Considerations
 
@@ -1178,6 +1504,9 @@ This table lists every recipe parameter and its default. Every other recipe take
 | `check-doc-references` | Paths of files to check | Every `.rs`, `.toml`, `.yml`, `.yaml`, and `.json` file, the `justfile`, and every file under `scripts/` except the checker's own self-test cases (Section 6.10) |
 | `check-commit-message` | The commit message file | None. The parameter is required. |
 | `merge` | The branch, and further arguments for `scripts/merge-branch` | None for the branch, which is required |
+| `publish-dry-run`, `publish` | The names of the crates to verify or publish, which `publish` compares with the list that the dry run recorded | Every crate of `release_packages`. A list serves only to finish a release that failed part way (Section 9.7) |
+| `tag-release` | The path of the file with the release notes | None. The parameter is required |
+| `yank` | The crate and the version to yank | None. Both are required |
 | `install-vulkan-sdk` | The SDK version, as four numbers separated by full stops, and the expected SHA-256 checksum of the download for the platform, as 64 lowercase hexadecimal characters (Section 7.3) | None. Both are required. `just` rejects a missing or extra argument before the script runs, and the script exits with status 2 on a malformed one |
 
 ### 14.2. Environment Variables
@@ -1196,6 +1525,8 @@ This table lists every environment variable that the recipes, the hooks, or the 
 | `DYLD_LIBRARY_PATH` | The dynamic loader on macOS, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value (Section 3.2). Outside a recipe, it is unset unless the developer sets it. On a macOS CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 7.3), so the directory appears twice in a recipe there. Whether the assignment on the command line reaches a test binary on a Mac with System Integrity Protection enabled is SA-7 of `docs/design/slang-compiler-sys.md`. |
 | `PATH` | The dynamic loader on Windows, when a test binary starts, and every shell | On a Windows CI runner, `install-vulkan-sdk` adds `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, and on Linux and macOS runners it adds `$VULKAN_SDK/bin` (Section 7.3). |
 | `CLAUDE_PROJECT_DIR` | The hook in `.claude/settings.json` | Set by Claude Code. The hook does not run outside it. |
+| `CARGO_REGISTRY_TOKEN` | Cargo, in `publish` and `yank` | Unset everywhere except on the command line of the owner's one run of `publish` or `yank` (TOOL-46). When it is unset or empty, both recipes refuse to run. |
+| `GITHUB_ACTIONS` | `publish` and `yank` | Set to `true` by GitHub Actions on every runner. When it is set, both recipes refuse to run, because no workflow publishes (TOOL-22). |
 
 The workflow also sets these variables for its own steps, and no recipe reads them. Its top-level `env` holds `VULKAN_SDK_VERSION`, `VULKAN_SDK_SHA256_LINUX`, `VULKAN_SDK_SHA256_MACOS`, and `VULKAN_SDK_SHA256_WINDOWS`. The step that installs the SDK passes the version and the checksum for its platform to `install-vulkan-sdk` as arguments (Section 7.3).
 
@@ -1241,7 +1572,13 @@ This table says what a failure of each check means and what the developer does.
 | `recorded-slang` | Exit status 1: `crates/slang-src/recorded.rs` does not define `RECORDED_COMMIT` or `RECORDED_BUILD_TAG` as a string constant on one line, and the message says "crates/slang-src/recorded.rs does not define NAME as a string constant" with the name of the constant | Restores the constant in that form (SRC-11 of `docs/design/slang-src.md`) |
 | `install-vulkan-sdk` | Exit status 1: the checksum of the download differs from the expected one, and the message "install-vulkan-sdk: SHA-256 mismatch" gives both values, or the macOS archive does not hold exactly one installer application. Exit status 2: a malformed argument, an unset or empty `RUNNER_TEMP`, `GITHUB_ENV`, or `GITHUB_PATH`, or an unsupported platform. A missing or extra argument fails in `just` before the script runs. A failed download, unpacking, or installation stops the script with the non-zero status of the command that failed | For a mismatch, compares the checksum in the workflow with the one that LunarG publishes for the file (Section 7.3) before changing anything, because a mismatch can mean a tampered download. For a failed download, runs the job again |
 | `check-vulkan-sdk` | Exit status 1: `VULKAN_SDK` names a path that is not a directory, with the message "check-vulkan-sdk: VULKAN_SDK names <path>, which is not a directory", or the SDK at `VULKAN_SDK` lacks `slang.h`, `slang-tag-version.h`, or the Slang library of the platform, defines another build tag, or has a `slangc` that fails or prints another tag, as each message after "check-vulkan-sdk:" says. Exit status 2: an argument was given, `VULKAN_SDK` is unset or empty, or `just recorded-slang` failed or printed no `RECORDED_BUILD_TAG` | Installs the SDK version that the workflow records and points `VULKAN_SDK` at it. In CI, a differing tag means that the workflow and `slang-src` record different Slangs, which the change that moves the recorded Slang fixes (ARCH-30 of the architecture design). Fixes `recorded.rs` when `just recorded-slang` fails |
-| `check-features`, `check-msrv`, `check-semver` | A feature combination does not compile, the code needs a newer toolchain than `rust-version`, or the API has a breaking change | Fixes the code, raises `rust-version` under TOOL-5, or releases the change as breaking |
+| `check-features`, `check-msrv` | A feature combination does not compile, or the code needs a newer toolchain than `rust-version` | Fixes the code, or raises `rust-version` under TOOL-5 |
+| `check-semver` | Exit status 100: a crate has a breaking change against its last release, which the tool names. Exit status 101: the check could not complete, such as for a failed build of a crate or its baseline, a missing `VULKAN_SDK` or libclang, or no network access | For status 100, raises the minor number under TOOL-37, or changes the code so that it stays compatible. For status 101, fixes what the message names, as for a recipe that compiles the workspace |
+| `check-package` | The members without `publish = false` differ from `release_packages`, a `documentation` field differs from TOOL-40, `cargo package` failed, such as for uncommitted changes, or a `.crate` file breaks TOOL-45, as the message says | Fixes `release_packages`, the manifest, or the package directory. For a symbolic link or a licence file that differs, packages from a checkout on Linux or macOS with symbolic links (TOOL-33) |
+| `publish-dry-run` | A package does not compile from its own contents, or a version requirement does not resolve | Fixes the manifest or the files that the package lacks, and runs `check-package` again |
+| `publish` | A check of Section 9.6 refused the run, or crates.io or Cargo rejected a crate | For a refusal, runs `publish-dry-run` on the current `main` or sets the token. For a rejection, follows Section 9.7 |
+| `check-release` | crates.io lacks a version, its `documentation` field differs, or the hosted address does not answer | Waits for the documentation workflow of the tag and runs it again. Otherwise reruns that workflow with the owner's go-ahead, or fixes the field in the next release |
+| `doc-site` | A build failure as for `check-vendored`, a rustdoc lint, a symbolic link in the site, or a site larger than 1 GB | For a build failure or a lint, as for `check-vendored`. For a link or the size, finds the file that causes it in `target/vendored/doc` |
 
 Clippy can report a `clippy::cargo_common_metadata` warning again after the manifest has been fixed, because it replays its cached result until a source file of the crate changes. The developer then updates the modification time of a source file of the crate, or cleans the build output of the crate, and runs the check again.
 
@@ -1274,6 +1611,8 @@ The first run of `check-miri` after an image rebuild also needs network access, 
 Outside `check`, the first run of `check-msrv` on a machine downloads a toolchain (Section 14.3). `test-vendored` and `check-vendored` need network access on their first run in `target/vendored`, because `slang-src` clones Slang from GitHub, and none afterwards while the shared folder `target/vendored/slang-src` exists (SRC-9 of `docs/design/slang-src.md`). `check-vendored-shared-folder` reaches no network. `cargo clean` of that target directory removes the folder, and the next run clones again. The vendored CI jobs clone on every run (Section 7.4).
 
 `install-vulkan-sdk` downloads the SDK from `sdk.lunarg.com`. On macOS and Windows the installer also contacts LunarG's remote repository (Section 7.3).
+
+The recipes of the release reach the network as well. `check-semver` fetches each baseline from crates.io. `publish-dry-run` reads the index of crates.io and clones Slang for the verification of `slang-src` and `slang-glslang-sys`. `doc-site` clones Slang on its first run in `target/vendored`, as the vendored recipes do. `publish`, `yank`, and `check-release` reach crates.io, `check-release` also reaches the hosted site, and `tag-release` reaches GitHub.
 
 ### 14.7. Verifying and Merging a Branch
 
@@ -1308,6 +1647,26 @@ The agent creates a new branch from `main` that holds the identical tree of the 
 
 - [FSF-LICENSES] Free Software Foundation, "Various Licenses and Comments about Them", version dated 2026-04-22, <https://www.gnu.org/licenses/license-list.html>, read on 2026-11-11.
 - [GPL-FAQ] Free Software Foundation, "Frequently Asked Questions about the GNU Licenses", the compatibility matrix, <https://www.gnu.org/licenses/gpl-faq.html#AllCompatibility>, read on 2026-11-11.
+- [API-GUIDELINES] "Rust API Guidelines", the checklist, <https://rust-lang.github.io/api-guidelines/checklist.html>, read on 2026-11-15.
+- [CARGO-MANIFEST] The Cargo Book, "The Manifest Format", the field `documentation`, <https://doc.rust-lang.org/cargo/reference/manifest.html>, read on 2026-11-15.
+- [CARGO-PACKAGE] The Cargo Book, "cargo-package", <https://doc.rust-lang.org/cargo/commands/cargo-package.html>, read on 2026-11-15.
+- [CARGO-PUBLISH] The Cargo Book, "cargo-publish", <https://doc.rust-lang.org/cargo/commands/cargo-publish.html>, read on 2026-11-15.
+- [CARGO-PUBLISHING] The Cargo Book, "Publishing on crates.io", <https://doc.rust-lang.org/cargo/reference/publishing.html>, read on 2026-11-15.
+- [CARGO-SEMVER] The Cargo Book, "SemVer Compatibility", the change categories, <https://doc.rust-lang.org/cargo/reference/semver.html>, read on 2026-11-15.
+- [CARGO-YANK] The Cargo Book, "cargo-yank", <https://doc.rust-lang.org/cargo/commands/cargo-yank.html>, read on 2026-11-15.
+- [CONFIGURE-PAGES] GitHub, the action `actions/configure-pages`, its file `action.yml` on `main`, <https://raw.githubusercontent.com/actions/configure-pages/main/action.yml>, read on 2026-11-15.
+- [CRATES-AUTH-ACTION] The Rust Project, the action `rust-lang/crates-io-auth-action`, <https://github.com/rust-lang/crates-io-auth-action>, read on 2026-11-15.
+- [CRATES-DELETE] The Rust Blog, "crates.io: development update", 2025-02-05, <https://blog.rust-lang.org/2025/02/05/crates-io-development-update/>, and RFC 3660, "crates.io crate deletions", <https://rust-lang.github.io/rfcs/3660-crates-io-crate-deletions.html>, both read on 2026-11-15.
+- [CRATES-TP-2025] The Rust Blog, "crates.io: development update", 2025-07-11, <https://blog.rust-lang.org/2025/07/11/crates-io-development-update-2025-07>, read on 2026-11-15.
+- [CSC-README] cargo-semver-checks, its README, <https://github.com/obi1kenobi/cargo-semver-checks>, read on 2026-11-15.
+- [CSC-SRC] cargo-semver-checks, its sources `src/lib.rs` and `src/rustdoc_gen.rs` on `main`, <https://raw.githubusercontent.com/obi1kenobi/cargo-semver-checks/main/src/lib.rs> and <https://raw.githubusercontent.com/obi1kenobi/cargo-semver-checks/main/src/rustdoc_gen.rs>, read on 2026-11-15.
+- [DOCSRS-BUILDS] docs.rs, "Builds", <https://docs.rs/about/builds>, read on 2026-11-15.
+- [GH-PAGES-LIMITS] GitHub Docs, "GitHub Pages limits", <https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits>, read on 2026-11-15.
+- [GH-PAGES-WORKFLOW] GitHub Docs, "Using custom workflows with GitHub Pages", <https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages>, read on 2026-11-15.
+- [RFC3691] RFC 3691, "Trusted Publishing for crates.io", <https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html>, read on 2026-11-15.
+- [RUST-1.90] The Rust Blog, "Announcing Rust 1.90.0", 2025-09-18, <https://blog.rust-lang.org/2025/09/18/Rust-1.90.0/>, read on 2026-11-15.
+- [RUSTDOC-UNSTABLE] The rustdoc book, "Unstable features", the index page, <https://doc.rust-lang.org/rustdoc/unstable-features.html>, read on 2026-11-15.
+- [UPLOAD-PAGES-ARTIFACT] GitHub, the action `actions/upload-pages-artifact`, its README, <https://github.com/actions/upload-pages-artifact>, read on 2026-11-15.
 
 ## Appendix A. Requirement Summary
 
@@ -1315,11 +1674,11 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| TOOL-3 | 9 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
-| TOOL-4 | 9 | Licence `MIT OR Apache-2.0`, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits, except the `license` field of the `-sys` and `-src` crates and `slang-slint`. |
-| TOOL-5 | 9 | `rust-version` changes only in a change whose purpose is to raise it. |
+| TOOL-3 | 9.1 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
+| TOOL-4 | 9.1 | Licence `MIT OR Apache-2.0`, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits, except the `license` field of the `-sys` and `-src` crates and `slang-slint`. |
+| TOOL-5 | 9.1 | `rust-version` changes only in a change whose purpose is to raise it. |
 | TOOL-6 | 3.1 | Recipes have the name, group, and `check` membership of Section 3.2. |
-| TOOL-7 | 3.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, or, when they run code that loads Slang, the library path assignment of SCS-32, except that `test-vendored`, with the nextest and doctest commands, and `check-vendored`, with the Clippy and documentation commands, select the packages of `vendored_packages` with `-p`, enable the feature of `vendored_features`, remove `VULKAN_SDK` and the loader path variables, and set `CARGO_TARGET_DIR=target/vendored`, and `test-vendored` passes `--no-tests=fail`. |
+| TOOL-7 | 3.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, or, when they run code that loads Slang, the library path assignment of SCS-32, except that `test-vendored`, with the nextest and doctest commands, and `check-vendored`, with the Clippy and documentation commands, select the packages of `vendored_packages` with `-p`, enable the feature of `vendored_features`, remove `VULKAN_SDK` and the loader path variables, and set `CARGO_TARGET_DIR=target/vendored`, and `test-vendored` passes `--no-tests=fail`. `doc-site` departs in the same way for the crates of `release_packages` (TOOL-41). |
 | TOOL-8 | 3.1 | `check` passes in the container without a hardware GPU or a display. |
 | TOOL-9 | 3.1 | No recipe for a tool before the image provides it. |
 | TOOL-10 | 4 | The profiles `default`, `gpu`, and `hw-gpu` select tests by whole module path segments, and each profile other than `default` sets its own filter. |
@@ -1334,16 +1693,30 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-19 | 7.2 | Workflow tokens are read-only by default, with extra permissions per job. |
 | TOOL-20 | 7.2 | Every action is pinned by a full commit SHA. |
 | TOOL-21 | 7.2 | Every download, and every file restored from a cache, is verified against a published SHA-256 checksum before use, and installer actions verify each download and do not fall back. |
-| TOOL-22 | 7.2 | No workflow uses `pull_request_target`, reads a secret, or publishes. |
+| TOOL-22 | 7.2 | No workflow uses `pull_request_target`, reads a secret, or publishes, except the OIDC token of the deploy job of TOOL-42. |
 | TOOL-23 | 7.3 | The SDK step reads the version from the top-level `env` of the workflow, verifies the download, sets `VULKAN_SDK`, and makes Slang findable. |
 | TOOL-24 | 8 | The allow-list holds the permissive licences of the workspace's crates and grows only with a dependency, and `GPL-3.0-or-later` is accepted only through the exception for `slang-slint`. |
 | TOOL-25 | 8 | Path dependencies between members carry a version, and `bans.allow-wildcard-paths` is `false`. |
 | TOOL-26 | 8 | Advisories, duplicates, and other sources fail cargo-deny, with exceptions only per item and with a reason. |
-| TOOL-27 | 9 | Published crates carry the full metadata, and unpublished members set `publish = false`. |
+| TOOL-27 | 9.1 | Published crates carry the full metadata with `documentation`, and members outside the next release set `publish = false`. |
 | TOOL-28 | 10 | Image changes happen in slang-rs-env, and the first change after a rebuild that adds or removes a tool updates the documents. |
 | TOOL-29 | 10 | The image provides the tools of Section 4.8, the nightly toolchain with Miri, llvm-tools, GitHub's SSH host keys, the SDK library path for every process, libclang, and git, CMake, Ninja, a C++20 compiler, and Python 3 for the build of slang-glslang on the vendored route. |
 | TOOL-30 | 3.1 | `taplo.toml` sets four-space indentation and excludes `target/` and `.worktrees/`, and `typos.toml` accepts the correct words that typos reports. |
 | TOOL-31 | 8 | `deny.toml` denies unused licence allow-list entries and unused advisory ignores. |
 | TOOL-32 | 3.1 | `default-members` and every `--workspace` command leave out `slang-src` and `slang-glslang-sys`. |
-| TOOL-33 | 9 | The root holds each licence text once, each package links its own licence under the conventional name, and a release is packaged on Linux or macOS. |
+| TOOL-33 | 9.1 | The root holds each licence text once, each package links its own licence under the conventional name, and a release is packaged on Linux or macOS. |
 | TOOL-34 | 8 | A GPL licence is accepted only for `slang-slint`, the examples package, and the Slint crates that they use. cargo-deny enforces `GPL-3.0-or-later` for `slang-slint` alone, and a reviewer checks that no permissive crate depends on a `GPL-3.0-only` crate. |
+| TOOL-35 | 9.2 | The `justfile` holds the crates of the next release once, in `release_packages`, and every other member sets `publish = false`. |
+| TOOL-36 | 9.2 | Every release publishes every crate of `release_packages`, all but `slang-src` at the shared workspace version, and `slang-src` at a new version under SRC-13. |
+| TOOL-37 | 9.2 | After a release, the workspace version moves to the next patch, and a breaking change raises the minor number in the same change. |
+| TOOL-38 | 9.3 | `check-semver` checks the crates of the release except `slang-src` and `slang-glslang-sys` against crates.io, with the default features only. |
+| TOOL-39 | 9.3 | `check-semver` and the CI job `semver` arrive with the change after the first release, and the job then runs in every run, outside `check`. |
+| TOOL-40 | 9.4 | The `documentation` field of each released crate is its address on the hosted site. |
+| TOOL-41 | 9.4 | `doc-site` builds the site on the vendored route for every crate of the release, writes the index page, and checks for links and the size limit. |
+| TOOL-42 | 7.5 | A separate workflow on release tags builds and deploys the site, with Pages permissions on its deploy job alone. |
+| TOOL-43 | 9.5 | Before every release, a review of each crate's whole public API against the judgement rules, with every finding fixed or deferred by the owner. |
+| TOOL-44 | 9.6 | A release follows the steps of Section 9.6 in order, and the owner's steps need the owner or the owner's go-ahead. |
+| TOOL-45 | 9.6 | A release is packaged on Linux or macOS, and `check-package` checks the size, links, licence files, readme, and paths of each package, and that an already published version is unchanged. |
+| TOOL-46 | 9.7 | Only the owner publishes or yanks, with a token passed to that one command and stored nowhere. |
+| TOOL-47 | 5 | No recipe or command that publishes, tags, deploys, or yanks is on the allow list. |
+| TOOL-48 | 3.1 | `check-features` skips every combination of `slango` without `wgpu`. |

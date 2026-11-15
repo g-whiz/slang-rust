@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies `slango`, the high-level library for running Slang code on a GPU from Rust, as milestones M3 and M4 define it, with the compute kernel example and the windowed renderer example. `slango` calls the existing compute entry points of a Slang module on wgpu, with bindings built from Slang's reflection alone, and draws with existing vertex and fragment entry points into a texture. The design rests on the facts about Slang's SPIR-V on wgpu's validated shader path, loads a module into an owned layout snapshot that frees every Slang object, and uses no unsafe code.
+This document specifies `slango`, the high-level library for running Slang code on a GPU from Rust, as milestones M3 and M4 define it, with the compute kernel example and the windowed renderer example. `slango` calls the existing compute entry points of a Slang module on wgpu, with bindings built from Slang's reflection alone, and draws with existing vertex and fragment entry points into a texture. The design rests on the facts about Slang's SPIR-V on wgpu's validated shader path, loads a module into an owned layout snapshot that frees every Slang object, and uses no unsafe code. For the first release, it also specifies a small forward-compatibility pass: wgpu moves behind a default Cargo feature, the functions that return a raw wgpu object return an option, and every public option struct and enumeration stays non-exhaustive, so that a second backend can be added later without a breaking change where that is cheap.
 
 ## 1. Introduction
 
@@ -20,7 +20,9 @@ This document specifies `slango`, the high-level library for running Slang code 
 
 `slango` lets a Rust program load a Slang module, look up a compute kernel, set its parameters by name, dispatch it over a number of elements, and read the results, with every binding derived from reflection. For M4, it also lets the program draw with a vertex and a fragment entry point into a texture, with every binding and vertex attribute derived from reflection.
 
-This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, and meets ARCH-15 to ARCH-19. It answers the questions and assumptions of that design that name this document, as Sections 14 and 15 record.
+For M8, it settles the forward-compatibility pass that Section 15.11 of the architecture design records as the owner's decision, so that the opt-in backend `rhi` of M10 is an additive change where that is cheap (Sections 4.3, 5.5, and 6).
+
+This document implements Section 8 and milestones M3 and M4 (Sections 15.6 and 15.7) of `docs/design/architecture.md`, and the pass of `slango` in milestone M8 (Section 15.11), and meets ARCH-15 to ARCH-19. It answers the questions and assumptions of that design that name this document, as Sections 14 and 15 record.
 
 ### 1.3. Audience
 
@@ -34,9 +36,11 @@ For M4, it also covers render pipelines built from the vertex and fragment entry
 
 It covers the windowed renderer example as well. The rendering design is in Sections 3.9, 5.3, 5.4, 7.4, 7.5, 8.1, 8.2, 9.5, 13.4, and 13.5, and it extends the other sections where they name M4.
 
+For M8, it covers the Cargo feature `wgpu`, the accessors of the module `slango::wgpu`, and the exhaustiveness of the public types, in Sections 3.10, 4.3 to 4.5, 5.5, 6, and 13.6.
+
 ### 1.5. Non-Goals
 
-This document designs nothing beyond M3 and M4. These belong to later milestones: kernels generated around a plain Slang function with a positional call, broadcasting over array arguments, a tensor type with a shape, differentiation driven from Rust, and the unchecked shader passthrough path.
+This document designs nothing beyond M3, M4, and the pass of M8. For M8, it designs no `rhi` backend, no backend trait, and no other abstraction over backends, which M10 designs (Section 4.3). These belong to later milestones: kernels generated around a plain Slang function with a positional call, broadcasting over array arguments, a tensor type with a shape, differentiation driven from Rust, and the unchecked shader passthrough path.
 
 M4 leaves out these features:
 
@@ -273,17 +277,36 @@ Render pipelines are created from Slang's vertex and fragment SPIR-V on every ad
 
 Both texts are the same on every adapter.
 
+### 3.10. Facts for the Backend Feature
+
+This section is non-normative. Its facts hold for the code of the crate before the pass of M8, for Cargo and Clippy of Rust 1.99.1, and for the configuration of the workspace. They shape Sections 4.3, 5.5, and 6.
+
+These facts concern the code:
+
+- Five public functions name a wgpu type in their signatures, and all five are in `src/wgpu.rs`: `from_device_and_queue`, `device`, `queue`, `texture`, and `texture_from_view` (read). No other public item names a wgpu type. The kind `ErrorKind::Backend` carries an error of wgpu only as a source error of type `dyn Error`.
+- `Device`, `Buffer<T>`, `Texture`, `Sampler`, `Kernel`, and `RenderPipeline` hold wgpu objects, `Module` holds kernels, and `Call` and `Draw` record wgpu commands (read). The items that hold no wgpu object, which are `Error`, `ErrorKind`, the options types, the sealed traits, and the crate-private layout snapshot, create nothing on a GPU.
+- `pollster` is used only in `src/device.rs`, to wait on wgpu's futures (read).
+- Of the dependents in the workspace, `slang-slint` calls `slango::wgpu::texture` in `View::to_image` and `slango::wgpu::from_device_and_queue` in `device`. The example `windowed-renderer` calls `from_device_and_queue`, `device`, `queue`, and `texture_from_view`. The code that `slango-codegen` generates names no wgpu item (read).
+
+These facts concern the tools:
+
+- A feature that names an optional dependency only as `dep:name` leaves that dependency without an implicit feature of its own name, so a feature `wgpu = ["dep:wgpu", "dep:pollster"]` is valid (read, the Cargo reference, "Optional dependencies"). Section 4.3 of `docs/design/slango-macros.md` states how Cargo resolves the features of host and target dependencies.
+- `compile_error!` stops the compilation with its message (read, the documentation of `std::compile_error`).
+- The workspace lint table sets `clippy::exhaustive_enums` and `clippy::exhaustive_structs` to `warn`, every member inherits it, and `check-clippy` turns every warning into an error (read, `Cargo.toml` and the `justfile`). In `slango`, only the items of `__private` carry an exception to either lint, so the lints do not fire on a struct whose fields are all private (inferred from the passing check).
+- `clippy::unnecessary_wraps` reports a public function that always returns `Some`, because the workspace sets `avoid-breaking-exported-api = false` (read, Section 4.5 of the coding standard).
+- `check-features` runs cargo-hack with `--feature-powerset`, which also checks each package with none of its features (inferred, SOA-7).
+
 ## 4. Crate Structure and Dependencies
 
 ### 4.1. Package and Dependencies
 
-SLO-1. `slango` MUST depend on `slang-compiler` and on wgpu of major version 30 with the feature `spirv`, and on no other crate except `pollster`, which blocks on wgpu's futures. The list stays short because every dependency runs on every user's machine (DEP-2).
+SLO-1. `slango` MUST depend on `slang-compiler`, and, as optional dependencies that only the feature `wgpu` enables (SLO-28), on wgpu of major version 30 with the feature `spirv` and on `pollster`, which blocks on wgpu's futures. It MUST depend on no other crate. The list stays short because every dependency runs on every user's machine (DEP-2).
 
 `slango` needs `pollster`, because wgpu 30 offers no blocking form of `Instance::request_adapter`, `Instance::enumerate_adapters`, or `Adapter::request_device`, so `slango` waits on them with `pollster::block_on`. Version 30 is the newest wgpu that the current Slint release supports (ARCH-19, Section 3.7).
 
 The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3).
 
-SLO-27. `slango` MUST have exactly one Cargo feature, `vendored = ["slang-compiler/vendored"]`, off by default, and MUST NOT read it in its own code. The feature only forwards the choice of the vendored route to `slang-compiler`, so that a user who depends on `slango` alone can link a statically built Slang (Section 19.1 of the architecture design, SLC-33 of `docs/design/slang-compiler.md`). No `gpu` test of `slango` runs on the vendored route. The forward is checked through the commands of `test-vendored` and `check-vendored` for `slango-macros` and `slang-slint`, which both reach `slang-compiler` through `slango` (TOOL-7 of `docs/design/tooling.md`).
+SLO-27. `slango` MUST have exactly two Cargo features, `wgpu` of SLO-28 and `vendored = ["slang-compiler/vendored"]`, off by default, and MUST NOT read `vendored` in its own code. The feature `vendored` only forwards the choice of the vendored route to `slang-compiler`, so that a user who depends on `slango` alone can link a statically built Slang (Section 19.1 of the architecture design, SLC-33 of `docs/design/slang-compiler.md`). No `gpu` test of `slango` runs on the vendored route. The forward is checked through the commands of `test-vendored` and `check-vendored` for `slango-macros` and `slang-slint`, which both reach `slang-compiler` through `slango` (TOOL-7 of `docs/design/tooling.md`).
 
 SLO-2. `slango` MUST contain no unsafe code in M3 and M4, and MUST load every shader through the validated path only.
 
@@ -294,6 +317,73 @@ The validated path runs every kernel that M3 needs and every render shader that 
 wgpu's dependency tree brings crates under the licences `MIT`, `Unicode-3.0`, and `Zlib`, and duplicate versions of `foldhash`, `hashbrown`, and `syn`. The licence allow-list of `deny.toml` holds the three licences, and its `[bans]` table holds a `skip` entry with a reason for each duplicate version, as TOOL-24 and TOOL-26 require.
 
 `slango` is under `MIT OR Apache-2.0`, which it inherits from the workspace (ARCH-36 of the architecture design). None of these crates is under the GPL, as TOOL-34 of `docs/design/tooling.md` requires of the dependencies of `slango`. Section 8 of `docs/design/tooling.md` records which crates need each licence, the evidence for it, and the reason for each skip.
+
+### 4.3. The Backend Feature
+
+SLO-28. The manifest of `slango` MUST declare `default = ["wgpu"]` and `wgpu = ["dep:wgpu", "dep:pollster"]`, with `wgpu` and `pollster` as optional dependencies. The crate root MUST put every module declaration and every re-export, including the hidden module `__private` and the public module `wgpu`, behind `#[cfg(feature = "wgpu")]`. Otherwise a later program that enables only the backend `rhi` still builds wgpu, and a user cannot leave it out without a breaking release.
+
+The feature gates the whole crate and not only the module `slango::wgpu`, because every type that runs on a GPU holds wgpu objects (Section 3.10). The five functions of `slango::wgpu` are the only public items that name a wgpu type, and SLO-4 keeps it so.
+
+SLO-29. Under `#[cfg(not(feature = "wgpu"))]`, the crate root of `slango` MUST stop the compilation with `compile_error!` and exactly this message: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default". With SLO-28, it is then the only error of the build (SOA-8). Otherwise a build with `default-features = false` fails with hundreds of unresolved names, which do not say what to enable.
+
+This is a choice of the design. The other option, a crate that compiles without a backend to its errors, options, and loading, was rejected for two reasons:
+
+- It would need a `cfg` in each module that holds a wgpu object, which is most of the crate (Section 3.10).
+- The part that remains could create no device, so it could run nothing.
+
+A compile error is honest about wgpu being the only backend, and it keeps `rhi` additive: M10 widens the condition to "neither `wgpu` nor `rhi`", and the removal of a compile error breaks no build.
+
+`cargo check -p slango --no-default-features` therefore fails with that one error. `check-features` checks every combination of the features of each package (Section 3.10), so the recipe skips the combinations of `slango` without `wgpu` and checks every combination that contains it. The tooling design specifies that change to the recipe (SOA-7).
+
+SLO-30. Every member of the workspace that depends on `slango` MUST name the feature `wgpu` in that dependency, and MUST NOT rely on the default feature alone. Otherwise a later change that turns the default features off, in the entry of `[workspace.dependencies]` or in M10, removes the backend from that member without an error at the place of the change. The members write these entries:
+
+| Member | Entry |
+| --- | --- |
+| `slang-slint` | `slango = { workspace = true, features = ["wgpu"] }` |
+| `slango-codegen` | The entry of SLM-2 of `docs/design/slango-macros.md`, with `features = ["wgpu"]` added |
+| `slango-macros`, as a development dependency | `slango = { workspace = true, features = ["wgpu"] }` |
+| The examples package | `slango = { workspace = true, features = ["wgpu"] }` |
+
+The entry of `slango` in `[workspace.dependencies]` keeps the default features. `slang-slint` and the examples need wgpu for good, because they pass wgpu objects between `slango`, Slint, and winit.
+
+`slango-codegen` needs a backend only so that its copy of `slango` compiles, because `precompile_file` creates no device. That copy is a host dependency of the macro, so its feature does not reach the `slango` of the user's program (Section 4.3 of `docs/design/slango-macros.md`).
+
+The `# Features` section of the crate-level documentation of `slango` names both features, as Section 7.8 of the writing guide requires and `check-feature-docs` checks. It describes `wgpu` with these points:
+
+- It is on by default.
+- It runs every kernel and draw on wgpu 30, and it provides the module `slango::wgpu`.
+- The crate needs a backend, and `wgpu` is its only one, so a build without it stops with the error of SLO-29.
+
+The module `slango::wgpu` says in its documentation that it is available only with the feature `wgpu`. The other items do not repeat that sentence, because without the feature the crate does not compile, so no item exists in one build of the crate and not in another. This is a choice of the design, and M10 adds the sentence to each item that stays specific to wgpu.
+
+With this feature, the backend `rhi` of M10 is additive in these respects:
+
+- A program that writes `default-features = false, features = ["rhi"]` builds neither wgpu nor `pollster`, because only the feature `wgpu` enables them.
+- The compile error of SLO-29 can be relaxed without breaking a build.
+- `DeviceOptions`, `AdapterSelection`, `ErrorKind`, and the other non-exhaustive types of Section 5.5 can gain a field or a variant, such as a choice of backend or a kind for an unsupported pipeline.
+- An accessor of SLO-31 can return `None` for an object of the other backend without a change of its signature.
+- `texture_from_view` already returns a `Result`, so a device of the other backend can be rejected with an error kind.
+
+The pass cannot promise the rest, and the owner accepts a breaking version 0.2 of `slango` if the backend `rhi` needs one (Section 15.11 of the architecture design). In particular, SLO-17 makes every public type `Send` and `Sync`, which a backend whose objects are not thread-safe cannot keep. The owner also decided against a spike of slang-rhi before the release, so no signature of this document has been tried against slang-rhi (SOQ-4).
+
+### 4.4. Semantic Versioning of the Pass
+
+Each change of the pass would break users after a release, which is why it comes before the first release:
+
+- Putting existing items behind a new default feature removes every item from a dependent that already builds `slango` with `default-features = false`.
+- Changing the return type of `device`, `queue`, and `texture` from a reference to an option breaks every caller.
+- Adding `#[non_exhaustive]` to an existing type breaks every struct literal of it and every `match` on it without a wildcard arm. Every type that needs it has it already (Section 5.5), so the pass adds none.
+
+Making `wgpu` and `pollster` optional changes nothing for a dependent that keeps the default features.
+
+### 4.5. What the Pass Does Not Do
+
+The pass leaves these out on purpose, because each is a decision of M10 that the backend `rhi` informs:
+
+- A backend trait, an enumeration of backends, or a field of `DeviceOptions` that chooses a backend (SIMP-2).
+- A change to `from_device_and_queue` or `texture_from_view`. Both take wgpu objects, so both stay specific to wgpu, and a device that `from_device_and_queue` returns is always backed by wgpu.
+- A `cfg` on any item inside a module of the crate.
+- A new error kind, a change to SLO-17, or a change to the generated code of `slango-macros`.
 
 ## 5. Public Types and Ownership
 
@@ -446,13 +536,69 @@ fn main() -> slango::Result<()> {
 }
 ```
 
+### 5.5. Exhaustiveness of the Public Types
+
+SLO-32. Every public enumeration, and every public struct whose fields are all public, of `slango` outside `__private` MUST be `#[non_exhaustive]`, or else adding the option or variant that a later backend or Slang needs is a breaking release. Every such type of `__private` MUST instead carry an exception to `clippy::exhaustive_enums` or `clippy::exhaustive_structs`, or else `slango-codegen`, which builds them with struct literals and matches them without a wildcard arm, does not compile. A struct with a private field needs neither, because no other crate can write a literal of it.
+
+The rule follows API-9 of the coding standard, whose third case covers the hidden module, which is exempt from semantic versioning (SLM-6 of `docs/design/slango-macros.md`). Every type already follows it, so the pass of M8 changes no type. This table lists each public type that the rule concerns, as the code has it:
+
+| Type | File | Kind | `#[non_exhaustive]` |
+| --- | --- | --- | --- |
+| `DeviceOptions` | `src/device.rs` | Options struct with a public field | Yes |
+| `AdapterSelection` | `src/device.rs` | Enumeration | Yes |
+| `RenderPipelineOptions` | `src/render.rs` | Options struct with public fields | Yes |
+| `Blend`, `CullMode` | `src/render.rs` | Enumerations | Yes |
+| `SamplerOptions` | `src/sampler.rs` | Options struct with public fields | Yes |
+| `FilterMode`, `AddressMode` | `src/sampler.rs` | Enumerations | Yes |
+| `TextureFormat` | `src/texture.rs` | Enumeration | Yes |
+| `ErrorKind` | `src/error.rs` | Enumeration of error kinds (ERR-1) | Yes |
+| `Precompiled` | `src/__private.rs` | Struct with public fields | No, with an exception |
+| `Interface`, `KernelInterface`, `Parameter`, `ValueType`, `Structure`, `Field`, `UniformStructure` | `src/__private/interface.rs` | Structs with public fields | No, with an exception |
+| `ParameterKind`, `Scalar`, `Shape`, `Access`, `ElementType`, `FieldType` | `src/__private/interface.rs` | Enumerations | No, with an exception |
+
+`Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Call`, `Draw`, and `Error` have only private fields. The enumeration `ValueType` of the private module `marshal::sealed` is reachable by no other crate, so neither lint reports it.
+
+The check is a tool check already, as Hard Rule 4 of `AGENTS.md` requires. `clippy::exhaustive_enums` and `clippy::exhaustive_structs` report every public enumeration and every public struct with only public fields that has neither the attribute nor an exception, in every crate of the workspace, and `check-clippy` fails on them (Section 3.10). A new public type therefore cannot reach `main` without a decision, and the pass adds no lint configuration.
+
+Clippy cannot judge which of the two a type needs, so that choice stays the judgement rule API-9, which the review of the public API of each crate of the release in M8 applies (Section 15.11 of the architecture design). The lints cover the other crates of the release in the same way, so this document asks nothing of them.
+
 ## 6. Backend Boundary
 
-SLO-4. Every public item of `slango` that names a wgpu type MUST be in one public module, such as `slango::wgpu`, which holds the constructors from wgpu objects and the accessors that return them. Every other use of wgpu MUST stay private, because a later backend then changes no other part of the public API (ARCH-15).
+SLO-4. Every public item of `slango` that names a wgpu type MUST be in the public module `slango::wgpu`, which exists only with the feature `wgpu` (SLO-28) and holds the constructors from wgpu objects and the accessors that return them. Every other use of wgpu MUST stay private, because a later backend then changes no other part of the public API (ARCH-15).
 
 The layout snapshot is the boundary inside the crate. The reflection walk above it knows Slang and no wgpu type, and the code below it turns the snapshot into wgpu layouts, bind groups, and dispatches.
 
 No backend trait exists (SIMP-2). This answers Q-17 of the architecture design.
+
+SLO-31. Each function of `slango::wgpu` that returns a wgpu object of a `slango` object MUST return it as an `Option` of a reference, and `None` when the object has no such wgpu object. Otherwise a later backend, whose objects hold no wgpu object, could only panic in these functions or change their signatures in a breaking release. The three functions change as this table states:
+
+| Function | Former signature | Signature with SLO-31 |
+| --- | --- | --- |
+| `device` | `fn device(device: &Device) -> &wgpu::Device` | `fn device(device: &Device) -> Option<&wgpu::Device>` |
+| `queue` | `fn queue(device: &Device) -> &wgpu::Queue` | `fn queue(device: &Device) -> Option<&wgpu::Queue>` |
+| `texture` | `fn texture(texture: &Texture) -> &wgpu::Texture` | `fn texture(texture: &Texture) -> Option<&wgpu::Texture>` |
+
+Each keeps `#[must_use]`. No other public function returns a wgpu object (Section 3.10).
+
+The return type is an `Option` and not a `Result` with a kind of `ErrorKind`, by a choice of the design. A missing wgpu object is a property of the object that the caller asks about, not a failure of an operation (ERR-5), and the caller knows which backend made the object.
+
+A new kind would also be one that no code path of the crate can return while wgpu is its only backend. A caller that needs an error maps the `None` to an error of its own, as `slang-slint` does.
+
+wgpu is the only backend, so every `Device` and every `Texture` holds a wgpu object, and the three functions always return `Some`. Each implementation returns `Some` of the reference that the crate-private accessor gives. Each function carries `#[expect(clippy::unnecessary_wraps, reason = "...")]`, whose reason says in plain words that an object of a backend other than wgpu has no wgpu object and that wgpu is the only backend of the crate.
+
+The exception turns stale, and fails `check-clippy`, as soon as a function can return `None`, so the change that adds a second backend has to remove it (Hard Rule 6 of `AGENTS.md`). The documentation of each function states that it returns `None` for an object that has no wgpu object, and that every object has one while wgpu is the only backend of the crate. Its example handles the `Option`, without `unwrap`.
+
+The two constructors stay as they are:
+
+- `from_device_and_queue(device: wgpu::Device, queue: wgpu::Queue) -> Device` cannot fail, because it always makes a device that wgpu backs.
+- `texture_from_view(device: &Device, view: &wgpu::TextureView) -> Result<Texture>` already returns a `Result`, so a later backend can reject a device that wgpu does not back with an error kind, which is no breaking change.
+
+The callers in the workspace change in these ways:
+
+- `View::to_image` of `slang-slint` maps `None` to an error of its kind `TextureImport` (SLS-11 of `docs/design/slang-slint.md`).
+- The example `windowed-renderer` keeps clones of the wgpu device and queue that it creates before it hands them to `from_device_and_queue`, and configures the surface and presents each frame through those clones. It then calls none of the three functions. wgpu objects are reference counted, so a clone is cheap (Section 3.2).
+- The tests of `slango`, of `slang-slint`, and of the examples that call the three functions unwrap the `Option` with `expect` and a message that names the object.
+- The code that `slango-codegen` generates names no wgpu item (Section 3.10), so it, its snapshots, and `slango-macros` do not change.
 
 ## 7. Loading a Module
 
@@ -684,7 +830,7 @@ These rules settle samplers. `Sampler::new` takes a device and a `SamplerOptions
 
 The other settings of a sampler, such as its mipmap filter, are wgpu's defaults, with no comparison and no anisotropy.
 
-The module `slango::wgpu` has `texture`, which returns the wgpu texture of a `Texture`, and `texture_from_view`, which wraps a wgpu texture view of a device, such as the view of a surface texture, as a `Texture` (SLO-4). No function returns the view of a `Texture`. `texture_from_view` takes the size, format, and usages from the viewed texture through `TextureView::texture` (read, wgpu 30.0.1).
+The module `slango::wgpu` has `texture`, which returns the wgpu texture of a `Texture` as an `Option` (SLO-31), and `texture_from_view`, which wraps a wgpu texture view of a device, such as the view of a surface texture, as a `Texture` (SLO-4). No function returns the view of a `Texture`. `texture_from_view` takes the size, format, and usages from the viewed texture through `TextureView::texture` (read, wgpu 30.0.1).
 
 `texture_from_view` gives `ErrorKind::InvalidArgument` for a format that `TextureFormat` lacks. It does the same for a texture that is not two-dimensional with one sample, one mip level, and one array layer, so that `size` and `read` describe what a kernel samples.
 
@@ -948,7 +1094,7 @@ The example creates the window with winit, and the wgpu instance, surface, adapt
 
 When the surface offers none of them, the example exits with an error that lists the formats that the surface offers.
 
-In each frame, the example wraps the view of the surface texture with `slango::wgpu::texture_from_view` and draws one indexed quad into it, with a checkerboard texture that it creates with `Texture::from_pixels` and a `float4x4` transform. The transform rotates the quad by an angle that grows with time and keeps it square at the aspect ratio of the target. The example then presents the surface texture through the wgpu queue that `slango::wgpu::queue` returns, because wgpu 30 presents through the queue.
+In each frame, the example wraps the view of the surface texture with `slango::wgpu::texture_from_view` and draws one indexed quad into it, with a checkerboard texture that it creates with `Texture::from_pixels` and a `float4x4` transform. The transform rotates the quad by an angle that grows with time and keeps it square at the aspect ratio of the target. The example keeps clones of the wgpu device and queue that it hands to `slango`, configures the surface through its device, and presents the surface texture through its queue, because wgpu 30 presents through the queue (SLO-31).
 
 The example reloads its shader without a file-watching dependency. Before each frame, it compares the modification time of the file with the time of the last load. When the time changed, it records the new time, loads the module, and creates the pipeline again.
 
@@ -971,6 +1117,30 @@ No test opens a window, because the Linux runner has no display, so example 3 ru
 
 winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependency of the examples package only. It builds on all three CI runners with no package added to the Linux runners. Section 8 of `docs/design/tooling.md` records its features and the duplicate versions that it brings.
 
+### 13.6. Tests of the Forward-Compatibility Pass
+
+The pass adds no test module. Its parts are proved in these ways:
+
+- The `Some` path of SLO-31: the `gpu` tests that compare the objects of `from_device_and_queue` and `texture_from_view` with the wgpu objects that they wrap, such as those in `tests/slango/gpu.rs` and `tests/slango/gpu/texture.rs`, compare bare references with `assert_eq!`. The code step of SLO-31 changes those assertions to compare with `Some` of each wgpu object, so that they then prove the `Some` path on lavapipe, WARP, and hosted Metal (Section 13.2).
+- That every accessor always returns `Some`: the exception to `clippy::unnecessary_wraps` on each accessor, which `check-clippy` proves on every run.
+- The build with the feature `wgpu`: every recipe that compiles the workspace, which builds `slango` with its default features, and `check-features` for every combination that contains `wgpu` (SLO-29).
+- The feature documentation: `check-feature-docs`, which fails when the `# Features` section does not name `wgpu`.
+- The exhaustiveness of SLO-32: `check-clippy`. No trybuild case is added, because the compiler itself rejects a struct literal of a `#[non_exhaustive]` type in another crate.
+
+These stay unproven by any automated check:
+
+- The `None` path of SLO-31, because no object of this crate lacks a wgpu object, so no test can produce it.
+- The single error of SLO-29 without the feature, because `check-features` skips that combination. The code step that adds the feature runs `cargo check -p slango --no-default-features` once and states its whole output, errors and warnings, in its report (SOA-8).
+- SLO-30. No check fails when a dependent drops `features = ["wgpu"]`, because the entry of `slango` in `[workspace.dependencies]` keeps the default features, so `wgpu` stays on for that dependent. `check-features` runs cargo-hack on each package, but `--no-default-features` there turns off only the features of that package and not the default features of its dependency `slango`. A whole-workspace build would hide the omission anyway, because Cargo unifies the features that the other members request. Review of the four manifests is the check.
+- That the backend `rhi` is additive, which only M10 can show (SOQ-4).
+
+The code follows in two steps, each a separate commit that passes every check:
+
+1. SLO-31: the three accessors with their exceptions and documentation, and every caller of Section 6, in `slango`, `slang-slint`, and the examples. It changes no build configuration, so it can be reviewed alone.
+2. SLO-28 to SLO-30: the manifest of `slango`, the `cfg` attributes and the compile error of its crate root, its `# Features` section and the documentation of `slango::wgpu`, the manifests of the four dependents, and the change of `check-features`.
+
+SLO-32 needs no code step, because every type already follows it.
+
 ## 14. Assumptions to Confirm
 
 Each row is a statement that this design relies on and that no test or source establishes. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in Section 3 and in the section that relies on it, and removes the row.
@@ -980,6 +1150,8 @@ An identifier is never reused.
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 16 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
+| SOA-7 | cargo-hack with `--feature-powerset` also checks each package with none of its features, and an option of cargo-hack, such as `--at-least-one-of wgpu`, skips the combinations of `slango` without `wgpu` and leaves the packages that have no feature `wgpu` checked as before | SLO-29, Section 13.6 | The code step that adds the feature, by a run of the changed `check-features` |
+| SOA-8 | With every declaration of the crate root behind the feature, `cargo check -p slango --no-default-features` reports the error of SLO-29 as its only error. The workspace lint tables enable no `unused_crate_dependencies`, but the dependency `slang-compiler` is then unused, and whether rustc or Cargo reports a warning about it beside the error is not known. The design accepts such a warning, because the build fails with the error anyway, and keeps `slang-compiler` a required dependency. The hand-run check records any warning | SLO-29, Section 13.6 | The code step that adds the feature, by that run |
 
 Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 
@@ -992,6 +1164,7 @@ Each row is a question that this document leaves open. The owner in the third co
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SOQ-3 | How large must a kernel be before naga's parsing at load or lavapipe's first dispatch takes long enough to matter? | This document | The milestone that first loads kernels larger than those of the example |
+| SOQ-4 | Can the backend `rhi` keep the public API of the pass of M8 without a breaking change, in particular `Send` and `Sync` of SLO-17, an infallible `from_device_and_queue`, and `Device::new` with both backends enabled? If not, the owner accepts version 0.2 of `slango` (Section 4.3) | This document | M10 |
 
 Of the questions of the architecture design that name this document, these sections answer or defer each:
 
@@ -1024,7 +1197,7 @@ The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel 
 
 ### 17.1. Cargo Features and Environment Variables
 
-`slango` has one Cargo feature, `vendored`, off by default, which it forwards to `slang-compiler` (SLO-27). It reads no environment variable itself. Without the feature, its build needs `VULKAN_SDK` and libclang, and its programs need the Slang shared library on the library path. With it, its build clones and builds Slang through `slang-src` and its programs need no Slang library (Section 4.1 of the architecture design, Section 18.4 of `docs/design/slang-compiler-sys.md`).
+`slango` has two Cargo features (SLO-27). `wgpu`, on by default, is its only backend, without which the crate does not compile (SLO-28, SLO-29). `vendored`, off by default, only forwards to `slang-compiler`. The crate reads no environment variable itself. Without the feature, its build needs `VULKAN_SDK` and libclang, and its programs need the Slang shared library on the library path. With it, its build clones and builds Slang through `slang-src` and its programs need no Slang library (Section 4.1 of the architecture design, Section 18.4 of `docs/design/slang-compiler-sys.md`).
 
 ### 17.2. Platforms and Minimum Supported Rust Version
 
@@ -1036,6 +1209,7 @@ wgpu 30.0.1 declares `rust-version` 1.87, below the workspace's minimum supporte
 
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
+| `slango` is built without the feature `wgpu` | The compile error of SLO-29 | Enable the feature `wgpu`, or keep the default features |
 | No adapter exists, such as on a machine without a GPU driver or software adapter | `NoAdapter` | Install a driver or lavapipe |
 | The Slang shared library is not on the library path | The program stops before `main`, as `slang-compiler-sys` describes | Run through the recipes, or set the library path |
 | The module does not compile | `Compile`, with Slang's diagnostics | Fix the shader |
@@ -1079,10 +1253,10 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| SLO-1 | 4.1 | Depend on `slang-compiler`, wgpu 30 with `spirv`, and `pollster`, and on no other crate. |
+| SLO-1 | 4.1 | Depend on `slang-compiler`, and under the feature `wgpu` on wgpu 30 with `spirv` and `pollster`, and on no other crate. |
 | SLO-2 | 4.1 | No unsafe code in M3 and M4, and every shader through the validated path. |
 | SLO-3 | 5.1 | `Device`, `Module`, `Kernel`, and `Buffer<T>`, cheap to clone, holding their parents, created through options. |
-| SLO-4 | 6 | wgpu types appear only in one public module. |
+| SLO-4 | 6 | wgpu types appear only in the public module `slango::wgpu`, which exists only with the feature `wgpu`. |
 | SLO-5 | 7.1 | `load_module` compiles on the calling thread and releases every Slang object before it returns. |
 | SLO-6 | 7.1 | The private layout snapshot holds only owned data and follows the walk rules of Section 3.3. |
 | SLO-7 | 7.2 | A new global session for each load, and no hidden Slang state. |
@@ -1105,4 +1279,9 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLO-24 | 8.1 | `Texture2D` with a `float` result and `SamplerState` are parameters of every stage, and `Sampler2D` is rejected. |
 | SLO-25 | 8.2 | The sealed trait `VertexElement`, a supertrait of `Element`, adds packed vectors of 2 and 3 components. |
 | SLO-26 | 9.5 | A draw checks its parameters, attributes, targets, and counts before any work and reports `InvalidArgument`. |
-| SLO-27 | 4.1 | One Cargo feature, `vendored`, off by default, which only forwards to `slang-compiler`. |
+| SLO-27 | 4.1 | Two Cargo features, `wgpu` and `vendored`, of which `vendored` is off by default and only forwards to `slang-compiler`. |
+| SLO-28 | 4.3 | The default feature `wgpu` enables wgpu and `pollster` and gates every declaration of the crate root. |
+| SLO-29 | 4.3 | Without the feature `wgpu`, the crate stops compiling with one `compile_error!` that names the feature. |
+| SLO-30 | 4.3 | Every member of the workspace that depends on `slango` names the feature `wgpu`. |
+| SLO-31 | 6 | `slango::wgpu::device`, `queue`, and `texture` return an `Option`, under an exception to `clippy::unnecessary_wraps`. |
+| SLO-32 | 5.5 | Public enumerations and structs with only public fields are `#[non_exhaustive]`, except those of `__private`, which carry a lint exception. |

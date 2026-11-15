@@ -104,7 +104,10 @@ On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18
 - The fourth added the crate `slang-glslang-sys`, which builds slang-glslang as static libraries from the tree of `slang-src` and holds the in-process loader, and the feature `vendored` of `slang-compiler`, which installs that loader on every global session that the crate creates. It made `slango`, `slango-codegen`, `slango-macros`, `slang-slint`, and the examples package forward the feature. It moved the vendored recipes to `slang-compiler/vendored` with two extra commands that check the forwards, added the Python 3 step to the CI job `vendored`, and made the vendored route of both native crates link the system libraries that Slang's archives and slang-glslang need.
 - The fifth completed the user guide to the vendored build in `README.md` and the crate-level documentation. It covers which crate takes the feature and why `slango-macros` needs it as well, what the build needs and costs, the shared folder, which Slang a build gets and how `BUILD_INFO` shows it, the platforms, and the common failures. It closed the milestone.
 
-The next milestone is M8, the forward-compatibility pass of `slango` and the first release (Section 15.11 of `docs/design/architecture.md`), which has not started.
+M8, the forward-compatibility pass of `slango` and the first release (Section 15.11 of `docs/design/architecture.md`), is in progress. Its design exists, and no code of M8 exists yet:
+
+- `docs/design/slango.md`, Sections 4.3 to 4.5, 5.5, and 6, designs the forward-compatibility pass. It puts the wgpu backend behind the default Cargo feature `wgpu`, without which the crate stops compiling with one `compile_error!` (SLO-28 to SLO-30), and makes the three accessors of `slango::wgpu` return an `Option` (SLO-31). It also finds that the Clippy lints of the workspace already enforce `#[non_exhaustive]` on every public type that needs it (SLO-32).
+- `docs/design/tooling.md`, Sections 3.1, 5, 7.5, and 9, designs the publishing prerequisites and the release. It covers the crates and versions of a release, the check for breaking changes, the hosted documentation on GitHub Pages, the review of the public API, the release procedure with the steps reserved for the owner, and the change of `check-features` for the feature `wgpu` (TOOL-35 to TOOL-48).
 
 Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
@@ -242,7 +245,7 @@ What exists and works:
 - The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`, whose section "Building Slang From Source" is the user guide to the vendored build.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and which Slang is recorded, and the roadmap of milestones M0 to M18.
-- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented.
+- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented, and the release procedure, the check for breaking changes, and the hosted documentation, which M8 designed.
 - The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-compiler-sys.md`, a draft for M7, whose dynamic route, generator, and build information the second code step of M7 implemented, whose vendored route the third implemented, and whose system libraries the fourth added.
 - The design of `slang-src`, `docs/design/slang-src.md`, a draft for M7 that the first code step implemented.
 - The design of `slang-glslang-sys`, `docs/design/slang-glslang-sys.md`, a draft for M7 that the fourth code step implemented.
@@ -271,8 +274,8 @@ What does not exist yet:
 
 - The custom file system of `slang-compiler`, which is deferred with no milestone assigned (Section 15.22 of `docs/design/architecture.md`). It is the trait `FileSystem` and the setter `SessionBuilder::file_system` of Section 8 of `docs/design/slang-compiler.md`, with the Rust-owned blob, the panic handling of SLC-18, and the Slang call guard raised around the user's code of every vtable function (SLC-28). A user who needs one reaches Slang's file system interface through `slang-compiler-sys`.
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
-- The recipe `check-semver`, which arrives with the first release in M8.
-- The CI job `semver`, which arrives in M8.
+- The recipe `check-semver` and the CI job `semver`, which the change that follows the first release adds (TOOL-39 of `docs/design/tooling.md`).
+- The code of M8 that the designs of `slango` and the tooling specify: the feature `wgpu` of `slango` and the `Option` accessors of `slango::wgpu`, the change of `check-features`, the `justfile` variable `release_packages`, the `documentation` field of each crate of the release, `publish = false` on `slang-slint`, the recipes `check-package`, `check-release`, `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`, and the documentation workflow. The hosted documentation and the first release do not exist either, and no crate is published.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
 - A recipe that builds the examples package with its feature `vendored`, and a `gpu` test on the vendored route.
 
@@ -449,7 +452,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `docs/rust-coding-standards.md`: The normative Rust coding standard, with the specification of the lint and tool configuration.
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and which Slang is recorded, the examples, the test tiers, platform support, publishing, and the roadmap.
-- `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, and the requirements on the container image.
+- `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, the release procedure with the hosted documentation, and the requirements on the container image.
 - `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, which is authoritative for the scope and shape of the generated bindings, the tested targets, the generator, the build information, the build script on both routes, and the tests of the crate.
 - `docs/design/slang-compiler.md`: The design of `slang-compiler` and the compile-and-reflect example, which is authoritative for these topics:
   - The facts about Slang that the safe crate relies on.
@@ -509,6 +512,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 These locations are planned and do not exist yet:
 
 - `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, written as the first task of the crate's milestone.
+- `.github/workflows/documentation.yml`: The workflow that builds and deploys the hosted documentation on a push of a release tag (Section 7.5 of `docs/design/tooling.md`).
 ## Technology Decisions
 
 `docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and which Slang is recorded, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree.
@@ -557,7 +561,7 @@ The planned crates are:
 
   - `SessionBuilder::build` fills the floating-point mode, the line directive mode, the scalar layout, and the method of generating SPIR-V of each target descriptor. It takes each from the target's options, otherwise the session's, and reads it exactly as Slang reads it, so that a setting of the session is not silently overwritten (SLC-31 of `docs/design/slang-compiler.md`).
   - `SessionBuilder::build` rejects `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` in the options of a target with `ErrorKind::InvalidArgument`, because the recorded Slang never reads them there (SLC-6).
-- `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its only runtime backend today is wgpu. M10 plans slang-rhi as an opt-in backend behind the Cargo feature `rhi`, with wgpu kept as the default backend, and later milestones add pipeline kinds on the slang-rhi backend only (Sections 15.13 to 15.21 of `docs/design/architecture.md`). It first offers a runtime call API driven by reflection, and its first milestone, M3, covers compute kernels compiled to SPIR-V only.
+- `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its only runtime backend today is wgpu. The design of M8 puts that backend behind the default Cargo feature `wgpu`, without which the crate does not compile (SLO-28 and SLO-29 of `docs/design/slango.md`), which the code does not have yet. M10 plans slang-rhi as an opt-in backend behind the Cargo feature `rhi`, with wgpu kept as the default backend, and later milestones add pipeline kinds on the slang-rhi backend only (Sections 15.13 to 15.21 of `docs/design/architecture.md`). It first offers a runtime call API driven by reflection, and its first milestone, M3, covers compute kernels compiled to SPIR-V only.
 
   In M3 it calls existing compute entry points only, which are functions marked `[shader("compute")]`, with bindings built from reflection. Generated kernels around plain Slang functions, broadcasting over array arguments, and differentiable functions belong to later milestones (Section 8.1 of the architecture design).
 
@@ -607,7 +611,9 @@ CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, insta
 
 Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
-The published crates are planned for crates.io in two releases, in M8 and M11, with checks for breaking changes and documentation that CI builds and hosts outside docs.rs (Section 13 of `docs/design/architecture.md`). Nothing is published without the owner's explicit go-ahead.
+The published crates are planned for crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). Nothing is published without the owner's explicit go-ahead.
+
+docs.rs is not supported, because it builds without network access and the crates need libclang and either a Vulkan SDK or a clone of Slang. A workflow builds the documentation of each release from its tag and hosts it on GitHub Pages, and the `documentation` field of each crate points there. Section 9 of `docs/design/tooling.md` defines the release procedure, in which only the owner publishes, with a token that never enters the repository, CI, or an agent's environment.
 
 The development container provides this environment:
 
@@ -622,7 +628,7 @@ The development container provides this environment:
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. One planned recipe does not exist yet: `check-semver`, which runs cargo-semver-checks and arrives with the first release.
+Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. The recipe `check-semver`, which runs cargo-semver-checks, does not exist yet. The change that follows the first release adds it (TOOL-39 of `docs/design/tooling.md`).
 
 CI installs the latest version of each tool on its runners, and the Vulkan SDK version that the CI configuration records. A tool version in CI can therefore differ from the one in the container, as Section 7.1 of `docs/design/tooling.md` states.
 

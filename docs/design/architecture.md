@@ -141,7 +141,7 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-compiler-sys` | `crates/slang-compiler-sys/` | Raw bindings that its build script generates, the build information, and the linking of Slang (Section 6) | Yes | M1, M7 |
 | `slang-compiler` | `crates/slang-compiler/` | Safe wrappers over the compile and reflection API (Section 7) | Yes | M2 |
 | `slango` | `crates/slango/` | High-level library for calling Slang code on the GPU (Section 8) | Yes | M3, M4 |
-| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Yes | M5 |
+| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Planned for the second release, with `publish = false` until then (Section 13) | M5 |
 | `slango-macros` | `crates/slango-macros/` | Typed Rust bindings to Slang code, generated at build time (Section 8.4) | Yes | M6 |
 | `slango-codegen` | `crates/slango-codegen/` | The generator of `slango-macros`, as a library (Section 4.2 of `docs/design/slango-macros.md`) | Yes | M6 |
 | `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Planned for the first release (Section 13) | M7 |
@@ -502,7 +502,7 @@ ARCH-37. A build MUST NOT stop because its target is not one of the tested targe
 
 ## 13. Publishing
 
-The workspace plans for publication on crates.io in two releases. The examples set `publish = false` and are never published.
+The workspace plans for publication on crates.io in two releases. The examples set `publish = false` and are never published. Every other member that a release does not publish also sets `publish = false` until the release that publishes it, so Cargo refuses to publish it (TOOL-35 of `docs/design/tooling.md`).
 
 | Release | Milestone | Crates | Condition |
 | --- | --- | --- | --- |
@@ -531,9 +531,9 @@ The owner wants the crates usable under permissive licences before they are publ
 
 Publishing readiness means complete publication metadata, the text of its licence in each published package, a release procedure, hosted documentation, and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these, and M8 adds the parts that do not exist yet.
 
-docs.rs is not supported. CI builds the documentation of every published crate and hosts it outside docs.rs, such as on GitHub Pages, and the documentation link of each crate's manifest points there. The reason is that every build of `slang-compiler-sys` after M7 generates its bindings with libclang and either clones Slang over the network or links an installed Slang, and docs.rs is reported to build without network access (Section 16, A-25).
+docs.rs is not supported. CI builds the documentation of every published crate and hosts it outside docs.rs, such as on GitHub Pages, and the documentation link of each crate's manifest points there. The reason is that every build of `slang-compiler-sys` after M7 generates its bindings with libclang and either clones Slang over the network or links an installed Slang, and docs.rs builds without network access. Section 9.4 of `docs/design/tooling.md` gives the source and the hosted site.
 
-Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes with the first release, because cargo-semver-checks needs a published version to compare with. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
+Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes in the change that follows the first release, because cargo-semver-checks needs a published version to compare with (TOOL-39 of `docs/design/tooling.md`). Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
 
 ARCH-24. An agent MUST NOT publish a crate to crates.io without the owner's explicit go-ahead, because a published version cannot be deleted, only yanked, so a mistaken release stays visible to every user.
 
@@ -763,7 +763,7 @@ Several milestones replace requirements of this document that the code satisfies
   - docs.rs is not supported. CI builds the documentation and hosts it elsewhere, such as on GitHub Pages, and the documentation link of each crate points there.
   - Nothing is published without the owner's explicit go-ahead.
   - The crates of the release are published under the licences that Section 13 assigns (ARCH-36).
-- Replaces: the docs.rs requirements of `docs/design/tooling.md`, and the statement of `docs/design/slango.md` that the crate has no Cargo features.
+- Replaces: the docs.rs requirements of `docs/design/tooling.md`, and the statement of `docs/design/slango.md` that the crate has exactly one Cargo feature, `vendored` (SLO-27).
 - Depends on: M7.
 - Design document, which exists before any code of the milestone: the publishing sections of `docs/design/tooling.md`, revised, and `docs/design/slango.md`, revised for the forward-compatibility pass.
 - Exit criteria: every check passes, including the check for breaking changes against the release. The documentation link of each released crate leads to its hosted documentation, and the owner has approved the release. `AGENTS.md`, `README.md`, and this document are updated.
@@ -916,9 +916,10 @@ The design document or milestone in the last column confirms or corrects it, and
 | A-22 | wgpu 30 offers no tessellation, geometry stage, or cooperative vectors, and offers ray tracing pipelines and mesh shaders only as experimental features | Sections 14.4 and 15.20 | The design of M10 |
 | A-23 | Slang offers no reflection of hit groups | Section 15.17 | The design of M14 |
 | A-24 | Slang offers no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source | Section 15.19 | The design of M16 |
-| A-25 | docs.rs builds crates without network access | Section 13 | The design of M8 |
 | A-26 | The recorded Slang holds the module `slang.neural` under `source/standard-modules/neural`, marks it experimental, and needs the experimental feature flag to use it | Section 15.20 | The design of M17 |
 | A-28 | On Windows and macOS, the build script of `slang-src` also finds the shared folder under `--target` and with a separate build directory, and every host and target unit of a project share one native build | Section 4.3 | A vendored build on Windows and macOS with `--target` and with a native build (SRCA-9 of `docs/design/slang-src.md`) |
+
+A-25, that docs.rs builds crates without network access, is confirmed by the documentation of docs.rs (Section 9.4 of `docs/design/tooling.md`).
 
 ## 17. Open Questions
 

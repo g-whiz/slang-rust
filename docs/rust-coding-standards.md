@@ -634,9 +634,11 @@ Reason: the orphan rule stops users from adding these implementations later, and
 
 **API-8.** Seal every public trait that users are not meant to implement, with a private supertrait in a private module, and say in the trait's documentation that it is sealed. Reason: a sealed trait can gain methods without a breaking change, and an unsealed one cannot. [IR-8] [IR-10]
 
-**API-9.** When `clippy::exhaustive_enums` or `clippy::exhaustive_structs` asks for a decision, add `#[non_exhaustive]` to every public enum or struct that mirrors a Slang type, describes errors, or holds options. Add a lint exception instead only in two cases.
+**API-9.** When `clippy::exhaustive_enums` or `clippy::exhaustive_structs` asks for a decision, add `#[non_exhaustive]` to every public enum or struct that mirrors a Slang type, describes errors, or holds options. Add a lint exception instead only in three cases.
 
-One is a type whose set of values its meaning closes, such as a choice between two directions. The other is a struct that other crates must construct with a struct literal, such as a hand-written `#[repr(C)]` vtable for an interface that Rust code implements.
+One is a type whose set of values its meaning closes, such as a choice between two directions. Another is a struct that other crates must construct with a struct literal, such as a hand-written `#[repr(C)]` vtable for an interface that Rust code implements.
+
+The third is a type of a hidden module that the crate exempts from semantic versioning, and that a sibling crate, which requires the crate at an exact version, builds with a struct literal or matches without a wildcard arm, such as the description of a module that the generator of a procedural macro reads. This case is project-defined and derives from no external source.
 
 Reason: Slang adds enum values and options between releases, and `#[non_exhaustive]` lets the crates follow without a breaking release, at the cost of a wildcard arm in users' matches, while on a struct it stops every other crate from writing a struct literal of it. [IR-5] [IR-3] [IR-90]
 
@@ -1475,7 +1477,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | API-6 | A builder for four or more options, with infallible setters and a validating `build`. |
 | API-7 | Public types implement the common traits that apply, `Copy` never on resource owners. |
 | API-8 | Traits that users must not implement are sealed and documented as sealed. |
-| API-9 | `#[non_exhaustive]` on types that mirror Slang, describe errors, or hold options, and a lint exception on closed types and on structs that other crates construct with a literal. |
+| API-9 | `#[non_exhaustive]` on types that mirror Slang, describe errors, or hold options, and a lint exception on closed types, on structs that other crates construct with a literal, and on types of a hidden module that a sibling crate at an exact version builds or matches. |
 | API-10 | Private fields, one path per item, no glob re-exports or preludes, except one glob re-export of a `-sys` crate's private generated module. |
 | API-11 | Each trait's object safety is decided, documented, and tested when `dyn` is intended. |
 | API-12 | Generic bounds over stored trait objects, no derivable bounds on structs, least restrictive closure bounds. |
