@@ -69,7 +69,8 @@ It adds these terms:
 - recipe: A named command in the root `justfile`, run with `just <recipe>`.
 - recipe group: The group that the `[group]` attribute gives a recipe, under which `just --list` shows it.
 - runner: The machine that runs a job.
-- Software Package Data Exchange (SPDX) licence identifier: The standard short name of a licence, such as `GPL-3.0-or-later`, which Cargo's `license` field takes.
+- Software Package Data Exchange (SPDX) licence identifier: The standard short name of a licence, such as `GPL-3.0-or-later`.
+- SPDX licence expression: One or more SPDX licence identifiers combined with `OR`, `AND`, or `WITH` and an exception, such as `MIT OR Apache-2.0` or `Apache-2.0 WITH LLVM-exception`, which Cargo's `license` field takes.
 - workflow: A YAML Ain't Markup Language (YAML) file under `.github/workflows/` that defines the jobs that GitHub Actions runs.
 
 ## 3. Recipes
@@ -851,9 +852,12 @@ The vendored route runs first on Windows and macOS in this job, so the job also 
 
 ## 8. Dependency Policy
 
-The file `deny.toml` configures cargo-deny, which Section 4.8 of the coding standard lists with what it owns. Section 4.8 also requires the licence allow-list to include `GPL-3.0-or-later` itself.
+The file `deny.toml` configures cargo-deny, which Section 4.8 of the coding standard lists with what it owns. Section 4.8 also requires `deny.toml` to accept the licences of the workspace's own crates, which ARCH-36 of the architecture design assigns. cargo-deny checks every crate of the graph against the licence policy, the workspace's own included, whether or not the crate is published.
 
-TOOL-24. The licence allow-list of `deny.toml` MUST start with `GPL-3.0-or-later` alone. An agent MUST add any other licence only in the change that adds the first dependency under it, after confirming that the licence is compatible with GPL-3.0-or-later. A licence that no dependency uses widens what a later dependency can bring in without any check failing.
+TOOL-24. The licence allow-list of `deny.toml` MUST hold the licences of the workspace's crates under permissive licences, `Apache-2.0`, `MIT`, and `Apache-2.0 WITH LLVM-exception`, and otherwise only licences that a dependency needs. `GPL-3.0-or-later`, the licence of `slang-slint`, MUST NOT be on the allow-list and MUST be accepted only through the exception for `slang-slint` alone. An agent MUST add any other licence only in the change that adds the first dependency under it, after confirming that it is no GPL licence when a crate under a permissive licence depends on it (TOOL-34), and that it is compatible with GPL-3.0-or-later when `slang-slint` or the examples package depends on it. A licence that no dependency uses widens what a later dependency can bring in without any check failing.
+
+TOOL-34. A crate under `MIT OR Apache-2.0` or `Apache-2.0 WITH LLVM-exception`, except the examples package, MUST NOT depend on a crate that the workspace takes under the GNU General Public License (GPL). A GPL licence is accepted only for `slang-slint`, the examples package, and the crates of Slint that they use.
+cargo-deny enforces one part of TOOL-34: it accepts `GPL-3.0-or-later` for `slang-slint` alone, so any other crate under that licence fails the check. The rest of TOOL-34 is a judgement rule that a reviewer checks. `GPL-3.0-only` is on the allow-list for every crate, because cargo-deny cannot accept a licence only inside the dependency tree of one crate, and an exception for each crate of Slint would be a long list that grows with Slint. Nothing in the check therefore stops a crate under a permissive licence from gaining a dependency under `GPL-3.0-only`.
 
 TOOL-25. Every path dependency between workspace members MUST carry a version, and `deny.toml` MUST set `bans.allow-wildcard-paths = false`, because Cargo refuses to package or publish a crate whose path dependency has no version, so without the check a missing version surfaces only at the release. The value `true` is no alternative (Section 4.8 of the coding standard).
 
@@ -874,9 +878,21 @@ ignore = [] # The advisories of the advisory table, each with its reason.
 unused-ignored-advisory = "deny"
 
 [licenses]
-allow = ["GPL-3.0-or-later"] # Followed by the licences of the licence table.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
 confidence-threshold = 0.8
 unused-allowed-license = "deny"
+exceptions = [{ crate = "slang-slint", allow = ["GPL-3.0-or-later"] }]
 
 [bans]
 multiple-versions = "deny"
@@ -904,7 +920,7 @@ These dependencies shape the lists:
 
 Slint's winit backend turns on winit's feature `wayland-csd-adwaita` for every example, including `windowed-renderer`, as Section 3.6 of `docs/design/slang-slint.md` records. `sctk-adwaita` and the crates under BSD licences below are therefore in the graph.
 
-The licence allow-list holds `GPL-3.0-or-later` and these licences, each for the crates that need it:
+The licence allow-list holds `Apache-2.0 WITH LLVM-exception`, the licence of `slang-compiler-sys`, and these licences, each for the crates that need it. `Apache-2.0` and `MIT` also cover the workspace's crates under `MIT OR Apache-2.0`:
 
 | Licence | Crates that need it | How they enter |
 | --- | --- | --- |
@@ -912,13 +928,13 @@ The licence allow-list holds `GPL-3.0-or-later` and these licences, each for the
 | `BSD-2-Clause` | `arrayref` 0.3.9 | `tiny-skia` 0.11 and 0.12, and `tiny-skia-path` 0.11 |
 | `BSD-3-Clause` | `tiny-skia` and `tiny-skia-path` 0.11.4 and 0.12.0, and `bindgen` 0.72.1 | `tiny-skia` 0.11 through `sctk-adwaita` 0.10, `tiny-skia` 0.12 through `resvg` of `i-slint-common`, and `bindgen` as a build dependency of `skia-bindings` of Slint's Skia renderer, which `i-slint-backend-winit` uses only on Apple targets other than macOS |
 | `BSL-1.0` | `clipboard-win` 5.4.3 and `error-code` 3.4.0 | `arboard` of `i-slint-backend-winit`, on Windows |
-| `GPL-3.0-only` | The seven crates of Slint 1.18.1 in the graph, `slint`, `slint-macros`, `i-slint-backend-selector`, `i-slint-common`, `i-slint-compiler`, `i-slint-core`, and `i-slint-core-macros`, each under `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0` | `slint`, on all four supported targets |
+| `GPL-3.0-only` | The seven crates of Slint 1.18.1 in the graph, `slint`, `slint-macros`, `i-slint-backend-selector`, `i-slint-common`, `i-slint-compiler`, `i-slint-core`, and `i-slint-core-macros`, each under `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0` | `slint`, which only `slang-slint` and the examples package depend on (TOOL-34), on all four supported targets |
 | `ISC` | `libloading` | `slang-bindgen` |
 | `MIT` | The crates under MIT alone, which are `block2`, `cfg_aliases`, `crunchy`, `dlib`, `libm`, `objc2`, `objc2-encode`, `objc2-foundation`, `ordered-float`, `redox_syscall`, `slab`, `tokio`, which only the WebAssembly target reaches, `wayland-sys`, and `xml-rs`. It also satisfies `termcolor` and `winapi-util`, under `Unlicense OR MIT` | wgpu and winit |
 | `Unicode-3.0` | `unicode-ident`, under `(MIT OR Apache-2.0) AND Unicode-3.0` | wgpu |
 | `Zlib` | `foldhash` 0.1.5 and 0.2.0, and `slotmap` | wgpu |
 
-Each licence is compatible with GPL-3.0-or-later, as TOOL-24 requires. Section 14 of `docs/design/slang-compiler-sys.md` records the licence of each crate of `slang-bindgen`, which is the case for `Apache-2.0` and `ISC`. The licence list of the Free Software Foundation (FSF) gives the evidence for the others [FSF-LICENSES]:
+Every licence of the table except `GPL-3.0-only` is permissive, as TOOL-34 requires of the dependencies of the crates under permissive licences. Each licence is also compatible with GPL-3.0-or-later, as TOOL-24 requires for the dependencies of `slang-slint` and the examples package. Section 14 of `docs/design/slang-compiler-sys.md` records the licence of each crate of `slang-bindgen`, which is the case for `Apache-2.0` and `ISC`. The licence list of the Free Software Foundation (FSF) gives the evidence for the others [FSF-LICENSES]:
 
 - `MIT`: Its entry for the Expat licence, which is the text that SPDX names `MIT`, calls it a lax, permissive licence compatible with the GNU GPL.
 - `Zlib`: Its entry for the licence of zlib calls it a free software licence compatible with the GPL.
@@ -927,13 +943,13 @@ Each licence is compatible with GPL-3.0-or-later, as TOOL-24 requires. Section 1
 - `BSD-3-Clause`: Of the Modified BSD license, it says: "It is a lax, permissive non-copyleft free software license, compatible with the GNU GPL. This license is sometimes referred to as the 3-clause BSD license."
 - `BSL-1.0`: Of the Boost Software License, it says: "This is a lax, permissive non-copyleft free software license, compatible with the GNU GPL."
 
-The owner approved `GPL-3.0-only`, and `slang-slint` takes the crates of Slint under it, with the consequence that Section 4.2 of `docs/design/slang-slint.md` states. The evidence of compatibility is this:
+The owner approved `GPL-3.0-only`, and `slang-slint` and the examples package take the crates of Slint under it, with the consequence that Section 4.2 of `docs/design/slang-slint.md` states. The evidence of compatibility is this:
 
-- The licence text that `slint` 1.18.1 and `i-slint-core` 1.18.1 ship, in `LICENSES/GPL-3.0-only.txt`, is version 3 of the GNU General Public License, dated 29 June 2007. It differs from the repository's `LICENSE` only in formatting and quotation marks.
+- The licence text that `slint` 1.18.1 and `i-slint-core` 1.18.1 ship, in `LICENSES/GPL-3.0-only.txt`, is version 3 of the GNU General Public License, dated 29 June 2007. It differs from the repository's `LICENSE-GPL` only in formatting and quotation marks.
 - The FSF licence list lists version 3 of the GNU GPL as a free software licence and a copyleft licence, and recommends it for most software [FSF-LICENSES].
 - The compatibility matrix of the GPL FAQ permits copying code under GPLv3 into code that is licensed under GPLv3 or later [GPL-FAQ]. The combination is then distributed under version 3 only, which is the consequence that Section 4.2 of that design states.
 
-The owner also approved `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`. The project's licence stays GPL-3.0-or-later.
+The owner also approved `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0`.
 
 The dependencies bring duplicate versions that no change to the workspace can remove, because the lock file already resolves each crate to its newest compatible version. Each older version has its own `skip` entry, with its reason in `deny.toml`, under TOOL-26.
 
@@ -989,7 +1005,9 @@ A Linux build of Slint links fontconfig, so the Linux jobs install its developme
 
 The architecture design owns the publishing policy in its Section 13 and the go-ahead rule ARCH-24. This section defines how the repository is kept ready to publish.
 
-TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence identifier `GPL-3.0-or-later`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that cargo-deny checks and with the minimum supported Rust version (MSRV) that Clippy reads.
+TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence expression `MIT OR Apache-2.0`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that ARCH-36 of the architecture design assigns and with the minimum supported Rust version (MSRV) that Clippy reads.
+
+The one exception is the `license` field of a member that ARCH-36 assigns another licence. `slang-compiler-sys` and every later `-sys` or `-src` crate MUST set it to `Apache-2.0 WITH LLVM-exception`, and `slang-slint` MUST set it to `GPL-3.0-or-later`.
 
 TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 14.3 and `README.md`. The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
 
@@ -1003,7 +1021,18 @@ Cargo supports this layout. A `readme` that a member inherits from the workspace
 
 Cargo refuses to package a crate whose path dependency has no version (TOOL-25). Packaging one crate that depends on a member that is not published yet fails, while `cargo package --workspace` succeeds.
 
-Cargo does not include the root `LICENSE` in a packaged crate when the manifest sets only the `license` field, so how each published crate carries the licence text is open (Section 12, TQ-6).
+TOOL-33. The repository root MUST hold the text of each licence of ARCH-36 once: `LICENSE-APACHE` holds the Apache License 2.0, `LICENSE-MIT` the MIT licence, `LICENSE-APACHE-LLVM` the Apache License 2.0 with the LLVM exception, and `LICENSE-GPL` version 3 of the GNU General Public License. Each package directory, including `tools/bindings-generator/` and `examples/`, MUST hold its own licence under the conventional name as a relative symbolic link to the root file. The names are `LICENSE-APACHE` and `LICENSE-MIT` for a package under `MIT OR Apache-2.0`, and `LICENSE` for a crate under one licence.
+
+Cargo does not include a root licence file in a packaged crate when the manifest sets only the `license` field, while it does package the files of the crate directory. `cargo package` follows a symbolic link, so a packaged crate holds the full licence text as a regular file. On a checkout without symbolic link support, such a file holds only the path of its target, so a release MUST be packaged on Linux or macOS.
+
+The root texts are these:
+
+- `LICENSE-GPL`: The former root `LICENSE`, unchanged.
+- `LICENSE-APACHE`: The Apache License 2.0 as the Apache Software Foundation publishes it.
+- `LICENSE-MIT`: The SPDX text of the MIT licence, with the line `Copyright (c) 2026 g-whiz`.
+- `LICENSE-APACHE-LLVM`: The Apache License 2.0, followed by the SPDX text of the LLVM exception.
+
+The repository has no `NOTICE` file.
 
 `slang-bindgen`, `slang-src`, and `slang-glslang-sys` are published crates (Section 3.1 of the architecture design), so TOOL-27 applies to them. Every release of `slang-src` needs a release of each crate that requires it exactly (SRC-14 of `docs/design/slang-src.md`, ARCH-32 of the architecture design), which the release procedure has to cover. TQ-4 is where that procedure is decided.
 
@@ -1058,8 +1087,7 @@ Each row is a question that this document leaves open. The design document in th
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
-| TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M8 |
-| TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 9)? | This document | M8 |
+| TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, where the crates.io token is kept outside the repository, and how the release ensures that it packages on Linux or macOS, so that the licence files are regular files in each package (TOOL-33)? | This document | M8 |
 
 An identifier is never reused, so the next question takes TQ-11.
 
@@ -1259,7 +1287,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | Label | Section | Summary |
 | --- | --- | --- |
 | TOOL-3 | 9 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
-| TOOL-4 | 9 | Licence, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits. |
+| TOOL-4 | 9 | Licence `MIT OR Apache-2.0`, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits, except the `license` field of the `-sys` and `-src` crates and `slang-slint`. |
 | TOOL-5 | 9 | `rust-version` changes only in a change whose purpose is to raise it. |
 | TOOL-6 | 3.1 | Recipes have the name, group, and `check` membership of Section 3.2. |
 | TOOL-7 | 3.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, or, when they run code that loads Slang, the library path assignment of SCS-32, except that `test-vendored`, with the nextest and doctest commands, and `check-vendored`, with the Clippy and documentation commands, select the four native and compiler packages with `-p`, enable `slang-compiler/vendored`, remove `VULKAN_SDK` and the loader path variables, and set `CARGO_TARGET_DIR=target/vendored`, and `test-vendored` passes `--no-tests=fail`. |
@@ -1279,7 +1307,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-21 | 7.2 | Every download, and every file restored from a cache, is verified against a published SHA-256 checksum before use, and installer actions verify each download and do not fall back. |
 | TOOL-22 | 7.2 | No workflow uses `pull_request_target`, reads a secret, or publishes. |
 | TOOL-23 | 7.3 | The SDK step reads the version from the top-level `env` of the workflow, verifies the download, sets `VULKAN_SDK`, and makes Slang findable. |
-| TOOL-24 | 8 | The licence allow-list starts with `GPL-3.0-or-later` and grows only with a dependency. |
+| TOOL-24 | 8 | The allow-list holds the permissive licences of the workspace's crates and grows only with a dependency, and `GPL-3.0-or-later` is accepted only through the exception for `slang-slint`. |
 | TOOL-25 | 8 | Path dependencies between members carry a version, and `bans.allow-wildcard-paths` is `false`. |
 | TOOL-26 | 8 | Advisories, duplicates, and other sources fail cargo-deny, with exceptions only per item and with a reason. |
 | TOOL-27 | 9 | Published crates carry the full metadata, and unpublished members set `publish = false`. |
@@ -1288,3 +1316,5 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-30 | 3.1 | `taplo.toml` sets four-space indentation and excludes `target/` and `.worktrees/`, and `typos.toml` accepts the correct words that typos reports. |
 | TOOL-31 | 8 | `deny.toml` denies unused licence allow-list entries and unused advisory ignores. |
 | TOOL-32 | 3.1 | `default-members` and every `--workspace` command leave out `slang-src` and `slang-glslang-sys`. |
+| TOOL-33 | 9 | The root holds each licence text once, each package links its own licence under the conventional name, and a release is packaged on Linux or macOS. |
+| TOOL-34 | 8 | A GPL licence is accepted only for `slang-slint`, the examples package, and the Slint crates that they use. cargo-deny enforces `GPL-3.0-or-later` for `slang-slint` alone, and a reviewer checks that no permissive crate depends on a `GPL-3.0-only` crate. |

@@ -1369,7 +1369,9 @@ The generator depends on the crate `clang` 2.1.0, and through it on `clang-sys`,
 - `libloading`: ISC.
 - `glob`, `libc`, `cfg-if`, and `windows-link`: MIT OR Apache-2.0.
 
-The licence allow-list of `deny.toml` includes `Apache-2.0` and `ISC`, which cover this graph (TOOL-24). Apache-2.0 and ISC are compatible with GPL-3.0-or-later. Section 8 of the tooling design lists the whole allow-list.
+The licence allow-list of `deny.toml` includes `Apache-2.0` and `ISC`, which cover this graph (TOOL-24). None of these crates is under the GPL, as TOOL-34 requires of the dependencies of the two crates. Section 8 of the tooling design lists the whole allow-list.
+
+`slang-compiler-sys` is under the licence of Slang, `Apache-2.0 WITH LLVM-exception`, which its manifest sets in its own `license` field. `slang-bindgen` is under `MIT OR Apache-2.0`, which it inherits from the workspace (ARCH-36 of the architecture design, TOOL-4 of the tooling design).
 
 The dependency is declared once in `[workspace.dependencies]` as `clang = { version = "2.1.0", features = ["runtime", "clang_10_0"] }` (DEP-2). `check-msrv` verifies that it builds with the workspace's `rust-version`.
 

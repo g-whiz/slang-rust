@@ -120,7 +120,7 @@ What exists and works:
 - The Claude Code settings in `.claude/settings.json`, which allow a list of recipes to run without asking and run the prose checker after every edit of a Markdown file or a Rust file.
 - The root `.gitattributes`, which keeps LF line endings in every checkout on every platform.
 - `CLAUDE.md`, which imports this file.
-- The workspace manifest `Cargo.toml`, with the `[workspace.package]` fields that every member inherits and the workspace lint tables of Section 4.2 of the coding standard.
+- The workspace manifest `Cargo.toml`, with the `[workspace.package]` fields that the members inherit and the workspace lint tables of Section 4.2 of the coding standard.
 - The tool configuration: `clippy.toml`, `deny.toml`, `.config/nextest.toml`, `taplo.toml`, and `typos.toml`.
 - `crates/slang-compiler-sys`, with publication metadata, the raw bindings that the binding generator wrote and that are checked in as `src/bindings.rs`, re-exported at the crate root, and crate-level documentation that states the safety contract that every generated function shares.
   - Its root also includes the three constants of the pin from `crates/slang-compiler-sys/pin.rs`, the only record of the pinned Vulkan SDK version, Slang build tag, and Slang commit. It has no dependencies.
@@ -170,7 +170,7 @@ What exists and works:
 
   The tests are described in Section 13.6 of `docs/design/slang-compiler.md`, Sections 13.3 and 13.5 of `docs/design/slango.md`, Section 10 of `docs/design/slang-slint.md`, and Section 10 of `docs/design/slango-macros.md`. No recipe runs an example.
 - The binding generator `tools/bindings-generator`, a library with a thin binary, which parses the Slang headers with libclang and writes the raw bindings and the list of their C functions, with its rule set, its shim headers, and its unit tests. Its integration-test binary `tests/generator/` holds the regeneration test, which runs the generator on the headers at `VULKAN_SDK` and fails when either result differs from its checked-in file, `src/bindings.rs` or `tests/sys/symbols.rs` of `slang-compiler-sys`, in any byte.
-- `LICENSE` and `README.md`.
+- The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and pinned, and the roadmap of milestones M0 to M18.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented.
@@ -224,13 +224,14 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `CLAUDE.md`: A one-line file that imports `AGENTS.md` for Claude Code.
 - `Cargo.toml`: The workspace manifest. It holds these parts:
   - Resolver 3.
-  - The `[workspace.package]` fields that every member inherits, such as edition 2024, `rust-version`, and the licence.
+  - The `[workspace.package]` fields that the members inherit, such as edition 2024 and `rust-version`, and the licence `MIT OR Apache-2.0`, which every member except `slang-compiler-sys` and `slang-slint` inherits (TOOL-4 of `docs/design/tooling.md`).
   - In `[workspace.dependencies]`, the dependencies `clang`, `insta`, `pollster`, `prettyplease`, `proc-macro2`, `quote`, `slang-compiler`, `slang-compiler-sys`, `slang-slint`, `slango`, `slango-codegen`, `slango-macros`, `slint`, `syn`, `trybuild`, `wgpu`, and `winit`, with `slang-compiler`, `slang-compiler-sys`, `slang-slint`, `slango`, `slango-codegen`, and `slango-macros` by path and version.
   - The workspace lint tables.
 
   Its members are `crates/slang-compiler`, `crates/slang-compiler-sys`, `crates/slang-slint`, `crates/slango`, `crates/slango-codegen`, `crates/slango-macros`, `examples`, and `tools/bindings-generator`.
 - `Cargo.lock`: The lock file of the workspace.
-- `LICENSE`: The text of version 3 of the GNU General Public License.
+- `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, `LICENSE-GPL`: The texts of the Apache License 2.0, the MIT licence, the Apache License 2.0 with the LLVM exception, and version 3 of the GNU General Public License, each held once (TOOL-33 of `docs/design/tooling.md`).
+- `LICENSE`, `LICENSE-APACHE`, and `LICENSE-MIT` in a package directory: Relative symbolic links to the root texts of the package's own licence, under the conventional name, which is `LICENSE` in `crates/slang-compiler-sys/` and `crates/slang-slint/`, and `LICENSE-APACHE` with `LICENSE-MIT` in every other package directory, including `tools/bindings-generator/` and `examples/`. `cargo package` follows the links, but a checkout without symbolic link support holds only the target path, so a release is packaged on Linux or macOS (TOOL-33 of `docs/design/tooling.md`).
 - `README.md`: The README, which is also the readme of every member through the inherited `readme` field.
 - `crates/slang-compiler-sys/`: The crate of raw bindings that Project Status describes, with `Cargo.toml`, which declares `links = "slang-compiler"` and whose `[package.metadata.docs.rs]` table lists the four supported targets. It also has `src/lib.rs`, which holds these parts:
   - The crate-level documentation.
@@ -351,7 +352,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `tools/bindings-generator/src/rules.rs`: The rule set of the binding generator, which decides every declaration and macro of the Slang headers (Section 4 of `docs/design/slang-compiler-sys.md`).
 - `tools/bindings-generator/shim/`: The shim headers that replace the system headers when the generator parses for each target.
 - `clippy.toml`: The Clippy configuration of Section 4.3 of the coding standard.
-- `deny.toml`: The cargo-deny configuration of Section 8 of `docs/design/tooling.md`, whose `[advisories]` table ignores five advisories by the owner's decisions and whose `[bans]` table skips 31 duplicate versions. Section 8 of `docs/design/tooling.md` lists the licence allow-list, the advisories, and the skips with the reason for each.
+- `deny.toml`: The cargo-deny configuration of Section 8 of `docs/design/tooling.md`, whose `[advisories]` table ignores five advisories by the owner's decisions and whose `[bans]` table skips 31 duplicate versions. Its `[licenses]` table accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It accepts `GPL-3.0-only` for every crate, so a reviewer checks that no crate under a permissive licence depends on a crate under the GPL (TOOL-34). Section 8 of `docs/design/tooling.md` lists the licence allow-list, the advisories, and the skips with the reason for each.
 - `.config/nextest.toml`: The nextest profiles `default`, `gpu`, and `hw-gpu`, which implement the test tiers as Section 4 of `docs/design/tooling.md` defines. It also holds `default-miri`, which Miri uses and which skips the modules named `ffi`, `gpu`, and `hw_gpu`, and an override that keeps the output of the `gpu` tests of `slango`, which name their adapter.
 - `taplo.toml`: The taplo configuration, with four-space indentation and the exclusion of `target/` and `.worktrees/`.
 - `typos.toml`: The typos configuration, which ignores two correct patterns that typos would otherwise report, and accepts three whole identifiers of the generated bindings that the Slang headers misspell (Section 5.10 of `docs/design/slang-compiler-sys.md`).
@@ -496,7 +497,7 @@ No environment variable selects the route, the build never falls back from one r
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates.
 
-The crates use edition 2024 and Cargo resolver 3. The licence is GPL-3.0-or-later, and `LICENSE` holds its text.
+The crates use edition 2024 and Cargo resolver 3. Each crate has the licence that Section 13 of `docs/design/architecture.md` assigns to its kind: the licence of Slang for the `-sys` and `-src` crates, `GPL-3.0-or-later` for `slang-slint`, and `MIT OR Apache-2.0` for every other crate, including the examples package.
 
 CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, installs the Vulkan SDK version that the CI configuration records on all three, and runs the default test tier on all three. One job on each platform also builds and tests the vendored route (Section 7.4 of `docs/design/tooling.md`). It also runs the GPU tier on all three, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS.
 

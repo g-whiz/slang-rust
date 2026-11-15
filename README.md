@@ -99,6 +99,14 @@ just check
 
 ## Licence
 
-slang-rust is licensed under the GNU General Public License, version 3 or later, with the SPDX identifier `GPL-3.0-or-later`. The file [`LICENSE`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE) in the repository holds the text of the licence.
+Each crate has its own licence, given here as an SPDX licence expression. Each crate's package holds the text of its licence.
 
-`slang-slint` depends on Slint, which is available under several licences, and takes it under version 3 of the GNU General Public License only, with the SPDX identifier `GPL-3.0-only`. A program that uses `slang-slint` is therefore distributed under version 3 of the GNU General Public License only. The other five crates do not depend on Slint, so this does not apply to them.
+| Crate | Licence | Licence text |
+| --- | --- | --- |
+| `slang-compiler-sys` | `Apache-2.0 WITH LLVM-exception`, the licence of Slang | [`LICENSE-APACHE-LLVM`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE-LLVM) |
+| `slang-compiler`, `slango`, `slango-macros`, and `slango-codegen` | `MIT OR Apache-2.0`, at your option | [`LICENSE-MIT`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-MIT) and [`LICENSE-APACHE`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE) |
+| `slang-slint` | `GPL-3.0-or-later` | [`LICENSE-GPL`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-GPL) |
+
+The binding generator and the source of the examples are also under `MIT OR Apache-2.0`.
+
+`slang-slint` depends on Slint, which is available under several licences, and takes it under version 3 of the GNU General Public License only, with the SPDX identifier `GPL-3.0-only`. A program that uses `slang-slint` is therefore distributed under version 3 of the GNU General Public License only. The example `shader-playground` uses Slint too, so the program built from it is under version 3 of the GNU General Public License only. The other crates do not depend on Slint, so this does not apply to them.

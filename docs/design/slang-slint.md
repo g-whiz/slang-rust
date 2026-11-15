@@ -181,11 +181,15 @@ SLS-17. `slang-slint` MUST have exactly one Cargo feature, `vendored = ["slango/
 
 ### 4.2. Licences
 
-`slang-slint` takes Slint's crates, whose licence expression Section 3.6 gives, under `GPL-3.0-only`. The source of `slang-slint` stays under `GPL-3.0-or-later`. A program that combines it with Slint under this option is distributed under version 3 of the GNU General Public License only, while `slang-compiler` and `slango` do not depend on Slint and are not affected.
+`slang-slint` takes Slint's crates, whose licence expression Section 3.6 gives, under `GPL-3.0-only`. The source of `slang-slint` stays under `GPL-3.0-or-later`, which its manifest sets in its own `license` field instead of inheriting the licence of the workspace (ARCH-36 of the architecture design, TOOL-4 of `docs/design/tooling.md`). A program that combines it with Slint under this option is distributed under version 3 of the GNU General Public License only.
+
+The example `shader-playground` links Slint under the same option, so the program built from it is under version 3 of the GNU General Public License only, whatever the licence of the source of the examples package. The library crates under permissive licences depend on neither `slang-slint` nor Slint, so the consequence does not reach them. TOOL-34 of `docs/design/tooling.md` requires that they never do, and a reviewer checks it, because cargo-deny accepts `GPL-3.0-only` for every crate.
 
 SLS-5. The crate-level documentation of `slang-slint` and `README.md` MUST state this consequence, because a user who distributes a program built with the crate must know the licence of the result first.
 
-`deny.toml` admits `GPL-3.0-only` under TOOL-24, with the evidence of compatibility that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26. It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 8 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for five advisories.
+`deny.toml` accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It admits `GPL-3.0-only`, which the Slint crates of `slang-slint` and the examples package need, with the evidence of compatibility with `GPL-3.0-or-later` that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26.
+
+It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 8 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for five advisories.
 
 ## 5. The Device
 

@@ -525,7 +525,7 @@ The configuration of the tools that need one exists in the repository: `deny.tom
 | `cargo nextest run` | Unit and integration tests, including the tests of the bindings of TEST-8. It does not run doctests. | Run by the check |
 | `cargo test --doc` | Doctests (Section 7.5 of the writing guide) | Run by the check |
 | `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Run by the check |
-| `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
+| `cargo deny` | Licences on the allow-list of `docs/design/tooling.md`, with `GPL-3.0-or-later` for `slang-slint` alone, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
 | `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Installed, run by hand |
 | `cargo semver-checks` | Breaking changes to the public API against the last release | Installed, not run until the first release |
 | `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Run outside the check, by CI in every run of the workflow |
@@ -590,7 +590,7 @@ It fails `cargo doc` on any rustdoc lint warning, so the documentation command n
 
 The doctest command runs on the whole workspace, which skips packages without a library target. The form `cargo test --doc -p <package>` fails with "no library targets found" on a package that has only binary targets.
 
-An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the licence allow-list, because the workspace's own crates carry that licence. It MUST also give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
+An agent that creates `deny.toml` MUST accept the licences of the workspace's own crates, which ARCH-36 of `docs/design/architecture.md` assigns, because cargo-deny checks the licence of each workspace member as well, published or not. The permissive licences go on the allow-list, and `GPL-3.0-or-later` is accepted through an exception for `slang-slint` alone (TOOL-24 of `docs/design/tooling.md`). It MUST also give every path dependency between workspace members a version, because `cargo deny check` fails on the workspace otherwise, and Cargo refuses to package or publish a crate whose path dependency has no version. The setting `bans.allow-wildcard-paths = true` is no alternative, because it exempts only crates with `publish = false`.
 
 Each custom checker runs through the recipe of the same name, such as `just check-rust-comments`, and takes optional paths. With no paths, it checks every relevant file in the repository, as Section 6 of `docs/design/tooling.md` specifies.
 

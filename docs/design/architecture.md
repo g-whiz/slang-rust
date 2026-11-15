@@ -510,13 +510,25 @@ The owner accepts one exception to that order, a breaking version 0.2 of `slango
 
 On 2026-11-15, every planned crate name above was free on crates.io in both its hyphen and its underscore form.
 
-Publishing readiness means complete publication metadata, a licence file in each published package, a release procedure, hosted documentation, and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these, and M8 adds the parts that do not exist yet.
+Each crate of the workspace has the licence of its kind, as this table shows. The licences are SPDX licence expressions.
+
+| Kind | Crates | Licence |
+| --- | --- | --- |
+| A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, and the planned `slang-src`, `slang-glslang-sys`, and `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
+| The Slint view | `slang-slint` | `GPL-3.0-or-later` |
+| Every other crate | `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, the binding generator `slang-bindgen`, the planned `slang-rhi`, and the unpublished examples package | `MIT OR Apache-2.0` |
+
+ARCH-36. Every crate MUST carry the licence that the table assigns to its kind, and a new crate MUST take that licence when it is created.
+
+The owner wants the crates usable under permissive licences before they are published. A `-sys` or `-src` crate takes the licence of Slang, whose code it binds or builds, and every other crate takes the dual licence that is the convention of the Rust ecosystem.
+
+`slang-slint` stays under the GNU General Public License (GPL), because it depends on Slint under `GPL-3.0-only`. The example `shader-playground` links Slint as well, so the program built from it is under version 3 of the GPL only, whatever the licence of the examples' source (Section 4.2 of `docs/design/slang-slint.md`). `docs/design/tooling.md` defines where each licence text is kept and the licence policy for dependencies.
+
+Publishing readiness means complete publication metadata, the text of its licence in each published package, a release procedure, hosted documentation, and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these, and M8 adds the parts that do not exist yet.
 
 docs.rs is not supported. CI builds the documentation of every published crate and hosts it outside docs.rs, such as on GitHub Pages, and the documentation link of each crate's manifest points there. The reason is that every build of `slang-compiler-sys` after M7 generates its bindings with libclang and either clones Slang over the network or links an installed Slang, and docs.rs is reported to build without network access (Section 16, A-25).
 
 Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes with the first release, because cargo-semver-checks needs a published version to compare with. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
-
-The licence consequence of depending on Slint, for `slang-slint` and the programs that combine it with Slint, is stated in Section 4.2 of `docs/design/slang-slint.md`.
 
 ARCH-24. An agent MUST NOT publish a crate to crates.io without the owner's explicit go-ahead, because a published version cannot be deleted, only yanked, so a mistaken release stays visible to every user.
 
@@ -731,7 +743,7 @@ Several milestones replace requirements of this document that the code satisfies
 
 - Deliverables:
   - The forward-compatibility pass of `slango` that the owner decided, as listed below.
-  - The publishing prerequisites: the change of licence that Section 15.11 records below, then a licence file in each published package, a release procedure, the recipe `check-semver` with its CI job, and a review of the public API of each crate of the release against the coding standard.
+  - The publishing prerequisites: a release procedure, the recipe `check-semver` with its CI job, and a review of the public API of each crate of the release against the coding standard.
   - The hosted documentation of each crate of the release, built in CI.
   - The first release, after the owner's go-ahead (ARCH-24).
 - Owner decisions that bind it:
@@ -740,7 +752,7 @@ Several milestones replace requirements of this document that the code satisfies
   - No slang-rhi spike precedes the release. The owner accepts a breaking version 0.2 of `slango` if the `rhi` backend later needs one, for example if slang-rhi objects are not thread-safe while the public types of `slango` are `Send` and `Sync`.
   - docs.rs is not supported. CI builds the documentation and hosts it elsewhere, such as on GitHub Pages, and the documentation link of each crate points there.
   - Nothing is published without the owner's explicit go-ahead.
-  - The crates move from GPL-3.0-or-later to more permissive licences before they are published. Which licences they take is open (Section 17, Q-40), and the licence of the repository does not change before then.
+  - The crates of the release are published under the licences that Section 13 assigns (ARCH-36).
 - Replaces: the docs.rs requirements of `docs/design/tooling.md`, and the statement of `docs/design/slango.md` that the crate has no Cargo features.
 - Depends on: M7.
 - Design document, which exists before any code of the milestone: the publishing sections of `docs/design/tooling.md`, revised, and `docs/design/slango.md`, revised for the forward-compatibility pass.
@@ -914,7 +926,6 @@ Each row is a question that this document leaves open. The design document in th
 | Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
 | Q-39 | Does the feature `rhi` of `slango` imply `vendored`, so that Slang and slang-rhi always come from one Slang tree? | `docs/design/slang-rhi-sys.md` | M9 |
-| Q-40 | Which more permissive licences do the published crates take in place of GPL-3.0-or-later (Section 15.11)? A program that combines `slang-slint` with Slint under `GPL-3.0-only` stays under version 3 of the GNU General Public License only, whatever licence `slang-slint` takes (Section 4.2 of `docs/design/slang-slint.md`) | `docs/design/tooling.md` | M8 |
 
 ## 18. Security Considerations
 
@@ -1048,3 +1059,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | ARCH-33 | 6.2 | The binding generator produces every generated item from the headers of the Slang that the same build links. |
 | ARCH-34 | 5.1 | `slang-compiler` checks that the loaded Slang reports the build tag of the build information. |
 | ARCH-35 | 4.3 | Only `slang-src` reaches the network during a build, to fetch the Slang tree by commit hash and the tags of a selected commit, and no build script writes outside `OUT_DIR` except into the user's cache directory. |
+| ARCH-36 | 13 | Every crate carries the licence of its kind from its creation. |

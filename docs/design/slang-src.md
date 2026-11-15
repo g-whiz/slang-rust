@@ -149,6 +149,8 @@ SRC-2. `slang-src` MUST have no unsafe code, no dependencies, and no build depen
 
 The library of the crate holds the crate-level documentation and no public item. The crate exists for its build script and its metadata, and a public item would be an API that nothing needs and that every release would have to keep.
 
+The crate is created under the licence of Slang, `Apache-2.0 WITH LLVM-exception`, which its manifest sets in its own `license` field instead of inheriting the licence of the workspace (ARCH-36 of the architecture design, TOOL-4 of `docs/design/tooling.md`).
+
 The crate has these files:
 
 - `build.rs` includes `recorded.rs`, `source.rs`, and `system.rs`, calls the logic with the real host, prints every instruction, and returns the result from `main`.

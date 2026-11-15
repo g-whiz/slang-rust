@@ -293,7 +293,7 @@ The validated path runs every kernel that M3 needs and every render shader that 
 
 wgpu's dependency tree brings crates under the licences `MIT`, `Unicode-3.0`, and `Zlib`, and duplicate versions of `foldhash`, `hashbrown`, and `syn`. The licence allow-list of `deny.toml` holds the three licences, and its `[bans]` table holds a `skip` entry with a reason for each duplicate version, as TOOL-24 and TOOL-26 require.
 
-The project's licence stays GPL-3.0-or-later. Section 8 of `docs/design/tooling.md` records which crates need each licence, the evidence of its compatibility, and the reason for each skip.
+`slango` is under `MIT OR Apache-2.0`, which it inherits from the workspace (ARCH-36 of the architecture design). None of these crates is under the GPL, as TOOL-34 of `docs/design/tooling.md` requires of the dependencies of `slango`. Section 8 of `docs/design/tooling.md` records which crates need each licence, the evidence for it, and the reason for each skip.
 
 ## 5. Public Types and Ownership
 

@@ -92,6 +92,8 @@ SGL-1. The manifest of `slang-glslang-sys` MUST declare `links = "slang-glslang"
 
 The exact version of `slang-src` keeps the tree of this crate and the tree of `slang-compiler-sys` the same tree (SRC-14 of the `slang-src` design), and `links` keeps two builds of slang-glslang out of one graph.
 
+The crate is created under the licence of Slang, `Apache-2.0 WITH LLVM-exception`, which its manifest sets in its own `license` field instead of inheriting the licence of the workspace (ARCH-36 of the architecture design, TOOL-4 of `docs/design/tooling.md`).
+
 SGL-2. The build script MUST build the wrapper project with CMake and the Ninja generator out of tree, in `OUT_DIR/build`, reading the source tree in place from `DEP_SLANG_SRC_ROOT`. It MUST NOT copy the tree and MUST NOT write into it. It MUST run every CMake command with `PYTHONDONTWRITEBYTECODE=1` in its environment.
 
 glslang and SPIRV-Tools write nothing into their source directories except the Python bytecode of the grammar table generator of SPIRV-Tools, which `PYTHONDONTWRITEBYTECODE=1` suppresses (Section 13, SGLA-2). A build in place then needs no copy, and two builds can read one tree at once, such as a host and a target build or a build from a shared clone in the cache directory. A write into the tree would break SYS-5 and change a local checkout that the user named.
