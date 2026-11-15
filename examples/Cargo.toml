@@ -22,7 +22,7 @@ vendored = [
 pollster.workspace = true
 slang-compiler.workspace = true
 slang-slint.workspace = true
-slango.workspace = true
+slango = { workspace = true, features = ["wgpu"] }
 slango-macros.workspace = true
 slint = { workspace = true, features = [
     "backend-winit",

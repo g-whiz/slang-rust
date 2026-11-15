@@ -22,7 +22,7 @@ slango-codegen.workspace = true
 syn = { workspace = true, features = ["parsing", "printing", "proc-macro"] }
 
 [dev-dependencies]
-slango.workspace = true
+slango = { workspace = true, features = ["wgpu"] }
 trybuild.workspace = true
 
 [lints]

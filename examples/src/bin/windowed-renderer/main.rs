@@ -131,6 +131,8 @@ struct State {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
+    wgpu_device: wgpu::Device,
+    queue: wgpu::Queue,
     device: slango::Device,
     scene: Scene,
 }
@@ -149,9 +151,9 @@ impl State {
             ..wgpu::RequestAdapterOptions::default()
         }))?;
         eprintln!("running on {}", adapter.get_info().name);
-        let (device, queue) =
+        let (wgpu_device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
-        let device = slango::wgpu::from_device_and_queue(device, queue);
+        let device = slango::wgpu::from_device_and_queue(wgpu_device.clone(), queue.clone());
 
         let formats = surface.get_capabilities(&adapter).formats;
         let (format, colour_format) = colour_format(&formats).ok_or_else(|| {
@@ -162,13 +164,15 @@ impl State {
             .get_default_config(&adapter, width.max(1), height.max(1))
             .ok_or("the surface is not supported by the adapter")?;
         config.format = format;
-        surface.configure(slango::wgpu::device(&device), &config);
+        surface.configure(&wgpu_device, &config);
 
         let scene = Scene::new(&device, file, colour_format)?;
         Ok(Self {
             window,
             surface,
             config,
+            wgpu_device,
+            queue,
             device,
             scene,
         })
@@ -178,8 +182,7 @@ impl State {
         if size.width > 0 && size.height > 0 {
             self.config.width = size.width;
             self.config.height = size.height;
-            self.surface
-                .configure(slango::wgpu::device(&self.device), &self.config);
+            self.surface.configure(&self.wgpu_device, &self.config);
         }
     }
 
@@ -209,7 +212,7 @@ impl State {
         let target = slango::wgpu::texture_from_view(&self.device, &view)?;
         self.scene.draw(&target, angle)?;
         self.window.pre_present_notify();
-        slango::wgpu::queue(&self.device).present(frame);
+        self.queue.present(frame);
         Ok(true)
     }
 }

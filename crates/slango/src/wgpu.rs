@@ -9,6 +9,9 @@
 //! a [`Texture`], with [`texture_from_view`]. Every public item of this crate
 //! that names a type of wgpu is in this module, so the rest of the crate does
 //! not depend on wgpu's API. The types are those of wgpu 30.
+//!
+//! This module is available only with the Cargo feature `wgpu`, which is on
+//! by default.
 
 use crate::error::Result;
 use crate::{Device, Texture};
@@ -38,10 +41,13 @@ pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> De
     Device::from_wgpu(device, queue)
 }
 
-/// Returns the wgpu device of a [`Device`].
+/// Returns the wgpu device of a [`Device`], or `None` when the device has no
+/// wgpu device.
 ///
 /// Use it to create wgpu objects of your own on the same device, such as a
-/// texture to render the results of a kernel.
+/// texture to render the results of a kernel. Every device has a wgpu device
+/// while wgpu is the only backend of this crate, so the function returns
+/// `None` only for a device of another backend.
 ///
 /// # Examples
 ///
@@ -50,21 +56,26 @@ pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> De
 /// ```
 /// fn has_immediates(device: &slango::Device) -> bool {
 ///     slango::wgpu::device(device)
-///         .features()
-///         .contains(wgpu::Features::IMMEDIATES)
+///         .is_some_and(|device| device.features().contains(wgpu::Features::IMMEDIATES))
 /// }
 /// # let _ = has_immediates;
 /// ```
 #[must_use]
-pub fn device(device: &Device) -> &::wgpu::Device {
-    device.wgpu_device()
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a device of a backend other than wgpu has no wgpu device, and wgpu is the only backend of this crate"
+)]
+pub fn device(device: &Device) -> Option<&::wgpu::Device> {
+    Some(device.wgpu_device())
 }
 
 /// Returns the wgpu queue of a [`Device`], through which work is submitted to
-/// the device.
+/// the device, or `None` when the device has no wgpu queue.
 ///
 /// Use it to submit work of your own to the same queue as this crate, so that
-/// the device runs both in the order of submission.
+/// the device runs both in the order of submission. Every device has a wgpu
+/// queue while wgpu is the only backend of this crate, so the function
+/// returns `None` only for a device of another backend.
 ///
 /// # Examples
 ///
@@ -72,21 +83,30 @@ pub fn device(device: &Device) -> &::wgpu::Device {
 ///
 /// ```
 /// fn upload(device: &slango::Device, buffer: &wgpu::Buffer, bytes: &[u8]) {
-///     slango::wgpu::queue(device).write_buffer(buffer, 0, bytes);
+///     if let Some(queue) = slango::wgpu::queue(device) {
+///         queue.write_buffer(buffer, 0, bytes);
+///     }
 /// }
 /// # let _ = upload;
 /// ```
 #[must_use]
-pub fn queue(device: &Device) -> &::wgpu::Queue {
-    device.wgpu_queue()
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a device of a backend other than wgpu has no wgpu queue, and wgpu is the only backend of this crate"
+)]
+pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
+    Some(device.wgpu_queue())
 }
 
-/// Returns the wgpu texture of a [`Texture`].
+/// Returns the wgpu texture of a [`Texture`], or `None` when the texture has
+/// no wgpu texture.
 ///
 /// Use it to work on the texture with wgpu code of your own, such as to copy
 /// pixels into it with [`wgpu::Queue::write_texture`](::wgpu::Queue::write_texture),
 /// which needs the usage `COPY_DST` that every texture of a colour format
-/// has.
+/// has. Every texture has a wgpu texture while wgpu is the only backend of
+/// this crate, so the function returns `None` only for a texture of another
+/// backend.
 ///
 /// # Examples
 ///
@@ -94,18 +114,26 @@ pub fn queue(device: &Device) -> &::wgpu::Queue {
 ///
 /// ```
 /// fn write_corner(device: &slango::Device, texture: &slango::Texture, pixel: [u8; 4]) {
-///     slango::wgpu::queue(device).write_texture(
-///         slango::wgpu::texture(texture).as_image_copy(),
-///         &pixel,
-///         wgpu::TexelCopyBufferLayout::default(),
-///         wgpu::Extent3d::default(),
-///     );
+///     if let (Some(queue), Some(texture)) =
+///         (slango::wgpu::queue(device), slango::wgpu::texture(texture))
+///     {
+///         queue.write_texture(
+///             texture.as_image_copy(),
+///             &pixel,
+///             wgpu::TexelCopyBufferLayout::default(),
+///             wgpu::Extent3d::default(),
+///         );
+///     }
 /// }
 /// # let _ = write_corner;
 /// ```
 #[must_use]
-pub fn texture(texture: &Texture) -> &::wgpu::Texture {
-    texture.wgpu_texture()
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a texture of a backend other than wgpu has no wgpu texture, and wgpu is the only backend of this crate"
+)]
+pub fn texture(texture: &Texture) -> Option<&::wgpu::Texture> {
+    Some(texture.wgpu_texture())
 }
 
 /// Wraps a wgpu texture view of the wgpu device of a [`Device`] as a

@@ -12,12 +12,14 @@ repository.workspace = true
 readme.workspace = true
 
 [features]
+default = ["wgpu"]
 vendored = ["slang-compiler/vendored"]
+wgpu = ["dep:wgpu", "dep:pollster"]
 
 [dependencies]
-pollster.workspace = true
+pollster = { workspace = true, optional = true }
 slang-compiler.workspace = true
-wgpu.workspace = true
+wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta.workspace = true

@@ -241,7 +241,7 @@ The view offers no depth target. An application with a pipeline that has a depth
 
 SLS-11. `View::to_image` MUST return a `slint::Image` that shares the view's current texture, from a clone of the wgpu texture that `slango::wgpu::texture` returns, because an image of a copy would not show later draws (Section 3.4).
 
-A `TextureImportError` gives `ErrorKind::TextureImport` with Slint's error as the source. When `slango::wgpu::texture` returns `None`, because the texture has no wgpu texture (SLO-31 of `docs/design/slango.md`), `to_image` gives `ErrorKind::TextureImport` without a source error. That case cannot occur while wgpu is the only backend of `slango`. The application sets the image on its `Image` element after `View::new` and after each resize that returns `true`. Every later draw into the same texture shows on the next frame that Slint renders.
+A `TextureImportError` gives `ErrorKind::TextureImport` with Slint's error as the source. When `slango::wgpu::texture` returns `None`, because the texture has no wgpu texture (SLO-31 of `docs/design/slango.md`), `to_image` gives `ErrorKind::TextureImport` without a source error and with the detail "the texture has no wgpu texture", so the error reads "cannot make an image of a view: the texture has no wgpu texture". The detail is a choice of the design, because the kind alone names Slint's rejection as well. That case cannot occur while wgpu is the only backend of `slango`, so a unit test checks the mapping on the private function that `to_image` calls (Section 9). The application sets the image on its `Image` element after `View::new` and after each resize that returns `true`. Every later draw into the same texture shows on the next frame that Slint renders.
 
 ### 6.2. Resize
 
@@ -337,6 +337,7 @@ The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (S
 - The module `device` checks the error path of `device`.
 - The module `view` asserts SLS-14 for `View`.
 - The unit tests in `src/error.rs` check the `Display` text of each error kind, `source`, and the assertions of SLS-14 for `Error` and `ErrorKind`. They sit in the crate, because only the crate can construct an error of each kind, as in `slango`.
+- The unit test in `src/view.rs` checks the mapping of SLS-11 for a texture without a wgpu texture: the private function `wgpu_texture`, which `View::to_image` calls with what `slango::wgpu::texture` returns, turns `None` into the kind `TextureImport` with the full text of the error and no source error. It sits in the crate, because no test can make `slango::wgpu::texture` return `None` (SLO-31 of `docs/design/slango.md`), so it calls the private function with `None` directly.
 
 The tests of the module `gpu`, with their helpers in the module `common`, create the device with `slango::Device::new`, so they need no Slint window, no event loop, and no `SLINT_WGPU_CPU`. Their shader draws one triangle that covers the texture, with no vertex buffer. They check:
 

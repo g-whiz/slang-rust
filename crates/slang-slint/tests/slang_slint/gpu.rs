@@ -29,8 +29,8 @@ fn a_resized_view_draws_into_a_new_texture_of_the_new_size() {
     assert_eq!(view.size(), [7, 2]);
     assert_eq!(view.texture().size(), [7, 2]);
     assert_ne!(
-        slango::wgpu::texture(&old),
-        slango::wgpu::texture(view.texture())
+        slango::wgpu::texture(&old).expect("the wgpu texture of a texture"),
+        slango::wgpu::texture(view.texture()).expect("the wgpu texture of a texture")
     );
     assert_filled(&view, [0, 0, 0, 0]);
     fill(&view, GREEN);
@@ -87,6 +87,7 @@ fn a_resize_to_a_size_without_area_is_an_invalid_size_and_keeps_the_texture() {
 fn a_size_over_the_limit_of_the_device_is_an_error_of_slango() {
     let device = device();
     let limit = slango::wgpu::device(&device)
+        .expect("the wgpu device of a device")
         .limits()
         .max_texture_dimension_2d;
     let pipeline = pipeline_with(&device, TextureFormat::Rgba8Unorm);

@@ -557,10 +557,11 @@ cargo deny check
 
 Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
 
-These commands run the checks of the tools from `cargo hack` to Miri. The first checks the features, and the second checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed.
+These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed. The features of `slango` are checked in the second command, without the combination with no features, which stops on purpose with a compile error (TOOL-48 of `docs/design/tooling.md`).
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
 cargo machete
 cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn

@@ -9,7 +9,7 @@ pub(crate) fn device_with(adapter: AdapterSelection) -> Device {
     let mut options = DeviceOptions::default();
     options.adapter = adapter;
     let device = Device::new(&options).expect("a device on the selected adapter");
-    let wgpu_device = slango::wgpu::device(&device);
+    let wgpu_device = slango::wgpu::device(&device).expect("the wgpu device of a device");
     println!(
         "slango gpu test adapter: {:?}, immediates: {}, max immediate size: {}",
         wgpu_device.adapter_info(),
@@ -27,7 +27,7 @@ pub(crate) fn instance() -> wgpu::Instance {
 }
 
 pub(crate) fn assert_immediates_follow_the_adapter(device: &Device) {
-    let wgpu_device = slango::wgpu::device(device);
+    let wgpu_device = slango::wgpu::device(device).expect("the wgpu device of a device");
     let info = wgpu_device.adapter_info();
     let adapter = pollster::block_on(instance().enumerate_adapters(wgpu::Backends::PRIMARY))
         .into_iter()

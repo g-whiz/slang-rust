@@ -326,20 +326,22 @@ fn a_texture_wrapped_from_a_wgpu_view_is_a_target() {
     let mut options = RenderPipelineOptions::default();
     options.colour_format = TextureFormat::Bgra8Unorm;
     let pipeline = flat_pipeline(&device, &options);
-    let texture = slango::wgpu::device(&device).create_texture(&wgpu::TextureDescriptor {
-        label: Some("a texture like that of a frame of a window"),
-        size: wgpu::Extent3d {
-            width: 4,
-            height: 4,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
+    let texture = slango::wgpu::device(&device)
+        .expect("the wgpu device of a device")
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("a texture like that of a frame of a window"),
+            size: wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     let target = slango::wgpu::texture_from_view(&device, &view).expect("the wrapped texture");
     Triangles::new(&device, &[(WHOLE, [1.0, 0.2, 0.0, 1.0])])

@@ -517,7 +517,9 @@ fn a_dispatch_with_plain_values_on_a_destroyed_device_is_a_backend_error() -> sl
     let module = device.load_module(shader("scale.slang"))?;
     let data = Buffer::from_slice(&device, &[1.0_f32, 2.0])?;
     let kernel = module.kernel("scale")?;
-    slango::wgpu::device(&device).destroy();
+    slango::wgpu::device(&device)
+        .expect("the wgpu device of a device")
+        .destroy();
     let error = kernel
         .call()
         .set("factor", 2.0_f32)

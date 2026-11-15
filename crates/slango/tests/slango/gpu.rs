@@ -15,7 +15,13 @@ fn default_device_reports_its_adapter() {
     let device = device_with(AdapterSelection::Default);
     let name = device.adapter_name();
     assert_ne!(name, "");
-    assert_eq!(name, slango::wgpu::device(&device).adapter_info().name);
+    assert_eq!(
+        name,
+        slango::wgpu::device(&device)
+            .expect("the wgpu device of a device")
+            .adapter_info()
+            .name
+    );
     assert_eq!(device.clone().adapter_name(), name);
 }
 
@@ -28,7 +34,9 @@ fn default_device_has_immediates_when_its_adapter_offers_them() {
 #[test]
 fn software_selection_creates_a_device_on_a_software_adapter() {
     let device = device_with(AdapterSelection::Software);
-    let info = slango::wgpu::device(&device).adapter_info();
+    let info = slango::wgpu::device(&device)
+        .expect("the wgpu device of a device")
+        .adapter_info();
     assert_eq!(info.device_type, wgpu::DeviceType::Cpu);
     assert_immediates_follow_the_adapter(&device);
 }
@@ -79,11 +87,12 @@ fn device_from_wgpu_objects_uses_them() {
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
             .expect("a device without optional features");
     let device = slango::wgpu::from_device_and_queue(wgpu_device.clone(), wgpu_queue.clone());
-    assert_eq!(slango::wgpu::device(&device), &wgpu_device);
-    assert_eq!(slango::wgpu::queue(&device), &wgpu_queue);
+    assert_eq!(slango::wgpu::device(&device), Some(&wgpu_device));
+    assert_eq!(slango::wgpu::queue(&device), Some(&wgpu_queue));
     assert_eq!(device.adapter_name(), adapter.get_info().name);
     assert!(
         !slango::wgpu::device(&device)
+            .expect("the wgpu device of a device")
             .features()
             .contains(wgpu::Features::IMMEDIATES)
     );

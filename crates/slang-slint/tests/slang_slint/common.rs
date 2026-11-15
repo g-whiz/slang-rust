@@ -66,5 +66,7 @@ pub(crate) fn assert_filled(view: &View, pixel: [u8; 4]) {
 }
 
 pub(crate) fn wgpu_texture(view: &View) -> slint::wgpu_30::wgpu::Texture {
-    slango::wgpu::texture(view.texture()).clone()
+    slango::wgpu::texture(view.texture())
+        .expect("the wgpu texture of a texture")
+        .clone()
 }

@@ -261,6 +261,11 @@
 //!
 //! # Features
 //!
+//! - `wgpu`, on by default: runs every kernel and every draw on wgpu 30, and
+//!   provides the module [`wgpu`], the boundary to wgpu code of your own.
+//!   wgpu is the only backend of the crate, and the crate needs a backend,
+//!   so a build without this feature stops with a compile error that names
+//!   it.
 //! - `vendored`, off by default: enables the feature `vendored` of
 //!   slang-compiler, so that a program that depends on this crate alone
 //!   links a Slang built from source statically, in place of the Slang shared
@@ -291,31 +296,60 @@
 //! the macro links its own copy of Slang, as the crate documentation of
 //! `slango-macros` explains.
 
+#[cfg(not(feature = "wgpu"))]
+compile_error!("slango needs a backend: enable its Cargo feature `wgpu`, which is on by default");
+
+#[cfg(feature = "wgpu")]
 #[doc(hidden)]
 pub mod __private;
+#[cfg(feature = "wgpu")]
 mod buffer;
+#[cfg(feature = "wgpu")]
 mod call;
+#[cfg(feature = "wgpu")]
 mod device;
+#[cfg(feature = "wgpu")]
 mod draw;
+#[cfg(feature = "wgpu")]
 mod encoding;
+#[cfg(feature = "wgpu")]
 mod error;
+#[cfg(feature = "wgpu")]
 mod kernel;
+#[cfg(feature = "wgpu")]
 mod layout;
+#[cfg(feature = "wgpu")]
 mod marshal;
+#[cfg(feature = "wgpu")]
 mod module;
+#[cfg(feature = "wgpu")]
 mod render;
+#[cfg(feature = "wgpu")]
 mod sampler;
+#[cfg(feature = "wgpu")]
 mod texture;
+#[cfg(feature = "wgpu")]
 pub mod wgpu;
 
+#[cfg(feature = "wgpu")]
 pub use buffer::Buffer;
+#[cfg(feature = "wgpu")]
 pub use call::Call;
+#[cfg(feature = "wgpu")]
 pub use device::{AdapterSelection, Device, DeviceOptions};
+#[cfg(feature = "wgpu")]
 pub use draw::Draw;
+#[cfg(feature = "wgpu")]
 pub use error::{Error, ErrorKind, Result};
+#[cfg(feature = "wgpu")]
 pub use kernel::Kernel;
+#[cfg(feature = "wgpu")]
 pub use marshal::{Element, Value, VertexElement};
+#[cfg(feature = "wgpu")]
 pub use module::Module;
+#[cfg(feature = "wgpu")]
 pub use render::{Blend, CullMode, RenderPipeline, RenderPipelineOptions};
+#[cfg(feature = "wgpu")]
 pub use sampler::{AddressMode, FilterMode, Sampler, SamplerOptions};
+#[cfg(feature = "wgpu")]
 pub use texture::{Texture, TextureFormat};

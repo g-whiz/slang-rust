@@ -187,6 +187,7 @@ fn an_empty_buffer_is_rejected() -> slango::Result<()> {
 fn workgroup_counts_over_the_limit_of_the_device_are_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let limit = slango::wgpu::device(&fixture.device)
+        .expect("the wgpu device of a device")
         .limits()
         .max_compute_workgroups_per_dimension;
     let call = fixture.call_without("");

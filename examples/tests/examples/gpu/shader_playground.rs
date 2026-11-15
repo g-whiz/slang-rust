@@ -138,7 +138,9 @@ fn keeps_its_view_when_a_reload_fails() {
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(!scene.reload_if_changed().expect("an unchanged file loads"));
     let before = draw(&scene, uniforms(0.0, 1.0, 1.0));
-    let texture = slango::wgpu::texture(scene.view().texture()).clone();
+    let texture = slango::wgpu::texture(scene.view().texture())
+        .expect("the wgpu texture of a texture")
+        .clone();
 
     rewrite(&path, "this is not Slang");
     let error = scene
@@ -148,7 +150,10 @@ fn keeps_its_view_when_a_reload_fails() {
         .downcast_ref::<slango::Error>()
         .expect("the error of slango");
     assert_eq!(error.kind(), ErrorKind::Compile, "{error}");
-    assert_eq!(slango::wgpu::texture(scene.view().texture()), &texture);
+    assert_eq!(
+        slango::wgpu::texture(scene.view().texture()),
+        Some(&texture)
+    );
     assert_eq!(draw(&scene, uniforms(0.0, 1.0, 1.0)), before);
     assert!(
         !scene
@@ -163,7 +168,9 @@ fn replaces_its_view_when_a_reload_succeeds() {
     let path = scratch_copy("shader-playground", SHADER, "reload-succeeds");
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(scene.resize([16, 8]).expect("the view is resized"));
-    let texture = slango::wgpu::texture(scene.view().texture()).clone();
+    let texture = slango::wgpu::texture(scene.view().texture())
+        .expect("the wgpu texture of a texture")
+        .clone();
     let source = fs::read_to_string(&path).expect("the shader is read");
     let red = source.replace(
         "return float4(colour * brightness, 1.0);",
@@ -174,7 +181,10 @@ fn replaces_its_view_when_a_reload_succeeds() {
     rewrite(&path, &red);
     assert!(scene.reload_if_changed().expect("the changed file loads"));
     assert_eq!(scene.view().size(), [16, 8]);
-    assert_ne!(slango::wgpu::texture(scene.view().texture()), &texture);
+    assert_ne!(
+        slango::wgpu::texture(scene.view().texture()).expect("the wgpu texture of a texture"),
+        &texture
+    );
     let pixels = draw(&scene, uniforms(0.0, 1.0, 1.0));
     assert_eq!(pixels.len(), 16 * 8);
     assert!(

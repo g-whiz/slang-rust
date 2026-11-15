@@ -15,7 +15,7 @@ readme.workspace = true
 vendored = ["slango/vendored"]
 
 [dependencies]
-slango.workspace = true
+slango = { workspace = true, features = ["wgpu"] }
 slint = { workspace = true, features = [
     "compat-1-18",
     "std",

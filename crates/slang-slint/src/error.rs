@@ -111,8 +111,9 @@ pub enum ErrorKind {
     /// `renderer-femtovg-wgpu`, and pass [`wgpu_configuration`](crate::wgpu_configuration)
     /// to Slint's backend selector.
     UnsupportedGraphicsApi,
-    /// Slint rejected the texture that this crate gave it as an image. The
-    /// source error is Slint's error. Report it as a defect of this crate.
+    /// Slint rejected the texture that this crate gave it as an image, and
+    /// the source error is Slint's error, or the texture has no wgpu texture,
+    /// with no source error. Report it as a defect of this crate.
     TextureImport,
     /// A size has a width or a height of zero. Skip resizing and drawing
     /// until the element has an area.

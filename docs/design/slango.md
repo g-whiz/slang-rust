@@ -279,7 +279,7 @@ Both texts are the same on every adapter.
 
 ### 3.10. Facts for the Backend Feature
 
-This section is non-normative. Its facts hold for the code of the crate before the pass of M8, for Cargo and Clippy of Rust 1.99.1, and for the configuration of the workspace. They shape Sections 4.3, 5.5, and 6.
+This section is non-normative. Unless a fact names another state or toolchain, its facts hold for the code of the crate before the pass of M8, for Cargo and Clippy of Rust 1.99.1, and for the configuration of the workspace. They shape Sections 4.3, 5.5, and 6.
 
 These facts concern the code:
 
@@ -294,7 +294,8 @@ These facts concern the tools:
 - `compile_error!` stops the compilation with its message (read, the documentation of `std::compile_error`).
 - The workspace lint table sets `clippy::exhaustive_enums` and `clippy::exhaustive_structs` to `warn`, every member inherits it, and `check-clippy` turns every warning into an error (read, `Cargo.toml` and the `justfile`). In `slango`, only the items of `__private` carry an exception to either lint, so the lints do not fire on a struct whose fields are all private (inferred from the passing check).
 - `clippy::unnecessary_wraps` reports a public function that always returns `Some`, because the workspace sets `avoid-breaking-exported-api = false` (read, Section 4.5 of the coding standard).
-- `check-features` runs cargo-hack with `--feature-powerset`, which also checks each package with none of its features (inferred, SOA-7).
+- `check-features` runs cargo-hack with `--feature-powerset`, which also checks each package with none of its features. For `slango` with the feature `wgpu` and with `vendored` excluded, cargo-hack 0.6.46 lists three combinations: `--no-default-features`, `--features wgpu`, and `--features default`, each after `--no-default-features`. It treats `default` as a feature of the powerset (read, by `--print-command-list`). TOOL-48 of `docs/design/tooling.md` states which option of cargo-hack leaves out the first combination.
+- After the pass, `cargo check -p slango --no-default-features` exits with status 101, and the error of SLO-29 is its only error, with Rust 1.99.1 and with Rust 1.100.0. With 1.99.1, it prints no warning. With 1.100.0, Cargo prints the warning "unused dependency `slang-compiler`" after the error. The build compiles `slang-compiler` and runs the build script of `slang-compiler-sys` before it reaches `slango`, so it needs `VULKAN_SDK` and libclang.
 
 ## 4. Crate Structure and Dependencies
 
@@ -324,7 +325,7 @@ SLO-28. The manifest of `slango` MUST declare `default = ["wgpu"]` and `wgpu = [
 
 The feature gates the whole crate and not only the module `slango::wgpu`, because every type that runs on a GPU holds wgpu objects (Section 3.10). The five functions of `slango::wgpu` are the only public items that name a wgpu type, and SLO-4 keeps it so.
 
-SLO-29. Under `#[cfg(not(feature = "wgpu"))]`, the crate root of `slango` MUST stop the compilation with `compile_error!` and exactly this message: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default". With SLO-28, it is then the only error of the build (SOA-8). Otherwise a build with `default-features = false` fails with hundreds of unresolved names, which do not say what to enable.
+SLO-29. Under `#[cfg(not(feature = "wgpu"))]`, the crate root of `slango` MUST stop the compilation with `compile_error!` and exactly this message: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default". With SLO-28, it is then the only error of the build (Section 3.10). Otherwise a build with `default-features = false` fails with hundreds of unresolved names, which do not say what to enable.
 
 This is a choice of the design. The other option, a crate that compiles without a backend to its errors, options, and loading, was rejected for two reasons:
 
@@ -333,7 +334,9 @@ This is a choice of the design. The other option, a crate that compiles without 
 
 A compile error is honest about wgpu being the only backend, and it keeps `rhi` additive: M10 widens the condition to "neither `wgpu` nor `rhi`", and the removal of a compile error breaks no build.
 
-`cargo check -p slango --no-default-features` therefore fails with that one error. `check-features` checks every combination of the features of each package (Section 3.10), so the recipe skips the combinations of `slango` without `wgpu` and checks every combination that contains it. The tooling design specifies that change to the recipe (SOA-7).
+`cargo check -p slango --no-default-features` therefore fails with that one error. With Rust 1.100.0, Cargo also warns that `slang-compiler` is unused (Section 3.10). The design accepts that warning, because the build fails with the error anyway, and keeps `slang-compiler` a required dependency.
+
+`check-features` checks every combination of the features of each package (Section 3.10), so the recipe leaves out the one combination of `slango` without `wgpu`, the one with no features, and checks every combination that contains `wgpu`. TOOL-48 of `docs/design/tooling.md` specifies the recipe.
 
 SLO-30. Every member of the workspace that depends on `slango` MUST name the feature `wgpu` in that dependency, and MUST NOT rely on the default feature alone. Otherwise a later change that turns the default features off, in the entry of `[workspace.dependencies]` or in M10, removes the backend from that member without an error at the place of the change. The members write these entries:
 
@@ -597,7 +600,8 @@ The callers in the workspace change in these ways:
 
 - `View::to_image` of `slang-slint` maps `None` to an error of its kind `TextureImport` (SLS-11 of `docs/design/slang-slint.md`).
 - The example `windowed-renderer` keeps clones of the wgpu device and queue that it creates before it hands them to `from_device_and_queue`, and configures the surface and presents each frame through those clones. It then calls none of the three functions. wgpu objects are reference counted, so a clone is cheap (Section 3.2).
-- The tests of `slango`, of `slang-slint`, and of the examples that call the three functions unwrap the `Option` with `expect` and a message that names the object.
+- The tests of `slango`, of `slang-slint`, and of the examples that call the three functions unwrap the `Option` with `expect` and a message that names the object, such as "the wgpu device of a device".
+- The helpers `write_pixels` and `wgpu_texture` of `tests/slango/gpu/texture.rs` call them too. They are not test functions, so `allow-expect-in-tests` of `clippy.toml` does not cover them, and each carries `#[expect(clippy::expect_used, reason = "...")]`, whose reason says that the helper fails the test when the object has no wgpu object. Making them fallible would change every caller.
 - The code that `slango-codegen` generates names no wgpu item (Section 3.10), so it, its snapshots, and `slango-macros` do not change.
 
 ## 7. Loading a Module
@@ -1119,9 +1123,9 @@ winit 0.30.13, the version line that the examples of wgpu 30 use, is a dependenc
 
 ### 13.6. Tests of the Forward-Compatibility Pass
 
-The pass adds no test module. Its parts are proved in these ways:
+The pass adds no test module to `slango`. Its parts are proved in these ways:
 
-- The `Some` path of SLO-31: the `gpu` tests that compare the objects of `from_device_and_queue` and `texture_from_view` with the wgpu objects that they wrap, such as those in `tests/slango/gpu.rs` and `tests/slango/gpu/texture.rs`, compare bare references with `assert_eq!`. The code step of SLO-31 changes those assertions to compare with `Some` of each wgpu object, so that they then prove the `Some` path on lavapipe, WARP, and hosted Metal (Section 13.2).
+- The `Some` path of SLO-31: four `gpu` assertions compare what an accessor returns for an object of `from_device_and_queue` or `texture_from_view` with `Some` of the wgpu object that it wraps. `tests/slango/gpu.rs` asserts it for `device` and `queue`, and `tests/slango/gpu/texture.rs` and `examples/tests/examples/gpu/shader_playground.rs` assert it for `texture`. They prove the `Some` path on lavapipe, WARP, and hosted Metal (Section 13.2).
 - That every accessor always returns `Some`: the exception to `clippy::unnecessary_wraps` on each accessor, which `check-clippy` proves on every run.
 - The build with the feature `wgpu`: every recipe that compiles the workspace, which builds `slango` with its default features, and `check-features` for every combination that contains `wgpu` (SLO-29).
 - The feature documentation: `check-feature-docs`, which fails when the `# Features` section does not name `wgpu`.
@@ -1129,17 +1133,12 @@ The pass adds no test module. Its parts are proved in these ways:
 
 These stay unproven by any automated check:
 
-- The `None` path of SLO-31, because no object of this crate lacks a wgpu object, so no test can produce it.
-- The single error of SLO-29 without the feature, because `check-features` skips that combination. The code step that adds the feature runs `cargo check -p slango --no-default-features` once and states its whole output, errors and warnings, in its report (SOA-8).
+- The `None` path of SLO-31, because no object of this crate lacks a wgpu object, so no test can produce it. What a caller does with `None` can still be tested: a unit test of `slang-slint` checks that its mapping of `None` gives the error of SLS-11 (Section 9 of `docs/design/slang-slint.md`).
+- The single error of SLO-29 without the feature, because `check-features` skips that combination. Section 3.10 records what one run by hand of `cargo check -p slango --no-default-features` reported.
 - SLO-30. No check fails when a dependent drops `features = ["wgpu"]`, because the entry of `slango` in `[workspace.dependencies]` keeps the default features, so `wgpu` stays on for that dependent. `check-features` runs cargo-hack on each package, but `--no-default-features` there turns off only the features of that package and not the default features of its dependency `slango`. A whole-workspace build would hide the omission anyway, because Cargo unifies the features that the other members request. Review of the four manifests is the check.
 - That the backend `rhi` is additive, which only M10 can show (SOQ-4).
 
-The code follows in two steps, each a separate commit that passes every check:
-
-1. SLO-31: the three accessors with their exceptions and documentation, and every caller of Section 6, in `slango`, `slang-slint`, and the examples. It changes no build configuration, so it can be reviewed alone.
-2. SLO-28 to SLO-30: the manifest of `slango`, the `cfg` attributes and the compile error of its crate root, its `# Features` section and the documentation of `slango::wgpu`, the manifests of the four dependents, and the change of `check-features`.
-
-SLO-32 needs no code step, because every type already follows it.
+SLO-32 needs no change of the code, because every type already follows it.
 
 ## 14. Assumptions to Confirm
 
@@ -1150,8 +1149,6 @@ An identifier is never reused.
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 16 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
-| SOA-7 | cargo-hack with `--feature-powerset` also checks each package with none of its features, and an option of cargo-hack, such as `--at-least-one-of wgpu`, skips the combinations of `slango` without `wgpu` and leaves the packages that have no feature `wgpu` checked as before | SLO-29, Section 13.6 | The code step that adds the feature, by a run of the changed `check-features` |
-| SOA-8 | With every declaration of the crate root behind the feature, `cargo check -p slango --no-default-features` reports the error of SLO-29 as its only error. The workspace lint tables enable no `unused_crate_dependencies`, but the dependency `slang-compiler` is then unused, and whether rustc or Cargo reports a warning about it beside the error is not known. The design accepts such a warning, because the build fails with the error anyway, and keeps `slang-compiler` a required dependency. The hand-run check records any warning | SLO-29, Section 13.6 | The code step that adds the feature, by that run |
 
 Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 

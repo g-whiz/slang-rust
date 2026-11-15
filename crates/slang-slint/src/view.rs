@@ -159,13 +159,14 @@ impl View {
     /// # Errors
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::TextureImport`] when Slint
-    /// rejects the texture. Slint accepts every texture of a view, so this
-    /// error is a defect of this crate.
+    /// rejects the texture, or when the texture has no wgpu texture. Slint
+    /// accepts every texture of a view, and every texture of `slango` has a
+    /// wgpu texture while wgpu is its only backend, so this error is a defect
+    /// of this crate.
     pub fn to_image(&self) -> Result<slint::Image> {
-        let texture = slango::wgpu::texture(&self.texture).clone();
-        slint::Image::try_from(texture).map_err(|error| {
-            Error::new(ErrorKind::TextureImport, "make an image of a view").with_source(error)
-        })
+        let texture = wgpu_texture(slango::wgpu::texture(&self.texture))?;
+        slint::Image::try_from(texture.clone())
+            .map_err(|error| Error::new(ErrorKind::TextureImport, TO_IMAGE).with_source(error))
     }
 
     /// Replaces the view's texture with a new one of `[width, height]`
@@ -249,6 +250,17 @@ impl View {
     }
 }
 
+const TO_IMAGE: &str = "make an image of a view";
+
+fn wgpu_texture(
+    texture: Option<&slint::wgpu_30::wgpu::Texture>,
+) -> Result<&slint::wgpu_30::wgpu::Texture> {
+    texture.ok_or_else(|| {
+        Error::new(ErrorKind::TextureImport, TO_IMAGE)
+            .with_detail("the texture has no wgpu texture".to_owned())
+    })
+}
+
 fn check_size([width, height]: [u32; 2], operation: &'static str) -> Result<()> {
     if width == 0 || height == 0 {
         return Err(
@@ -263,4 +275,22 @@ fn check_size([width, height]: [u32; 2], operation: &'static str) -> Result<()> 
 fn create_texture(device: &Device, size: [u32; 2], operation: &'static str) -> Result<Texture> {
     Texture::new(device, size, TextureFormat::Rgba8Unorm)
         .map_err(|error| Error::new(ErrorKind::Slango, operation).with_source(error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wgpu_texture;
+    use crate::ErrorKind;
+    use std::error::Error as StdError;
+
+    #[test]
+    fn a_texture_without_a_wgpu_texture_is_a_texture_import_error_without_a_source() {
+        let error = wgpu_texture(None).expect_err("a missing wgpu texture was accepted");
+        assert_eq!(error.kind(), ErrorKind::TextureImport);
+        assert_eq!(
+            error.to_string(),
+            "cannot make an image of a view: the texture has no wgpu texture"
+        );
+        assert!(error.source().is_none());
+    }
 }

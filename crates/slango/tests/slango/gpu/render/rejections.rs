@@ -243,20 +243,22 @@ fn mistakes_of_targets_are_rejected_before_any_work() {
         draw(flat, Some(&foreign), None),
         "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` belongs to another device",
     );
-    let sampled_only = slango::wgpu::device(device).create_texture(&wgpu::TextureDescriptor {
-        label: Some("a texture that cannot be drawn into"),
-        size: wgpu::Extent3d {
-            width: SIZE,
-            height: SIZE,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
+    let sampled_only = slango::wgpu::device(device)
+        .expect("the wgpu device of a device")
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("a texture that cannot be drawn into"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
     let wrapped = slango::wgpu::texture_from_view(
         device,
         &sampled_only.create_view(&wgpu::TextureViewDescriptor::default()),

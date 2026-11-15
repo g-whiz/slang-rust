@@ -93,6 +93,7 @@ fn a_kernel_with_uniform_parameters_of_its_entry_point_loads_with_immediates() {
     let device = device();
     assert!(
         slango::wgpu::device(&device)
+            .expect("the wgpu device of a device")
             .features()
             .contains(wgpu::Features::IMMEDIATES),
         "the adapter offers immediates"
@@ -113,7 +114,7 @@ fn a_kernel_with_uniform_parameters_of_its_entry_point_needs_immediates() {
 #[test]
 fn uniform_parameters_of_an_entry_point_over_the_immediate_limit_are_a_missing_feature() {
     let device = device();
-    let wgpu_device = slango::wgpu::device(&device);
+    let wgpu_device = slango::wgpu::device(&device).expect("the wgpu device of a device");
     let has_immediates = wgpu_device.features().contains(wgpu::Features::IMMEDIATES);
     let limit = wgpu_device.limits().max_immediate_size;
     let error = device

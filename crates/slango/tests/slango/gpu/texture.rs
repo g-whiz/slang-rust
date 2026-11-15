@@ -28,23 +28,31 @@ pub(crate) fn distinct_pixels(count: usize) -> Vec<[u8; 4]> {
 
 /// Writes pixels, given as the bytes of the texture's format in rows from
 /// the top, into a texture through wgpu.
+#[expect(
+    clippy::expect_used,
+    reason = "the helper fails the test when the device or the texture has no wgpu object"
+)]
 pub(crate) fn write_pixels(device: &Device, texture: &Texture, pixels: &[[u8; 4]]) {
     let [width, height] = texture.size();
     let bytes: Vec<u8> = pixels.iter().flatten().copied().collect();
-    slango::wgpu::queue(device).write_texture(
-        slango::wgpu::texture(texture).as_image_copy(),
-        &bytes,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(width * 4),
-            rows_per_image: Some(height),
-        },
-        wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-    );
+    slango::wgpu::queue(device)
+        .expect("the wgpu queue of a device")
+        .write_texture(
+            slango::wgpu::texture(texture)
+                .expect("the wgpu texture of a texture")
+                .as_image_copy(),
+            &bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
 }
 
 #[test]
@@ -95,7 +103,9 @@ fn a_depth_texture_is_created_and_cannot_be_read() -> slango::Result<()> {
     let depth = Texture::new(&device, [4, 4], TextureFormat::Depth32Float)?;
     assert_eq!(depth.format(), TextureFormat::Depth32Float);
     assert_eq!(
-        slango::wgpu::texture(&depth).usage(),
+        slango::wgpu::texture(&depth)
+            .expect("the wgpu texture of a texture")
+            .usage(),
         wgpu::TextureUsages::RENDER_ATTACHMENT
     );
     let error = depth.read().expect_err("a depth texture is not read");
@@ -131,6 +141,7 @@ fn a_size_without_pixels_is_an_invalid_argument() {
 fn a_size_over_the_limit_of_the_device_is_an_invalid_argument() {
     let device = device();
     let limit = slango::wgpu::device(&device)
+        .expect("the wgpu device of a device")
         .limits()
         .max_texture_dimension_2d;
     let over = limit + 1;
@@ -165,7 +176,7 @@ fn pixels_that_do_not_fill_the_size_are_an_invalid_argument() {
 fn the_wgpu_texture_of_a_texture_has_its_size_format_and_usages() -> slango::Result<()> {
     let device = device();
     let texture = Texture::new(&device, [7, 3], TextureFormat::Bgra8UnormSrgb)?;
-    let wgpu_texture = slango::wgpu::texture(&texture);
+    let wgpu_texture = slango::wgpu::texture(&texture).expect("the wgpu texture of a texture");
     assert_eq!(wgpu_texture.width(), 7);
     assert_eq!(wgpu_texture.height(), 3);
     assert_eq!(wgpu_texture.depth_or_array_layers(), 1);
@@ -182,26 +193,32 @@ fn the_wgpu_texture_of_a_texture_has_its_size_format_and_usages() -> slango::Res
     Ok(())
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the helper fails the test when the device has no wgpu device"
+)]
 pub(crate) fn wgpu_texture(
     device: &Device,
     size: [u32; 2],
     format: wgpu::TextureFormat,
     usage: wgpu::TextureUsages,
 ) -> wgpu::Texture {
-    slango::wgpu::device(device).create_texture(&wgpu::TextureDescriptor {
-        label: Some("a texture of the test"),
-        size: wgpu::Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage,
-        view_formats: &[],
-    })
+    slango::wgpu::device(device)
+        .expect("the wgpu device of a device")
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("a texture of the test"),
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
 }
 
 #[test]
@@ -218,7 +235,7 @@ fn a_wrapped_view_has_the_size_and_format_of_its_texture_and_reads_with_copy_src
     let wrapped = slango::wgpu::texture_from_view(&device, &view)?;
     assert_eq!(wrapped.size(), [3, 2]);
     assert_eq!(wrapped.format(), TextureFormat::Rgba8Unorm);
-    assert_eq!(slango::wgpu::texture(&wrapped), &texture);
+    assert_eq!(slango::wgpu::texture(&wrapped), Some(&texture));
     let pixels = distinct_pixels(6);
     write_pixels(&device, &wrapped, &pixels);
     assert_eq!(wrapped.read()?, pixels);
@@ -291,20 +308,22 @@ fn a_view_of_a_texture_with_several_mip_levels_layers_or_samples_is_an_invalid_a
         ),
     ];
     for (mip_level_count, depth_or_array_layers, sample_count, usage, detail) in cases {
-        let texture = slango::wgpu::device(&device).create_texture(&wgpu::TextureDescriptor {
-            label: Some("a texture that slango cannot wrap"),
-            size: wgpu::Extent3d {
-                width: 4,
-                height: 4,
-                depth_or_array_layers,
-            },
-            mip_level_count,
-            sample_count,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage,
-            view_formats: &[],
-        });
+        let texture = slango::wgpu::device(&device)
+            .expect("the wgpu device of a device")
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("a texture that slango cannot wrap"),
+                size: wgpu::Extent3d {
+                    width: 4,
+                    height: 4,
+                    depth_or_array_layers,
+                },
+                mip_level_count,
+                sample_count,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage,
+                view_formats: &[],
+            });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let outcome = slango::wgpu::texture_from_view(&device, &view)
             .map(|texture| texture.size())
