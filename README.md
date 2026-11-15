@@ -31,9 +31,9 @@ Building the workspace needs these tools and libraries:
 - libclang, the C and C++ parser library of the LLVM project, because every build of `slang-compiler-sys` generates the raw bindings with it. On Linux, a package such as `libclang-dev` provides it. On macOS, the Xcode command line tools provide it, and on Windows, an installation of LLVM does. The environment variable `LIBCLANG_PATH` can name the directory that holds it.
 - On Linux, the development files of fontconfig, such as the package `libfontconfig-dev`, because Slint links fontconfig.
 
-The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or libclang cannot be loaded.
+The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or libclang cannot be loaded. A program that uses the crates can instead build Slang from source and then needs no Vulkan SDK, as [Building Slang From Source](#building-slang-from-source) describes.
 
-A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then. On Windows, the compiler then also needs the SDK's `Bin` directory on `PATH`. The crate-level documentation of `slango-macros` says how the compiler finds the Slang library on each platform.
+A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then, unless it enables the feature `vendored` on `slango-macros`. On Windows, the compiler then also needs the SDK's `Bin` directory on `PATH`. The crate-level documentation of `slango-macros` says how the compiler finds the Slang library on each platform.
 
 On Linux, `VULKAN_SDK` names the `x86_64` directory of the SDK. These commands set it and build the workspace, with a placeholder path:
 
@@ -44,25 +44,115 @@ cargo build --workspace
 
 ## Building Slang From Source
 
-With the Cargo feature `vendored`, Slang is built from source and linked statically. The build then needs no Vulkan SDK, and the program needs no Slang shared library at run time. `slang-compiler`, `slango`, `slango-macros`, and `slang-slint` each have the feature and forward it down to `slang-compiler-sys`. The feature of `slang-compiler` also adds `slang-glslang-sys`, so a vendored build optimizes SPIR-V.
+The crates obtain Slang in one of two ways, and the Cargo feature `vendored` chooses between them:
 
-A program that calls the macro `shader!` enables `vendored` on both `slango` and `slango-macros`, because the macro's copy of Slang and the program's copy are built apart.
+| | Default | With the feature `vendored` |
+| --- | --- | --- |
+| Which Slang | The Slang shared library of an installed LunarG Vulkan SDK, at `VULKAN_SDK` | A Slang that the build compiles from source |
+| How it is linked | Dynamically | Statically |
+| Needs at build time | The Vulkan SDK and libclang | The tools that [What the Build Needs](#what-the-build-needs) lists, and no Vulkan SDK |
+| Needs at run time | The Slang shared library on the library path | No Slang library |
+| First build | As fast as any crate | Minutes, as [What It Costs](#what-it-costs) shows |
 
-A build with the feature needs these tools:
+Only the feature selects the way, and no environment variable does. The build never falls back from one way to the other, so a build with the feature never links the Slang of a Vulkan SDK, and a build without it never builds Slang.
 
-- git and network access for the first build in a Cargo target directory, which clones the recorded Slang commit through `slang-src`.
-- CMake 3.22 or later, Ninja, and a C++20 compiler. On Windows, the build finds the Microsoft C++ compiler of an installation of Visual Studio itself and needs no developer command prompt.
-- Python 3 on `PATH`, as `python3` or `python`, for the build of slang-glslang.
-- libclang, as for every build.
+### Enabling the Feature
 
-The first build takes several minutes. The clone and the built libraries are kept in the folder `slang-src` of the Cargo target directory, which every build of the project shares, so later builds take seconds. `cargo clean` removes the folder.
+Enable `vendored` on the crate that your program depends on: `slang-compiler`, `slango`, or `slang-slint`. Each forwards the feature down to `slang-compiler-sys`, which builds Slang, and the feature of `slang-compiler` also adds `slang-glslang-sys`, which builds the SPIR-V optimizer of Slang. This example is for a program that uses `slango`:
 
-These limits hold:
+```toml
+[dependencies]
+slango = { version = "0.1", features = ["vendored"] }
+```
 
-- A program that enables `vendored` only on `slang-compiler-sys` gets SPIR-V that Slang does not optimize, unless it installs the loader of `slang-glslang-sys` itself.
-- The vendored build with the optimizer is tested on the GitHub Actions runners for Linux, macOS, and Windows with the Microsoft toolchain. On Windows, it is tested only with the Visual Studio of the runner and in a target directory of usual depth.
+A program that calls the macro `shader!` enables the feature on `slango-macros` as well:
 
-The crate-level documentation of `slang-compiler-sys`, `slang-src`, and `slang-glslang-sys` says more. This command builds `slang-compiler` with the feature:
+```toml
+[dependencies]
+slango = { version = "0.1", features = ["vendored"] }
+slango-macros = { version = "0.1", features = ["vendored"] }
+```
+
+The macro runs on the build machine, and Cargo resolves the features of a procedural macro apart from those of the program. The macro and the program therefore each link their own copy of Slang, and each copy needs the feature. On a machine without `VULKAN_SDK`, a build with the feature on only one of the two crates stops with the error that starts "VULKAN_SDK is not set". Both copies are built from one source tree and share one build, as [The Shared Folder](#the-shared-folder) describes.
+
+A program that uses `slang-compiler-sys` directly and enables `vendored` only there gets SPIR-V that Slang does not optimize. It has to install the loader of `slang-glslang-sys` on each global session itself, as the crate documentation of `slang-glslang-sys` shows. `slang-compiler` installs that loader on every global session that it creates, so a program that uses `slang-compiler` or a crate above it gets optimized SPIR-V, as with the Slang of a Vulkan SDK.
+
+### What the Build Needs
+
+A build with the feature needs these on the build machine:
+
+- git, and network access for the first build in a Cargo target directory, which clones Slang.
+- CMake 3.22 or later, and Ninja.
+- A C++20 compiler. On Windows, that is an installation of Visual Studio or its Build Tools with the C++ tools. The build finds the Microsoft C++ compiler `cl.exe` by itself and needs no developer command prompt.
+- Python 3 on `PATH`, as `python3` or `python`, for the build of the SPIR-V optimizer.
+- libclang, which every build needs, with or without the feature, as [Requirements](#requirements) describes.
+
+It does not need a Vulkan SDK or `VULKAN_SDK` at build time, and the program does not need a Slang library or a library path at run time.
+
+### What It Costs
+
+The first build in a Cargo target directory clones Slang and builds Slang and its SPIR-V optimizer from source. Later builds in that target directory reuse the clone and the built libraries and need no network access. These figures were measured and serve only as examples:
+
+- First build: about 6 minutes for a small program with `slango` and `slango-macros` on a 16-core x86_64 Linux machine. Between about 4 and 16 minutes on GitHub's hosted runners, depending on the platform.
+- Disk space of the shared folder: about 350 MB on Linux and macOS, and about 760 MB on Windows.
+- Size of a release binary: tens of megabytes more than with the dynamic link. The release binary of a small program with `slango` and the macro was 43 MB on x86_64 Linux.
+
+### The Shared Folder
+
+The clone and the built libraries are kept in the shared folder, the directory `slang-src` in the Cargo target directory, or in the build directory when Cargo uses a separate one:
+
+- Every profile of a project, and both its host units and its target units, use the one shared folder. A procedural macro and the program therefore clone Slang once and build it once.
+- `cargo clean` removes the folder, and the next build clones and builds again. Removing the folder is safe whenever no build runs.
+- Two projects share the folder only when they share a Cargo target directory, such as through `CARGO_TARGET_DIR`.
+- Nothing removes old content of the folder, so it grows with each Slang commit and target that a project builds with.
+
+The build finds the folder through the file `CACHEDIR.TAG` that Cargo writes into a target directory that it creates. It takes the nearest directory above its output directory that holds that file. When that directory is named after the target triple, it takes the parent directory instead if that holds the file too. When it finds no such directory, it uses its output directory, which is correct and loses only the sharing: each unit then clones and builds on its own. Cargo writes no such file in these cases:
+
+- A target directory that existed before the first build, such as one created with `mkdir`, restored from a cache of a continuous integration service, or mounted as a volume.
+- A target directory whose `CACHEDIR.TAG` was deleted.
+- The temporary target directory of `cargo install`.
+
+The crate-level documentation of `slang-src` describes the folder in full.
+
+### Which Slang
+
+A build with the feature builds one recorded Slang commit, `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`, whose build tag is `2026.17-25-gc7954ebd1`. It is the Slang of Vulkan SDK 1.4.363.1, which the crates are tested with. The version of `slang-src` names it, such as `0.1.0-slang.2026.17.0.25.gc7954ebd1`.
+
+The only way to build another Slang commit is Cargo's `[patch]` table with a fork of `slang-src` that records that commit. This is best effort and unsupported. The crate-level documentation of `slang-src` gives the steps.
+
+The constant `slang_compiler_sys::BUILD_INFO` tells a program which Slang its build got:
+
+- `slang_build_tag`: the build tag of the Slang that the build links.
+- `slang_commit`: the full commit hash with the feature, and `None` with the Slang of a Vulkan SDK.
+- `linkage`: `Linkage::Static` with the feature, and `Linkage::Dynamic` without it.
+- `tested_target`: whether the target is one of four that the build script lists as tested, which are `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `x86_64-apple-darwin`.
+- `version`: one string that names all of it, such as `0.1.0+slang.2026.17.0.25.gc7954ebd1.vendored`.
+
+### Platforms
+
+A build with the feature is tested on x86_64 Linux, on x86_64 Windows with the Microsoft toolchain, and on arm64 macOS, on GitHub's hosted runners. On Windows, it is tested only with the Visual Studio of the runner and in a target directory of usual depth. A program outside this repository that enables the feature on `slango` and `slango-macros` has been built and run on x86_64 Linux only.
+
+The build stops in these cases, because a correct build is not possible:
+
+- The target differs from the host. Slang's build runs programs that it builds for the target, so it cannot cross-compile.
+- The target has no rule to link its C++ runtime library. Rules exist for Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain.
+- The pointers of the target are not 64 bits wide.
+
+Every other target builds with a warning that it is untested and unsupported.
+
+### Common Failures
+
+| The error starts with | Cause | What to do |
+| --- | --- | --- |
+| "VULKAN_SDK is not set" | A crate of the build links the Slang of a Vulkan SDK, because the feature is off, or on only one of `slango` and `slango-macros` | Enable the feature as [Enabling the Feature](#enabling-the-feature) shows, or install a Vulkan SDK and set `VULKAN_SDK` |
+| "cannot start" | A program that the build runs is missing: git, CMake, Ninja, or the C++ compiler | Install the program that the message names and put it on `PATH` |
+| "cannot find the Microsoft C++ compiler cl.exe" | No installation of Visual Studio with the C++ tools was found | Install Visual Studio or its Build Tools with the workload for desktop development with C++ |
+| The failed command, followed by "failed with" and the step that failed | CMake or Ninja failed to configure or build Slang or its SPIR-V optimizer | Read the log `build.log` that the message names. The message also holds its last 40 lines |
+| A git command, followed by "ended with" and "while cloning Slang" | The first build in a target directory cannot reach the network | Build once with network access, or build without the feature |
+
+With `CARGO_NET_OFFLINE` set to `true`, a first build stops with an error that says that it needs to clone Slang. A build with an existing clone in the shared folder needs no network access.
+
+In this repository, this command builds `slang-compiler` with the feature:
 
 ```sh
 cargo build -p slang-compiler --features vendored

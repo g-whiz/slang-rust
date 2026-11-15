@@ -284,7 +284,12 @@
 //! `slang-compiler` links the Slang library through `slang-compiler-sys`, as
 //! the [crate documentation of `slang-compiler`](slang_compiler) describes.
 //! By default, that is the Slang shared library of the Vulkan SDK of the build,
-//! which the dynamic loader has to find when the program starts.
+//! which the dynamic loader has to find when the program starts. With the
+//! feature `vendored`, it is a Slang built from source and linked
+//! statically, and the build needs no Vulkan SDK. A program that also calls
+//! the macro of `slango-macros` enables `vendored` there as well, because
+//! the macro links its own copy of Slang, as the crate documentation of
+//! `slango-macros` explains.
 
 #[doc(hidden)]
 pub mod __private;

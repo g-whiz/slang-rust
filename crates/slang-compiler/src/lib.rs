@@ -167,16 +167,15 @@
 //! loader has to find when the program starts, and the build needs the SDK
 //! and libclang. With the feature `vendored`, the build clones the Slang
 //! source tree, builds Slang from it, and links it statically, so the program
-//! needs no Slang library at run time. That build needs no Vulkan SDK but
-//! needs libclang, the programs `git`, `cmake`, and `ninja`, a C++
-//! compiler, Python 3, and network access for its first build in a target
-//! directory, and it keeps the clone
-//! and the built libraries in the shared folder `slang-src` of the Cargo
-//! target directory, which every profile of a project shares. The crate
-//! documentation of `slang-compiler-sys` and of `slang-src` state both in
-//! full. Creating a global session checks that the loaded library is the
-//! build that this crate was built for, and fails with
-//! [`ErrorKind::VersionMismatch`] when it is not.
+//! needs no Slang library at run time. That build needs no Vulkan SDK, and
+//! the crate documentation of `slang-src` states what it needs instead and
+//! where it keeps the clone and the built libraries. A program that also
+//! calls the macro of `slango-macros` enables the feature there as well, as
+//! the crate documentation of `slango-macros` explains. Creating a global
+//! session checks that the loaded library is the build that this crate was
+//! built for, and fails with [`ErrorKind::VersionMismatch`] when it is not.
+//! [`slang_compiler_sys::BUILD_INFO`] records which Slang the build links
+//! and whether it links it statically or dynamically.
 //!
 //! The crate is written and tested against the Slang that the version of
 //! `slang-src` that `slang-compiler-sys` requires records, and another Slang

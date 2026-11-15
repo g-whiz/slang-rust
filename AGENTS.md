@@ -94,15 +94,19 @@ As of 2026-11-15, the repository is at a very early stage. The agent updates thi
 - M4, the rendering of `slango` and the windowed renderer example, is complete on 2026-11-11. Its design is also in `docs/design/slango.md`. A user can also draw with a vertex and a fragment entry point into a texture or a window, and run the example `windowed-renderer`.
 - M5, `slang-slint` and the Slint example, is complete on 2026-11-11. A Slint program can make Slint create a wgpu device that suits `slango`, turn that device into a `slango::Device`, and show what a `slango` render pipeline draws as a Slint image. A user can run the Slint example `shader-playground`.
 - M6, `slango-macros` and its generator `slango-codegen`, is complete on 2026-11-13. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
+- M7, the rework of the native crates, is complete on 2026-11-15. Every build generates the Slang bindings with libclang and records the Slang that it links in `BUILD_INFO`. A program can enable the Cargo feature `vendored` on `slang-compiler`, `slango`, or `slang-slint`, and on `slango-macros` when it calls the macro, to build Slang and its SPIR-V optimizer from source and link them statically without a Vulkan SDK, as the section "Building Slang From Source" of `README.md` describes.
 
-On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. M7, the rework of the native crates, is in progress. Its design exists in `docs/design/slang-compiler-sys.md`, `docs/design/slang-src.md`, `docs/design/slang-glslang-sys.md`, and the documents that they changed. Four code steps are done, all on 2026-11-15, and What exists and works describes what they delivered:
+On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. The design of M7 is in `docs/design/slang-compiler-sys.md`, `docs/design/slang-src.md`, `docs/design/slang-glslang-sys.md`, and the documents that they changed. Five steps delivered M7, all on 2026-11-15, and What exists and works describes what they delivered:
 
 - The first added the crate `slang-src`, its recipes, and the CI job `vendored`.
 - The second moved the binding generator to the publishable crate `slang-bindgen` and made the build script of `slang-compiler-sys` generate the bindings and the list of C functions into `OUT_DIR` in every build and record the build tag of the Slang that it links in `BUILD_INFO`. It removed the pin file, the checked-in generated files, the static route with `SLANG_SOURCE_DIR`, every `DOCS_RS` code path, every `[package.metadata.docs.rs]` table, the recipes `pin`, `generate-bindings`, `check-bindings`, `test-static`, and `check-doc-without-slang`, and `--all-features` from the recipes.
 - The third added the Cargo feature `vendored` of `slang-compiler-sys`, with the vendored route of its build script, which builds a minimal static Slang from the tree of `slang-src`, keeps the built libraries in the shared folder, finds the Microsoft C++ compiler itself on Windows, and records the static link in `BUILD_INFO`. It also made the vendored recipes and the CI job `vendored` build and test that route.
 - The fourth added the crate `slang-glslang-sys`, which builds slang-glslang as static libraries from the tree of `slang-src` and holds the in-process loader, and the feature `vendored` of `slang-compiler`, which installs that loader on every global session that the crate creates. It made `slango`, `slango-codegen`, `slango-macros`, `slang-slint`, and the examples package forward the feature. It moved the vendored recipes to `slang-compiler/vendored` with two extra commands that check the forwards, added the Python 3 step to the CI job `vendored`, and made the vendored route of both native crates link the system libraries that Slang's archives and slang-glslang need.
+- The fifth completed the user guide to the vendored build in `README.md` and the crate-level documentation. It covers which crate takes the feature and why `slango-macros` needs it as well, what the build needs and costs, the shared folder, which Slang a build gets and how `BUILD_INFO` shows it, the platforms, and the common failures. It closed the milestone.
 
-What remains of M7 is the user guide to the vendored build in `README.md` and the crate documentation, and the closing of the milestone.
+The next milestone is M8, the forward-compatibility pass of `slango` and the first release (Section 15.11 of `docs/design/architecture.md`), which has not started.
+
+Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
 What exists and works:
 
@@ -154,6 +158,7 @@ What exists and works:
     - On Windows, `test-vendored` from an empty target directory took 16 min 30 s, 410 of 410 tests passed, then 5 of 5 tests of `slango-macros` with 9 skipped, and the shared folder was 759 MB.
     - On macOS, `test-vendored` from an empty target directory took 4 min 18 s, against 11 min 14 s in run 43742353739 on the same kind of runner. 411 of 411 tests passed, then 5 of 5 tests of `slango-macros` with 10 skipped, and the shared folder was 346 MB.
     - The job "Run every check on Linux", the default test jobs on Windows and macOS, and the jobs `coverage`, `check-features`, and `check-msrv` passed.
+  - Run 43749637842, for the merged tree of the fourth code step of M7 on `main`, passed all nine jobs after one rerun of the default test job on Windows. The hosted runner of its first attempt lost communication with the server before any build step ran.
   - On 2026-11-10, all six jobs, counting each entry of a matrix, passed on GitHub.
   - Afterwards, on 2026-11-10 and 2026-11-11, CI on `main` failed in the Windows job for three commits, from the commit that added the static route of `slang-compiler-sys` to the commit that added the design of `slang-compiler`. One test of the real host of the build script asserted an error kind that Windows reports differently. The commit "Assert only the variant of a start failure of the real host" fixed it, and run 42833561065 on `main` passed all six jobs.
   - On 2026-11-11, the workflow gained the trigger for pushes to feature branches. Run 42861650459, started by a plain push to a feature branch with no pull request, passed all six jobs.
@@ -234,7 +239,7 @@ What exists and works:
   - Its binary `slang-bindgen` takes a header directory, a target triple, and an output directory, and writes `bindings.rs` and `symbols.rs` there. Only the recipe `check-slang-call-guard` runs it.
   - Its unit tests in `src/tests.rs` parse synthetic headers and compile for Linux only. Its integration-test binary `tests/generator/` runs the binary on the headers at `VULKAN_SDK` and on failing inputs, and compiles for Linux only as well (Section 7.5 of `docs/design/slang-compiler-sys.md`).
   - The binary's output for the headers of the Vulkan SDK in the development container was the same text for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, and `aarch64-unknown-linux-gnu` on 2026-11-15. In run 43717303370, the build script generated the bindings on Windows and macOS as well, and the tests of `slang-bindgen`, which compile for Linux only, ran on Linux only.
-- The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`.
+- The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`, whose section "Building Slang From Source" is the user guide to the vendored build.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and which Slang is recorded, and the roadmap of milestones M0 to M18.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented.
@@ -246,7 +251,7 @@ What exists and works:
 - The design of `slang-slint` and the Slint example, `docs/design/slang-slint.md`, a draft that milestone M5 implemented.
 - The design of `slango-macros` and its generator `slango-codegen`, `docs/design/slango-macros.md`, a draft that milestone M6 implemented.
 
-`just check` passes in the development container, and it passed in CI in run 43746178292. The tests of `slang-bindgen` and of `slang-compiler-sys` run in the default tier.
+`just check` passes in the development container, and it passed in CI in run 43749637842. The tests of `slang-bindgen` and of `slang-compiler-sys` run in the default tier.
 
 The tests of the `gpu` tier are those of `slango`, of `slang-slint`, of `slango-macros`, of the examples `compute-kernel` and `typed-kernel`, and of the scenes of the examples `windowed-renderer` and `shader-playground`. On 2026-11-15, after the fourth code step of M7, the test tiers have 951 tests on Linux, of which Miri runs 546 and skips 405. `test-vendored` runs 411 tests, the 36 of `slang-src`, the 33 of `slang-glslang-sys`, the 73 of `slang-compiler-sys`, and the 269 of `slang-compiler`, then 5 tests of `slango-macros`, and 202 doctests, the 197 of `slang-compiler`, the 4 of `slang-compiler-sys`, and the 1 of `slang-glslang-sys`. No recipe runs the tests of `slang-src` or `slang-glslang-sys` under Miri, and a run by hand of those of `slang-src` on 2026-11-15 ran 28 and skipped 8 (SRCQ-3 of `docs/design/slang-src.md`).
 
@@ -269,7 +274,6 @@ What does not exist yet:
 - The recipe `check-semver`, which arrives with the first release in M8.
 - The CI job `semver`, which arrives in M8.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
-- The user guide to the vendored build in `README.md` and the crate documentation, which M7 still owes.
 - A recipe that builds the examples package with its feature `vendored`, and a `gpu` test on the vendored route.
 
 The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states.
@@ -513,7 +517,7 @@ These locations are planned and do not exist yet:
 
 `docs/design/slang-compiler-sys.md` is the design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-src.md` is the design of `slang-src`, and `docs/design/slang-glslang-sys.md` is the design of `slang-glslang-sys`. `docs/design/slang-compiler.md` is the design of `slang-compiler` and the compile-and-reflect example. Each prevails over this section on its topics.
 
-This section summarizes the target design, which includes the rework of the native crates that M7 designs. The code implements these parts of the M7 design:
+This section summarizes the target design, which includes the rework of the native crates that M7 designed. The code implements the whole M7 design:
 
 - The crate `slang-bindgen`, which the build script of `slang-compiler-sys` runs in every build.
 - The dynamic route of `slang-compiler-sys`, with the bindings and the list of C functions generated into `OUT_DIR`, the build information `BUILD_INFO`, and the warning on an untested target.
@@ -524,8 +528,9 @@ This section summarizes the target design, which includes the rework of the nati
 - The forwarding of the feature `vendored` by every crate between a user and `slang-compiler-sys`.
 - The vendored recipes and the vendored CI job, which build `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature of `slang-compiler` and check the forwards of `slango-macros` and `slang-slint`.
 - Recipes that pass no `--all-features`, and the removal of the pin, the checked-in generated files, the static route, and every `DOCS_RS` code path.
+- The user guide to the vendored build in `README.md` and the crate-level documentation, which documents the shared folder.
 
-What M7 still lacks is the user guide to the vendored build. Project Status says what exists, and Validating Changes names the recipes that exist today.
+Project Status says what exists, and Validating Changes names the recipes that exist today.
 
 The planned crates are:
 

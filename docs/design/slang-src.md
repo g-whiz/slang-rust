@@ -459,13 +459,21 @@ No recipe runs the pure tests under Miri, which is a known gap. Every recipe tha
 
 ## 13. Crate Documentation
 
-SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 on `PATH` for the build of slang-glslang, under the name `python3` or `python`, because an installation of Python 3 on Windows may provide only `python`. They MUST also state the shared folder:
+SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs:
+
+- git, and network access for the first build in a target directory.
+- CMake 3.22 or later, and Ninja.
+- A C++20 compiler, which with the Microsoft toolchain the build finds without a developer command prompt.
+- Python 3 on `PATH` for the build of slang-glslang, under the name `python3` or `python`, because an installation of Python 3 on Windows may provide only `python`.
+- libclang, which every build of `slang-compiler-sys` needs.
+
+They MUST also state that a vendored build needs no Vulkan SDK, and they MUST state the shared folder:
 
 - That it is the directory `slang-src` in the Cargo target directory, or in the build directory when Cargo uses a separate one.
 - That every profile, and both the host and target units, of a project use it, so a procedural macro and the program clone and build Slang once.
 - That `cargo clean` removes it, and that removing it when no build runs is safe.
 - That projects share it only by sharing a Cargo target directory, such as through `CARGO_TARGET_DIR`.
-- The known limits of Section 9.1, in which each unit builds in its own `OUT_DIR`.
+- How the build script finds it, as SRC-23 specifies, and the known limits of Section 9.1, in which each unit builds in its own `OUT_DIR`.
 
 They MUST NOT name an environment variable of `slang-src`, because none exists (SRC-21). A user who does not know where the folder is or when it is lost cannot reason about the time and disk space that a vendored build takes.
 
@@ -616,7 +624,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SRC-17 | 9.4 | An entry of libraries is named by the FNV-1a hash of its listed inputs, which the entry holds and a hit compares in full. |
 | SRC-18 | 10 | The only rerun instruction is the stamp file of the clone entry, and the only other instruction after the metadata is `cargo::rustc-env=SLANG_SRC_SHARED_DIR` for the crate's own tests. |
 | SRC-19 | 11 | Each failure returns an error with the content of the table. |
-| SRC-20 | 13 | The crate documentation and `README.md` state the requirements and the shared folder with its limits, and name no environment variable of the crate. |
+| SRC-20 | 13 | The crate documentation and `README.md` state the requirements, that no Vulkan SDK is needed, and the shared folder with its lookup and its limits, and name no environment variable of the crate. |
 | SRC-21 | 5 | The tree is always a clone of the recorded commit, and the build script reads no environment variable of its own. |
 | SRC-22 | 7.3 | Another commit only through `[patch]` with a fork that keeps the manifest version, best effort. |
 | SRC-23 | 9.1 | The shared folder is `slang-src` in the nearest tagged ancestor of `OUT_DIR`, its parent when that ancestor is the directory of `TARGET` under another tag, or `OUT_DIR` without a tag. |

@@ -119,7 +119,8 @@
 //! Both copies of Slang are built once from one source tree, because the
 //! macro and the program share the shared folder of the Cargo target
 //! directory in which the crate slang-src keeps the source tree and the
-//! built libraries.
+//! built libraries. The crate documentation of slang-src describes that
+//! folder and what the build needs.
 //!
 //! # Platform support
 //!
@@ -129,9 +130,16 @@
 //! # Finding the Slang library
 //!
 //! The macro runs Slang inside the compiler, so building a crate that calls
-//! it needs Slang, as building `slango` does. That is the Slang of the Vulkan
-//! SDK that `VULKAN_SDK` names, as the crate `slang-compiler-sys` describes.
-//! A documentation build expands the macro with Slang like any other build.
+//! it needs Slang, as building `slango` does. By default, that is the Slang
+//! of the Vulkan SDK that `VULKAN_SDK` names, as the crate
+//! `slang-compiler-sys` describes. With the feature `vendored`, it is a Slang
+//! built from source and linked statically into the macro, as
+//! [Features](#features) describes, and the rest of this section does not
+//! apply. On a machine without a Vulkan SDK, a build with the feature on only
+//! one of `slango` and this crate stops with the error that starts
+//! `VULKAN_SDK is not set`, because the other copy of Slang still links the
+//! Slang of a Vulkan SDK. A documentation build expands the macro with Slang
+//! like any other build.
 //!
 //! With the Vulkan SDK, the macro library links the Slang shared library, so
 //! the compiler has to find that library when it loads the macro. Without

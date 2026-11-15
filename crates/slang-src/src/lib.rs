@@ -73,12 +73,19 @@
 //! - The program `git`, on `PATH`.
 //! - The program `cmake`, version 3.22 or later.
 //! - The program `ninja`.
-//! - A C++ compiler.
-//! - Python 3 on `PATH`, which the build of slang-glslang needs.
+//! - A C++20 compiler. With the Microsoft toolchain, that is an installation
+//!   of Visual Studio or its Build Tools with the C++ tools, which the build
+//!   finds by itself, so it needs no developer command prompt.
+//! - Python 3 on `PATH`, as `python3` or `python`, which the build of
+//!   slang-glslang needs.
+//! - libclang, which every build of `slang-compiler-sys` needs, with or
+//!   without the feature `vendored`.
 //! - Network access for its first build in a Cargo target directory.
 //!
-//! A build without the Cargo feature `vendored` links the Slang of an
-//! installed Vulkan SDK and needs none of these and no network access.
+//! It needs no Vulkan SDK and no `VULKAN_SDK`, and the program that it
+//! builds needs no Slang library at run time. A build without the Cargo
+//! feature `vendored` links the Slang of an installed Vulkan SDK and needs
+//! none of these except libclang, and no network access.
 //!
 //! # The shared folder
 //!
@@ -89,8 +96,9 @@
 //! - Every profile of a project, and both its host and its target units, use
 //!   the one shared folder, so a procedural macro that links Slang and the
 //!   program clone Slang once and build it once.
-//! - A first build clones and builds while later builds use what the folder
-//!   holds and need no network access.
+//! - A first build clones and builds, which takes minutes, while later builds
+//!   use what the folder holds and need no network access. The folder of one
+//!   commit and target takes several hundred megabytes.
 //! - `cargo clean` removes the folder with the rest of the target directory,
 //!   and the next vendored build clones and builds again. Removing the folder,
 //!   or any directory in it, is safe whenever no build runs.
@@ -101,9 +109,11 @@
 //!
 //! The build script finds the folder through the file `CACHEDIR.TAG` that
 //! Cargo writes into a target directory or build directory that it creates.
-//! In these cases Cargo wrote no such file, so each unit clones and builds in
-//! its own output directory instead, which is correct but takes the time and
-//! the disk space once for each unit:
+//! It takes the nearest directory above its output directory `OUT_DIR` that
+//! holds that file, and uses `OUT_DIR` itself when it finds none. In these
+//! cases Cargo wrote no such file, so each unit clones and builds in its own
+//! output directory instead, which is correct but takes the time and the disk
+//! space once for each unit:
 //!
 //! - A target directory or build directory that existed before the first
 //!   build, such as one created with `mkdir`, restored from a cache of a

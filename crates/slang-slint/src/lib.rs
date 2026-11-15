@@ -202,7 +202,9 @@
 //! # Finding the Slang library
 //!
 //! `slango` links the Slang library through `slang-compiler-sys`, as the
-//! [crate documentation of `slango`](slango) describes.
+//! [crate documentation of `slango`](slango) describes, including how the
+//! feature `vendored` builds Slang from source in place of the Slang of a
+//! Vulkan SDK.
 
 mod device;
 mod error;
