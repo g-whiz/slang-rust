@@ -12,7 +12,7 @@ The workspace holds eight crates. No crate is published yet.
 | --- | --- |
 | `slang-compiler-sys` | Raw bindings to the native Slang library, which its build script generates from the headers of the Slang that it links. Bindings are Rust declarations that let Rust code call a library written in another language. |
 | `slang-bindgen` | The binding generator, which reads the Slang headers with libclang and writes the raw bindings for `slang-compiler-sys`. |
-| `slang-src` | The crate that obtains the Slang source tree for a build of Slang from source. No crate uses it yet. |
+| `slang-src` | The crate that obtains the Slang source tree for a build of Slang from source, which `slang-compiler-sys` uses with its feature `vendored`. |
 | `slang-compiler` | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency. It compiles Slang code to output formats such as SPIR-V, the binary shader format of Vulkan, and reflects the parameters of compiled code with their types, memory layouts, and bindings. |
 | `slango` | A high-level library that runs Slang code on the GPU through wgpu, a Rust graphics library. It loads a Slang module, runs a compute kernel with its parameters set by name, reads the results back, and draws with a vertex and a fragment entry point into a texture. |
 | `slango-macros` | The macro `shader!`, which compiles a Slang file while the calling crate builds and generates a typed Rust struct for each compute kernel and for each Slang structure that a kernel takes. A misspelled parameter or a value of the wrong type is then a compile error. |
@@ -39,6 +39,29 @@ On Linux, `VULKAN_SDK` names the `x86_64` directory of the SDK. These commands s
 ```sh
 export VULKAN_SDK=/tmp/vulkan-sdk/1.4.363.1/x86_64
 cargo build --workspace
+```
+
+## Building Slang From Source
+
+With the Cargo feature `vendored`, `slang-compiler-sys` builds Slang from source and links it statically. The build then needs no Vulkan SDK, and the program needs no Slang shared library at run time. Only `slang-compiler-sys` has the feature so far.
+
+A build with the feature needs these tools:
+
+- git and network access for the first build in a Cargo target directory, which clones the recorded Slang commit through `slang-src`.
+- CMake 3.22 or later, Ninja, and a C++ compiler. On Windows, the build finds the Microsoft C++ compiler of an installation of Visual Studio itself and needs no developer command prompt.
+- libclang, as for every build.
+
+The first build takes several minutes. The clone and the built libraries are kept in the folder `slang-src` of the Cargo target directory, which every build of the project shares, so later builds take seconds. `cargo clean` removes the folder.
+
+These limits hold:
+
+- A vendored build emits SPIR-V that Slang does not optimize, because the build does not include slang-glslang, the module through which Slang optimizes SPIR-V.
+- The vendored build is tested on Linux, macOS, and Windows with the Microsoft toolchain. On Windows, it is tested only with the Visual Studio of the GitHub Actions runner and in a target directory of usual depth.
+
+The crate-level documentation of `slang-compiler-sys` and of `slang-src` says more. This command builds the crate with the feature:
+
+```sh
+cargo build -p slang-compiler-sys --features vendored
 ```
 
 ## Examples

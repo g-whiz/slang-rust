@@ -12,10 +12,18 @@ license = "Apache-2.0 WITH LLVM-exception"
 repository.workspace = true
 readme.workspace = true
 
+[features]
+vendored = ["dep:slang-src", "dep:find-msvc-tools"]
+
+[dependencies]
+slang-src = { workspace = true, optional = true }
+
 [build-dependencies]
+find-msvc-tools = { workspace = true, optional = true }
 slang-bindgen.workspace = true
 
 [dev-dependencies]
+find-msvc-tools.workspace = true
 slang-bindgen.workspace = true
 
 [lints]

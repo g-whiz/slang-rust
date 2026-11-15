@@ -1317,6 +1317,8 @@ Reason: Cargo unifies the features that different dependents request, so a subtr
 
 The one exception is a member that needs another version requirement on a workspace member than the one that `[workspace.dependencies]` gives the other members, such as an exact requirement. That member MUST declare the dependency in its own manifest, with a comment that says in plain words why it needs that requirement, because a workspace entry has one requirement for every member that inherits it. `slango-codegen` requires `slango` this way (SLM-2 of `docs/design/slango-macros.md`).
 
+A crate that depends on another crate only for its `links` metadata, which Cargo passes to the build script, uses no item of it, and Cargo's manifest lint `unused_dependencies`, which Cargo 1.100 reports, and `cargo machete` both report such a dependency as unused. The crate MUST name the dependency at its root with `use <crate> as _;`, under the same `#[cfg(feature = "...")]` as an optional dependency, and MUST NOT silence the lint or add an exception to `cargo machete`. The import keeps the dependency visible as used in the code that needs it, and a stale import fails to compile when the dependency is removed. `slang-compiler-sys` names `slang-src` this way, and so does every crate that reads the metadata of `slang-src`.
+
 **DEP-3.** Treat every dependency whose types appear in a public signature as a public dependency, whose version is part of the crate's own. The GPU stack, wgpu and the crates around it, is below version 1.0, so the requirement of the Rust API Guidelines that a stable crate expose only stable dependencies (C-STABLE) cannot be met yet. Instead, keep every crate in this repository below 1.0, keep wgpu types out of `slang-compiler` and `slang-compiler-sys`, confine them to `slango` and `slang-slint`, and release a breaking wgpu upgrade as a breaking change of those crates.
 
 Reason: a breaking change of a public dependency is a breaking change of the crate, whether or not the crate's own code changed. [IR-8] [S-10] [IR-86]
@@ -1560,7 +1562,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
 | DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs. |
-| DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member. |
+| DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member, and a dependency used only for its `links` metadata is named with `use <crate> as _;`. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |
 | SIMP-1 | Concrete types first, and abstractions only for two implementations that exist now. |

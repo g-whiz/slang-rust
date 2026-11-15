@@ -155,7 +155,7 @@ These are the required submodules of the recorded Slang:
 | `external/glslang` | `slang-glslang-sys` |
 | `external/spirv-tools` | `slang-glslang-sys` |
 
-`external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). Section 16, SRCA-3, records that no other submodule is needed on Windows or macOS.
+`external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). The vendored CI jobs on macOS and Windows show that the build of Slang of `slang-compiler-sys` needs no other submodule there. Section 16, SRCA-3, records that the build of slang-glslang needs no other submodule on Windows and macOS.
 
 A shallow clone of the recorded commit with these submodules takes about half a minute on a fast connection and occupies under 300 MB.
 
@@ -365,7 +365,7 @@ The shared folder has this layout. Each dependent build script owns the director
 SRC-16. Every build script that writes an entry, which is the build script of `slang-src` for a clone entry and each dependent build script for an entry of libraries, MUST follow these steps:
 
 1. Open the lock file of the entry, creating it when it is absent, and take an exclusive lock on it with `std::fs::File::lock`, which blocks while another process holds it.
-2. When the entry exists, use it. For an entry of libraries, its file `inputs` has to equal the inputs of the current build byte for byte (Section 9.4), and every file that the build links has to exist in it.
+2. When the entry exists, use it. For an entry of libraries, its file `inputs` has to equal the inputs of the current build byte for byte (Section 9.4), and every file that the build links, and every header that the dependent build script reads from it, such as for the generation of bindings, has to exist in it.
 3. Otherwise, remove every directory named `<entry>.tmp-<number>`, build into `<entry>.tmp-<process id>`, write the file `inputs` for an entry of libraries, write the stamp file last with its modification time set to 2000-01-01T00:00:00Z, remove an entry that failed step 2, and rename the temporary directory to the entry.
 4. Keep the lock until the build script exits, when the operating system releases it, also after a crash.
 
@@ -390,15 +390,17 @@ SRC-17. A dependent build script MUST name each entry of libraries by an entry k
 3. `commit` and `build_tag`: the values of `slang-src`.
 4. `target`: the value of `TARGET`.
 5. `cmake`: the first line of the output of `cmake --version`.
-6. `configure`: every argument of the configure step, in order, one line each.
+6. `configure`: every argument of the configure step that is not a path under `OUT_DIR`, in order, one line each.
 7. `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET`, and `VCToolsVersion`: the value of each variable, or an empty value when it is absent.
-8. `compiler`: the first line of the output of `<compiler> --version`, in which `<compiler>` is the value of `CXX`, or `c++` when it is absent, on every target except Windows with the Microsoft toolchain, where it is empty.
+8. `compiler`: the identity of the C++ compiler. With the Microsoft toolchain, it is the full path of the `cl.exe` that the build script finds, and on every other target, the first line of the output of `<compiler> --version`, in which `<compiler>` is read from `CXX` as CMake reads it, or is `c++` when `CXX` is absent or blank. Section 9.3 of `docs/design/slang-compiler-sys.md` gives the exact rules.
 
 Every input that changes the built libraries changes the key, so an entry is never used for another build. The file `inputs` makes a collision of two keys harmless, because step 2 of SRC-16 compares it in full.
 
 A hash without cryptographic strength is enough, because the comparison of the inputs and not the hash decides a hit, and an attacker who can write into the target directory can write any entry directly (Section 14). The hash needs no dependency.
 
-The Cargo profile is not an input, because the native builds always use the CMake build type `Release`, so every profile shares an entry. The paths of `OUT_DIR` and of the source tree are not inputs, so that the host and target units, whose `OUT_DIR` differ, share an entry. Section 16, SRCA-6, records that `VCToolsVersion` identifies the Microsoft compiler well enough.
+The Cargo profile is not an input, because the native builds always use the CMake build type `Release`, so every profile shares an entry. The paths of `OUT_DIR` and of the source tree are not inputs, so that the host and target units, whose `OUT_DIR` differ, share an entry. An argument of the configure step that names a directory under `OUT_DIR`, such as `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=`, is left out for the same reason.
+
+The path of `cl.exe` identifies the Microsoft compiler, because it holds the Visual Studio installation and the version directory of the toolset. `cl.exe` has no `--version` option.
 
 ## 10. Rerun Instructions
 
@@ -457,7 +459,7 @@ No recipe runs the pure tests under Miri, which is a known gap. Every recipe tha
 
 ## 13. Crate Documentation
 
-SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory. They MUST also state the shared folder:
+SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 when the build includes slang-glslang. They MUST also state the shared folder:
 
 - That it is the directory `slang-src` in the Cargo target directory, or in the build directory when Cargo uses a separate one.
 - That every profile, and both the host and target units, of a project use it, so a procedural macro and the program clone and build Slang once.
@@ -564,10 +566,9 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 | --- | --- | --- | --- |
 | SRCA-1 | Cargo runs a dependent build script again whenever the build script of `slang-src` runs again and its metadata changes | Section 10 | A build in the M7 code steps that changes `RECORDED_COMMIT` between two builds in one target directory |
 | SRCA-2 | The low-speed settings of SRC-8 stop a transfer that stalls after it connected, and the operating system stops a connection attempt to an unreachable address after about two minutes | SRC-8, Section 14 | A run of the clone against an unroutable proxy, on Linux, Windows, and macOS |
-| SRCA-3 | The ten required submodules of Section 3.4 are all that the native builds read on Windows and macOS, with mimalloc turned off | Section 3.4 | The vendored CI jobs on Windows and macOS |
+| SRCA-3 | The ten required submodules of Section 3.4 are all that the build of slang-glslang reads on Windows and macOS, with mimalloc turned off | Section 3.4 | The vendored CI jobs on Windows and macOS |
 | SRCA-4 | The counts of Section 8, and the single clone and native build for each target directory, which come from stub crates in the shape of the workspace on x86_64 Linux, hold for the real crates | Section 8 | A vendored build of the example that calls `slango-macros`, with each command of the table |
 | SRCA-5 | On Windows and macOS, as on x86_64 Linux, Cargo runs a build script again when the stamp file that it names is missing, and not for a stamp file whose modification time is 2000-01-01 | SRC-16, Section 9.3 | The vendored CI jobs on Windows and macOS, with a test that removes the shared folder between two builds |
-| SRCA-6 | `VCToolsVersion` changes whenever the Microsoft compiler that CMake finds changes | SRC-17 | The vendored CI job on Windows, by a review of the developer environment it runs in |
 | SRCA-8 | A `[patch]` entry that names a fork of `slang-src` with the same manifest version and another recorded commit replaces `slang-src` for every dependent, and the build exports the commit of the fork | SRC-22 | A build in the M7 code steps of a scratch project that patches `slang-src` with a local copy that records another commit |
 | SRCA-9 | On Windows and macOS, as on x86_64 Linux, Cargo tags the build directory that it creates and the directory of the triple under `--target`, names that directory exactly after `TARGET`, and `std::fs::File::lock` serializes two build scripts that run at once, so that SRC-23 and SRC-16 give one folder and one creation of each entry | SRC-16, SRC-23, Section 8 | A vendored build on Windows and macOS with `--target`, with a separate build directory, and with two units that clone at once |
 
@@ -579,7 +580,7 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| SRCQ-1 | Does the clone fit within the path length limit of Windows when the target directory is deep, or does the build script need a shorter layout of the shared folder on Windows? | This document, with `docs/design/slang-compiler-sys.md` | M7 |
+| SRCQ-1 | Do the clone and the copy and build tree of `slang-compiler-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or does the build script need a shorter layout on Windows? | This document, with `docs/design/slang-compiler-sys.md` | M7 |
 | SRCQ-3 | Which recipe runs the pure tests of `slang-src` under Miri, and how does it keep the build script from cloning a second time in the target directory of Miri (Section 12)? | `docs/design/tooling.md`, with this document | M7 |
 
 The next question takes SRCQ-4.

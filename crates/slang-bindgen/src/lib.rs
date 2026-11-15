@@ -210,7 +210,7 @@ fn libclang_error(reason: &str) -> Error {
     if reason == CLANG_EXISTS {
         return Error::new(
             ErrorKind::Libclang,
-            "cannot use libclang, because this process already holds a libclang instance or failed to load libclang before, and only one instance may exist at a time, so generate the bindings once per process and from one thread",
+            "cannot use libclang, because this process already holds a libclang instance, such as during a call of the generator on another thread, and only one instance may exist at a time. Call the generator from one thread at a time, and a later call works once the earlier one has returned",
         );
     }
     Error::new(

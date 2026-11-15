@@ -229,7 +229,7 @@ Slang is obtained in exactly one of two ways: the dynamic route by default, and 
 | Route | Selected by | Slang comes from | Linking | The user needs |
 | --- | --- | --- | --- | --- |
 | Dynamic | Default | An installed LunarG Vulkan SDK at `VULKAN_SDK` | Dynamic | libclang and a Vulkan SDK at build time, and the Slang shared library on the library path at run time |
-| Vendored | The Cargo feature `vendored` | The source tree that `slang-src` obtains, which is always a shallow clone of the recorded commit | Static | libclang, git, CMake, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory, and no Slang library at run time |
+| Vendored | The Cargo feature `vendored` | The source tree that `slang-src` obtains, which is always a shallow clone of the recorded commit | Static | libclang, git, CMake, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 when the build includes slang-glslang. No Slang library at run time |
 
 No environment variable selects a route. Every crate between a user and `slang-compiler-sys` forwards the feature under the same name (Section 19.1). On both routes, the build script generates the bindings from the headers of the Slang that it links (Section 6). SCS-50 of `docs/design/slang-compiler-sys.md` decides the selection and gives the reasons.
 
@@ -932,7 +932,6 @@ Each row is a question that this document leaves open. The design document in th
 | Q-24 | Can the windows of examples 3 and 4 be checked headless, and how? | A design document, written when a CI runner can show a window | Not scheduled |
 | Q-29 | What is the design of the path-tracing demo? | The design of M14 | M14 |
 | Q-32 | Does the in-process loader of `slang-glslang-sys` give a vendored build optimized SPIR-V on Linux, Windows, and macOS? A C++ test answers it in principle, and the Rust side remains to be built (Section 15.10) | `docs/design/slang-glslang-sys.md` | M7 |
-| Q-33 | How long does the vendored build take on each hosted CI runner, and does the vendored CI job fit the time limit of a job? | `docs/design/slang-compiler-sys.md`, with `docs/design/tooling.md` | M7 |
 | Q-35 | How does the build script of `slang-rhi-sys` obtain the dependencies that the CMake build of slang-rhi downloads, and how does an offline or sandboxed build get them? | `docs/design/slang-rhi-sys.md` | M9 |
 | Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |

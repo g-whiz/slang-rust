@@ -223,10 +223,31 @@ jobs:
           fallback: none
       - name: Show the version of git, which clones Slang
         run: git --version
-      - name: Run Clippy and the documentation build of the vendored build
+      - *install-libclang
+      - name: Install CMake, Ninja, and a C++ compiler where the runner image lacks them
+        if: runner.os == 'Linux'
+        run: |
+          missing=()
+          for tool in cmake:cmake ninja:ninja-build c++:g++; do
+            if ! command -v "${tool%%:*}" >/dev/null; then
+              missing+=("${tool#*:}")
+            fi
+          done
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends "${missing[@]}"
+          fi
+      - name: Show the versions of CMake and Ninja, and of the C++ compiler outside Windows, where the build script finds the Microsoft compiler itself
+        run: |
+          cmake --version
+          ninja --version
+          if [[ "${RUNNER_OS}" != Windows ]]; then
+            c++ --version
+          fi
+      - name: Run Clippy and the documentation build of the vendored build, and show how long it took
         if: matrix.os == 'ubuntu-latest'
-        run: just check-vendored
-      - name: Run the tests of the vendored build
-        run: just test-vendored
+        run: time just check-vendored
+      - name: Run the tests of the vendored build, and show how long it took
+        run: time just test-vendored
       - name: Check where the vendored build kept its Slang clone
         run: just check-vendored-shared-folder

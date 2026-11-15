@@ -84,18 +84,23 @@
 //! assert!(SlangResult::SLANG_OK.0 >= 0);
 //!
 //! assert_ne!(BUILD_INFO.slang_build_tag, "");
-//! assert_eq!(BUILD_INFO.linkage, Linkage::Dynamic);
-//! assert_eq!(BUILD_INFO.slang_commit, None);
-//! assert!(BUILD_INFO.version.ends_with(".dynamic"));
+//! if BUILD_INFO.linkage == Linkage::Static {
+//!     assert!(BUILD_INFO.slang_commit.is_some());
+//!     assert!(BUILD_INFO.version.ends_with(".vendored"));
+//! } else {
+//!     assert_eq!(BUILD_INFO.slang_commit, None);
+//!     assert!(BUILD_INFO.version.ends_with(".dynamic"));
+//! }
 //! println!("{} on a tested target: {}", BUILD_INFO.version, BUILD_INFO.tested_target);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! This example creates the global session that every compilation starts
 //! from, checks that the Slang library that the program loaded reports the
-//! build tag of [`BUILD_INFO`], and releases the session. It needs the Slang
-//! shared library at run time, which the dynamic loader must find as
-//! [Linking Slang](#linking-slang) describes, so it is compiled but not run:
+//! build tag of [`BUILD_INFO`], and releases the session. A default build
+//! needs the Slang shared library at run time, which the dynamic loader must
+//! find as [Linking Slang](#linking-slang) describes, so it is compiled but
+//! not run:
 //!
 //! ```no_run
 //! use std::ffi::CStr;
@@ -137,7 +142,14 @@
 //!
 //! # Features
 //!
-//! This crate has no Cargo features.
+//! - `vendored`, off by default: builds Slang from source and links it
+//!   statically, in place of the Slang shared library of a Vulkan SDK, as
+//!   [Linking Slang](#linking-slang) describes. It enables the dependency on
+//!   the crate slang-src, which obtains the source tree. It adds and removes
+//!   no item of the API, so code that compiles without it compiles with it.
+//!   Cargo unifies features, so one crate of a build that enables it makes the
+//!   whole build link the static Slang, and enabling every feature of this
+//!   crate enables it as well.
 //!
 //! # Platform support
 //!
@@ -156,6 +168,9 @@
 //! `x86_64` macOS, the bindings are only type-checked, and they are never
 //! linked or run.
 //!
+//! The static Slang of the feature `vendored` is built and tested on the same
+//! three platforms as the Slang of the Vulkan SDK.
+//!
 //! Every other 64-bit target is allowed, untested, and unsupported. The build
 //! script then emits a warning that names the target, which Cargo shows when
 //! the build fails, and [`BuildInfo::tested_target`] is `false`, but the
@@ -163,16 +178,22 @@
 //! are not 64 bits wide, because Slang uses another calling convention and
 //! other struct layouts there.
 //!
+//! With the feature `vendored`, the build also stops when the target differs
+//! from the host, because Slang's build runs programs that it builds for the
+//! target, so it cannot cross-compile. It stops as well on a target for which
+//! it has no rule to link the C++ runtime library, because Slang is written
+//! in C++. It has such a rule for Linux with the GNU C library, macOS, and
+//! Windows with the Microsoft toolchain.
+//!
 //! # Linking Slang
 //!
-//! The build script links the Slang shared library of an installed LunarG
-//! Vulkan SDK dynamically. You can download the SDK from
-//! <https://vulkan.lunarg.com>. When the build script runs, it reads the
-//! environment variable `VULKAN_SDK`, which holds the absolute path of the
-//! directory of the SDK that contains `include/slang` and `lib`. That is the
-//! directory `x86_64` of the SDK on Linux, the directory `macOS` on macOS, and
-//! the installation directory on Windows. The setup script of the SDK sets
-//! `VULKAN_SDK` on Linux and macOS, and its installer sets it on Windows.
+//! The build script obtains Slang in one of two ways. By default, it links
+//! the Slang shared library of an installed LunarG Vulkan SDK dynamically.
+//! With the feature `vendored`, it builds Slang from source and links it
+//! statically. Only the feature selects the way, and no environment variable
+//! does. The build never falls back from one way to the other, so a build
+//! with the feature never links the Slang of an SDK, and a build without it
+//! never builds Slang.
 //!
 //! Every build also needs libclang, the C and C++ parser library of the LLVM
 //! project, because the build script generates the bindings with it. The
@@ -182,6 +203,15 @@
 //! `libclang-dev` on Debian and Ubuntu, provides it. On macOS, the Xcode
 //! command line tools provide it, and on Windows, an installation of LLVM
 //! does.
+//!
+//! By default, the build script links the Slang of the Vulkan SDK, which you
+//! can download from <https://vulkan.lunarg.com>. When the build script runs,
+//! it reads the environment variable `VULKAN_SDK`, which holds the absolute
+//! path of the directory of the SDK that contains `include/slang` and `lib`.
+//! That is the directory `x86_64` of the SDK on Linux, the directory `macOS`
+//! on macOS, and the installation directory on Windows. The setup script of
+//! the SDK sets `VULKAN_SDK` on Linux and macOS, and its installer sets it on
+//! Windows.
 //!
 //! The build script reads the build tag that `SLANG_TAG_VERSION` defines in
 //! `$VULKAN_SDK/include/slang/slang-tag-version.h` and records it in
@@ -211,19 +241,83 @@
 //! library of the host. Commands that do not link, such as `cargo check` and
 //! `cargo clippy`, then work, and a build that links fails in the linker.
 //!
+//! With the feature `vendored`, the build script builds Slang from the source
+//! tree that the crate slang-src obtains. That crate clones the Slang commit
+//! that it records, and its documentation says how to build another commit
+//! through Cargo's `[patch]` table, which is best effort. The build needs the
+//! programs `git`, `cmake` 3.22 or later, and `ninja`, and a C++ compiler on
+//! the build machine, and network access for the first build in a target
+//! directory, in which slang-src clones the source tree. It never reads
+//! `VULKAN_SDK`. With the Microsoft toolchain, the build script finds the
+//! compiler `cl.exe` of the newest installation of Visual Studio, or of the
+//! developer command prompt that the build runs in, and gives its environment
+//! to `cmake` and `ninja`, so the build needs no developer command prompt. It
+//! stops with an error that says where it looked when it finds none. The
+//! environment variable `VCToolsVersion` selects another installed version of
+//! the toolset.
+//!
+//! The build script copies the files that git tracks in the source tree into
+//! its `OUT_DIR`, because Slang's build writes into its source tree, and
+//! builds a minimal static Slang there with `cmake` and `ninja`. It writes
+//! the output of `cmake` and `ninja` to `slang/build.log` under `OUT_DIR`, and
+//! a failed step stops the build with an error that names the log and holds
+//! its last 40 lines. It then checks that the build produced the six static libraries
+//! and that its `slang-tag-version.h` names the build tag of the source tree,
+//! and it generates the bindings from the headers that the build produced.
+//! [`BUILD_INFO`] records that build tag, the full commit of the source tree,
+//! and [`Linkage::Static`].
+//!
+//! The build links the six static libraries `slang-compiler`,
+//! `compiler-core`, `core`, `cmark-gfm`, `miniz`, and `lz4`, and the C++
+//! standard library of the target: `stdc++` on Linux and `c++` on macOS. With
+//! the Microsoft toolchain, the runtime library that the target feature
+//! `crt-static` selects provides it. Cargo copies the static libraries into
+//! the library of this crate, so a program that links it needs no Slang
+//! library at run time.
+//!
+//! A build from source takes several minutes, so the build script keeps the
+//! libraries and headers that it built in the shared folder of the Cargo
+//! target directory, next to the source tree of slang-src. The shared folder
+//! is the directory `slang-src` in the target directory, or in the build
+//! directory when Cargo uses a separate one. Every profile, and both the host
+//! and the target units, of a project use it, so a procedural macro and the
+//! program build Slang once, and a build whose compiler, flags, or options of
+//! the build of Slang differ builds again. `cargo clean` removes the folder,
+//! and removing it when no build runs is safe. Projects share it only by
+//! sharing a target directory, such as through `CARGO_TARGET_DIR`. When Cargo
+//! did not tag the target directory, such as for a directory that existed
+//! before the first build, each unit builds in its own `OUT_DIR` instead, as
+//! the documentation of slang-src describes.
+//!
+//! The vendored Slang of this crate alone has no slang-glslang, the part of
+//! Slang that optimizes SPIR-V. Unless the program installs a loader that
+//! provides it, the first generation of SPIR-V in each global session
+//! returns diagnostics that begin with `failed to load downstream compiler
+//! 'spirv-opt'` while it succeeds, and the SPIR-V is not optimized. When the
+//! dynamic loader finds a slang-glslang shared library, Slang loads it
+//! instead, so the output then depends on the environment of the program. On
+//! either route, Slang validates the SPIR-V that it generates only when the
+//! environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`.
+//!
 //! The manifest key `links` of this crate is `slang-compiler`, so the build
 //! script of a crate that depends on this one reads what this build links
 //! from these variables:
 //!
-//! - `DEP_SLANG_COMPILER_INCLUDE`: `$VULKAN_SDK/include/slang`, the directory
-//!   that holds `slang.h` and `slang-tag-version.h`.
-//! - `DEP_SLANG_COMPILER_LIB`: `$VULKAN_SDK/lib`.
-//! - `DEP_SLANG_COMPILER_LINKAGE`: `dynamic`.
+//! - `DEP_SLANG_COMPILER_INCLUDE`: the directory that holds `slang.h` and
+//!   `slang-tag-version.h`, which is `$VULKAN_SDK/include/slang` by default
+//!   and the directory `include` of the built Slang in the shared folder with
+//!   the feature `vendored`.
+//! - `DEP_SLANG_COMPILER_LIB`: the directory of the libraries, which is
+//!   `$VULKAN_SDK/lib` by default and the directory `lib` of the built Slang
+//!   in the shared folder with the feature `vendored`.
+//! - `DEP_SLANG_COMPILER_LINKAGE`: `dynamic` by default and `static` with the
+//!   feature `vendored`.
 //! - `DEP_SLANG_COMPILER_BUILD_TAG`: the build tag of [`BUILD_INFO`].
 //!
-//! The dynamic loader of the operating system finds the shared library when
-//! the program starts, and the build script cannot tell it where the library
-//! is, so the environment of the program does:
+//! With the default dynamic link, the dynamic loader of the operating system
+//! finds the shared library when the program starts, and the build script
+//! cannot tell it where the library is, so the environment of the program
+//! does:
 //!
 //! - Linux: `$VULKAN_SDK/lib` is on `LD_LIBRARY_PATH`. The setup script of
 //!   the SDK puts it there.
@@ -336,6 +430,8 @@ mod bindings {
 }
 
 pub use bindings::*;
+#[cfg(feature = "vendored")]
+use slang_src as _;
 
 /// The record of the Slang that a build of this crate generated its
 /// bindings from and links, and of how it links it.
@@ -369,14 +465,16 @@ pub struct BuildInfo {
     /// nearest release tag, the number of commits after it, and `g` followed
     /// by the abbreviated commit hash. It is the value that
     /// `SLANG_TAG_VERSION` defines in `slang-tag-version.h` of the Vulkan SDK
-    /// that the build used. The Slang library returns the same string from
+    /// that the build used, or the build tag of the source tree that a build
+    /// with the feature `vendored` built. The Slang library returns the same string from
     /// [`spGetBuildTagString`], so a program can compare the two at run time.
     pub slang_build_tag: &'static str,
     /// The full hash of the Slang commit of the build, when the build knows
     /// it.
     ///
-    /// It is `None` for a build that links the Slang of a Vulkan SDK, because
-    /// the SDK records no full commit.
+    /// It is the commit of the source tree for a build with the feature
+    /// `vendored`, and `None` for a build that links the Slang of a Vulkan
+    /// SDK, because the SDK records no full commit.
     pub slang_commit: Option<&'static str>,
     /// How the build links Slang.
     pub linkage: Linkage,
@@ -391,7 +489,7 @@ pub struct BuildInfo {
     /// of `slang`, the numbers of the build tag with a missing patch or
     /// commit count written as `0`, `g` followed by the abbreviated commit
     /// hash of the build tag, and `dynamic` for a build that links the Slang
-    /// of a Vulkan SDK. A build tag of another form appears with every
+    /// of a Vulkan SDK or `vendored` for a build with the feature `vendored`. A build tag of another form appears with every
     /// character other than an ASCII letter, a digit, or a hyphen replaced by
     /// a hyphen.
     pub version: &'static str,
@@ -421,9 +519,8 @@ pub enum Linkage {
     /// dynamic loader finds when the program starts.
     Dynamic,
     /// Slang is linked statically into the program, which then needs no
-    /// Slang library at run time. The build script of this crate links the
-    /// Slang shared library of a Vulkan SDK, so it never records this
-    /// linkage.
+    /// Slang library at run time. A build with the feature `vendored` builds
+    /// Slang from source and links it in this way.
     Static,
 }
 

@@ -82,6 +82,7 @@ This document calls those files the writing guide, the coding standard, the arch
 - C linkage: The property of a C++ function declared inside `extern "C"`, whose symbol in the shared library is its plain name.
 - calling convention: The rules for how a function receives its arguments and returns its result, such as which registers hold them and who removes them from the stack. Rust names a calling convention in the ABI string of a function type, such as `extern "C"` or `extern "system"`.
 - canonical type: The type that remains after libclang resolves every typedef, such as `long` behind `int64_t` on Linux.
+- compiler probe: The run of the C++ compiler that `CXX` names, or of `c++`, with `--version`, whose first line of output identifies the compiler in the entry key of the vendored route outside the Microsoft toolchain (SCS-56).
 - default member initializer: A value written in a C++ struct declaration for a field, such as `int size = sizeof(Desc);`, which the field takes when the struct is constructed without that field.
 - diagnostic: A message that libclang reports while it parses, with a severity of note, warning, error, or fatal.
 - gitlink: The entry of a git index that records a submodule by its commit, with the mode `160000`.
@@ -665,7 +666,7 @@ The crate `clang` 2.1.0 exposes everything the generator needs through its safe 
 
 Only one instance of its `Clang` type may exist in a process, so the generator creates one instance for each call of `generate`. The generator calls libclang only through `clang`, because the parse functions of `clang-sys`, used directly, would need unsafe code.
 
-SCS-67. The first call of `generate` that loads libclang MUST keep it loaded until the process exits, through a handle of `clang-sys` that the generator holds in a static, on every platform. `clang` unloads libclang when its `Clang` value is dropped, and on Windows a process that unloaded `libclang.dll` after using it may crash when it exits (Section 15, SA-16). The generator loads its handle with the safe API of `clang-sys`, so it adds no unsafe code.
+SCS-67. The first call of `generate` that loads libclang MUST keep it loaded until the process exits, through a handle of `clang-sys` that the generator holds in a static, on every platform. `clang` unloads libclang when its `Clang` value is dropped, and on Windows a process that unloaded `libclang.dll` after using it crashes with an access violation when it exits, after the build script has printed every instruction. The CI job `test` on Windows shows that a build script that keeps libclang loaded exits without an error. The generator loads its handle with the safe API of `clang-sys`, so it adds no unsafe code.
 
 `generate` may be called again, from the same thread or from another one, once an earlier call has returned. A call while another call runs still fails with an error of kind `Libclang` (Section 7.7). A build script calls `generate` once.
 
@@ -815,7 +816,7 @@ libclang refuses to parse a missing main header in the same way as a refused tar
 When libclang cannot start, the message says which of two cases applies:
 
 - libclang cannot be loaded. The message gives the reason and advises to install libclang or set `LIBCLANG_PATH` to the directory that holds it.
-- The process already holds a libclang instance or failed to load libclang before. The message advises to generate the bindings once per process and from one thread.
+- The process already holds a libclang instance, such as during a call of the generator on another thread. The message says that only one instance may exist at a time and advises to call the generator from one thread at a time, because a later call works once the earlier one has returned (SCS-67).
 
 The binary prints the error and each source error, one per line, to standard error and exits with a failure status.
 
@@ -968,18 +969,22 @@ The build script takes these steps, in this order. A step that fails returns the
 2. Check the target. A target that differs from the host stops the build, and so does a target without a link rule for its C++ runtime library (SCS-43). A target whose pointer width is not 64 stops it as well (SCS-66).
 3. Emit the warning of SCS-65 for an untested target, at the place in the order that Section 9.2 gives, before the native build and the generation.
 4. Probe Ninja. The build script runs `ninja --version` and stops the build when Ninja cannot start or fails (SCS-28).
-5. Assemble the arguments of the configure step (SCS-28), compute the entry key, and lock the entry in the shared folder (SCS-56). When the entry is complete, skip to step 14 with the directories of the entry.
-6. Truncate the log `slang/build.log` to empty (SCS-48).
-7. Read the stamp. When `slang/stamp` holds exactly the stamp of this run, the build script skips steps 8 to 10 (SCS-46).
-8. Remove the old stamp, then list the files to copy with `git ls-files -z --stage`, whose entries with the mode `160000` are the gitlinks of the source tree. For each of the eight submodules of Section 3.10, the build script lists the tracked files of the submodule with the same command. A tracked path that is not made only of normal components, such as one with `..`, stops the build (SCS-45).
-9. Copy the listed files into `slang/source`. The build script removes every file of the copy that is not listed, and it writes a listed file only when its bytes differ from the copy (SCS-45).
-10. Configure the copy. The build script runs `cmake -S <copy> -B <build> -G Ninja` with the arguments of step 5. It removes `SLANG_USE_SCCACHE` from the environment of `cmake` and appends the output to the log.
-11. Build. The build script runs `cmake --build <build> --target slang`, followed by `--parallel` and the value of `NUM_JOBS` when that value is a whole number, removes `SLANG_USE_SCCACHE` from the environment of `cmake`, and appends the output to the log. It runs this step on every run that reaches it, also when the stamp matched, and Ninja rebuilds only what changed.
-12. Verify the result (SCS-47).
-13. Write the stamp, when step 8 ran (SCS-46). Store the six libraries and the include directory of the build tree in the locked entry (SCS-56).
-14. Generate the bindings from the include directory of the entry (Section 9.4).
-15. Write `build_info.rs` with the build tag and the commit of `slang-src` and the linkage `Static` (SCS-53).
-16. Emit the link instructions and the `links` metadata.
+5. Assemble the arguments of the configure step (SCS-28).
+6. Find the C++ compiler. With the Microsoft toolchain, the build script looks up `cl.exe` and its environment and stops the build when it finds none (SCS-68). On every other target, it runs the compiler probe of SCS-56.
+7. Compute the entry key, which runs `cmake --version`, lock the entry in the shared folder, and emit the rerun instruction for its stamp file (SCS-56). When the entry is complete, skip to step 16 with the directories of the entry.
+8. Truncate the log `slang/build.log` to empty (SCS-48).
+9. Read the stamp. When `slang/stamp` holds exactly the stamp of this run, the build script skips steps 10 to 12 (SCS-46).
+10. Remove the old stamp and `slang/build/CMakeCache.txt`, then list the files to copy with `git ls-files -z --stage`, whose entries with the mode `160000` are the gitlinks of the source tree. For each of the eight submodules of Section 3.10, the build script lists the tracked files of the submodule with the same command. A tracked path that is not made only of normal components, such as one with `..`, stops the build (SCS-45).
+11. Copy the listed files into `slang/source`. The build script removes every file of the copy that is not listed, and it writes a listed file only when its bytes differ from the copy (SCS-45).
+12. Configure the copy. The build script runs `cmake -S <copy> -B <build> -G Ninja` with the arguments of step 5. It removes `SLANG_USE_SCCACHE` from the environment of `cmake`, adds the environment of the toolchain of step 6, and appends the output to the log.
+13. Build. The build script runs `cmake --build <build> --target slang`, followed by `--parallel` and the value of `NUM_JOBS` when that value is a whole number, with the same environment as step 12, and appends the output to the log. It runs this step on every run that reaches it, also when the stamp matched, and Ninja rebuilds only what changed.
+14. Verify the result (SCS-47).
+15. Write the stamp, when step 10 ran (SCS-46). Store the six libraries and the include directory of the build tree in the locked entry (SCS-56).
+16. Generate the bindings from the include directory of the entry (Section 9.4).
+17. Write `build_info.rs` with the build tag and the commit of `slang-src` and the linkage `Static` (SCS-53).
+18. Emit the link instructions and the `links` metadata.
+
+The build script removes `CMakeCache.txt` whenever the stamp differs, because CMake keeps the compiler of its first configure step in that cache and ignores a changed `CXX` or toolchain. Without the removal, a build with another compiler would store libraries of the old compiler under the key of the new one.
 
 The arguments of the configure step are `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<lib>`, `-DSLANG_VERSION_FULL=<build tag>`, `-DSLANG_VERSION_NUMERIC=<numeric version>`, and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, then the 27 options of the constant `SLANG_OPTIONS` of `route.rs`, then the options of the target. The build tag is the value of `DEP_SLANG_SRC_BUILD_TAG`, and the numeric version is its part before the first hyphen.
 
@@ -992,7 +997,7 @@ The 27 options of `SLANG_OPTIONS` select a release build, `SLANG_LIB_TYPE=STATIC
 
 They also exclude Dawn and Tint. With the Microsoft toolchain, the build script adds `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` when `CARGO_CFG_TARGET_FEATURE` holds `crt-static`, and `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` otherwise, and it adds `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF`, so that no build needs the submodule `external/mimalloc`, which `slang-src` does not require (Section 3.4 of the `slang-src` design).
 
-When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. In this listing, `<lib>` and `<include>` stand for the directories `lib` and `include` of the entry in the shared folder, and the last link instruction depends on the target:
+When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. The rerun instruction for the stamp file of the entry comes after the warning of SCS-65 on an untested target, because the build script knows the entry only once it has computed the key in step 7. In this listing, `<lib>` and `<include>` stand for the directories `lib` and `include` of the entry in the shared folder, and the last link instruction depends on the target:
 
 ```text
 cargo::rustc-link-search=native=<lib>
@@ -1037,9 +1042,9 @@ A path that is not made only of normal components would let the copy write outsi
 
 SCS-46. On the vendored route, the build script MUST copy and configure again whenever the stamp differs from the stamp of the current run, and MUST write the stamp only after a build that SCS-47 verified.
 
-The stamp holds the root of the source tree, its commit, its build tag, the list of required submodules, and the full argument list of the configure step, which carries the options of the target.
+The stamp holds the root of the source tree, its commit, its build tag, the list of required submodules, and the full argument list of the configure step, which carries the options of the target, followed by the inputs of the entry key (SCS-56). The inputs carry the compiler and the variables that CMake reads, so a change of compiler also copies and configures again, with a fresh CMake cache (step 10).
 
-A stamp written before the verification would let an interrupted or failed build skip the copy and the configure step on the next run. The build script removes the old stamp before it copies, so a failure in steps 8 to 12 leaves no stamp.
+A stamp written before the verification would let an interrupted or failed build skip the copy and the configure step on the next run. The build script removes the old stamp before it copies, so a failure in steps 10 to 14 leaves no stamp.
 
 SCS-47. On the vendored route, after the build, the build script MUST check that each of the six static libraries exists as a file, named `lib<name>.a`, or `<name>.lib` with the Microsoft toolchain, and that `slang/build/Release/include/slang-tag-version.h` defines `SLANG_TAG_VERSION` as the build tag of `slang-src`, read with the rules of Section 9.2. A build that produced another layout or another version would otherwise reach the linker or the program, where the failure no longer names the cause.
 
@@ -1053,11 +1058,32 @@ SCS-56. The build script MUST keep the six static libraries and the include dire
 
 A vendored build takes minutes, and Cargo gives each profile and each host or target unit its own `OUT_DIR`, so a procedural macro that links Slang and every profile would otherwise build it again (Section 8 of the `slang-src` design). With the shared folder, it runs once for each set of inputs in a target directory.
 
-An entry has the directories `lib`, with the six libraries, and `include`, with the headers and `slang-tag-version.h`, the file `inputs`, and the stamp file. The `files` input of the key is empty, because the build reads no file of this crate, and the `configure` input carries every option that changes the libraries. The build script builds in `OUT_DIR`, then copies the two directories into the temporary directory of the entry and renames it, so a miss costs one copy of those two directories.
+An entry has the directories `lib`, with the six libraries, and `include`, with every file of the include directory of the build tree, the file `inputs`, and the stamp file. The build script builds in `OUT_DIR`, then copies the two directories into the temporary directory `<key>.tmp-<process id>` of the entry and renames it, so a miss costs one copy of those two directories. Before it copies into the temporary directory, it removes only the temporary directories `<key>.tmp-<number>` of the same key, and it removes no entry of another key.
 
-The code of the route for macOS and for Windows with the Microsoft toolchain follows a reading of Slang's CMake files and runs first in the vendored CI job (Section 16, SQ-3). On Windows, the build with Ninja needs the developer environment of the Microsoft toolchain, which the build script does not set up (SGLA-6 of `docs/design/slang-glslang-sys.md`).
+The inputs of the key follow SRC-17 of the `slang-src` design, with these values:
+
+- `files` is empty, because the build reads no file of this crate.
+- `configure` holds one line for each argument of the configure step except `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=`, whose value is a path under `OUT_DIR`. The arguments `-S` and `-B` of the configure command are paths under `OUT_DIR` as well and are not arguments of the configure step. The stamp of SCS-46 keeps the full list.
+- `compiler` is the path of `cl.exe` that SCS-68 finds with the Microsoft toolchain. That path holds the Visual Studio installation and the version directory of the toolset, so it changes with the compiler.
+- On every other target, `compiler` is the first line of the output of the compiler probe. The probe reads `CXX` as CMake reads it. A value that is empty or blank probes `c++ --version`, a value that names an existing file is the program as a whole, so a path with spaces works, and otherwise the first word is the program and the other words are its arguments, so `ccache g++` runs `ccache g++ --version`.
+
+A failure of `cmake --version` or of the compiler probe stops the build with the message of Section 9.6, because a key with an empty input could match an entry of another compiler.
+
+An entry is complete only when its file `inputs` equals the inputs of the current build byte for byte, each of the six archives exists as a file in its `lib`, every file of the include directory of the source tree exists as a file in its `include`, and its `slang-tag-version.h` defines the build tag of `slang-src`. The build script replaces an entry that fails one of these checks, also one that was damaged after it was stored, because the generation reads the headers and the link reads the archives. An entry that cannot be inspected, other than one that does not exist, and an include directory of the source tree that cannot be listed stop the build with the message of Section 9.6.
+
+SCS-68. With the Microsoft toolchain, the build script MUST find `cl.exe` for the target with the crate `find-msvc-tools` before it computes the entry key, and MUST give the environment that the lookup returns to every `cmake` run, added to the inherited values. It MUST stop the build with the message of Section 9.6 when the lookup finds no compiler. It MUST NOT require a developer command prompt.
+
+A build from an ordinary shell on Windows has no developer environment, and Slang's build with Ninja then finds no compiler. A developer environment that a CI step or a user exports for the whole build sets `VCINSTALLDIR`, which makes rustc take `link.exe` from `PATH`, where another program of that name can come first, such as the `link` of Git's tools in a Git Bash shell. The lookup gives the environment only to the `cmake` runs, so rustc keeps its own lookup of the linker.
+
+The lookup takes the developer prompt that `VCINSTALLDIR` marks first, then each installation of Visual Studio 2015 or later that the Visual Studio setup configuration or the registry lists, limited to the toolset that `VCToolsVersion` names. CMake's Ninja generator on Windows takes the first compiler on `PATH`, so it finds `cl` in the environment of the lookup without `-DCMAKE_CXX_COMPILER`, and a `CC` or `CXX` of the user still takes precedence. `find-msvc-tools` is the crate that the `cc` crate uses for the same lookup (Section 14).
+
+The vendored CI job builds and links the vendored route on Linux, on macOS, and on Windows with the Microsoft toolchain. On macOS, the archive names `lib<name>.a` and the C++ standard library `c++` without a framework hold. On Windows, the lookup of SCS-68 finds `cl.exe` from a shell without a developer environment, CMake's Ninja generator builds with it, and the archive names `<name>.lib` and the default runtime library `MultiThreadedDLL` link without a mismatch.
+
+The paths under `OUT_DIR` of the copy and the build tree stay within the path length limit of Windows for the target directory of the hosted Windows runner. A deeper target directory is not shown, and SRCQ-1 of the `slang-src` design keeps that question open. The lookup on a machine with another version of Visual Studio or with several installations is SA-17 (Section 15).
 
 SCS-63. The recipe `test-vendored` MUST run the tests of `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `vendored` of `slang-compiler`, in the target directory `target/vendored`, with `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` removed from the environment, and MUST fail when it selects no test.
+
+The recipe selects the packages and the feature through the `justfile` variables of TOOL-7 of the tooling design, which name each of these crates only once it exists and the feature reaches it, and the feature of `slang-compiler-sys` while no crate above it has one.
 
 Without `VULKAN_SDK` and the loader path, a test binary that still needed the Slang shared library could not start, and a build script that still read the SDK would fail, so the tests pass only when the link is static. A separate target directory keeps the vendored build from replacing the dynamic build of `target/`, which every other recipe uses.
 
@@ -1087,9 +1113,9 @@ SCS-30. The build script MUST emit these rerun instructions, each before it read
 
 - `cargo::rerun-if-env-changed` for `LIBCLANG_PATH` on every run.
 - On the dynamic route, `cargo::rerun-if-env-changed` for `VULKAN_SDK`, and `cargo::rerun-if-changed` for the directory `$VULKAN_SDK/include/slang`.
-- On the vendored route, `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses.
+- On the vendored route, `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET`, `VCINSTALLDIR`, and `VCToolsVersion`, in that order, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses.
 
-A build that does not rerun after its input changes links a library or compiles bindings that no longer match it (SYS-1). Cargo scans a directory named by `rerun-if-changed` for changes, and the SDK's header directory holds a handful of files, so the instruction covers every header that the generator reads. The variables of the vendored route are those that CMake reads at configure time, so a change of compiler reruns the configure step through the stamp.
+A build that does not rerun after its input changes links a library or compiles bindings that no longer match it (SYS-1). Cargo scans a directory named by `rerun-if-changed` for changes, and the SDK's header directory holds a handful of files, so the instruction covers every header that the generator reads. The first seven variables of the vendored route are those that CMake reads at configure time, so a change of compiler reruns the configure step through the stamp. `VCINSTALLDIR` and `VCToolsVersion` steer the lookup of SCS-68, and `VCToolsVersion` is also an input of the entry key.
 
 `build.rs` prints every instruction that the logic collected before it returns the result, so the instructions reach Cargo when the build script fails as well. A test of Section 9.7 asserts the rerun instructions on every failure path.
 
@@ -1122,7 +1148,7 @@ SCS-31. On each failure of this table, the build script MUST end by returning an
 
 In this table, the SDK advice is the sentence that tells the user two things. It says to install the LunarG Vulkan SDK from <https://vulkan.lunarg.com>. It says to set `VULKAN_SDK` to the absolute path of its directory that holds `include/slang` and `lib`, which is the `x86_64` directory of the SDK on Linux, the `macOS` directory on macOS, and the installation directory on Windows.
 
-The vendored advice is the sentence that says that enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory.
+The vendored advice is the sentence that says that enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, and network access for the first build in a target directory.
 
 Every row is a failure that the build script raises. A function of `route.rs` builds the message of each, and a test of Section 9.7 checks each.
 
@@ -1147,15 +1173,16 @@ The first nine rows belong to the dynamic route, the next three to both routes, 
 | `TARGET` or `HOST` is absent (SCS-55) | The name of the variable with "is not set", that the build cannot compare the target with the host, and that Cargo sets the variable |
 | The target differs from the host (SCS-43) | Both target triples, that the build from source cannot cross-compile because Slang's build runs programs that it builds for the target, and the two remedies: build on a host of the target, or build without the feature `vendored` to link the Slang of a Vulkan SDK |
 | The target has no link rule for its C++ runtime library (SCS-43) | The target triple, the three kinds of target that have a rule, that the build cannot link Slang's C++ code without one, and the same two remedies |
-| `git`, `ninja`, or `cmake` cannot start (SYS-4) | "cannot start" with the program, the command, and the reason that the operating system gives, that the build from source needs git, CMake 3.22 or later, and Ninja on `PATH`, and the remedies: install the missing program, or build without the feature `vendored` |
+| `git`, `ninja`, `cmake`, or the program of the compiler probe cannot start (SYS-4, SCS-56) | "cannot start" with the program, the command, and the reason that the operating system gives, that the build from source needs git, CMake 3.22 or later, and Ninja on `PATH`, and a C++ compiler, and the remedies: install the missing program, or build without the feature `vendored` |
+| With the Microsoft toolchain, the lookup finds no `cl.exe` (SCS-68) | "cannot find the Microsoft C++ compiler cl.exe" with the target, that the build runs CMake with Ninja, which needs the environment of the Microsoft toolchain, where the build script looked, which is the developer prompt that `VCINSTALLDIR` marks and every installation of Visual Studio 2015 or later that the setup configuration or the registry lists, limited to the toolset that `VCToolsVersion` names, the value of each of the two variables or that it is not set, and the remedies: install Visual Studio or its Build Tools with the workload for desktop development with C++, or build without the feature `vendored` |
 | `git ls-files` prints an entry that the build cannot read or a path that is not made only of normal components (SCS-45) | The command, the directory, and the output in quotation marks, with every control character escaped, and that it is not the output that the build expects from git |
-| `git ls-files` or `ninja --version` exits with a failure (SYS-4) | The command, the directory when the command has one, the exit status, or that a signal ended the program, and its error output |
+| `git ls-files`, `ninja --version`, `cmake --version`, or the compiler probe exits with a failure (SYS-4, SCS-56) | The command, the directory when the command has one, the exit status, or that a signal ended the program, and its error output |
 | A file of the copy cannot be listed or removed, the stamp or the log cannot be written or removed, or the log cannot be opened for a `cmake` run (SCS-45, SCS-46, SCS-48) | "cannot" with the action and the path, the reason that the operating system gives, and that the build keeps the copy, the build tree, and the log under `OUT_DIR` |
 | A file cannot be copied (SCS-45) | "cannot copy" with the source path and the destination path, the reason that the operating system gives, and that the build copies the tracked files into `OUT_DIR` because Slang's build writes into its source tree |
 | The configure or build step of `cmake` exits with a failure (SCS-48) | The command, the exit status, or that a signal ended the program, the name of the step, the path of the log, and its last 40 lines, or that the log cannot be read with the reason |
 | A static library is not a file, or the version header of the build tree cannot be read, lacks `SLANG_TAG_VERSION`, or defines it malformed (SCS-47) | "the build of Slang from source finished, but", the problem with the path, and that the build produced another layout than the one that this version of the crate expects |
 | The version header of the build tree defines another build tag (SCS-47) | The build tag, the path of the header, and the build tag of `slang-src`, with the reason that the bindings and the build information name that build tag |
-| An entry of the shared folder or its lock cannot be created, locked, written, renamed, or removed (SCS-56) | "cannot" with the action and the path, the reason that the operating system gives, and that removing the entry, or running `cargo clean`, when no build runs is safe |
+| An entry of the shared folder or its lock cannot be created, inspected, listed, locked, written, renamed, or removed, or the include directory of the source tree cannot be listed (SCS-56) | "cannot" with the action and the path, the reason that the operating system gives, and that removing the entry, or running `cargo clean`, when no build runs is safe |
 
 A variable is present when the environment contains it, whatever its value.
 
@@ -1168,7 +1195,7 @@ The build script emits no `cargo::warning` other than the statement of SCS-65 on
 This example shows the message when `VULKAN_SDK` is unset:
 
 ```text
-VULKAN_SDK is not set, so slang-compiler-sys cannot find the Slang library to link. Install the LunarG Vulkan SDK from https://vulkan.lunarg.com, and set VULKAN_SDK to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows. Enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory.
+VULKAN_SDK is not set, so slang-compiler-sys cannot find the Slang library to link. Install the LunarG Vulkan SDK from https://vulkan.lunarg.com, and set VULKAN_SDK to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows. Enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, and network access for the first build in a target directory.
 ```
 
 ### 9.7. Structure and Tests of the Build Script
@@ -1185,22 +1212,25 @@ The logic reaches the environment, the file system, the generator, and other pro
 - `read`, which returns the text of a file, with every byte sequence that is not UTF-8 replaced, because the log of a failed build can hold compiler output in another encoding, and its last lines have to reach the error (SCS-48).
 - `kind`, which says whether a path is a directory, a file, or something else, following symbolic links, or returns the error of the file system.
 - `host_os`, which names the operating system of the host in the form of `CARGO_CFG_TARGET_OS`.
-- `run`, which runs a program described by the struct `Invocation`, with its arguments, its working directory, and the variables to set and to remove, and returns its exit status and both of its output streams.
+- `run`, which runs a program described by the struct `Invocation`, with its arguments, its working directory, the variables to set as pairs of `OsString` values, and the variables to remove, and returns its exit status and both of its output streams. The values to set are `OsString` values, because the environment of the Microsoft toolchain holds paths that need not be UTF-8.
 - `run_to_log`, which runs a program in the same way, appends both of its output streams to a log file, and returns only its exit status. Its error is the enumeration `LoggedRunError`.
 
   Its variant `Log` says that the log file could not be opened or its handle duplicated, and its variant `Start` says that the program could not be started. The logic reports the first as a failure to open the log and the second as a program that cannot start (Section 9.6).
 - `files`, which lists every file under a directory, relative to it.
+- `list`, which returns the names in one directory, so that the logic finds the temporary directories `<key>.tmp-<number>` of an entry (SRC-16 of the `slang-src` design).
 - `sync_file`, which copies a file, creating the parent directories, and writes it only when its bytes differ from the existing copy.
 - `remove_file`, which removes a file, and `remove_dir_all`, which removes a directory with its content.
 - `write`, which writes a text to a file, creating the parent directories.
 - `set_modified`, which sets the modification time of a file, for the stamp file of an entry (SRC-16 of the `slang-src` design).
 - `rename`, which renames a directory.
-- `lock`, which opens a lock file, creating it, and takes an exclusive lock on it that lasts until the process exits.
+- `lock`, which creates the parent directory of a lock file, opens the file, creating it, and takes an exclusive lock on it that lasts until the process exits.
+- `process_id`, which returns the identifier of the process, for the name of the temporary directory of an entry.
+- `msvc_compiler`, which looks up `cl.exe` for a target with `find-msvc-tools` and returns the struct `MsvcCompiler` with its path and its environment, or nothing (SCS-68). `System` compiles the lookup only with the feature `vendored` and returns nothing without it.
 - `generate`, which calls `slang_bindgen::generate` and returns the two texts, or a `GenerationError`. That error holds the message of the generator's error, followed by each of its source errors after ", caused by: ", and one of four kinds. The kind is `Libclang` or `Target` for the generator's kind of the same name, `Headers` for `UnmatchedDeclaration`, `StaleRule`, and `Unsupported`, and `Other` for every other kind.
 
 The dynamic route uses only `var`, `read`, `kind`, `host_os`, `write`, and `generate`. The other methods serve only the vendored route.
 
-The function `configure` takes a host and a vector of instructions, appends each Cargo instruction to the vector, and returns `Result<(), BuildError>`. `System` implements the methods with `std::env::var_os`, `std::fs`, `std::process::Command`, `std::env::consts::OS`, and `slang-bindgen`. It starts each program with standard input closed.
+The function `configure` takes a host and a vector of instructions, appends each Cargo instruction to the vector, and returns `Result<(), BuildError>`. `System` implements the methods with `std::env::var_os`, `std::fs`, `std::process::Command`, `std::env::consts::OS`, `std::process::id`, `find-msvc-tools`, and `slang-bindgen`. It starts each program with standard input closed, and it keeps each lock file open in a field until the process exits.
 
 The logic names no type of `slang-bindgen`, so the test binary compiles `route.rs` without the generator.
 
@@ -1211,7 +1241,7 @@ It records each variable that the logic reads, each program that it runs, each g
 The tests of the module `build_script` cover:
 
 - The dynamic route:
-  - The exact list of instructions on success, the generation from the header directory of the SDK for the target, and the exact list of the variables that the route reads, which is `VULKAN_SDK`, `CARGO_CFG_TARGET_OS`, `TARGET`, `CARGO_CFG_TARGET_POINTER_WIDTH`, and `OUT_DIR`.
+  - The exact list of instructions on success, the generation from the header directory of the SDK for the target, and the exact list of the variables that the route reads, which is `CARGO_FEATURE_VENDORED`, `VULKAN_SDK`, `CARGO_CFG_TARGET_OS`, `TARGET`, `CARGO_CFG_TARGET_POINTER_WIDTH`, and `OUT_DIR`. The build script reads `CARGO_FEATURE_VENDORED` first, to select the route (SCS-50).
   - An absent or invalid `TARGET` and `OUT_DIR`, and each generated file that cannot be written.
   - An absent, empty, relative, non-UTF-8, and line-breaking `VULKAN_SDK`.
   - A header that cannot be read, and a missing and malformed build tag, and any build tag accepted without comparison.
@@ -1227,7 +1257,10 @@ The tests of the module `build_script` cover:
   - The programs with their arguments and environment, including the build tag of `slang-src` in the configure step.
   - The copy and the stamp written after the build, a matching stamp that skips the copy and the configure step, and the removal of stale files.
   - The archives and the C++ standard library of each kind of target that has a link rule, and the stop on a target without one (SCS-43).
-  - The use of a complete entry, an entry whose inputs differ, the storage of a new entry by rename with its stamp file written last with the old modification time, and the rerun instruction for that stamp file.
+  - The use of a complete entry, the replacement of an entry whose inputs, archives, or headers differ, the storage of a new entry by rename with its stamp file written last with the old modification time, the removal of only the temporary directories of the same key, and the rerun instruction for that stamp file.
+  - The key on the compiler and the variables that CMake reads, and the forms of `CXX` that the compiler probe reads.
+  - With the Microsoft toolchain, the stop when the lookup finds no compiler, with where it looked, and the environment of the toolchain on both `cmake` runs.
+  - The removal of `CMakeCache.txt` when the stamp differs.
   - The content of `build_info.rs`.
 - The failures of both routes:
   - Every failure of Section 9.6, and a failure of the generator of each kind.
@@ -1236,13 +1269,14 @@ The tests of the module `build_script` cover:
   - A `cmake` step that cannot start, a log that cannot be read, and a missing job count.
   - A stale stamp that stays removed after a failure.
 
-Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the vendored route also asserts that `VULKAN_SDK` was not read, and each test of a failure asserts that no stamp and no entry of the shared folder was written. These tests are pure Rust, so they run under nextest and under Miri.
+Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the vendored route also asserts that `VULKAN_SDK` was not read. Each test of a failure before the verified build asserts that no stamp and no entry of the shared folder was written. A failure while the build script stores an entry comes after it wrote the stamp and files of the temporary directory, so those tests assert that no rename and no generation took place instead. These tests are pure Rust, so they run under nextest and under Miri.
 
 The module `build_script::ffi` includes `../../../system.rs` and tests `System` itself. Its tests cover:
 
 - Reading a variable, the kinds of paths, and the operating system of the host.
-- Listing the files of nested directories, writing, renaming, and removing files and directories and creating their parents, and keeping an unchanged file while rewriting a changed one.
-- Taking a lock that a second lock on the same file waits for, in a child process.
+- Listing the files of nested directories and the names in a directory, writing, renaming, and removing files and directories and creating their parents, setting the modification time of a file, and keeping an unchanged file while rewriting a changed one.
+- Taking a lock that a second lock on the same file waits for, in a child process. The child writes a marker file and then takes the lock, and once it holds the lock it requires a second marker that the parent writes just before it releases the lock, so a lock that does not block fails the child however late the child starts.
+- The lookup of the Microsoft compiler, which equals the result of `find_msvc_tools::find_tool` for the Windows targets of the Microsoft toolchain with the feature `vendored`, and gives nothing for other targets and without the feature.
 - Copying the tracked files and removing stale ones through the function `sync_copy` of `route.rs`.
 - Running `rustc` and capturing its exit status and output.
 - Running `rustc` with a variable set and another removed, and checking through `env!` and `option_env!` in the compiled code that it sees both changes (SCS-44).
@@ -1312,7 +1346,7 @@ The selection by module name works like the GPU tiers (Section 4 of the tooling 
 The crate `slang-compiler-sys` has one integration-test binary (TEST-10), `tests/sys/`, whose root is `tests/sys/main.rs`. It declares four modules:
 
 - `build_info`: Pure tests of the build information. They assert that `slang_build_tag` is not empty, and that `version` is the crate version, `+slang.`, the identifiers of Section 8.1, and the route, where the test derives the identifiers from `slang_build_tag` on its own. The derivation assumes the form of SRC-12 of the `slang-src` design, which `check-vulkan-sdk` guarantees for the Slang of every CI job and of the development container.
-  - On the dynamic route, they assert `.dynamic`, `Linkage::Dynamic`, and no `slang_commit`. With the feature `vendored`, they assert `.vendored`, `Linkage::Static`, and a full commit instead, and read the feature with `cfg!(feature = "vendored")`, which compares the build script's record with the feature that Cargo passed.
+  - On the dynamic route, they assert `.dynamic`, `Linkage::Dynamic`, and no `slang_commit`. With the feature `vendored`, they assert `.vendored`, `Linkage::Static`, and a full commit of 40 lowercase hexadecimal digits that starts with the hash of the build tag instead, and fail when the build tag has no hash of at least nine digits, so the check cannot pass without comparing anything, and read the feature with `cfg!(feature = "vendored")`, which compares the build script's record with the feature that Cargo passed.
   - They assert `tested_target` in a constant assertion, `const { assert!(..) }`, which Clippy requires for a constant, so the test binary fails to compile on an untested target.
 - `build_script`: The pure tests of the logic of the build script, and its module `ffi`, which tests the real host of `system.rs` and starts processes (Section 9.7).
 - `ffi`: The smoke test and the native-symbol test, which call Slang. The module carries `#[expect(unsafe_code, reason = "...")]`, whose reason says that the tests of the module call Slang through the raw bindings, which only unsafe code can do. This is the narrowest scope that needs the exception (LINT-1), and Section 4.4 of the coding standard lists it among the expected kinds of lint exception.
@@ -1353,7 +1387,7 @@ The Windows and macOS jobs link the test binary of `slang-compiler-sys` against 
 
 SCS-62. The CI workflow MUST have one job on each of Linux, Windows, and macOS that runs `just test-vendored` in every run of the workflow, without the Vulkan SDK and in a target directory that starts empty, so that each run clones and builds. The jobs that build the default never enable `vendored`. One dedicated job per operating system tests the vendored route, because a route that no job builds breaks without notice.
 
-The vendored jobs clone the recorded commit from GitHub, so they also test `slang-src`. Whether a vendored job fits the time limit of a hosted runner is Q-33 of the architecture design, which this document answers together with the tooling design. Section 7 of the tooling design specifies the jobs and what each installs, such as CMake, Ninja, Python 3, and, on Windows, the developer environment of the Microsoft toolchain.
+The vendored jobs clone the recorded commit from GitHub, so they also test `slang-src`. A vendored job fits the time limit of a hosted runner on Linux, macOS, and Windows with a wide margin (Section 7.4 of the tooling design). Section 7 of the tooling design specifies the jobs and what each installs, such as libclang, CMake, Ninja, and a C++ compiler. The job on Windows sets up no developer environment of the Microsoft toolchain, because the build script finds the compiler itself (SCS-68).
 
 ## 13. Crate Documentation
 
@@ -1394,7 +1428,7 @@ The section `# Linking Slang` says these things:
 - That the feature `vendored` selects the vendored route, that no environment variable selects a route, and that the build never falls back from one route to the other.
 - That every build needs libclang, found through `LIBCLANG_PATH` or the standard locations, with how to install it on each platform.
 - For the dynamic route as Section 9.2 specifies it, it names the LunarG Vulkan SDK and its download address, says which directory `VULKAN_SDK` names on each platform, that the build accepts the Slang of any SDK and records its build tag, the link from `$VULKAN_SDK/lib`, the failures that stop the build, and the rule of SCS-41 for a target of another operating system.
-- For the vendored route as Section 9.3 specifies it, it says that `slang-src` obtains the source tree and links to its documentation for another Slang commit through `[patch]`. It names git, CMake 3.22 or later, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory as requirements, and describes the copy, the build, the log, the six static libraries with the C++ standard library of each kind of target that has a link rule, and the refusal of cross-compilation.
+- For the vendored route as Section 9.3 specifies it, it says that `slang-src` obtains the source tree and links to its documentation for another Slang commit through `[patch]`. It names git, CMake 3.22 or later, Ninja, a C++ compiler, and network access for the first build in a target directory as requirements, and describes the copy, the build, the log, the six static libraries with the C++ standard library of each kind of target that has a link rule, and the refusal of cross-compilation. It says that with the Microsoft toolchain the build finds `cl.exe` itself, needs no developer command prompt, stops with an error that says where it looked when it finds none, and honours `VCToolsVersion` (SCS-68).
 - The shared folder, in which the built libraries live, with the content that SRC-20 of the `slang-src` design lists. It names no environment variable of `slang-src`, because none exists.
 - That the vendored build of this crate alone leaves out slang-glslang, with the consequences of Section 3.10, and that `slang-compiler` with its feature `vendored` installs the loader of `slang-glslang-sys`, which a direct user installs as `slang-glslang-sys` documents. The recorded Slang validates SPIR-V on neither route unless `SLANG_RUN_SPIRV_VALIDATION` is `1`.
 - The `links` metadata of each route (SCS-54).
@@ -1412,9 +1446,20 @@ The paragraph on exceptions in `# Safety` says these things:
 
 ## 14. Dependencies and Licences
 
-SCS-61. The published crate `slang-compiler-sys` MUST have exactly these dependencies: `slang-bindgen` with an exact version as its only build dependency, `slang-src` with an exact version as an optional dependency that only the feature `vendored` enables, and `slang-bindgen` as a development dependency for the tests of `system.rs`. Every dependency of a `-sys` crate runs on every user's machine, and the exact versions make the generated code and the source tree of a given version of this crate fixed.
+SCS-61. The published crate `slang-compiler-sys` MUST have exactly these dependencies:
 
-The build script needs only the standard library and the generator to read a header, generate the bindings, start processes, copy files, take locks, and compare strings. The vendored route runs `cmake` through `std::process::Command` and uses no `cmake` crate.
+- `slang-bindgen` with an exact version, as a build dependency.
+- `find-msvc-tools`, as an optional build dependency that only the feature `vendored` enables (SCS-68).
+- `slang-src` with an exact version, as an optional dependency that only the feature `vendored` enables.
+- `slang-bindgen` and `find-msvc-tools`, as development dependencies for the tests of `system.rs`.
+
+Every dependency of a `-sys` crate runs on every user's machine, and the exact versions make the generated code and the source tree of a given version of this crate fixed.
+
+The build script needs only the standard library, the generator, and, on the vendored route, `find-msvc-tools` to read a header, generate the bindings, find the Microsoft compiler, start processes, copy files, take locks, and compare strings. The vendored route runs `cmake` through `std::process::Command` and uses no `cmake` crate.
+
+`find-msvc-tools` replaces the discovery of Visual Studio through the Visual Studio setup configuration, which is a COM interface, and through the registry, which the standard library cannot do. It is the crate that `cc::windows_registry::find_tool` wraps, so it is widely used, it has no dependencies, and it is under `MIT OR Apache-2.0`. Depending on it directly avoids the crates `cc` and `shlex`, which this build script does not need. It is declared once in `[workspace.dependencies]` (DEP-2). It is a development dependency without the feature as well, because the test of the real host compares the lookup of `System` with the result of `find_msvc_tools::find_tool`.
+
+`slang-src` provides only `links` metadata to the build script, and no code of the crate uses it. Cargo's manifest lint `unused_dependencies` reports such a dependency, so the crate root names it with `use slang_src as _;` under `#[cfg(feature = "vendored")]`, as DEP-2 of the coding standard describes for a dependency that only provides `links` metadata.
 
 The generator depends on the crate `clang` 2.1.0 and directly on `clang-sys` 1.9.1, the version that `clang` uses, for the handle of SCS-67. Through them it depends on `glob`, `libc`, `libloading`, `cfg-if`, and, on Windows, `windows-link`. Both direct dependencies are workspace dependencies with the features `runtime` and `clang_10_0`. Every build of `slang-compiler-sys` compiles them on the user's machine. These crates have these licences:
 
@@ -1439,24 +1484,17 @@ The change in the last column confirms or corrects it, states the result in the 
 | SA-7 | On macOS with System Integrity Protection enabled, the library path that a recipe places on the command line of the program it runs reaches the test binary, although macOS is expected to remove the `DYLD_*` variables when it starts a protected system program such as the system shell | SCS-32 | A run of `just test` on a Mac with System Integrity Protection enabled and without `DYLD_LIBRARY_PATH` in the environment of `just`, by the owner or a developer with such a Mac. The hosted macOS runner cannot confirm it, because System Integrity Protection is disabled there (Section 10) |
 | SA-11 | Exactly the nine lints of Section 5.10 fire on the generated code of the recorded Slang on each of the four tested targets, as they do on x86_64 Linux | SCS-13 | The CI jobs on Windows and macOS, and a Clippy check for `x86_64-apple-darwin` |
 | SA-12 | The parse for `x86_64-apple-darwin` reports no diagnostic and gives the same text as the parse for `aarch64-apple-darwin` | Section 6 | A Clippy check for `x86_64-apple-darwin` from Linux and a comparison of the output of the binary of SCS-60 for both targets |
-| SA-13 | The paths under `OUT_DIR` of the copy and the build tree of the vendored route stay within the path length limit of Windows for a target directory of usual depth | Section 9.3 | The vendored CI job on Windows |
-| SA-14 | `CMAKE_MSVC_RUNTIME_LIBRARY` reaches every library of the vendored build, so the runtime matches Rust's `crt-static` choice | Section 9.3 | The vendored CI job on Windows, which links without a runtime mismatch |
+| SA-14 | With `crt-static` among the target features, `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` reaches every library of the vendored build, so the static runtime matches Rust's choice. The default runtime `MultiThreadedDLL` links without a mismatch (Section 9.3) | Section 9.3 | A vendored build on Windows with `-C target-feature=+crt-static` that links without a runtime mismatch |
 | SA-15 | The headers of Slang releases near the recorded one generate without a change of the rule set, so that another Slang version is best effort and not impossible | Section 4.2 | A run of the binary of SCS-60 on the headers of the newest Slang release when the recorded Slang next moves |
-| SA-16 | An access violation of the build script on Windows at the end of its process, after it printed every instruction, comes from code that `libclang.dll` registered and that runs after the library was unloaded, so keeping libclang loaded (SCS-67) prevents it | SCS-67 | The CI job `test` on Windows, whose build script then exits without an error |
+| SA-17 | On a machine with another version of Visual Studio than that of the hosted Windows runner, or with several installations, the lookup of SCS-68 finds a compiler that builds Slang, and the path of `cl.exe` in the entry key tells the installations apart | SCS-68, SCS-56 | A vendored build on such a machine, by the owner or a developer with one |
 
-The next assumption takes SA-17.
+The next assumption takes SA-18.
 
 Assumption A-6 of the architecture design, that a dependency's build script cannot set the rpath of the final binary, also applies to this design and stays where the architecture design records it.
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row.
-
-| Identifier | Question | Owner | Milestone |
-| --- | --- | --- | --- |
-| SQ-3 | Does the vendored route work on macOS and on Windows with the Microsoft toolchain? Its code for these targets follows a reading of Slang's CMake files: the archive names and the runtime option of the Microsoft toolchain, the C++ standard library `c++` on macOS, whether macOS needs a framework, Ninja in the developer environment on Windows, and whether the options of Section 9.3 avoid every download on both (Section 9.3) | This document | M7, through the vendored CI job |
-
-The next question takes SQ-6.
+This document has no open question. A question that a later change raises gets a row in a table with the columns Identifier, Question, Owner, and Milestone, and the change that answers it removes the row. The next question takes SQ-6.
 
 ## 17. Security Considerations
 
@@ -1491,7 +1529,7 @@ The vendored route copies the tracked files into `OUT_DIR` and builds the copy, 
 
 The shared folder holds libraries that the vendored route links without building them again (SCS-56). It lies in the Cargo target directory, and Section 14 of the `slang-src` design states why an attacker who can write there is out of scope.
 
-Dependencies. The published crate depends only on `slang-bindgen` and, under `vendored`, on `slang-src`, each with an exact version (SCS-61). The dependencies of the generator run on every user's machine, and cargo-deny checks them (TOOL-24, TOOL-26).
+Dependencies. The published crate depends only on `slang-bindgen` with an exact version and, under `vendored`, on `slang-src` with an exact version and on `find-msvc-tools`, which has no dependencies (SCS-61). The dependencies of the generator run on every user's machine, and cargo-deny checks them (TOOL-24, TOOL-26).
 
 The bindings are not a review surface in the repository. A reviewer reviews the change to the generator and its rule set, and the diff of the generated output that Section 8.2 produces when the recorded Slang moves.
 
@@ -1502,7 +1540,7 @@ A change to the generator that writes a wrong declaration compiles in every buil
 These attacks are out of scope:
 
 - A compromised Vulkan SDK or Slang release from LunarG or the Slang project runs with the full privileges of the program that links it, and no crate can constrain it.
-- A source tree of a fork of `slang-src` that the user patches in is code that the user chose to build, and CMake runs it with the user's permissions. The same holds for the programs named `git`, `cmake`, and `ninja` that `PATH` finds, and for the libclang that `LIBCLANG_PATH` or the standard locations provide.
+- A source tree of a fork of `slang-src` that the user patches in is code that the user chose to build, and CMake runs it with the user's permissions. The same holds for the programs named `git`, `cmake`, and `ninja` that `PATH` finds, for the compiler that `CXX`, `PATH`, or the lookup of the Microsoft toolchain finds in the installations of Visual Studio (SCS-68), and for the libclang that `LIBCLANG_PATH` or the standard locations provide.
 - A defect in libclang that silently misreports a declaration without any diagnostic cannot be detected by the generator, though the layout assertions narrow it.
 - Attacks on the repository itself are a matter of access control.
 
@@ -1537,11 +1575,13 @@ This table lists every environment variable that the build script or the generat
 | `CARGO_CFG_TARGET_POINTER_WIDTH` | The build script on both routes | Set by Cargo for the target. A value other than `64` stops the build (SCS-66). |
 | `CARGO_CFG_TARGET_ENV`, `CARGO_CFG_TARGET_FEATURE` | The build script on the vendored route | Set by Cargo for the target. The link rules of the vendored route need `gnu` on Linux and `msvc` on Windows (SCS-43). With the Microsoft toolchain, `crt-static` among the target features selects the static runtime library (Section 9.3). |
 | `NUM_JOBS` | The build script on the vendored route | Set by Cargo. When it holds a whole number, the build step passes it to `cmake --build` as `--parallel`. Otherwise the build step passes no job count, and Ninja chooses one. |
-| `PATH` | The operating system, when the build script starts `git`, `cmake`, and `ninja` on the vendored route | The build stops with a message that names the program when one of the three cannot start (Section 9.6). |
+| `PATH` | The operating system, when the build script starts `git`, `cmake`, `ninja`, and the program of the compiler probe on the vendored route | The build stops with a message that names the program when one of them cannot start (Section 9.6). With the Microsoft toolchain, the `cmake` runs get the `PATH` of the lookup of SCS-68 before the inherited value. |
+| `VCINSTALLDIR` | `find-msvc-tools`, in the lookup of SCS-68, with the Microsoft toolchain on the vendored route | Absent, so the lookup searches the installations of Visual Studio. When set, it marks a developer command prompt, whose compiler the lookup takes first. The build script reruns when it changes (SCS-30), and names its value in the error of a failed lookup. |
+| `VCToolsVersion` | `find-msvc-tools`, in the lookup of SCS-68, and the entry key | Absent, so the lookup takes the newest toolset of an installation. When set, the lookup takes only that toolset. The build script reruns when it changes (SCS-30). |
 | `GIT_OPTIONAL_LOCKS` | Set to `0` by the build script for every git command on the vendored route | The value of the environment is never used (SCS-44). |
 | `GIT_DIR`, `GIT_INDEX_FILE`, and the other 13 variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` | Removed by the build script from the environment of every git command on the vendored route | A value in the environment of the build, such as one that a git hook sets, never reaches git (SCS-44). |
 | `SLANG_USE_SCCACHE` | Removed by the build script from the environment of `cmake` on the vendored route | A value in the environment never reaches Slang's CMake, and the configure step sets `-DSLANG_USE_SCCACHE=OFF`. |
-| `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET` | CMake, when the vendored route configures, and the entry key | Passed through unchanged. CMake chooses the compilers, flags, and toolchain from them. The build script reruns when one changes (SCS-30). |
+| `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET` | CMake, when the vendored route configures, and the entry key. The build script also reads `CXX` for the compiler probe outside the Microsoft toolchain | Passed through unchanged. CMake chooses the compilers, flags, and toolchain from them. An absent or blank `CXX` makes the probe run `c++` (SCS-56). The build script reruns when one changes (SCS-30). |
 | `CARGO_CFG_TARGET_OS` | The build script on both routes | Set by Cargo for the target. On the dynamic route, when it names the operating system of the host, the build script also checks the library file of the target, and when it is absent or names another or an unknown operating system, the build script does not look for the library file (SCS-41). On the vendored route, it selects the C++ standard library and the archive names, and a target other than Linux, macOS, or Windows has no link rule and stops the build (SCS-43). |
 
 ### 18.3. Platforms and Minimum Supported Rust Version
@@ -1563,7 +1603,8 @@ This table lists the failure modes that this design defines, how each is reporte
 | The headers of the Slang that the build links hold a declaration that no rule covers, a construct of SCS-19, or no declaration that a rule names | The error that the build script returns, with every unmatched declaration, construct, or stale rule (Section 9.6) | Use the SDK that ships the recorded Slang, or enable `vendored`. An agent extends the rule set and this design for a new recorded Slang |
 | The target is not a tested target | A warning of the build script that Cargo shows when the build fails, and `tested_target` set to `false` (SCS-65) | None needed. The build goes on, and a failure on such a target is not supported |
 | The metadata of `slang-src` is missing or invalid | The error that the build script returns (Section 9.6) | Depend on the version of `slang-src` that this crate requires, as a direct dependency through the feature `vendored` |
-| `git`, `cmake`, or `ninja` cannot start, or `git` fails | The error that the build script returns, with the command and its exit status or the reason (Section 9.6) | Install the missing program, or build without `vendored` |
+| `git`, `cmake`, `ninja`, or the C++ compiler cannot start, or `git`, `cmake --version`, or the compiler probe fails | The error that the build script returns, with the command and its exit status or the reason (Section 9.6) | Install the missing program, or build without `vendored` |
+| With the Microsoft toolchain, no `cl.exe` is found | The error that the build script returns, with where it looked and the values of `VCINSTALLDIR` and `VCToolsVersion` (SCS-68) | Install Visual Studio or its Build Tools with the workload for desktop development with C++, or build without `vendored` |
 | The target differs from the host, or has no link rule for its C++ runtime library on the vendored route | The error that the build script returns, with the triples (Section 9.6) | Build on a host of the target, or build without `vendored` |
 | The configure or build step of `cmake` fails | The error that the build script returns, with the path of `slang/build.log` under `OUT_DIR` and its last 40 lines (Section 9.6) | Read the log, and fix the toolchain or the environment that it names, such as `CC` |
 | The vendored build produced no archive or another build tag | The error that the build script returns, with the path that is missing or the tag (Section 9.6) | Use the recorded commit. The route expects the layout that the build of the recorded commit produces, so another layout needs a change to the build script and this design |
@@ -1620,7 +1661,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SCS-21 | 7.5 | Generator tests that load libclang sit in `ffi` modules and compile for Linux only. |
 | SCS-26 | 9.2 | After its checks and the generation, the dynamic route links `slang-compiler` from `$VULKAN_SDK/lib`, without pkg-config, rpath, or other locations. |
 | SCS-28 | 9.3 | The vendored route runs CMake through `Command` with Ninja, probed first, disables downloads, passes the build tag of `slang-src` and its numeric part, and links the six archives and the C++ standard library. |
-| SCS-30 | 9.5 | Rerun instructions for `LIBCLANG_PATH`, for `VULKAN_SDK` and its header directory on the dynamic route, and for the variables that CMake reads and the stamp file of the used entry on the vendored route. |
+| SCS-30 | 9.5 | Rerun instructions for `LIBCLANG_PATH`, for `VULKAN_SDK` and its header directory on the dynamic route, and for the variables that CMake reads, `VCINSTALLDIR`, `VCToolsVersion`, and the stamp file of the used entry on the vendored route. |
 | SCS-31 | 9.6 | Each build failure returns an error with the content of the table. |
 | SCS-32 | 10 | Each recipe that runs compiled code which loads Slang starts its command line with the SDK library path assignment of `slang_library_path`, which is never exported and is empty on Windows and without `VULKAN_SDK`. |
 | SCS-33 | 11 | Tests that call native code sit in `ffi` modules, which `default-miri` excludes with `gpu` and `hw_gpu`. |
@@ -1642,15 +1683,16 @@ This table lists every labelled requirement of this document with a one-line sum
 | SCS-53 | 8.1 | `BUILD_INFO` records the build tag, the commit, the linkage, whether the target is tested, and the full version with build metadata, written by the build script and never derived from `cfg`. |
 | SCS-54 | 9.5 | `links = "slang-compiler"`, and the metadata keys `include`, `lib`, `linkage`, and `build_tag` on both routes. |
 | SCS-55 | 9.3 | The vendored route reads the tree, commit, build tag, and shared folder only from the metadata of `slang-src`, and checks them, `OUT_DIR`, `TARGET`, and `HOST`. |
-| SCS-56 | 9.3 | The vendored route keeps and reuses its libraries and headers in entries of the shared folder of `slang-src`. |
+| SCS-56 | 9.3 | The vendored route keeps and reuses its libraries and headers in entries of the shared folder of `slang-src`, keyed on the compiler and the configure arguments, and uses only a complete entry. |
 | SCS-57 | 7.1 | The generator is the published crate `slang-bindgen` with a thin binary, on the `clang` crate with `runtime` and the `clang-sys` that it uses, without unsafe code. |
 | SCS-58 | 7.2 | One parse for the target that the caller names, without a list of accepted targets, with `-nostdinc` and shim headers, and no error diagnostic accepted. |
 | SCS-59 | 7.4 | The library returns the two texts and writes no file, starts no process, formats nothing, and writes no comment or inner attribute. |
 | SCS-60 | 7.4 | The binary writes `bindings.rs` and `symbols.rs` for a header directory and a target through the same library call, for `check-slang-call-guard`. |
-| SCS-61 | 14 | The crate depends only on `slang-bindgen` and, under `vendored`, `slang-src`, each with an exact version. |
+| SCS-61 | 14 | The crate depends only on `slang-bindgen` with an exact version and, under `vendored`, on `slang-src` with an exact version and `find-msvc-tools`. |
 | SCS-62 | 12 | One CI job per operating system runs `test-vendored` in every run, without the SDK and from an empty target directory, and the default jobs never enable `vendored`. |
 | SCS-63 | 9.3 | `test-vendored` runs the tests of the native crates and `slang-compiler` with `vendored` in `target/vendored`, without `VULKAN_SDK` and the loader path variables. |
 | SCS-64 | 9.4 | On both routes, every run generates the bindings for `TARGET` from the headers of the linked Slang before any link instruction, and a generator failure stops the build. |
 | SCS-65 | 6 | An untested target gets one warning that it is untested and unsupported and `tested_target` set to `false`, and the build does not stop for it. |
 | SCS-66 | 6 | On both routes, a target whose pointer width is not 64 stops the build before the generation. |
 | SCS-67 | 7.1 | The first call of `generate` keeps libclang loaded until the process exits, through a static handle of `clang-sys`, without unsafe code. |
+| SCS-68 | 9.3 | With the Microsoft toolchain, the vendored route finds `cl.exe` with `find-msvc-tools`, gives its environment to the `cmake` runs only, and stops when it finds none. |

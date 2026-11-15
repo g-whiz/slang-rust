@@ -3682,7 +3682,9 @@ dependencies = [
 name = "slang-compiler-sys"
 version = "0.1.0"
 dependencies = [
+ "find-msvc-tools",
  "slang-bindgen",
+ "slang-src",
 ]
 
 [[package]]

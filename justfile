@@ -8,7 +8,10 @@ existing_library_path := if library_path_variable == "" { "" } else { env(librar
 slang_library_path := if library_path_variable == "" { "" } else if vulkan_sdk == "" { "" } else { library_path_variable + "=" + quote(vulkan_sdk / "lib" + if existing_library_path == "" { "" } else { ":" + existing_library_path }) }
 
 # The packages that the vendored build compiles, separated by spaces, which test-vendored and check-vendored select with -p
-vendored_packages := "slang-src"
+vendored_packages := "slang-src slang-compiler-sys"
+
+# The Cargo feature that selects the vendored build, which test-vendored and check-vendored enable
+vendored_features := "slang-compiler-sys/vendored"
 
 # The environment of the vendored recipes: no Vulkan SDK and no loader path, so nothing can load the Slang of an SDK, and their own target directory, so the vendored build does not replace the build of target/
 vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny"
@@ -195,7 +198,7 @@ recorded-slang:
         printf '%s=%s\n' "${name}" "${value}"
     done
 
-# Run the tests and doctests of the vendored build in target/vendored, without VULKAN_SDK and without a loader path. Its first run clones the recorded Slang commit and needs network access
+# Run the tests and doctests of the vendored build in target/vendored, without VULKAN_SDK and without a loader path. Its first run clones the recorded Slang commit, which needs network access, and builds Slang from source, which takes several minutes
 [group('rust')]
 test-vendored:
     #!/usr/bin/env bash
@@ -205,10 +208,10 @@ test-vendored:
     for name in "${names[@]}"; do
         packages+=(-p "${name}")
     done
-    {{ vendored_environment }} cargo nextest run "${packages[@]}" --profile default --no-tests=fail
-    {{ vendored_environment }} cargo test --doc "${packages[@]}"
+    {{ vendored_environment }} cargo nextest run "${packages[@]}" --features "{{ vendored_features }}" --profile default --no-tests=fail
+    {{ vendored_environment }} cargo test --doc "${packages[@]}" --features "{{ vendored_features }}"
 
-# Run Clippy and build the API documentation of the vendored build in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning. Its first run clones the recorded Slang commit and needs network access
+# Run Clippy and build the API documentation of the vendored build in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning. Its first run clones the recorded Slang commit, which needs network access, and builds Slang from source, which takes several minutes
 [group('checks')]
 check-vendored:
     #!/usr/bin/env bash
@@ -218,8 +221,8 @@ check-vendored:
     for name in "${names[@]}"; do
         packages+=(-p "${name}")
     done
-    {{ vendored_environment }} cargo clippy "${packages[@]}" --all-targets
-    {{ vendored_environment }} cargo doc "${packages[@]}" --no-deps
+    {{ vendored_environment }} cargo clippy "${packages[@]}" --features "{{ vendored_features }}" --all-targets
+    {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
 
 # Check that the vendored build kept its Slang clone in the shared folder target/vendored/slang-src and nowhere else under target/vendored, and print where it is, whether Cargo tagged target/vendored, and the size of the folder
 [group('checks')]
@@ -382,7 +385,7 @@ check-miri:
 # Check that every combination of Cargo features compiles, run by CI only
 [group('checks')]
 check-features:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --all-targets --feature-powerset
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --all-targets --feature-powerset --exclude-features vendored
 
 # Check that the workspace builds with the toolchain of its declared rust-version, run by CI only
 [group('checks')]

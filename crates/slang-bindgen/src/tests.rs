@@ -1942,6 +1942,13 @@ enum
                 .contains("this process already holds a libclang instance"),
             "{error}"
         );
+        assert!(
+            error
+                .message()
+                .contains("Call the generator from one thread at a time, and a later call works once the earlier one has returned"),
+            "{error}"
+        );
+        assert!(!error.message().contains("once per process"), "{error}");
         assert!(!error.message().contains("LIBCLANG_PATH"), "{error}");
     }
 }

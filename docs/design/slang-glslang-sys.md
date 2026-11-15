@@ -203,7 +203,7 @@ The declaration carries a `# Safety` section, which says that the function has n
 A build of this crate needs, at build time:
 
 - git, CMake 3.22 or later, Ninja, a C++20 compiler, and Python 3 on `PATH`, because the grammar table generator of SPIRV-Tools is a Python script.
-- On Windows, the developer environment of the Microsoft toolchain, in which Ninja finds the compiler (Section 13, SGLA-6).
+- On Windows, an installation of Visual Studio or its Build Tools with the C++ tools. The build script finds `cl.exe` and its environment with the build dependency `find-msvc-tools` and gives that environment to its CMake runs, as SCS-68 of `docs/design/slang-compiler-sys.md` specifies for `slang-compiler-sys`, so the build needs no developer command prompt. A build from an ordinary shell has no developer environment, in which CMake's Ninja generator finds no compiler, and a developer environment exported to the whole build changes how rustc finds its linker.
 - The source tree of `slang-src`, which needs network access for the first build in a target directory.
 
 At run time, the program needs no file of slang-glslang. The crate documentation states these requirements.
@@ -281,7 +281,7 @@ This table lists the failure modes of the crate, how each is reported, and the r
 
 | Failure | Reported by | Recovery |
 | --- | --- | --- |
-| `cmake`, `ninja`, the compiler, or Python is missing | The error of the build script, with the program and the reason | Install it, or, on Windows, build in the developer environment of the Microsoft toolchain |
+| `cmake`, `ninja`, the compiler, or Python is missing | The error of the build script, with the program and the reason | Install it, or, on Windows, install Visual Studio or its Build Tools with the workload for desktop development with C++ |
 | The configure or build step fails | The error of the build script, with the command, the log path, and its last 40 lines | Read the log and fix the toolchain that it names |
 | A library of SGL-4 is missing after the build | The error of the build script, with the path | Check the source tree. Another layout of glslang needs a change of the wrapper project and of this design |
 | The target differs from the host, or has no link rule for its C++ runtime library | The error of the build script, with both triples (SGL-5) | Build on a host of the target, or build without `vendored` |
@@ -304,7 +304,6 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 | SGLA-3 | The compile flags of glslang and SPIRV-Tools in the wrapper build equal those of Slang's own build of slang-glslang, apart from flags that change no generated code | SGL-3 | A comparison of the compile commands of both builds on Linux, Windows, and macOS |
 | SGLA-4 | Slang requests downstream compilers other than slang-glslang, such as DXC, through the loader of the global session, so the shim passes them to the default loader | SGL-8 | A vendored test that requests such a compiler on a platform where it is installed |
 | SGLA-5 | The `unsafe_code` lint reports an `unsafe extern` block | SGL-13 | The first build of the crate with the workspace lints, which fails on an unfulfilled expectation if the lint does not fire |
-| SGLA-6 | On Windows, Ninja finds the Microsoft compiler only inside its developer environment, which Cargo does not set up | Section 8 | The vendored CI job on Windows |
 | SGLA-7 | A program that links another static copy of glslang or SPIRV-Tools next to this crate fails to link or calls the wrong copy | Section 11 | A test program that also links a crate that builds shaderc |
 
 The next assumption takes SGLA-8.
