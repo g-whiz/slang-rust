@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-11 |
+| Date | 2026-11-15 |
 | Applies to | Agents that write, review, or extend Rust code in this repository, and the standards document `docs/rust-coding-standards.md` |
 
 ## Abstract
@@ -393,7 +393,7 @@ Rules: FFI-1 to FFI-11, API-14.
 
 | Source | Tier | What it contributes |
 | --- | --- | --- |
-| [S-3] | 1 | `links`, `DEP_*` metadata, rerun rules, `OUT_DIR`, and checked-in generated files. |
+| [S-3] | 1 | `links`, `DEP_*` metadata, rerun rules, `OUT_DIR`, and code that a build script generates into `OUT_DIR` for the crate to include. |
 | [S-2] | 1 | The `bindgen` builder: allowlists, opaque types, C++ limits, and layout tests. |
 | [S-4] | 3 | A practical recipe for a `-sys` crate: features, environment overrides, static and dynamic linking, and versioning. |
 | [S-10] | 2 | M-SYS-CRATES and naming of `-sys` crates. |
@@ -402,7 +402,7 @@ Rules: FFI-1 to FFI-11, API-14.
 | [IR-24] | 3 | Compiling C and C++ from a build script with `cc`. |
 | [S-9] | 3 | Profile settings, which apply only at the root of a binary. |
 
-Rules: SYS-1 to SYS-7, FFI-1, FFI-2, TEST-8, DEP-1. Section 17 of the standards document records the conflict over checked-in bindings.
+Rules: SYS-1 to SYS-7, FFI-1, FFI-2, TEST-8, DEP-1. Section 17 of the standards document records the conflict over checked-in or build-time bindings, which it settles for bindings that the build script generates in every build.
 
 ### 2.22. Panics, Foreign Exceptions, and Unwinding ABIs at the FFI Boundary
 
@@ -554,7 +554,7 @@ Rules: TEST-5. Section 7 of `docs/writing-documentation.md` governs API document
 | Source | Tier | What it contributes |
 | --- | --- | --- |
 | [S-8] | 1 | Miri: what it detects, what it cannot run, and how to set it up in CI. |
-| [S-3] | 1 | A test that verifies checked-in generated files. |
+| [S-3] | 1 | Tests of generated code. The bindings are generated in the build script and kept in no file, so TEST-8 tests their link and the build tag at run time instead of comparing them with a file. |
 | [IR-17] | 2 | Test layout, naming, and snapshot tests with `insta`. |
 | [IR-13] | 2 | Property tests with `proptest`. |
 | [IR-10] | 2 | Unit, integration, and doc tests, and lints. |

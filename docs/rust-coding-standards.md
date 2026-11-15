@@ -22,14 +22,16 @@ This document assigns every rule to one of the two classes, following Section 3.
 
 This document applies to every Rust crate, build script, example, test, and tool in the repository. The Project Status section of `AGENTS.md` says which crates exist and which milestones are complete. The planned crates are:
 
-- `slang-compiler-sys`: the raw bindings to the native Slang compiler library. The binding generator produces them, and they are checked in. Its build script links the native library, and its manifest declares `links = "slang-compiler"`.
+- `slang-compiler-sys`: the raw bindings to the native Slang compiler library. Its build script generates them with the binding generator in every build, from the headers of the Slang that it links, and links the native library. Its manifest declares `links = "slang-compiler"`.
+- `slang-src`: the crate whose build script obtains the Slang source tree for a vendored build. It builds nothing.
+- `slang-glslang-sys`: the `-sys` crate that builds slang-glslang for a vendored build and declares the function that returns its loader.
 - `slang-compiler`: the safe crate that wraps `slang-compiler-sys` in idiomatic Rust.
 - `slango`: a high-level convenience library with a feature set like SlangPy and design patterns like vulkano. Its runtime backend is wgpu, and its design leaves room for a slang-rhi backend later.
 - `slang-slint`: an extension to Slint that provides a view backed by a Slang render pipeline. It uses `slango` and supports wgpu only.
-- The binding generator: a tool that parses the Slang headers with libclang and writes the raw bindings.
+- `slang-bindgen`: the binding generator, a published library crate that parses the Slang headers with libclang and returns the raw bindings as text, with a thin binary.
 - Examples of varying complexity, which double as a testbed.
 
-Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are planned and do not exist yet (Section 15 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binding generator and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
+Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are planned and do not exist yet (Section 15 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binary of `slang-bindgen` and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. The library of `slang-bindgen` is a library crate, to which every rule for library crates applies. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
 
 This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate.
 
@@ -78,10 +80,10 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 This document uses the terms that Section 2.2 of the writing guide defines, including agent, reviewer, public item, safety comment, enforced rule, and judgement rule, and adds these:
 
 - writing guide: The guide `docs/writing-documentation.md`.
-- binding generator: The tool in this repository that parses the Slang headers with libclang and writes the raw bindings of the `-sys` crate.
-- `-sys` crate: A crate that contains only the raw declarations of a native library and the build script that links it. Here, `slang-compiler-sys`.
+- binding generator: The crate `slang-bindgen`, whose library parses the Slang headers with libclang and returns the raw bindings of a `-sys` crate as text, and whose thin binary writes that text into files.
+- `-sys` crate: A crate that contains only the raw declarations of a native library and the build script that links it. Here, `slang-compiler-sys` and `slang-glslang-sys`.
 - safe crate: A crate that wraps a `-sys` crate in an API through which safe Rust cannot cause undefined behaviour. Here, `slang-compiler`.
-- library crate: Any crate in the repository other than the binding generator and the examples.
+- library crate: Any crate in the repository other than the examples.
 - native library: The compiled Slang library that a `-sys` crate links.
 - interface: An object type of the Slang API, in the style of COM. Code reaches it through a pointer to an object whose first field points to a vtable, and a reference count controls its lifetime.
 - vtable: A table of function pointers through which the methods of an interface are called.
@@ -113,7 +115,7 @@ Every judgement rule has a rule identifier made of a topic prefix and a number. 
 | OWN | Ownership and signatures | 8 |
 | UNS | Unsafe code | 9 |
 | FFI | Foreign function interface | 10 |
-| SYS | Build scripts of `-sys` crates | 11 |
+| SYS | Build scripts | 11 |
 | COM | COM-style interfaces | 12 |
 | CONC | Concurrency and async | 13 |
 | TEST | Testing | 14 |
@@ -140,7 +142,7 @@ As Section 7.12 of the writing guide states, a lint enforces a rule only when th
 
 The custom checkers of Section 6 of `docs/design/tooling.md`, which enforce rules of the writing guide, the security rules of the CI workflow, and the placement of the guard of FFI-7 in `slang-compiler`, exist, and the check runs them. The CI workflow `.github/workflows/ci.yml` exists and runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request, as Section 7 of `docs/design/tooling.md` specifies.
 
-The recipe `check-doc-without-slang` exists, and the check runs it. The recipe `test-static` exists, and the check does not run it, because it builds Slang from source. The recipe that checks for breaking changes does not exist yet, and arrives with the first release.
+The check does not run the recipes `test-vendored` and `check-vendored`, because they clone and build Slang from source. The recipe that checks for breaking changes arrives with the first release.
 
 ### 4.2. Workspace Lint Table
 
@@ -275,12 +277,12 @@ A lint exception has to be fulfilled in every target and feature combination tha
 
 Nine kinds of lint exception are expected and follow fixed forms:
 
-- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys` and `slang-compiler`. Any other crate that needs `unsafe` records the reason in its design document first.
+- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys`, `slang-compiler`, and `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`). Any other crate that needs `unsafe` records the reason in its design document first.
 
   The workspace denies `unsafe_code` instead of forbidding it, because `forbid` cannot be overridden even by `#[expect]`. A crate adds the opt-out together with its first `unsafe` code, because the expectation is unfulfilled, and fails the check, in a crate that contains none.
 - The integration-test binary of such a crate is a crate of its own and inherits the workspace lints, so a test that calls native code needs its own exception. The module that holds such tests, which is named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), carries `#[expect(unsafe_code, reason = "...")]` on its declaration in `main.rs`, such as `mod ffi;` in `crates/slang-compiler-sys/tests/sys/main.rs`, and not on the root of the test binary, so the other test modules keep the denial of `unsafe_code` (LINT-1).
 - The module of generated bindings carries an `#[expect]` with a reason that lists each lint that fires on it, as Section 7.9 of the writing guide defines and the next paragraph describes.
-- An example or the binding generator that prints to the terminal opts out of `clippy::print_stdout` or `clippy::print_stderr` at its crate root. A build script carries no exception for `clippy::print_stdout`, because Clippy does not apply that lint to build scripts, so the expectation would be unfulfilled and fail the check.
+- An example or the binary of `slang-bindgen` that prints to the terminal opts out of `clippy::print_stdout` or `clippy::print_stderr` at its crate root. A build script carries no exception for `clippy::print_stdout`, because Clippy does not apply that lint to build scripts, so the expectation would be unfulfilled and fail the check.
 - A crate-private item that only unit tests use, until a later change adds its caller, carries `#[cfg_attr(not(test), expect(dead_code, reason = "..."))]`, whose reason says why no caller exists outside the unit tests and that the unit tests use the item. A plain `#[expect(dead_code)]` would be unfulfilled in the build with `cfg(test)`, in which the tests use the item, so `cfg_attr` applies the exception only to the build without tests. When the later change adds the caller, the expectation becomes unfulfilled and fails the check, so the exception cannot outlive its reason.
 
   In `slang-compiler`, one item carries this form: the variant `Failure::FileSystem` of the mapping of SLC-11 of `docs/design/slang-compiler.md`, whose caller, the custom file system of Section 8 of that document, is deferred. In `slango`, no item carries this form.
@@ -295,7 +297,7 @@ Nine kinds of lint exception are expected and follow fixed forms:
 
 An `#[expect]` on the `mod` declaration of the generated module covers every lint that fires in the module's file, including the lints that fire on `#[allow]` attributes inside the file. On generated code in the style of bindgen, these lints fired: `non_camel_case_types`, `non_snake_case`, `non_upper_case_globals`, `missing_docs`, `clippy::exhaustive_structs`, and `clippy::exhaustive_enums`. When the generated code contains its own `#[allow(...)]` attributes, `clippy::allow_attributes` and `clippy::allow_attributes_without_reason` fire as well, and when the module brings in its code with `include!`, `missing_debug_implementations` fires as well.
 
-It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The binding generator of this repository writes bindings from the pinned Slang headers, and they are checked in as `crates/slang-compiler-sys/src/bindings.rs`. Compiled as the module `bindings` with the workspace lint tables and warnings denied, exactly nine lints fire on that file, the same on the four supported targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS.
+It is not yet verified whether `clippy::enum_variant_names` and `clippy::upper_case_acronyms` fire on generated enums written as Rust enums, which `avoid-breaking-exported-api = false` would allow. The build script of `slang-compiler-sys` generates the bindings of the recorded Slang into `OUT_DIR`, and the crate includes them in the module `bindings`. Compiled with the workspace lint tables and warnings denied, exactly nine lints fire on them, the same on the four supported targets, which are x86_64 Linux, x86_64 Windows, and aarch64 and x86_64 macOS.
 
 Section 5.10 of `docs/design/slang-compiler-sys.md` lists them with the number of findings of each. The exception on `mod bindings;` lists exactly these lints, so no expectation is unfulfilled on any of the four targets.
 
@@ -305,7 +307,7 @@ Since 2026-11-11, the declaration carries a second exception, for `ffi_unwind_ca
 
 An agent MAY list the three lints of safety documentation among them only when the crate-level documentation states the shared safety contract that UNS-6 and Section 7.9 of the writing guide require. Without that contract the generated unsafe code has no safety documentation at all.
 
-The set changes when the Slang headers change, so the agent that regenerates the bindings runs the check and sets the list to the lints that fire. Code that `slint::include_modules!` generates probably needs the same kind of exception, which is not yet verified.
+The set changes when the Slang headers change, so the agent that moves the recorded Slang runs the check and sets the list to the lints that fire (Section 8.2 of `docs/design/slang-compiler-sys.md`). Code that `slint::include_modules!` generates probably needs the same kind of exception, which is not yet verified.
 
 ### 4.5. Enforced Lints by Purpose
 
@@ -318,7 +320,7 @@ Baseline groups:
 | `clippy::all` | table | Code that is wrong, suspicious, needlessly complex, slow, or unidiomatic. Apply the suggestion. | - |
 | `clippy::pedantic` | table | A stricter check of idiom, documentation, or casts fired. Apply the suggestion or add a lint exception. | - |
 | `clippy::cargo` | table | A feature name is negative or redundant, or a dependency uses a `*` version. The next row covers missing metadata. | DEP-1 |
-| `clippy::cargo_common_metadata` | `cargo` | A published member lacks one of `description`, `license`, `repository`, `readme`, `keywords`, and `categories`, and `readme = false` counts as missing. Add the fields, or set `publish = false` on a member that is never published, such as the examples crate and the binding generator, which the lint then skips. The lint reports every workspace member whichever crate is checked, so a lint exception in one crate cannot accept it. | - |
+| `clippy::cargo_common_metadata` | `cargo` | A published member lacks one of `description`, `license`, `repository`, `readme`, `keywords`, and `categories`, and `readme = false` counts as missing. Add the fields, or set `publish = false` on a member that is never published, such as the examples crate, which the lint then skips. The lint reports every workspace member whichever crate is checked, so a lint exception in one crate cannot accept it. | - |
 
 Panics and unfinished code:
 
@@ -520,7 +522,7 @@ The configuration of the tools that need one exists in the repository: `deny.tom
 | --- | --- | --- |
 | `cargo fmt` | Formatting, with the default rustfmt settings, of every Rust file that git tracks or does not ignore, including the files that a crate includes with `include!` | Run by the check |
 | `cargo clippy` | Every lint of Section 4.2 | Run by the check |
-| `cargo nextest run` | Unit and integration tests, including the binding tests of TEST-8. It does not run doctests. | Run by the check |
+| `cargo nextest run` | Unit and integration tests, including the tests of the bindings of TEST-8. It does not run doctests. | Run by the check |
 | `cargo test --doc` | Doctests (Section 7.5 of the writing guide) | Run by the check |
 | `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Run by the check |
 | `cargo deny` | Licences compatible with GPL-3.0-or-later, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
@@ -546,21 +548,23 @@ These commands run the checks of the tools from `cargo fmt` to `cargo deny`. In 
 
 ```sh
 cargo fmt --all --check -- <files>
-CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features
-CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --no-tests=warn
-CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
-CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
+CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
+CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
+CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
 cargo deny check
 ```
+
+Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands.
 
 These commands run the checks of the tools from `cargo hack` to Miri. The first checks the features, and the second checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed.
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --feature-powerset
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --all-targets --rust-version
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
 cargo machete
-cargo llvm-cov nextest --workspace --all-features --no-tests=warn
-cargo +nightly miri nextest run --workspace --no-tests=warn
+cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
+cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
 typos
 taplo fmt --check
 actionlint
@@ -570,15 +574,15 @@ The command for `cargo semver-checks` is chosen with the first release, because 
 
 The CI job `coverage` runs the recipe on Linux and uploads the report as an artifact, which is the only result of the job (Section 7.1 of `docs/design/tooling.md`). Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that.
 
-One recipe departs from this, as TOOL-7 of `docs/design/tooling.md` permits for a recipe that selects named tests and has to fail when it selects none. `check-bindings` adds a filter expression that selects the regeneration test of TEST-8 and passes `--no-tests=fail` in its place, for the reason that TOOL-7 gives. `test-static` also passes `--no-tests=fail`, as the next section describes.
+One recipe departs from this, as TOOL-7 of `docs/design/tooling.md` permits. `test-vendored` passes `--no-tests=fail` in place of `--no-tests=warn`, so that it fails when it selects no test.
 
 Miri runs through nextest, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call that Miri does not support.
 
-The recipes that run compiled code which loads Slang put the assignment of the library path of the Vulkan SDK in front of the command. These are the recipes of the nextest command, the doctest command, `check-bindings`, and `coverage`. TOOL-7 of `docs/design/tooling.md` permits this and SCS-32 of `docs/design/slang-compiler-sys.md` requires it, so that the test binaries find the Slang shared library when they start.
+The recipes that run compiled code which loads Slang put the assignment of the library path of the Vulkan SDK in front of the command. These are the recipes of the nextest command, the doctest command, and `coverage`. TOOL-7 of `docs/design/tooling.md` permits this and SCS-32 of `docs/design/slang-compiler-sys.md` requires it, so that the test binaries find the Slang shared library when they start.
 
-The recipe `check-doc-without-slang` runs the documentation command with `DOCS_RS` set and `VULKAN_SDK` removed from the environment, as Section 9 of `docs/design/tooling.md` defines, so the check also builds the documentation without Slang. The recipe `test-static` runs the nextest command for `slang-compiler-sys` alone, on the static route, without `VULKAN_SDK` and the loader path variables, in the target directory `target/static`, as TOOL-7 of `docs/design/tooling.md` permits. The check does not run it.
+The recipe `test-vendored` runs the nextest command and the doctest command, and the recipe `check-vendored` runs the Clippy command and the documentation command, for `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `vendored`, without `VULKAN_SDK` and the loader path variables, in the target directory `target/vendored`, as TOOL-7 of `docs/design/tooling.md` permits. The check runs neither.
 
-`cargo fmt --all` alone formats only the files that the module tree of each crate reaches, so it skips a file that a crate includes with `include!`, such as `pin.rs`, `route.rs`, and `system.rs` of `slang-compiler-sys`. The file list after `--` makes rustfmt read every Rust file of the repository, including those. The recipes `fmt` and `check-fmt` compute the list, and each fails with its own message when `git ls-files` fails or lists no Rust file.
+`cargo fmt --all` alone formats only the files that the module tree of each crate reaches, so it skips a file that a crate includes with `include!`, such as the files of the logic of a build script that SYS-8 places outside `build.rs`. The file list after `--` makes rustfmt read every Rust file of the repository, including those. The recipes `fmt` and `check-fmt` compute the list, and each fails with its own message when `git ls-files` fails or lists no Rust file.
 
 `CARGO_BUILD_WARNINGS=deny` is stable and needs no `-Z` flag. It fails `cargo check`, `cargo hack check`, `cargo clippy`, and `cargo nextest run` on any warning.
 
@@ -590,7 +594,7 @@ An agent that creates `deny.toml` MUST include `GPL-3.0-or-later` itself in the 
 
 Each custom checker runs through the recipe of the same name, such as `just check-rust-comments`, and takes optional paths. With no paths, it checks every relevant file in the repository, as Section 6 of `docs/design/tooling.md` specifies.
 
-Apart from these, this section names no `just` recipes other than `coverage`, `check-bindings`, `check-doc-without-slang`, `test-static`, `fmt`, and `check-fmt`. Section 3.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 7 specifies the CI workflow.
+Apart from these, this section names no `just` recipes other than `coverage`, `test-vendored`, `check-vendored`, `fmt`, and `check-fmt`. Section 3.2 of `docs/design/tooling.md` lists the recipe that runs each command and decides how the commands are grouped, and its Section 7 specifies the CI workflow.
 
 ## 5. API Design
 
@@ -642,7 +646,7 @@ The one exception is the module of generated bindings. A `-sys` crate MAY re-exp
 
 Reason: every public field and path is a promise that holds until the next breaking release, and `#[doc(hidden)]` hides an item from the documentation without withdrawing that promise.
 
-The generated module is exempt from the ban on globs because the set of generated items changes with every regeneration, and a hand-kept list of their names would diverge from it. [IR-8] [IR-36] [S-10]
+The generated module is exempt from the ban on globs because the set of generated items changes with the headers of the Slang that each build generates it from, and a hand-kept list of their names would diverge from it. [IR-8] [IR-36] [S-10]
 
 **API-11.** Decide for each public trait whether it serves as a trait object or only as a generic bound, and record the decision in the trait's documentation. For a trait meant for `dyn`, keep it object-safe, exclude generic methods with `where Self: Sized`, and add a test that compiles a `&dyn Trait`. Otherwise, do not constrain its design for object safety.
 
@@ -923,11 +927,11 @@ Reason: a reference must be valid when it is created, not only when it is used, 
 
 ## 10. Foreign Function Interface
 
-**FFI-1.** Keep `slang-compiler-sys` to generated declarations, constants, vtable structs, UUID constants, and thunks, plus the build script that links the native library, with no higher-level abstraction. Give the safe crate its own Rust types, and do not re-export `-sys` types from it except through the raw-pointer methods of COM-11.
+**FFI-1.** Keep `slang-compiler-sys` to generated declarations, constants, vtable structs, UUID constants, and thunks, plus the build information that its build script records (SYS-6) and the build script that links the native library, with no higher-level abstraction. Give the safe crate its own Rust types, and do not re-export `-sys` types from it except through the raw-pointer methods of COM-11.
 
 Reason: the `-sys` crate then changes only when Slang changes, and every decision about ownership, lifetimes, and errors lives in the one crate that users depend on. [S-3] [S-4] [S-10] [IR-7] [IR-13]
 
-**FFI-2.** Declare `links = "slang-compiler"` in the manifest of the `-sys` crate, emit every link directive from its build script, and do not write `#[link]` attributes in Rust source. Reason: Cargo allows one package for each `links` value, which prevents two copies of the native library in one build, and the build script alone then decides between static and dynamic linking and sets the search paths. [S-3]
+**FFI-2.** Declare the `links` key in the manifest of each `-sys` crate, `links = "slang-compiler"` for `slang-compiler-sys` and `links = "slang-glslang"` for `slang-glslang-sys`, emit every link directive from its build script, and do not write `#[link]` attributes in Rust source. Reason: Cargo allows one package for each `links` value, which prevents two copies of the native library in one build, and the build script alone then decides between static and dynamic linking and sets the search paths. [S-3]
 
 **FFI-3.** Declare foreign functions in `unsafe extern "C"` blocks, or in `unsafe extern "C-unwind"` blocks where FFI-7 requires an unwinding ABI, with the ABI string written out. Mark an item `safe fn` only if every possible argument is sound, use `#[repr(C)]` on every type that crosses the boundary, and use the C types of `core::ffi`, such as `c_char` and `c_int`.
 
@@ -1014,13 +1018,13 @@ Reason: two allocators that free each other's memory cause double frees and heap
 
 **SYS-1.** Emit `cargo::rerun-if-changed` for every file that the build script reads and `cargo::rerun-if-env-changed` for every environment variable that it reads, using the `cargo::` form of the instructions. Declare every custom `cfg` with `cargo::rustc-check-cfg` next to the instruction that sets it.
 
-When the script reads a large tree whose content a version-control commit fixes, it may instead emit `cargo::rerun-if-changed` only for the files that record that commit and the state of the working tree, such as the `HEAD` and `index` files of a git checkout. This holds only if the script verifies on every run, through the version-control tool, that the tree is at that commit and unmodified, and stops the build when it is not.
+When the script reads a large git work tree, it may instead emit `cargo::rerun-if-changed` only for the files that record the commit and the state of the work tree, the `HEAD` and `index` files of its git directory. This holds only if the script reads the commit of the tree through git on every run.
 
 Reason: a script that emits no rerun instruction reruns whenever any file of the package changes. A missing instruction leaves a stale build after its input changes, and an undeclared `cfg` triggers `unexpected_cfgs`.
 
-A tree of thousands of files is too large to watch on every build. A checkout or a commit rewrites the files that record its state, and the verification on every run stops a build from a tree that differs from the commit.
+A tree of thousands of files is too large to watch on every build. A checkout or a commit rewrites the files that record its state, so the script runs again after every git operation that changes the tree.
 
-The exception leaves one gap: an edit of a tracked file that no version-control operation follows does not rerun the script, so the design document of a build script that uses the exception states that gap. [S-3]
+The exception leaves one gap: an edit of a tracked file that no git operation follows does not rerun the script, so the design document of a build script that uses the exception states that gap, as Section 10 of `docs/design/slang-src.md` does. [S-3]
 
 **SYS-2.** Read environment variables in the build script when it runs, with `std::env::var` or `std::env::var_os`, and never with `env!` or `option_env!`. Reason: `env!` and `option_env!` read the value when the build script itself is compiled, so a later change of the variable has no effect until the script is rebuilt.
 
@@ -1028,19 +1032,24 @@ The exception leaves one gap: an edit of a tracked file that no version-control 
 
 **SYS-4.** Check the exit status of every process that the build script starts, and on failure end the build script by returning, from a `main` that returns `Result`, an error that names the command, its exit status, and its error output. Reason: an ignored failure of a native build surfaces later as an obscure link error or a stale library, and the lints `clippy::panic` and `clippy::expect_used` reject the other ways to stop a build script, apart from the form of ERR-6.
 
-**SYS-5.** Write only inside `OUT_DIR`, do not assume that it is empty, and never write to the source tree, download files, or install packages. Reason: registry sources are read-only, builds have to work offline and in sandboxes, and a build script that changes the user's system is a security risk. [S-3] [S-4]
+**SYS-5.** Write only inside `OUT_DIR`, do not assume that it is empty, and never write to a source tree, reach the network, or install packages. Two exceptions hold, and only these:
 
-**SYS-6.** Check that the Slang the build finds matches the pinned version, which is a Vulkan software development kit (SDK) version together with a Slang commit, and stop the build with a message that names both versions when it does not. The design document defines how the build script reads the version. Reason: the checked-in bindings describe one version of the headers, and a different library behind them gives mismatched layouts and undefined behaviour at run time.
+- The build script of `slang-src` MAY reach the network, and only for what ARCH-35 of the architecture design permits: the Slang tree by full commit hash with its required submodules, and for a commit that the user selects, the history and tags that give its build tag (Sections 6.3 and 6.4 of `docs/design/slang-src.md`).
+- A build script MAY write into the cache directory that the user names with `SLANG_SRC_CACHE_DIR`, and only when `slang-src` passes it on (SRC-15 of `docs/design/slang-src.md`).
 
-**SYS-7.** Obtain Slang in exactly one of two ways. By default, link dynamically to the Slang of an installed Vulkan SDK, and when the environment variable `SLANG_SOURCE_DIR` is present, build Slang from the source tree that it names and link it statically. Select the static build through that variable only, never through a Cargo feature, and do not add a prebuilt download or any other way to find the library.
+Reason: registry sources are read-only, builds have to work offline and in sandboxes, and a build script that changes the user's system is a security risk. One crate that fetches by a hash that git verifies keeps the only network access in one reviewable place, which the user can replace with a local checkout, and the cache directory exists only when the user asks for it. [S-3] [S-4]
 
-Reason: two documented paths can be tested on every CI platform, and a download in a build script runs unreviewed code and breaks offline builds.
+**SYS-6.** Record the build tag of the Slang that the build links, read from the headers that the build generates the bindings from, in the build information of `slang-compiler-sys`, and do not compare it with any recorded version at build time. The design document defines how the build script reads the build tag.
 
-The static build is not a Cargo feature for three reasons:
+Reason: the bindings are generated from the headers of the linked Slang, so they match its library whatever its version, and a gate on one version would refuse a Slang that the build can serve. A library found at run time that differs from those headers gives mismatched layouts and undefined behaviour, so the safe crate compares the loaded library with this record when it starts (ARCH-34 of the architecture design).
 
-- Every check passes `--all-features`, so a feature would force a long native build of Slang from source into routine checks.
-- Cargo features must be additive (DEP-1), and how the native library is linked is a choice between options that exclude each other, not an addition.
-- The choice belongs to whoever builds the final program, who controls the environment, and not to an intermediate dependency that would request a feature in its manifest. [S-4] [S-10]
+**SYS-7.** Obtain Slang in exactly one of two ways. By default, link dynamically to the Slang of an installed Vulkan SDK, and with the Cargo feature `vendored`, build Slang from the source tree that `slang-src` obtains and link it statically. Select the vendored build through that feature only, never through an environment variable, never fall back from one way to the other, and do not add a prebuilt download or any other way to find the library.
+
+Reason: two documented ways can be tested on every CI platform, and a download in a build script runs unreviewed code. The vendored build is the opt-in feature `vendored` for three reasons:
+
+- A feature in a manifest makes the choice visible to whoever reads the build, while an environment variable is invisible in the manifest and differs between machines.
+- The default stays fast and small, because it builds nothing native. The recipes pass an explicit list of features and never `--all-features`, so routine checks do not build Slang from source (Section 3.1 of `docs/design/tooling.md`).
+- Cargo unifies features, and one build graph links one Slang, as `links` requires, so a feature that any crate of the graph enables decides the link for all. The feature changes how the library is linked and never removes an item of the API, so code that compiles without it compiles with it, which is why DEP-1 makes it an exception. [S-4] [S-10]
 
 **SYS-8.** Put the logic of a build script in a file of plain functions without `main` that `build.rs` and a test of the crate both include with `include!`. Route everything that the logic reads from or does to its environment through a small private trait, which covers environment variables, files, the kind of a path, the operating system of the host, the programs it runs, and the files it writes. Implement the trait on the real system either in `build.rs` or in a second file that `build.rs` includes.
 
@@ -1173,7 +1182,7 @@ Reason: a slice that outlives its blob points to freed memory, and a copy on eve
 
 Reason: the diagnostics are the only explanation that Slang gives for a failure, and warnings on success are information that the user needs.
 
-**COM-9.** Never edit the generated vtable structs, UUID constants, or thunks by hand. Change the binding generator, regenerate, and commit both. Reason: a hand edit disappears at the next regeneration, and the test of TEST-8 that regenerates and compares the bindings fails on it.
+**COM-9.** Never write the vtable structs, UUID constants, thunks, or any other generated item by hand, and never check generated bindings into the repository. To change them, change the binding generator or its rule set, because every build generates the bindings from the headers of the Slang that it links (ARCH-33 of the architecture design). Reason: a hand-written item diverges from the headers without any check failing, and a checked-in copy describes one Slang while a build can link another.
 
 **COM-10.** Give the methods of an interface wrapper `&self` receivers, never `&mut self`, and express thread safety through `Send` and `Sync` as FFI-9 decides. Reason: other owning interface pointers can reach the same object through `AddRef`, so `&mut self` would promise exclusive access that the object does not have.
 
@@ -1286,9 +1295,9 @@ Reason: failure paths rarely run in normal use, so users find their bugs, and a 
 
 Reason: Miri cannot call native code, but it detects undefined behaviour in the crate's reference counting, null handling, and lifetimes when they run against the fake, and it checks the executions that the tests run, not all executions. The check runs Miri through nextest (Section 4.8). [S-8] [S-10] [IR-27]
 
-**TEST-8.** Keep two tests for the bindings. The first regenerates the bindings with the binding generator, compares the result with the checked-in bindings, and fails if they differ, wherever it holds the regenerated text. The second references the native symbols, so that a broken link fails a test instead of a user's build.
+**TEST-8.** Keep two tests for the generated bindings on every route. The first references every native symbol of the generated list of C functions, so that a broken link fails a test instead of a user's build. The second creates a global session and asserts that the loaded Slang reports the build tag of the build information. Keep no test that compares generated bindings with a file, because no generated file is kept (COM-9).
 
-Reason: checked-in bindings diverge silently from the generator and the headers, and the linker resolves a symbol only when code uses it. [S-3] [S-4]
+Reason: the linker resolves a symbol only when code uses it, and a library that loads but is not the Slang whose headers the build read has layouts that differ from the bindings. Every build compiles the generated code and its layout assertions, which catches a defect of the generator that a comparison with a file used to catch (Section 7.6 of `docs/design/slang-compiler-sys.md`). [S-3] [S-4]
 
 **TEST-9.** Do not write tests that restate constants or mirror the implementation, and use property tests for conversions that round-trip, with their regression files in version control. Reason: a test that restates the implementation passes whatever the code does, and a property test that shrinks its failures finds inputs that the author did not think of. [S-10] [IR-13]
 
@@ -1300,7 +1309,7 @@ A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `un
 
 ## 15. Dependencies and Cargo Features
 
-**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other. Section 7.8 of the writing guide defines how features are documented.
+**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other, except the feature `vendored`, which SYS-7 governs: it selects how Slang is linked and removes no item of the API. Section 7.8 of the writing guide defines how features are documented.
 
 Reason: Cargo unifies the features that different dependents request, so a subtractive or exclusive feature breaks a build that combines them. [IR-8] [S-10] [S-4]
 
@@ -1355,13 +1364,13 @@ This table records each disagreement between sources, or between a source and a 
 | `#![deny(warnings)]` in source | Recommended: [IR-68]. Anti-pattern: [IR-5]. `CARGO_BUILD_WARNINGS=deny`: [IR-4] | `CARGO_BUILD_WARNINGS=deny` in the check (Section 4.2) | New compiler warnings would break users' builds, and `-D warnings` invalidates the build cache. |
 | Iterator return types | `impl Iterator`: [IR-83]. Named types: [IR-17], [IR-8]. `Vec`: [IR-93] | Named types in public APIs, `Vec` for computed results, `impl Iterator` in private code (API-2) | Tier 1 names iterator types after their methods, and a named type can gain traits. |
 | `Send` by default, or thread-affine handles | Public types `Send`: [S-10]. Raw-pointer handles neither: [S-1], [IR-27] | Neither for foreign handles until the Slang documentation proves otherwise (FFI-9) | Tier 1 wins, and a wrong `Send` is undefined behaviour while a missing one is only an inconvenience. |
-| Checked-in or build-time bindings | Build time: [S-2]. Pre-generated: [S-4], [S-10]. Compare test: [S-3] | Checked in, generated by the binding generator, and verified by a compare test (TEST-8) | It is a project decision: users need no libclang, and the test keeps the files exact. |
+| Checked-in or build-time bindings | Build time: [S-2]. Pre-generated: [S-4], [S-10]. Compare test: [S-3] | Generated by the binding generator in the build script of every build, from the headers of the linked Slang, and never checked in (COM-9, TEST-8) | It is a project decision: a build accepts the Slang of any SDK or a commit that the user selects, and only bindings from the linked headers stay sound, at the cost of libclang on every user's machine (Section 14.2 of `docs/design/architecture.md`). |
 | Documenting `-sys` items | Do not document them: [S-4]. Document every unsafe function: [S-10] | Lint exceptions on the generated module only, with one shared safety contract in the crate-level documentation in place of `# Safety` sections and safety comments (Section 7.9 of the writing guide, UNS-6) | Generated items mirror the Slang documentation, while hand-written items stay fully documented. |
 | Panics in callbacks | Convert with `catch_unwind`: [S-1]. Last resort only: [S-10]. Abort at `extern "C"`: [S-5] | Catch only to return a failure code, otherwise abort (FFI-7) | Both positions hold in their case, and tier 1 states the abort. |
 | Async by default, or blocking | Async by default: [IR-77]. Costs of async: [IR-78], [IR-88] | A blocking core with async at the edges (CONC-6) | Shader compilation is CPU-bound, and async bounds would spread through the API. |
 | `#[non_exhaustive]` | Use with caution: [IR-5]. Standard mitigation: [IR-3] | Use it on types that mirror Slang or can grow (API-9) | Slang adds values between releases. |
 | `Deref` on a read-only newtype | Allowed: [IR-6]. Anti-pattern outside smart pointers: [IR-5], [IR-8] | Smart pointers only (API-15) | Tier 1 wins. |
-| Static and dynamic linking, and how to select them | Features, neither as default: [S-4]. Build from bundled source with `cc` only: [S-10] | Dynamic linking to an installed SDK by default, and a static build from source when the environment variable `SLANG_SOURCE_DIR` is present, with no Cargo feature (SYS-7) | It is a project decision. A feature would be built by every check that passes `--all-features`, the way the library is linked is not additive, and the person who builds the final program controls the environment. |
+| Static and dynamic linking, and how to select them | Features, neither as default: [S-4]. Build from bundled source with `cc` only: [S-10] | Dynamic linking to an installed SDK by default, and a static build from the source tree of `slang-src` with the opt-in Cargo feature `vendored`, with no environment variable that selects the route (SYS-7) | It is a project decision. It takes the feature form of [S-4] with the dynamic route as the default, so default builds stay fast and small, and the recipes pass an explicit list of features, so no check builds Slang from source by accident. |
 
 ## 18. Outdated Advice Not to Follow
 
@@ -1419,11 +1428,11 @@ This document defines rules, not a component, but its rules decide the security 
 
 First, an application passes shader source, module names, and file paths that an attacker controls to the safe crate, and the attacker chooses their content but not the code of the application or of this repository. Second, an agent introduces a defect into unsafe code or into an FFI declaration, which turns a malformed input or a misuse into undefined behaviour.
 
-Third, a build script runs on the user's machine with the user's permissions and, for the static build, runs a native build of Slang from source. Fourth, a dependency contains a defect or a published vulnerability.
+Third, a build script runs on the user's machine with the user's permissions and, for the vendored build, clones Slang and runs a native build of it from source. Fourth, a dependency contains a defect or a published vulnerability.
 
 The rules address each part. For untrusted input, TYPE-5, TYPE-9, and FFI-5 keep sizes and indexes from input in range, and ERR-5 turns malformed input into an error instead of a panic. The design document of the safe crate states which files Slang can read through include paths and module search paths, as Section 3.2 of the writing guide requires.
 
-For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids downloads, installs, and writes outside `OUT_DIR`, and SYS-6 and SYS-7 fix where the native library comes from. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
+For unsafe code, Sections 9, 10, and 12 constrain every unsafe operation, its documentation, and its review, and the lints of Section 4.5 find unsafe code without a safety comment. For build scripts, SYS-5 forbids installs, network access except what ARCH-35 permits to the build script of `slang-src`, and writes outside `OUT_DIR` except into the user's cache directory, and SYS-6 and SYS-7 fix where the native library comes from and how its version is recorded. For dependencies, DEP-2 limits their number, and `cargo deny` checks advisories, licences, and sources (Section 4.8).
 
 These attacks are out of scope. A malicious or compromised native Slang library or Vulkan SDK runs with the full privileges of the application, so no Rust rule can constrain it.
 
@@ -1501,8 +1510,8 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | UNS-5 | Soundness never depends on generic trait implementations or callbacks behaving well. |
 | UNS-6 | `# Safety` sections and safety comments follow the writing guide, generated bindings rely on one shared contract in the crate documentation instead, and `Send` or `Sync` impls and unsafe traits state their promises. |
 | UNS-7 | Raw pointers become references only when non-null, aligned, valid, and unaliased. |
-| FFI-1 | The `-sys` crate holds generated declarations only, and the safe crate re-exports none of them except through the raw-pointer methods of COM-11. |
-| FFI-2 | `links = "slang-compiler"`, link directives from the build script, no `#[link]`. |
+| FFI-1 | The `-sys` crate holds generated declarations and the build information only, and the safe crate re-exports none of them except through the raw-pointer methods of COM-11. |
+| FFI-2 | A `links` key in each `-sys` crate, link directives from the build script, no `#[link]`. |
 | FFI-3 | `unsafe extern "C"` declarations, `#[repr(C)]` types, C types, `Option` for nullable function pointers, and `Option<NonNull<T>>` for nullable pointers in hand-written signatures, while generated bindings keep raw pointers. |
 | FFI-4 | `&CStr` tied to its owner or copied, `CString` bound to a variable, NUL bytes as errors. |
 | FFI-5 | Slices from Slang are built after a null check, with element counts and an owner's lifetime. |
@@ -1512,13 +1521,13 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | FFI-9 | Foreign handles are neither `Send` nor `Sync` until the Slang documentation proves otherwise. |
 | FFI-10 | Open-ended C values are integer newtypes with constants, never Rust enums. |
 | FFI-11 | Memory is freed by the library that allocated it. |
-| SYS-1 | A rerun instruction for every input, or only for the files that record the commit and state of a large version-controlled tree that the script verifies as unmodified on every run, the `cargo::` form, and declared custom `cfg` names. |
+| SYS-1 | A rerun instruction for every input, or only for the `HEAD` and `index` files of a large git work tree whose commit the script reads on every run, the `cargo::` form, and declared custom `cfg` names. |
 | SYS-2 | Build scripts read environment variables when they run, never with `env!` or `option_env!`. |
 | SYS-3 | The target platform comes from `CARGO_CFG_TARGET_*`, never `cfg!`. |
 | SYS-4 | Every spawned process has its exit status checked, and a failure is returned as an error from `main`. |
-| SYS-5 | Writes only inside `OUT_DIR`, no downloads, no installs. |
-| SYS-6 | The found Slang matches the pinned SDK version and Slang commit. |
-| SYS-7 | Slang comes from an installed Vulkan SDK by default, or from a static source build when `SLANG_SOURCE_DIR` is present, never through a Cargo feature, and from nothing else. |
+| SYS-5 | Writes only inside `OUT_DIR` or the user's cache directory, no installs, and no network access except what ARCH-35 permits to the build script of `slang-src`. |
+| SYS-6 | The build records the build tag of the Slang that it links and compares it with no recorded version. |
+| SYS-7 | Slang comes from an installed Vulkan SDK by default, or from a static build of the tree of `slang-src` with the Cargo feature `vendored`, never through an environment variable, never with a fallback, and from nothing else. |
 | SYS-8 | Build script logic lives in a file that `build.rs` and a test both include, behind a small trait for everything it reads, runs, or writes, with a test for every route and failure, and the real implementation of the trait may live in an included file with its own tests. |
 | COM-1 | One owning interface pointer type pairs every `AddRef` with one `Release`. |
 | COM-2 | Owned and borrowed interface pointers are distinguished for every Slang function. |
@@ -1528,7 +1537,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | COM-6 | Blob contents are slices borrowed from the blob. |
 | COM-7 | Result codes map to `Error` in exactly one function. |
 | COM-8 | Diagnostics blobs are always collected, into the error or as returned warnings. |
-| COM-9 | Generated vtables, UUIDs, and thunks are never edited by hand. |
+| COM-9 | Generated vtables, UUIDs, thunks, and other generated items are never written by hand or checked in. |
 | COM-10 | Interface wrapper methods take `&self`. |
 | COM-11 | Every interface wrapper has `from_raw`, `into_raw`, and `as_raw`. |
 | COM-12 | The safe API follows Rust types, not the interface hierarchy. |
@@ -1547,10 +1556,10 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-5 | Examples are complete programs that build in every check and run where their tags allow. |
 | TEST-6 | Failure paths are tested and return the documented error kinds. |
 | TEST-7 | Unsafe code is tested under Miri against a fake implementation in Rust. |
-| TEST-8 | A regenerate-and-compare test, wherever it holds the regenerated text, and a link test cover the bindings. |
+| TEST-8 | A test of every native symbol and a smoke test of the build tag cover the generated bindings on every route, and no test compares them with a file. |
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
-| DEP-1 | Cargo features are additive and named after what they enable. |
+| DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs. |
 | DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |

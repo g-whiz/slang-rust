@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -255,7 +255,7 @@ An author MUST NOT cite the design documents or any other document under `docs/`
 
 Code and comments also hold no project history, such as the step or milestone that added an item.
 
-The reader of API documentation sees the crate on docs.rs without the repository, so a citation points nowhere. In other code, a citation goes stale when a document is renumbered, and history says nothing about what the code does.
+The reader of API documentation sees the crate in its hosted documentation without the repository, so a citation points nowhere. In other code, a citation goes stale when a document is renumbered, and history says nothing about what the code does.
 
 Checked by: `check-doc-references` for the paths and file names of documents under `docs/`, every section citation, and every rule identifier that a document under `docs/` defines. It checks every Rust, TOML, YAML, and JSON file, the `justfile`, and every file under `scripts/` (Section 6.10 of `docs/design/tooling.md`). Wording about project history is a judgement rule.
 
@@ -347,7 +347,7 @@ Every crate has crate-level documentation, written with `//!` at the top of `src
 
 Every public module has module-level documentation, written with `//!` at the top of the module file. It says what the module groups together and when a user goes to it, and it links to the module's main items.
 
-An author MUST write crate-level documentation with this content, because it is the first page a user sees on docs.rs, and a user who cannot tell from it which crate to use picks one by trial.
+An author MUST write crate-level documentation with this content, because it is the first page a user sees in the hosted documentation, and a user who cannot tell from it which crate to use picks one by trial.
 
 Checked by: `rustdoc::missing_crate_level_docs` for the presence of crate-level documentation. Rustc `missing_docs` for the presence of documentation on public modules.
 
@@ -449,7 +449,7 @@ The contract says what the caller must guarantee, which is that every pointer it
 
 An author MUST write this contract before the exception lists a lint of safety documentation, because the generated unsafe code has no safety documentation of its own, so without the contract a caller has no statement of what makes a call sound. The exemption exists because the generator cannot write a contract for each item, since the headers state none, and the generator emits no comments at all.
 
-The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined at each regeneration.
+The exemption is one `#[expect]` attribute with a reason. It sits on the declaration of the generated module and lists each lint that fires on that module. Section 4.4 of the standards document `docs/rust-coding-standards.md` lists the lints that typically fire and says how the set is determined when the Slang headers change.
 
 An author MUST NOT list a lint that does not fire, because rustc reports such an expectation through `unfulfilled_lint_expectations`, which fails the check. An author MUST NOT apply the exemption to the whole crate or to hand-written code, because a broad exemption hides every undocumented hand-written item from the lints. Hand-written items in the same crate follow Sections 7.2 to 7.8 in full.
 
@@ -552,9 +552,9 @@ The standards document `docs/rust-coding-standards.md` defines the lint configur
 These commands run the checks in this section:
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features
-CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
-CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --all-features
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
+CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
+CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
 ```
 
 `CARGO_BUILD_WARNINGS=deny` makes each command fail on a warning, including a rustdoc lint warning in `cargo doc`. It does not reach the code inside a doctest, which no tool lints (Section 7.5). Section 4.8 of the standards document gives the full set of checks and the limits of these commands.

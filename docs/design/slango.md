@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -101,7 +101,7 @@ This section is non-normative. It states each fact about Slang, naga, wgpu, and 
 
 ### 3.1. Sources and Evidence
 
-Each fact holds for wgpu 30.0.1 with the feature `spirv`, naga 30.0.1, and the pinned Slang, compiled with the session settings of Section 7.1. A fact is known in one of three ways:
+Each fact holds for wgpu 30.0.1 with the feature `spirv`, naga 30.0.1, and the recorded Slang, compiled with the session settings of Section 7.1. A fact is known in one of three ways:
 
 - Run: A program or a test observed it. Such a fact holds on Vulkan with lavapipe and with a hardware GPU, and on the three adapters of Section 3.8 where it says so. A fact without a mark is of this kind.
 - Read: A source states it, and the fact names the source with the mark (read).
@@ -281,7 +281,9 @@ SLO-1. `slango` MUST depend on `slang-compiler` and on wgpu of major version 30 
 
 `slango` needs `pollster`, because wgpu 30 offers no blocking form of `Instance::request_adapter`, `Instance::enumerate_adapters`, or `Adapter::request_device`, so `slango` waits on them with `pollster::block_on`. Version 30 is the newest wgpu that the current Slint release supports (ARCH-19, Section 3.7).
 
-The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3). The crate has no Cargo features in M3 and M4.
+The implementation re-checks the version at each Slint release, and an upgrade is a breaking release of `slango` (DEP-3).
+
+SLO-27. `slango` MUST have exactly one Cargo feature, `vendored = ["slang-compiler/vendored"]`, off by default, and MUST NOT read it in its own code. The feature only forwards the choice of the vendored route to `slang-compiler`, so that a user who depends on `slango` alone can link a statically built Slang (Section 19.1 of the architecture design, SLC-33 of `docs/design/slang-compiler.md`).
 
 SLO-2. `slango` MUST contain no unsafe code in M3 and M4, and MUST load every shader through the validated path only.
 
@@ -1022,7 +1024,7 @@ The residual risk is a defect of naga, wgpu, or a GPU driver that lets a kernel 
 
 ### 17.1. Cargo Features and Environment Variables
 
-`slango` has no Cargo features in M3 and M4. It reads no environment variable itself. Its build needs `VULKAN_SDK`, and its programs need the Slang shared library on the library path, as `slang-compiler-sys` requires (Section 18.4 of `docs/design/slang-compiler-sys.md`).
+`slango` has one Cargo feature, `vendored`, off by default, which it forwards to `slang-compiler` (SLO-27). It reads no environment variable itself. Without the feature, its build needs `VULKAN_SDK` and libclang, and its programs need the Slang shared library on the library path. With it, its build clones and builds Slang through `slang-src` and its programs need no Slang library (Section 4.1 of the architecture design, Section 18.4 of `docs/design/slang-compiler-sys.md`).
 
 ### 17.2. Platforms and Minimum Supported Rust Version
 
@@ -1066,7 +1068,7 @@ Each load of a module pays for its own global session, well over 100 ms, plus ab
 
 ### 18.2. Informative References
 
-- [SLANG-SPIRV] The Slang project, "SPIR-V specific functionalities", `docs/user-guide/a2-01-spirv-target-specific.md` in Slang's source tree at the pinned commit, read on 2026-11-11.
+- [SLANG-SPIRV] The Slang project, "SPIR-V specific functionalities", `docs/user-guide/a2-01-spirv-target-specific.md` in Slang's source tree at the recorded commit, read on 2026-11-11.
 - [SLANGPY] The Slang project, "SlangPy documentation", <https://slangpy.shader-slang.org/en/latest/>, read on 2026-11-11.
 - [VULKANO-2540] Pull request 2540 of the vulkano-rs/vulkano repository on GitHub, <https://github.com/vulkano-rs/vulkano/pull/2540>, read on 2026-11-11.
 - [WGPU-CHANGELOG] The wgpu project, "Changelog", <https://raw.githubusercontent.com/gfx-rs/wgpu/trunk/CHANGELOG.md>, read on 2026-11-11.
@@ -1103,3 +1105,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLO-24 | 8.1 | `Texture2D` with a `float` result and `SamplerState` are parameters of every stage, and `Sampler2D` is rejected. |
 | SLO-25 | 8.2 | The sealed trait `VertexElement`, a supertrait of `Element`, adds packed vectors of 2 and 3 components. |
 | SLO-26 | 9.5 | A draw checks its parameters, attributes, targets, and counts before any work and reports `InvalidArgument`. |
+| SLO-27 | 4.1 | One Cargo feature, `vendored`, off by default, which only forwards to `slang-compiler`. |

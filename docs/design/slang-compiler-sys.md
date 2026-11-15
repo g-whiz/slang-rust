@@ -1,14 +1,14 @@
-# `slang-compiler-sys` and Binding Generator Design
+# `slang-compiler-sys` and `slang-bindgen` Design
 
 | Field | Value |
 | --- | --- |
 | Status | Draft |
 | Date | 2026-11-15 |
-| Applies to | `crates/slang-compiler-sys` and `tools/bindings-generator` |
+| Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
 
-This document specifies `slang-compiler-sys`, the crate of raw Rust bindings to the native Slang compiler library, and the binding generator that writes those bindings from the Slang headers. It defines which declarations the bindings include, how the generator fails on anything it has no rule for, and how a test keeps the checked-in generated files equal to a fresh regeneration. It also specifies the pin file and the build script, which links the Slang of an installed Vulkan SDK or builds Slang from a source tree and links it statically.
+This document specifies `slang-compiler-sys`, the crate of raw Rust bindings to the native Slang compiler library, and `slang-bindgen`, the published binding generator that the build script of `slang-compiler-sys` runs in every build to write those bindings from the headers of the Slang that the build links. It defines which declarations the bindings include, the shape of the generated Rust, and how the generator fails on anything it has no rule for. It also specifies the build script, which links the Slang of an installed Vulkan SDK dynamically by default, or, with the Cargo feature `vendored`, builds Slang from the source tree that `slang-src` obtains and links it statically, and the build information that records which Slang a build uses and how.
 
 ## 1. Introduction
 
@@ -18,19 +18,19 @@ Slang exposes its compiler through a C++ header, `slang.h`, whose main API consi
 
 That struct copies a few hundred method signatures, in the right order and with the right calling convention. A single slot out of order calls the wrong function, and no compiler detects it.
 
-The headers also declare enumerations whose values the library can extend, structs whose C++ default values matter, and constants that exist only as macros. Hand-written declarations drift from the headers with every Slang release.
+The headers also declare enumerations whose values the library can extend, structs whose C++ default values matter, and constants that exist only as macros. Hand-written declarations drift from the headers with every Slang release, and Slang reuses vtable slots and renumbers enumerations between releases, so declarations generated from one release and linked against another are wrong without any error.
 
-The architecture design (`docs/design/architecture.md`) places these declarations in `slang-compiler-sys`, requires that a generator in this repository produce all of them (ARCH-13), and requires this document to exist before any code of milestone M1 (ARCH-3, ARCH-25).
+The architecture design (`docs/design/architecture.md`) places these declarations in `slang-compiler-sys` and requires that a generator in this repository produce all of them from the headers of the Slang that the build links (ARCH-33).
 
 ### 1.2. Purpose
 
-`slang-compiler-sys` gives the safe crate `slang-compiler` an exact, complete, and checked set of declarations for the pinned Slang build. It also links the native library on the route that the user's environment selects. The binding generator produces those declarations from the headers, so that no agent writes a vtable, a UUID, or a thunk by hand (COM-9).
+`slang-compiler-sys` gives the safe crate `slang-compiler` an exact, complete, and checked set of declarations for the Slang that each build links, and links that Slang. `slang-bindgen` produces those declarations from the headers in every build, so that no agent writes a vtable, a UUID, or a thunk by hand (COM-9), and so that the declarations and the library always come from one Slang.
 
-This document implements Sections 3 to 6 and milestone M1 (Section 15.4) of the architecture design, and answers the questions that its Section 17 assigns to this document.
+This document implements Sections 3 to 6 and milestone M7 (Section 15.10) of the architecture design for these two crates, and answers the questions that its Section 17 assigns to this document.
 
 ### 1.3. Audience
 
-The primary readers are the coding agents that change the crate or the generator, or move the pin. The secondary readers are the reviewers who check those changes, and the owner of the repository, who approves the decisions.
+The primary readers are the coding agents that change the crate or the generator, or move the recorded Slang. The secondary readers are the reviewers who check those changes, and the owner of the repository, who approves the decisions.
 
 A reader is expected to know Rust but not the Slang API, C++ application binary interfaces, or libclang. Section 2.1 defines the terms such a reader needs.
 
@@ -39,9 +39,9 @@ A reader is expected to know Rust but not the Slang API, C++ application binary 
 This document covers:
 
 - The declarations that the bindings include, the shape of the generated Rust, and the supported targets.
-- The binding generator and its tests.
-- The file that records the pin.
-- The build script of `slang-compiler-sys` on both routes and for documentation builds, and how the shared library is found at run time.
+- `slang-bindgen`, its library and binary, and its tests.
+- The build information of `slang-compiler-sys`.
+- The build script of `slang-compiler-sys` on the dynamic route and on the vendored route, its use of the cache directory, and how the shared library is found at run time.
 - The tests of the crate, Miri, and the requirements on CI.
 - The crate documentation and the dependencies.
 
@@ -49,11 +49,13 @@ This document covers:
 
 This document does not cover:
 
-- The safe API, which the design document of `slang-compiler` defines, including ownership, errors, and the `Send` and `Sync` decisions of FFI-9 and CONC-1.
+- The safe API, which the design document of `slang-compiler` defines, including ownership, errors, the `Send` and `Sync` decisions of FFI-9 and CONC-1, and the run-time check of the build tag.
+- How the Slang source tree is obtained, the recorded commit, and the scheme of the cache directory, which `docs/design/slang-src.md` specifies.
+- The build of slang-glslang and its loader, which `docs/design/slang-glslang-sys.md` specifies.
 - 32-bit targets, which Section 6 excludes. A later change can revisit this decision.
 - The deprecated compile-request API of `slang-deprecated.h`, including `slang::ICompileRequest`, which the modern interfaces replace (Section 4).
 - `slang-gfx.h`, which declares a separate deprecated library, and the other headers that Section 3.2 lists as out of scope.
-- Hand-written declarations of any kind in the generated file, which COM-9 and FFI-1 forbid.
+- Hand-written declarations of any kind in the generated code, which COM-9 and FFI-1 forbid.
 - How continuous integration (CI) installs the Vulkan SDK on each runner, which Section 7.3 of `docs/design/tooling.md` specifies. Section 12 states the requirements that the installation meets.
 - The recipes, the nextest profiles, and the CI workflow as a whole, which `docs/design/tooling.md` owns. This document states the requirements that this crate and the generator put on them.
 
@@ -69,27 +71,28 @@ This document uses the terms that these documents define:
 
 - Section 2.2 of `docs/writing-documentation.md`, such as agent, role, and user.
 - Section 2.2 of `docs/rust-coding-standards.md`, such as binding generator, `-sys` crate, safe crate, native library, interface, vtable, thunk, interface pointer, result code, and universally unique identifier (UUID).
-- Section 2.1 of `docs/design/architecture.md`, such as application binary interface (ABI), COM-style interface, CMake, dynamic route, static route, global session, libclang, Miri, pin, pkg-config, reflection, run-time search path (rpath), smoke test, and Vulkan SDK.
+- Section 2.1 of `docs/design/architecture.md`, such as application binary interface (ABI), COM-style interface, CMake, dynamic route, global session, libclang, Miri, pkg-config, reflection, run-time search path (rpath), slang-glslang, smoke test, vendored build, vendored route, and Vulkan SDK.
+- Section 2.1 of `docs/design/slang-src.md`, such as build metadata, cache directory, cache entry, cache key, dependent build script, recorded commit, recorded Slang, required submodule, and source tree.
 
-This document calls those three files the writing guide, the coding standard, and the architecture design, and calls `docs/design/tooling.md` the tooling design. It adds these terms:
+This document calls those files the writing guide, the coding standard, the architecture design, and the `slang-src` design, and calls `docs/design/tooling.md` the tooling design. It adds these terms:
 
 - aggregate: A C++ struct, union, or class value, as opposed to a scalar or a pointer.
+- build information: The constant `BUILD_INFO` of `slang-compiler-sys`, which records the Slang that a build generated its bindings from and links, and how it links it (Section 8.1).
 - build tag: The version string of one Slang build, such as `2026.17-25-gc7954ebd1`, which is the output of `git describe` on the Slang commit: the nearest tag, the number of commits after it, and `g` followed by the abbreviated commit hash.
 - C linkage: The property of a C++ function declared inside `extern "C"`, whose symbol in the shared library is its plain name.
 - calling convention: The rules for how a function receives its arguments and returns its result, such as which registers hold them and who removes them from the stack. Rust names a calling convention in the ABI string of a function type, such as `extern "C"` or `extern "system"`.
 - canonical type: The type that remains after libclang resolves every typedef, such as `long` behind `int64_t` on Linux.
-- clean checkout: A git work tree whose tracked files and submodules match its commit, as `git status` reports it with untracked files left out (Section 9.3).
 - default member initializer: A value written in a C++ struct declaration for a field, such as `int size = sizeof(Desc);`, which the field takes when the struct is constructed without that field.
 - diagnostic: A message that libclang reports while it parses, with a severity of note, warning, error, or fatal.
 - gitlink: The entry of a git index that records a submodule by its commit, with the mode `160000`.
-- host: The machine that runs the build script. In Section 9.7, also the private trait `Host` through which the logic of the build script reaches the environment, the file system, and other programs.
+- host: The machine that runs the build script. In Section 9.7, also the private trait `Host` through which the logic of the build script reaches the environment, the file system, the generator, and other programs.
 - import library: A file on Windows, with the suffix `.lib`, that tells the linker which symbols a dynamic-link library (DLL) exports.
-- inclusion rule: An entry of the checked-in rule set of the generator that says whether a declaration, or a group of declarations selected by name or by header, is included in or excluded from the bindings (Section 4.1).
+- inclusion rule: An entry of the rule set of the generator that says whether a declaration, or a group of declarations selected by name or by header, is included in or excluded from the bindings (Section 4.1).
 - model: The generator's in-memory description of the declarations that it reads from one parse, such as the interfaces with their methods in order, before it writes any Rust.
 - name mangling: The encoding of a C++ function's namespace, class, and parameter types into its symbol name. The encoding differs between compilers.
 - opaque handle: A pointer to a type whose contents the header does not declare, so that code can pass the pointer but not read the object.
-- shim header: A small header in this repository that replaces a system header, such as `stdint.h`, when the generator parses for a target whose system headers the development container does not have (Section 7.2).
-- stamp: The file `slang/stamp` under `OUT_DIR` that records the inputs of the last static build that the build script verified (Section 9.3).
+- shim header: A small header of `slang-bindgen` that replaces a system header, such as `stdint.h`, when the generator parses, so that no parse depends on the system headers of the machine (Section 7.2).
+- stamp: The file `slang/stamp` under `OUT_DIR` that records the inputs of the last vendored build that the build script verified (Section 9.3).
 - standard layout: The C++ property of a type whose memory layout follows the same rules as a C struct, which `#[repr(C)]` reproduces in Rust.
 - synthetic translation unit: A translation unit that the generator writes in memory and parses to evaluate an expression, such as the value of a macro (Section 7.2).
 - target: The platform for which code is compiled, named by a target triple such as `x86_64-pc-windows-msvc`.
@@ -103,7 +106,7 @@ This section is non-normative. It states the facts about the Slang headers, the 
 
 ### 3.1. Sources and Tool Versions
 
-The facts in this section hold for the headers, the library, and the source tree of the pin (Section 8.1), which is the Vulkan SDK 1.4.363.1 and the Slang commit `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`. The generator reads the headers through libclang and the Rust crate `clang` 2.1.0.
+The facts in this section hold for the headers, the library, and the source tree of the recorded Slang (Section 7.1 of the `slang-src` design), which is the Slang of the Vulkan SDK 1.4.363.1, at the commit `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`. The generator reads the headers through libclang and the Rust crate `clang` 2.1.0.
 
 Statements about Slang's documented rules come from the documents in the Slang source tree [SLANG-UG] [SLANG-BUILD]. Section 15 lists what is not verified.
 
@@ -113,7 +116,7 @@ The SDK directory `$VULKAN_SDK/include/slang` holds 15 headers. Only `slang.h` d
 
 `slang-gfx.h` declares a separate, deprecated library. The prelude headers serve generated shader code, not the host API.
 
-The SDK's `slang.h`, `slang-deprecated.h`, and `slang-image-format-defs.h` are byte-identical to those of the source tree. The SDK also has `slang-tag-version.h`, which the source tree has only as the template `slang-tag-version.h.in`.
+The SDK's `slang.h`, `slang-deprecated.h`, and `slang-image-format-defs.h` are byte-identical to those of the source tree. The SDK also has `slang-tag-version.h`, which the source tree has only as the template `slang-tag-version.h.in`, and which a build of the source tree generates in its build tree.
 
 `slang.h` is C++ only, and a parse in C mode fails. It parses with clang at `-std=c++17` without a diagnostic. It includes no header of the C++ standard library, only `stdint.h`, `stddef.h`, `inttypes.h`, and `features.h`.
 
@@ -131,7 +134,7 @@ The struct `SlangTerminatedChars` also declares a UUID but has no virtual method
 
 Methods use the calling convention macro `SLANG_MCALL`, which is `__stdcall` on the Microsoft compilers and empty elsewhere. In Rust it is `extern "system"`, or `extern "system-unwind"` for a function through which an exception may unwind. One method lacks `SLANG_MCALL`: `slang::IMetadata::isParameterLocationUsed`.
 
-`SLANG_NO_THROW` is `__declspec(nothrow)` on Windows and empty elsewhere. It does not keep every exception inside Slang. Some methods of the pinned build let a C++ exception escape for some inputs, such as `IModule::findAndCheckEntryPoint` and `IComponentType::getLayout` (Section 3.6 of `docs/design/slang-compiler.md`).
+`SLANG_NO_THROW` is `__declspec(nothrow)` on Windows and empty elsewhere. It does not keep every exception inside Slang. Some methods of the recorded Slang let a C++ exception escape for some inputs, such as `IModule::findAndCheckEntryPoint` and `IComponentType::getLayout` (Section 3.6 of `docs/design/slang-compiler.md`).
 
 Some methods declare default arguments, which are not part of the ABI. Some methods take `SlangUUID const&`, which is a pointer in the ABI.
 
@@ -197,7 +200,9 @@ At run time, `spGetBuildTagString()` and `slang::IGlobalSession::getBuildTagStri
 
 The SDKs 1.4.363.1 for Linux, macOS, and Windows ship the same Slang build. In each, `slang-tag-version.h` defines `SLANG_TAG_VERSION` as `"2026.17-25-gc7954ebd1"`, and `slangc -version` prints the same string, which `check-vulkan-sdk` checks in every CI job (Section 12).
 
-In the source tree, the pinned commit also carries the tag `vulkan-sdk-1.4.363.0`, and `git describe --tags --match 'v20[2-9][0-9].[0-9]*'` prints `v2026.17-25-gc7954ebd1`. Slang's CMake derives its version only from `git describe`, in `cmake/GitVersion.cmake`. It accepts the override `-DSLANG_VERSION_FULL=` and falls back to `0.0.0-unknown`.
+In the source tree, the recorded commit also carries the tag `vulkan-sdk-1.4.363.0`, and `git describe --tags --match 'v20[2-9][0-9].[0-9]*'` prints `v2026.17-25-gc7954ebd1`. Slang's CMake derives its version only from `git describe`, in `cmake/GitVersion.cmake`. It accepts the override `-DSLANG_VERSION_FULL=` and falls back to `0.0.0-unknown`, which is what a shallow clone without tags gives.
+
+A statically linked Slang built with the fallback reports, as its build tag, the modification time of the program that contains it, because `spGetBuildTagString` then reads the time of the module that holds Slang. The build tag of a vendored build is therefore only meaningful when the build passes it explicitly (SCS-28).
 
 ### 3.7. Shared Library
 
@@ -205,7 +210,7 @@ On Linux, `$VULKAN_SDK/lib/libslang-compiler.so` is a symbolic link to `libslang
 
 At run time, the library loads `libslang-glslang-2026.17.so` and `libslang-glsl-module-2026.17.so` by name from its own directory. They are not link-time dependencies.
 
-Slang's building documentation states that "the public ABI for Slang libraries in general is not currently stable", which is why the major version of the shared library is 0 [SLANG-BUILD]. This confirms assumption A-1 of the architecture design.
+Slang's building documentation states that "the public ABI for Slang libraries in general is not currently stable", which is why the major version of the shared library is 0 [SLANG-BUILD].
 
 A program linked with `-L$VULKAN_SDK/lib -lslang-compiler` needs `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH`, or an rpath, to start. Without it, the loader reports "cannot open shared object file". `slangc` has the RUNPATH `$ORIGIN/../lib:$ORIGIN`, so a `slangc` that runs does not show that the loader path is set.
 
@@ -229,6 +234,8 @@ On all four targets, the interface names, the bases, and the method order are id
 - Every struct layout is identical on the three 64-bit targets.
 - On `i686-pc-windows-msvc`, every method with `SLANG_MCALL` uses `__stdcall`, `slang::IMetadata::isParameterLocationUsed` uses `__thiscall` because it lacks `SLANG_MCALL` (Section 3.3), and the layout of every struct that holds a pointer differs.
 
+The generator writes the same text for every supported target from the headers of the recorded Slang (Section 6).
+
 ### 3.9. Lifetime and Threading Rules
 
 Slang documents these rules, which the safe crate has to respect and which the crate documentation of `slang-compiler-sys` states (Section 13):
@@ -244,30 +251,34 @@ The setting `SLANG_LIB_TYPE=STATIC` produces `libslang-compiler.a`. Slang's buil
 
 A build needs CMake 3.22 or newer, or 3.25 for presets, a C++17 compiler, and Ninja. Slang's documentation lists Python 3 only for spirv-tools, which the minimal build of Section 9.3 does not build. The source tree has 21 git submodules under `external/`.
 
-These facts about a minimal static build of the CMake target `slang` with the options of Section 9.3 shape the static route:
+These facts about a minimal static build of the CMake target `slang` with the options of Section 9.3 shape the vendored route:
 
-- The build compiles several hundred C++ translation units. It takes several minutes on a machine with many cores and leaves close to 1 GB under `OUT_DIR`, which is why CI does not build it (SCS-36).
+- The build compiles several hundred C++ translation units. It takes several minutes on a machine with many cores and leaves close to 1 GB under `OUT_DIR`, which is why the vendored route runs in its own CI job (SCS-62) and why the cache directory exists.
 - It runs without network access. With the default options, a configure without network access tries to download a DirectX Shader Compiler (DXC) binary and then to clone DXC. `SLANG_ENABLE_DXIL=OFF` and `SLANG_SLANG_LLVM_FLAVOR=DISABLE` stop every download of the configuration of Section 9.3.
 - `-DSLANG_VERSION_FULL=` alone breaks the configure step, with "set_target_properties called with incorrect number of arguments", because Slang's CMake then leaves `SLANG_VERSION_NUMERIC` empty. `-DSLANG_VERSION_NUMERIC=` with the numeric version fixes it. The numeric version is also part of the names of the modules that the library loads at run time.
-- Slang's build writes into its source tree. It rewrites one tracked documentation file with the same content, and it creates and removes temporary files next to its `*.meta.slang` inputs in `source/slang`. A build in a read-only source tree fails with "unable to open file for writing".
+- Slang's build writes into its source tree. It rewrites one tracked documentation file with the same content, and it creates and removes temporary files next to its `*.meta.slang` inputs in `source/slang`.
+
+  A build in a read-only source tree fails with "unable to open file for writing", and two builds in one tree race on the same temporary files.
 - The link needs six archives, in this order: `libslang-compiler.a`, `libcompiler-core.a`, `libcore.a`, `libcmark-gfm.a`, `libminiz.a`, and `liblz4.a`, followed by the C++ standard library. Without `libcmark-gfm.a`, which the documentation omits, the link fails with undefined references. `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=` puts all six in one directory.
 - `cmake --install` is unusable for the minimal build. It fails, and when forced it installs only `libslang-compiler.a`, which does not link alone, so a consumer links from the build tree.
 - The configuration needs 8 of the 21 submodules: `external/cmark`, `external/fast_float`, `external/lua`, `external/lz4`, `external/miniz`, `external/spirv-headers`, `external/unordered_dense`, and `external/vulkan`. A missing one fails at configure time with a CMake error about a missing `CMakeLists.txt`.
 - The static library compiles a shader to SPIR-V, GLSL, HLSL, WGSL, and Metal without any file at run time. The standard modules of Slang are not built, and output as SPIR-V assembly fails.
 
-The static library has no slang-glslang, which is always a separate shared module that Slang loads by name. The optimization of SPIR-V is the difference that matters by default. The pinned build validates the SPIR-V that it generates only when the environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, on either route.
+The static library has no slang-glslang, which Slang's build produces only as a separate shared module that Slang loads by name. The optimization of SPIR-V is the difference that matters by default.
 
-When the dynamic loader finds no `slang-glslang` shared library, the static build behaves as follows:
+`slang-glslang-sys` builds slang-glslang as static libraries and gives Slang a loader for them, which `slang-compiler` installs in a vendored build (`docs/design/slang-glslang-sys.md`). The recorded Slang validates the SPIR-V that it generates only when the environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, on either route.
+
+When no loader is installed and the dynamic loader finds no `slang-glslang` shared library, the static build behaves as follows:
 
 - The first generation of SPIR-V in each global session succeeds and returns diagnostics that begin `error[E00100]: failed to load downstream compiler 'spirv-opt'`, followed by notes that name the libraries that Slang could not load.
 - Later generations in the same global session succeed with no diagnostics. Slang caches the failed load for the global session.
 - The SPIR-V is not optimized, and it is not validated even when `SLANG_RUN_SPIRV_VALIDATION` is `1`.
 
-When the loader finds a `slang-glslang` shared library, the static build loads it and behaves as the dynamic route, so the output depends on the environment. Whether validation runs in that case with `SLANG_RUN_SPIRV_VALIDATION` set to `1` is not established. These facts are established for the default optimization level on x86_64 Linux only.
+When no loader is installed and the dynamic loader finds a `slang-glslang` shared library, the static build loads it and behaves as the dynamic route, so the output depends on the environment. Whether validation runs in that case with `SLANG_RUN_SPIRV_VALIDATION` set to `1` is not established. These facts are established for the default optimization level on x86_64 Linux only.
 
 ### 3.11. Findings of the Generator
 
-These facts about the headers of the pin determine rules of the generator.
+These facts about the headers of the recorded Slang determine rules of the generator.
 
 Four enumerations of `slang.h` have no name. Each one holds the values of a flag type and follows the integer typedef of that type in the header:
 
@@ -293,7 +304,7 @@ libclang has these properties that the rule set and the generator have to handle
 
 `spReflection_GetSession` has C++ linkage (Section 3.4) and matches the pattern `spReflection*`, so its exclusion has to come before that pattern in the rule set.
 
-The different signedness of an enumeration without a fixed underlying type (Section 3.8) is harmless only while every enumerator fits in `int`. An enumerator such as 0x80000000 would be negative on Windows and positive on Linux, and the generator reports it as a difference between targets (Section 7.3). No enumeration of the pinned headers has such a value.
+The different signedness of an enumeration without a fixed underlying type (Section 3.8) is harmless only while every enumerator fits in `int`. An enumerator such as 0x80000000 would be negative on Windows and positive on Linux, so the newtype of Section 5.3 would have another integer type on each, and the generator refuses it (SCS-19). No enumeration of the recorded headers has such a value.
 
 ## 4. Scope of the Bindings
 
@@ -305,9 +316,9 @@ It MUST exclude the rest of `slang-deprecated.h`, including `slang::ICompileRequ
 
 Otherwise the bindings would miss the reflection ABI (Section 3.4), expose a deprecated API that the safe crate must not use, or declare items that the library does not export or that Rust cannot express. A new exclusion from `slang.h` is a change to Section 4.3 and to the rule set in the same change.
 
-SCS-2. The binding generator MUST decide inclusion and exclusion through a checked-in rule set and MUST fail when a declaration that it reads matches no rule, because otherwise a new Slang header can add or drop API in a regeneration without any reviewer seeing a decision.
+SCS-2. The binding generator MUST decide inclusion and exclusion through the rule set of its crate and MUST fail when a declaration that it reads matches no rule, because otherwise the headers of a new Slang can add or drop API in a build without any reviewer seeing a decision. No setting of the generator or of the build script relaxes this, so the headers of a Slang other than the recorded one can make a build fail (Section 5.3 of the architecture design).
 
-SCS-3. The binding generator MUST NOT emit a declaration for a function that the library exports only under a mangled name, which for the pinned headers are `slang_getEmbeddedCoreModule`, `spReflection_GetSession`, and `slang::VariableReflection::getDefaultValueBlob`. It MUST NOT emit one for the inline C++ wrapper classes and methods of `slang.h` either.
+SCS-3. The binding generator MUST NOT emit a declaration for a function that the library exports only under a mangled name, which for the recorded headers are `slang_getEmbeddedCoreModule`, `spReflection_GetSession`, and `slang::VariableReflection::getDefaultValueBlob`. It MUST NOT emit one for the inline C++ wrapper classes and methods of `slang.h` either.
 
 A mangled name differs between compilers and is no stable link name, and an inline wrapper is not part of the ABI, so a declaration of either fails to link or calls nothing.
 
@@ -317,7 +328,7 @@ SCS-39. The binding generator MUST fail with an error that names each rule and i
 
 A rule that decides nothing records a decision about a declaration that the headers no longer have, and a reviewer who reads the rule set then believes that the bindings cover it.
 
-The rule set is the constant `SLANG` in `tools/bindings-generator/src/rules.rs`, a table of Rust values whose types in the same file are the authoritative definition of its format. Unit tests cover it (Section 7.5). It has three lists of rules, and every rule carries a reason that the generator's error messages quote:
+The rule set is the constant `SLANG` in `crates/slang-bindgen/src/rules.rs`, a table of Rust values whose types in the same file are the authoritative definition of its format. Unit tests cover it (Section 7.5). It has three lists of rules, and every rule carries a reason that the generator's error messages quote:
 
 - Declaration rules: each names an optional header, a pattern that matches the qualified C++ name of a declaration, such as `slang::TypeReflection::*`, with `*` matching any text, and whether the declaration is included or excluded. A declaration takes the first rule that matches it.
 - Macro rules: each names a pattern for an object-like macro and whether the macro becomes a result code, becomes a constant of a given Rust integer type, or is excluded (Section 5.4). A macro takes the first rule that matches it.
@@ -327,11 +338,13 @@ The rule set also names the result type `SlangResult`, the UUID type `SlangUUID`
 
 ### 4.2. Rationale
 
-This subsection is non-normative. The bindings take all of `slang.h` because the safe crate decides what it wraps, and a `-sys` crate that omits a declaration forces a regeneration for every later need.
+This subsection is non-normative. The bindings take all of `slang.h` because the safe crate decides what it wraps, and a `-sys` crate that omits a declaration forces a change of the generator for every later need.
 
 The `spReflection*` functions are the only route to reflection (Section 3.4), so they are included despite the name of their header. The compile-request API in the same header is replaced by the modern interfaces and is left out, as Section 1.5 states. The three symbols with mangled names are left out because Rust would have to hard-code a mangling that only one compiler produces.
 
-A rule set that fails on an unmatched declaration turns every new header declaration into a reviewed decision. A rule set that fails on a rule that decides nothing (SCS-39) keeps the rule set equal to the headers in the other direction. When a pin move removes a declaration, the generator names the rule that still mentions it, so the rule set never records a decision that no longer applies.
+A rule set that fails on an unmatched declaration turns every new header declaration into a reviewed decision. A rule set that fails on a rule that decides nothing (SCS-39) keeps the rule set equal to the headers in the other direction. When a new recorded Slang removes a declaration, the generator names the rule that still mentions it, so the rule set never records a decision that no longer applies.
+
+The rule set is a list of exclusions followed by broad inclusions, so the headers of a Slang release near the recorded one usually generate without a rule change (Section 15, SA-15). That is what makes another Slang version best effort and not impossible.
 
 ### 4.3. Exclusions from `slang.h`
 
@@ -365,37 +378,31 @@ This table lists the rules for the four unnamed enumerations of `slang.h` (Secti
 
 ## 5. Generated Rust
 
-### 5.1. File and Module
+### 5.1. Files and Modules
 
-SCS-5. The binding generator MUST write the bindings into the one file `crates/slang-compiler-sys/src/bindings.rs` and the list of their C functions into the one file `crates/slang-compiler-sys/tests/sys/symbols.rs`. It MUST format both with rustfmt and write them from the same parse.
+SCS-51. The build script of `slang-compiler-sys` MUST write the bindings into the file `bindings.rs` and the list of their C functions into the file `symbols.rs`, both directly under `OUT_DIR`, from one call of the generator, on every run (Section 9.4). The crate MUST declare the module `bindings` with the body `include!(concat!(env!("OUT_DIR"), "/bindings.rs"));` and re-export its items at the crate root with `pub use bindings::*;`, and its integration-test binary MUST declare the module `symbols` with the body that includes `symbols.rs` in the same way. No generated file is in the repository or in the published package.
 
-The crate MUST declare the first file as the private module `bindings` and re-export its items at the crate root with `pub use bindings::*;`. The crate MUST declare the second file as the module `symbols` of its integration-test binary.
+The bindings then always come from the headers of the Slang that the same build links, which is the only arrangement that is sound when Slang reuses vtable slots and renumbers enumerations between releases (Section 1.1). A file in the repository would be a second copy that one Slang version can make wrong for another.
 
-The regeneration check (Section 7.6) compares exactly these two files, and `check-fmt` fails on a checked-in file that rustfmt would change.
-
-Each generated item then has exactly one public path, at the crate root, as API-10 requires. The glob re-export is the one that API-10 allows a `-sys` crate for its private generated module. A hand-written list of every generated name, or of the C functions, would be a second copy of the generated names that diverges at every regeneration.
+Each generated item then has exactly one public path, at the crate root, as API-10 requires. The glob re-export is the one that API-10 allows a `-sys` crate for its private generated module. A hand-written list of every generated name, or of the C functions, would be a second copy of the generated names that diverges with every Slang version.
 
 The file `crates/slang-compiler-sys/src/lib.rs` holds these items, in this order, and no other code (FFI-1):
 
 1. The crate-level documentation (Section 13).
 2. The opt-out `#![expect(unsafe_code, reason = "...")]` (Section 5.10).
-3. The declaration `mod bindings;` with its lint exceptions (Section 5.10).
+3. The module `bindings` with its lint exceptions (Section 5.10).
 4. The re-export `pub use bindings::*;`.
-5. The inclusion `include!("../pin.rs");` of the pin (Section 8.1).
+5. The hand-written types `BuildInfo` and `Linkage` and the constant `BUILD_INFO` (Section 8.1).
 
-The check of the pointer width (Section 6) is not in `lib.rs`. The generator writes it at the top of the generated file, directly after the `//!` line, so it travels with the declarations whose layouts it protects.
+The check of the pointer width (Section 6) is not in `lib.rs`. The generator writes it at the top of `bindings.rs`, so it travels with the declarations whose layouts it protects.
 
-The checked-in `src/bindings.rs` is the output of the generator's binary on the headers of the pin. The packaged crate carries `src/bindings.rs` and `pin.rs`, which the build needs.
-
-The second generated file, `crates/slang-compiler-sys/tests/sys/symbols.rs`, holds a one-line `//!` notice that the file is generated and names the recipe `generate-bindings`. It also holds the constant `pub(super) const C_FUNCTIONS: &[(&str, *const ())]`, which pairs the name of every C function that the bindings declare with its address, in declaration order.
-
-The native-symbol test reads `symbols.rs` (Section 11). The file is never edited by hand, and the regeneration test fails on any difference (Section 7.6). The packaged crate carries it with the other tests, because the packaged tests need it.
+`symbols.rs` holds the constant `pub(super) const C_FUNCTIONS: &[(&str, *const ())]`, which pairs the name of every C function that the bindings declare with its address, in declaration order. The native-symbol test reads it (Section 11).
 
 ### 5.2. Type Mapping
 
 SCS-6. The binding generator MUST map each type by its typedef name and never by its canonical type. It maps `SlangInt` and `SlangSSizeT` to `isize`, `SlangUInt`, `SlangSizeT`, and `size_t` to `usize`, each `intN_t` to `iN`, each `uintN_t` to `uN`, and the C types `char`, `int`, and the other basic types to the types of `core::ffi`.
 
-The canonical type differs between targets (Section 3.8), and a mapping from it would write a file that is correct on one target only.
+The canonical type differs between targets (Section 3.8). A mapping by typedef name gives every supported target the same Rust types, so code that compiles against the bindings on one target compiles on every other.
 
 These are the other mappings:
 
@@ -429,7 +436,7 @@ pub const SLANG_COMPILE_FLAG_EXAMPLE: SlangCompileFlags = 8;
 
 SCS-8. The binding generator MUST evaluate macro constants through a synthetic translation unit, only for the macros on an explicit allow-list by name pattern, and MUST exclude the platform and compiler detection macros by rule.
 
-A macro definition cannot be read reliably as text, and a platform macro has a value that depends on the target that the generator parses for, so it would make the file differ between targets.
+A macro definition cannot be read reliably as text, and a platform macro has a value that depends on the target that the generator parses for, so it would give the bindings of each target a different constant.
 
 The binding generator MUST emit `SlangResult` as a `#[repr(transparent)]` newtype over `i32`, with each result code as an associated constant of that type, because a result code typed as a plain integer can be confused with any other integer, which FFI-10 forbids.
 
@@ -460,7 +467,7 @@ The generator refuses a record with a base class, a record without fields, a bit
 
 ### 5.6. Interfaces
 
-SCS-10. For each interface `I`, the binding generator MUST emit the items below, because they are the only path from Rust to the methods, and a wrong order, calling convention, or UUID compiles and fails only at run time (ARCH-13, COM-4):
+SCS-10. For each interface `I`, the binding generator MUST emit the items below, because they are the only path from Rust to the methods, and a wrong order, calling convention, or UUID compiles and fails only at run time (ARCH-33, COM-4):
 
 - A `#[repr(C)]` struct `I` whose only field is the vtable pointer.
 - A `#[repr(C)]` vtable struct whose first field is the vtable struct of the base interface. That field is followed by one `unsafe extern "system-unwind" fn` pointer for each own method in declaration order, with the interface pointer as the explicit first parameter.
@@ -500,9 +507,9 @@ The generator refuses an included function with C++ linkage, or one that the hea
 
 ### 5.8. Layout Assertions
 
-SCS-12. The binding generator MUST emit, for every struct and union, compile-time assertions of its size, its alignment, and the offset of each field, with the values that libclang reports.
+SCS-12. The binding generator MUST emit, for every struct and union, compile-time assertions of its size, its alignment, and the offset of each field, with the values that libclang reports for the target of the parse.
 
-A binding with a wrong layout otherwise compiles and corrupts memory at run time, while an assertion stops the build. The layouts are identical on the supported targets (Section 3.8), so one set of values holds on all of them.
+A binding with a wrong layout otherwise compiles and corrupts memory at run time, while an assertion stops the build. The values are the same on every supported target (Section 3.8), and an assertion that fails on one names the struct.
 
 ### 5.9. Illustration
 
@@ -543,15 +550,15 @@ impl IExample {
 }
 ```
 
-### 5.10. Repository Checks on the Generated File
+### 5.10. Lint Exceptions of the Generated Code
 
-SCS-13. The binding generator MUST emit no comment and no item documentation, only one module-level `//!` line that says the file is generated and names the recipe `generate-bindings`, because `check-rust-comments` rejects any other comment (Section 7.2 of the writing guide). The crate MUST carry the lint exception of the generated code as one `#[expect(..., reason = "...")]` on the declaration `mod bindings;`.
+SCS-13. The binding generator MUST emit no comment, no item documentation, and no inner attribute, because `include!` rejects an inner documentation comment and the crate states the meaning of the generated items in its own documentation (Section 13). The crate MUST carry the lint exception of the generated code as one `#[expect(..., reason = "...")]` on the module `bindings`.
 
-It lists exactly the lints that fire, as determined by running the checks, except `ffi_unwind_calls`, which a second `#[expect]` on the same declaration lists with its own reason. A listed lint that does not fire fails the check through `unfulfilled_lint_expectations` (Section 7.9 of the writing guide), so the list is set by running the checks.
+It lists exactly the lints that fire, as determined by running the checks, except `ffi_unwind_calls`, which a second `#[expect]` on the same module lists with its own reason. A listed lint that does not fire fails the check through `unfulfilled_lint_expectations` (Section 7.9 of the writing guide), so the list is set by running the checks.
 
-Because the file holds no other comment and no documentation, `check-rust-comments`, `check-doc-headings`, and `check-prose` read it like any other file and need no exemption, as Section 6.2 of the tooling design records. `check-fmt`, the custom checkers, `check-unused-deps`, `check-deny`, `check-doc`, and `check-miri` need no exclusion for it either. The only exclusion that the file needs is the one of SCS-14.
+The generated files are under `OUT_DIR`, so the custom checkers, `check-fmt`, typos, and the prose checker do not read them, and they need no exemption from any of these. Cargo caps the lints of a dependency from a registry, so an expectation that a user's build of another Slang version leaves unfulfilled does not reach the user.
 
-On the checked-in file, compiled as the module `bindings` of `slang-compiler-sys` with the workspace lint tables and warnings denied, exactly these lints fire:
+On the generated code of the recorded Slang, compiled as the module `bindings` of `slang-compiler-sys` with the workspace lint tables and warnings denied, exactly these lints fire (Section 15, SA-11):
 
 - `missing_docs`.
 - `non_snake_case`.
@@ -563,36 +570,30 @@ On the checked-in file, compiled as the module `bindings` of `slang-compiler-sys
 - `clippy::multiple_unsafe_ops_per_block`.
 - `clippy::similar_names`.
 
-The first lint exception on `mod bindings;` lists exactly these nine lints. Its reason says three things:
+The first lint exception on the module `bindings` lists exactly these nine lints. Its reason says three things:
 
 - The generated bindings keep the names of the Slang headers and leave the meaning of each item to Slang's documentation.
 - Their structs mirror C++ structs that Slang fills in.
 - The crate documentation states the safety contract that every generated function shares.
 
-No expectation of the list is unfulfilled on any of the four supported targets of Section 6. A check of each target with Clippy and warnings denied also proves that every layout assertion holds there. Every regeneration sets the list again by running the checks, as SCS-13 requires.
+No expectation of the list is unfulfilled on any of the four supported targets of Section 6. A check of each target with Clippy and warnings denied also proves that every layout assertion holds there. A change of the generator or of the recorded Slang sets the list again by running the checks, as SCS-13 requires.
 
 The second lint exception is `#[expect(ffi_unwind_calls, reason = "...")]`, because every thunk calls a vtable entry declared `"system-unwind"` (SCS-10). Its reason says that the thunks call vtable entries declared with the unwinding ABI, because Slang is C++ and some of its calls let an exception escape, which is undefined behaviour through a non-unwinding ABI. It is a separate attribute so that its reason states this cause, which differs from the reason of the nine lints.
 
 Some lints do not fire and are not listed:
 
-- `clippy::exhaustive_enums` does not fire, because the file has no Rust `enum` (SCS-7).
+- `clippy::exhaustive_enums` does not fire, because the generated code has no Rust `enum` (SCS-7).
 - `missing_debug_implementations` does not fire, because every generated type implements `Debug` (Section 5.11).
 
 The crate root also carries the opt-out `#![expect(unsafe_code, reason = "...")]` that Section 4.4 of the coding standard defines, because the thunks hold `unsafe` blocks. Its reason says that the generated bindings declare foreign functions and call through vtables, which only unsafe code can do.
 
 Original C++ names are kept, which is why the naming lints fire. The thunks are `unsafe fn` items whose bodies are `unsafe` blocks without safety comments, and they have no `# Safety` sections, which is why the three lints of safety documentation fire.
 
-Section 7.9 of the writing guide and UNS-6 exempt generated raw bindings from `# Safety` sections and safety comments on two conditions, which this design meets. The crate-level documentation states one safety contract that every thunk and every C function shares (Section 13). The exemption is part of the lint exception on `mod bindings;` (SCS-13).
+Section 7.9 of the writing guide and UNS-6 exempt generated raw bindings from `# Safety` sections and safety comments on two conditions, which this design meets. The crate-level documentation states one safety contract that every thunk and every C function shares (Section 13). The exemption is part of the lint exception on the module `bindings` (SCS-13).
 
-The second generated file, `tests/sys/symbols.rs` (Section 5.1), needs no lint exception. It holds one `//!` line and one constant, and no lint fires on it with the workspace lint tables and warnings denied on any of the four supported targets. The declaration `mod symbols;` in `tests/sys/main.rs` therefore carries no `#[expect]`, because an expectation there would be unfulfilled and fail the check (SCS-13).
+The module `symbols` of the integration-test binary (Section 5.1) needs no lint exception. It holds one constant, and no lint fires on it with the workspace lint tables and warnings denied on any of the four supported targets, so the module carries no `#[expect]`, because an expectation there would be unfulfilled and fail the check (SCS-13).
 
-The comment checker, the heading checker, the prose checker, and typos read it like any other file.
-
-SCS-14. `check-typos` MUST pass on the generated file through the narrowest exclusion that works, such as an entry for one identifier, and the exclusion and its reason MUST be recorded in this section. Slang identifiers are not ordinary words, and a broad exclusion, such as excluding the whole file, would stop typos from checking the generated `//!` line and any later text in the file.
-
-typos reports three identifiers of the generated file: `ISlangClonable`, `ISlangClonableVtbl`, and `SLANG_LANGAUGE_VERSION_DEFAULT`. The Slang headers misspell these names, and the bindings keep them, because each generated name has to match the header (Section 5.11).
-
-`typos.toml` accepts each of the three as a whole identifier, with an entry in its `[default.extend-identifiers]` table. Three entries for whole identifiers are narrower than excluding the file, because typos still checks every other identifier and every word of the file, including the `//!` line.
+The Slang headers misspell three identifiers that the bindings keep, `ISlangClonable`, `ISlangClonableVtbl`, and `SLANG_LANGAUGE_VERSION_DEFAULT`, because each generated name has to match the header (Section 5.11). typos does not read the generated code, so it needs no entry for them. A file of the repository that names one of them needs the narrowest entry that works.
 
 ### 5.11. Names, Derives, and Paths
 
@@ -615,75 +616,66 @@ The generated types derive these traits:
 | Unions | `Clone` and `Copy`, with an implementation of `Debug` that prints the type name only |
 | Interface structs, vtable structs, and opaque types | `Debug` |
 
-The generated file has no `use` items. It writes every name that is not in the Rust prelude with its full path, such as `::core::ffi::c_int` and `::core::mem::offset_of!`.
+The generated code has no `use` items. It writes every name that is not in the Rust prelude with its full path, such as `::core::ffi::c_int` and `::core::mem::offset_of!`. The text is not formatted, because no reader opens it in the repository and the compiler does not need it formatted.
 
 ## 6. Supported Targets and Platform Independence
 
-SCS-15. The binding generator MUST write, at the top of the generated file, a `compile_error!` under `#[cfg(not(target_pointer_width = "64"))]` that names the supported targets, so that `slang-compiler-sys` stops compilation on every target whose pointer width is not 64. On a 32-bit target, one method has another calling convention and every struct that holds a pointer has another layout (Section 3.8), so the bindings would compile and then corrupt memory.
+SCS-15. The binding generator MUST write, at the top of the generated bindings, a `compile_error!` under `#[cfg(not(target_pointer_width = "64"))]` that names the supported targets, so that `slang-compiler-sys` stops compilation on every target whose pointer width is not 64. On a 32-bit target, one method has another calling convention and every struct that holds a pointer has another layout (Section 3.8), so the bindings would compile and then corrupt memory.
 
 The supported targets are x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS. CI links the bindings against the Slang of the SDK and runs the tests that call it on x86_64 Linux, x86_64 Windows, and aarch64 macOS (Section 12).
 
-x86_64 macOS is supported by construction and is not run. Clippy with warnings denied for `x86_64-apple-darwin` type-checks the bindings and their layout assertions for that target, but nothing links or runs them there. That the bindings link and the tests pass on x86_64 macOS is therefore unverified.
+x86_64 macOS is supported by construction and is not run. Clippy with warnings denied for `x86_64-apple-darwin` generates the bindings for that target and type-checks them and their layout assertions, but nothing links or runs them there (Section 15, SA-12).
 
-32-bit targets are a non-goal that the owner can revisit. This design does not rely on whether LunarG ships 32-bit libraries on any platform.
+32-bit targets are a non-goal that the owner can revisit. The generator refuses every target that is not supported (SCS-58), so a build for a 32-bit target stops in the build script, and the `compile_error!` stays as the guard of the generated code itself.
 
-The bindings are generated once, on Linux, and the same file serves every supported target. Everything that depends on the target is expressed in the Rust source by construction:
+The bindings are generated in every build, for the target of that build (Section 9.4). Everything that depends on the target is expressed in the Rust source by construction, so the generated text is the same on every supported target:
 
 - The calling convention, through `extern "system-unwind"` and `extern "C-unwind"`, which name the C calling convention on every 64-bit target.
-- The integer typedefs, through `isize` and `usize`.
+- The integer typedefs, through `isize` and `usize` and the mapping by typedef name (SCS-6).
 - Where nothing else works, `#[cfg]`, which the generator emits only under a rule that names the case.
 
-The comparison of Section 7.3 shows that the headers of the pin need no `#[cfg]` other than the one on the `compile_error!` of SCS-15.
+The headers of the recorded Slang need no `#[cfg]` other than the one on the `compile_error!` of SCS-15 (Section 3.8).
 
-This is the check that the generator writes, directly after the `//!` line of Section 5.10:
+This is the check that the generator writes at the top of the generated bindings:
 
 ```rust
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("the Slang bindings support only 64-bit targets: x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS");
 ```
 
-The reason for the restriction is cost against benefit. Support for 32-bit targets would need a second set of layout assertions, a per-method calling convention, and a test platform that no CI job provides, for no user that the project knows of. A 64-bit restriction keeps one file correct by construction, and the `compile_error!` turns a silent memory corruption into a build error.
+The reason for the restriction is cost against benefit. Support for 32-bit targets would need a second set of layout assertions, a per-method calling convention, and a test platform that no CI job provides, for no user that the project knows of.
 
-## 7. Binding Generator
+## 7. `slang-bindgen`
 
 ### 7.1. Crate and Dependency
 
-SCS-16. The binding generator MUST be the workspace member `tools/bindings-generator`, with `publish = false`, and MUST use the crate `clang` with the features `runtime` and `clang_10_0` and no unsafe code of its own.
+SCS-57. The binding generator MUST be the published library crate `slang-bindgen` in `crates/slang-bindgen`, with a thin binary, and MUST use the crate `clang` with the features `runtime` and `clang_10_0` and no unsafe code of its own. With `runtime`, the generator loads libclang when it runs and not when it is compiled, so every crate that compiles it builds without libclang, and the error of a missing libclang comes from the generator with advice (Section 7.7). A generator without unsafe code needs no exception to Hard Rule 7 of `AGENTS.md`.
 
-With `runtime`, the generator loads libclang only when it runs, so the workspace still builds and passes its checks on a machine without libclang. A generator without unsafe code needs no exception to Hard Rule 7 of `AGENTS.md`.
+`slang-compiler-sys` is published and runs the generator in its build script, so the generator has to be published with a version, and its shim headers have to be part of its package. The generator finds its shim headers at run time through the directory of its package, which it takes from `env!("CARGO_MANIFEST_DIR")` when it is compiled, and which holds the unpacked package of a registry crate.
 
-The crate `clang` 2.1.0 exposes everything the generator needs through its safe API. It wraps only the libclang API up to clang 10, which is enough.
+The crate `clang` 2.1.0 exposes everything the generator needs through its safe API. It wraps only the libclang API up to clang 10, which is enough. It finds libclang through `LIBCLANG_PATH` and then the standard locations of each platform.
 
-Only one instance of its `Clang` type may exist in a process, so the generator creates one instance per run and passes it to every parse. The crate `clang-sys`, used directly, would need unsafe code.
+Only one instance of its `Clang` type may exist in a process, so the generator creates one instance for each call of `generate`. A build script calls it once, and the crate `clang-sys`, used directly, would need unsafe code.
 
-The generator is an application, so ERR-1 and ERR-2 do not apply to it (Section 1.1 of the coding standard). It opts out of `clippy::print_stderr` at its binary root as Section 4.4 of the coding standard describes.
+The generator's binary is an application, so ERR-1 and ERR-2 do not apply to it (Section 1.1 of the coding standard). It opts out of `clippy::print_stderr` at its binary root as Section 4.4 of the coding standard describes. The library follows ERR-1 and ERR-2.
 
 ### 7.2. Parsing
 
-SCS-17. The binding generator MUST parse `slang.h` at `-std=c++17` once for each of the targets `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, and `aarch64-apple-darwin`, each with `-nostdinc` and the shim headers that the generator's crate checks in. It MUST fail when any parse reports a diagnostic of error severity or above, because libclang returns a translation unit even after a fatal diagnostic, and the model of that translation unit is silently wrong (Section 3.8).
+SCS-58. The binding generator MUST parse `slang.h` at `-std=c++17` once, for the target that its caller names, with `-nostdinc` and the shim headers of its crate. It MUST fail with an error of kind `Target` when that target is not one of the four supported targets of Section 6. It MUST fail when the parse reports a diagnostic of error severity or above, because libclang returns a translation unit even after a fatal diagnostic, and the model of that translation unit is silently wrong (Section 3.8).
 
-The shim headers, under `tools/bindings-generator/shim/`, provide `stdint.h`, `stddef.h`, `inttypes.h`, `features.h`, and `TargetConditionals.h` on top of the compiler's predefined macros. The parse for Linux also uses them, so that no parse depends on the system headers of the machine that runs the generator. Each parse passes libclang the arguments `-x c++ -std=c++17 -target <target> -nostdinc -isystem <shim directory> -I<header directory>`.
+One parse is all that a build needs, because the bindings are generated for the target of the build. A target outside the supported four has no tested layout, and an attempt there would turn an unknown target into bindings that nothing has checked.
 
-The generator evaluates macro constants (Section 5.4) and default member initializers (Section 5.5) through one synthetic translation unit for each target. That unit includes `slang.h` and declares one `constexpr auto` variable for each value to evaluate.
+The shim headers, under `crates/slang-bindgen/shim/`, provide `stdint.h`, `stddef.h`, `inttypes.h`, `features.h`, and `TargetConditionals.h` on top of the compiler's predefined macros. The parse uses them on every target, so that no parse depends on the system headers of the machine that runs the generator. The parse passes libclang the arguments `-x c++ -std=c++17 -target <target> -nostdinc -isystem <shim directory> -I<header directory>`.
+
+The generator evaluates macro constants (Section 5.4) and default member initializers (Section 5.5) through one synthetic translation unit. That unit includes `slang.h` and declares one `constexpr auto` variable for each value to evaluate.
 
 An initializer of `nullptr` or `{}` is not evaluated and maps as Section 5.5 states. Any other initializer that libclang cannot evaluate is a failure.
 
-Before it parses, the generator reads `SLANG_TAG_VERSION` from `slang-tag-version.h` in the same directory. It fails when the value differs from the build tag of the pin (Section 8.1), because bindings generated from headers that do not match the pin would be checked in under the wrong version.
+The generator does not read `slang-tag-version.h` and checks no version. The build script reads the build tag itself (Section 9.2), and the generator generates whatever headers it is given, within its rule set (SCS-2).
 
-It reads every line that starts with `#define SLANG_TAG_VERSION` and compares the value of the last such line. It fails when the file cannot be read, when no such line exists, or when the value on such a line is not exactly one string literal.
+### 7.3. Refused Constructs
 
-### 7.3. Comparing Targets
-
-SCS-18. The binding generator MUST compare the models of all parses and MUST accept only the differences that it has a rule for. These are a different canonical type behind the same typedef name and a different signedness of an enumeration without a fixed underlying type.
-
-It MUST fail on any other difference, because an unexpected difference means that one file cannot be correct on every target.
-
-The comparison works on the models after selection. Both accepted differences disappear from the compared models:
-
-- The model records a type behind a typedef by the typedef's name (SCS-6), so its canonical type is not compared.
-- The signedness of an enumeration without a fixed underlying type is ignored, while its enumerator values are compared, which catches the case of Section 3.11.
-
-SCS-19. The binding generator MUST fail, for each supported target, on every included declaration that uses a construct that the generated form of Section 5 cannot express, and on a declaration that matches no rule of Section 4.1.
+SCS-19. The binding generator MUST fail, for the target of the parse, on every included declaration that uses a construct that the generated form of Section 5 cannot express, and on a declaration that matches no rule of Section 4.1.
 
 Each such construct has an ABI or a layout that the generated Rust would get wrong without any error. On the Microsoft ABI, for example, a member function returns an aggregate through a hidden pointer, so a vtable entry written as a plain return would read garbage.
 
@@ -696,7 +688,7 @@ These are the constructs that SCS-19 refuses. Section 7.5 describes the tests.
 - A method that is not pure virtual, and a method that has the name of another method of the interface or of a base.
 - A class with virtual methods and no UUID, an interface whose UUID the generator cannot read, and an interface when the bindings lack the struct `SlangUUID` with four fields.
 - A record with a base class, a record without fields, a bit-field, a default member initializer in a union, a `nullptr` initializer on a field that is not a pointer, and an anonymous record outside a record.
-- An enumeration without a fixed underlying type whose size is not 4 bytes, and an enumeration whose underlying type is not an integer type.
+- An enumeration without a fixed underlying type whose size is not 4 bytes, an enumeration without a fixed underlying type that has an enumerator outside the range of `int`, and an enumeration whose underlying type is not an integer type.
 - An included function with C++ linkage, or one that the header defines or declares `inline`.
 - An excluded type that an included declaration uses by value.
 - A type that the generator does not map, such as `void` outside a pointer, and a name that is not a type or that the headers do not declare.
@@ -705,38 +697,41 @@ These are the constructs that SCS-19 refuses. Section 7.5 describes the tests.
 - A result code macro when the bindings lack the typedef `SlangResult`, and a `SlangResult` that is not a typedef of a 32-bit signed integer.
 - A variable that is not a compile-time constant, and a declaration of any other kind that a rule includes.
 
+The refusal of an enumerator outside the range of `int` keeps the Rust type of each enumeration the same on every target, which a newtype over `u32` on one target and over `i32` on another would break (Section 3.11).
+
 The generator reports each one with the declaration, its location, and the reason (Section 7.7). It also fails on values that it cannot evaluate or that do not fit their type (Sections 5.4 and 5.5), and on two items with one Rust name (Section 5.11).
 
-None of these cases occurs among the included declarations of the pin. The method `slang::IMetadata::isParameterLocationUsed` lacks `SLANG_MCALL`, but libclang reports the C calling convention for it on every supported target, as for every other method, so SCS-19 accepts it.
+None of these cases occurs among the included declarations of the recorded Slang on any supported target. The method `slang::IMetadata::isParameterLocationUsed` lacks `SLANG_MCALL`, but libclang reports the C calling convention for it on every supported target, as for every other method, so SCS-19 accepts it.
 
 ### 7.4. Library and Binary
 
-The generator is a library with a thin binary. The library's public API is:
+SCS-59. The library of `slang-bindgen` MUST return the two generated texts to its caller and MUST NOT write files, start a process, or format the text. It MUST NOT write any comment or inner attribute into either text (SCS-13). A build script that runs a formatter would add a process, a time limit, and a failure mode to every user's build for text that nobody reads, and an inner documentation comment breaks `include!`.
 
-- The function `generate`, which takes the header directory and returns `Result<Generated>`.
-- The struct `Generated`, which is `#[non_exhaustive]` and holds the two generated texts in the public fields `bindings` and `symbols`, both from the same parse. Its method `files` returns each text paired with the path of its file relative to the root of the repository.
-- The constants `BINDINGS_PATH`, which is `crates/slang-compiler-sys/src/bindings.rs`, and `SYMBOLS_PATH`, which is `crates/slang-compiler-sys/tests/sys/symbols.rs`.
+The library's public API is:
+
+- The function `generate`, which takes the header directory and the target triple and returns `Result<Generated>`.
+- The struct `Generated`, which is `#[non_exhaustive]` and holds the two generated texts in the public fields `bindings` and `symbols`, both from the same parse.
+- The constant `SUPPORTED_TARGETS`, the list of the four target triples of Section 6.
 - The types `Error`, `ErrorKind`, and `Location` with the alias `Result` (Section 7.7).
-- The module `pin`, which includes the pin file (Section 8.1).
-
-The binary takes the header directory `$VULKAN_SDK/include/slang`, calls `generate`, and writes each text that `files` returns to its path, relative to the root of the repository.
 
 The library has these private modules:
 
 - `parse` turns one parse of libclang into a model.
 - `rules` holds the rule set.
-- `check` selects the declarations by the rules, validates the selection against every refusal of SCS-19 for each target, and compares the targets.
-- `emit` writes the Rust text and formats it with `rustfmt --edition 2024` on standard input.
+- `check` selects the declarations by the rules and validates the selection against every refusal of SCS-19.
+- `emit` writes the Rust text.
 - `model` defines the model.
 - `error` defines the error type.
 
-The function of `emit` that runs rustfmt stops it and fails when it does not finish within 60 seconds, so that a stalled rustfmt cannot hang a regeneration. The same limit bounds the wait for rustfmt's standard streams, which a process that rustfmt started can hold open after rustfmt exits or is stopped. The function therefore waits for them on threads that it does not join, and returns when the limit passes.
+SCS-60. The binary of `slang-bindgen` MUST take a header directory, a target triple, and an output directory, call `generate`, and write the two texts as `bindings.rs` and `symbols.rs` into the output directory, creating it when it is absent. It MUST call the same library function with the same inputs as the build script of `slang-compiler-sys`, so that a file that it writes equals the code that a build of the same headers and target compiles.
 
-That function takes the program, its arguments, and the time limit as parameters only for its tests.
+The binary exists for the checker `check-slang-call-guard`, which reads the names of Slang's C functions and thunks from the generated bindings (Section 6.9 of the tooling design) and has no file in the repository to read them from any more. The recipe `check-slang-call-guard` runs the binary on `$VULKAN_SDK/include/slang` for the target of the host, into `target/slang-bindgen/`, and passes `target/slang-bindgen/bindings.rs` to the checker. The checker then reads the bindings of the Slang that CI and the development container install, which is the recorded Slang, and its result depends only on those headers.
 
-The `ffi` tests of Section 7.5 run a missing program and `sh` in place of rustfmt. They reach the errors of a program that cannot start, fails before it reads its input, succeeds without reading its input, writes text that is not UTF-8, or does not finish in time. They also reach the cases of a process that rustfmt started holding its streams, and of streams that stay open after rustfmt exits.
+This illustration shows the command that the recipe runs in the development container, with the path of the SDK as a placeholder:
 
-SCS-20. The binary of the binding generator and the regeneration test of Section 7.6 MUST call the same library function with the same inputs. Only then does the test prove that the checked-in file equals the output of the binary, because both take the same path through the code.
+```sh
+cargo run --quiet -p slang-bindgen -- /tmp/vulkan-sdk/x86_64/include/slang x86_64-unknown-linux-gnu target/slang-bindgen
+```
 
 ### 7.5. Tests
 
@@ -746,66 +741,30 @@ The tests in the generator's `ffi` modules parse small synthetic headers with li
 - The mapping of types, references, callbacks, and enumerations, with the ABI strings of SCS-10, SCS-11, and Section 5.2, and the constants of unnamed enumerations.
 - The evaluation of macros and default member initializers, including floating-point values.
 - Opaque types, layout assertions, unions, and nested anonymous records.
-- The accepted and rejected differences between targets of Section 7.3, and determinism.
+- The same text for each of the four supported targets, the refusal of an unsupported target, and determinism.
 - Every refusal of SCS-19, and the failures on a declaration or macro that matches no rule and on a stale rule (SCS-39).
-- The generated list of C functions of Section 5.1.
-- The check of the build tag, and the error when a process already holds libclang.
+- The generated list of C functions of Section 5.1, and the absence of any comment or inner attribute in either text.
+- The error when a process already holds libclang.
+- The binary, on a synthetic header, writing both files into a new directory.
 
-The `ffi` modules also hold the tests that start a process, such as `rustfmt` or `sh`, because Miri cannot start a process (Section 7.4).
+The other tests are pure Rust and also run under Miri. They cover the matching of rule patterns, the lookups in the rule set, the value checks of the validator, the formatting of literals, the escaping of names, and the error type.
 
-The other tests are pure Rust and also run under Miri. They cover the matching of rule patterns, the lookups in the rule set, the reading of `slang-tag-version.h`, the value checks of the validator, the comparison of targets, the formatting of literals, the escaping of names, and the error type.
+SCS-21. Every test of the generator that loads libclang MUST sit in a module named `ffi` and MUST be compiled only for Linux targets. Miri cannot call libclang (Section 11), and the text that the tests check does not depend on the host, because every parse uses the shim headers and names its target. The build of `slang-compiler-sys` on each CI platform runs the generator on the real headers there (Section 12).
 
-SCS-21. Every test of the generator that loads libclang MUST sit in a module named `ffi` and MUST be compiled only for Linux targets. Miri cannot call libclang (Section 11), and the Windows and macOS runners are not required to provide libclang, so such a test would fail there without a defect in the code.
-
-The `ffi` modules are compiled under `#[cfg(target_os = "linux")]`, so they do not run on Windows or macOS at all, and they never report a skipped run as a pass. On Linux, a test that finds no libclang fails. The Linux jobs `check` and `coverage` of the CI workflow provide libclang (Section 12).
+The `ffi` modules are compiled under `#[cfg(target_os = "linux")]`, so they do not run on Windows or macOS at all, and they never report a skipped run as a pass. On Linux, a test that finds no libclang fails.
 
 Only one `Clang` instance may exist per process (Section 7.1), so each test that loads libclang holds a static mutex for its whole run. nextest runs each test in its own process. A run through `cargo test`, which runs the tests of one binary on several threads in one process, also works.
 
-### 7.6. Recipes and Regeneration Check
+### 7.6. Why No Regeneration Test
 
-The regeneration check is the test `checked_in_bindings_equal_a_regeneration_from_the_vulkan_sdk`. It is in the module `ffi` of the generator crate's one integration-test binary, the suite `generator` under `tools/bindings-generator/tests/generator/` (TEST-10), whose root `main.rs` declares that module for Linux targets only (SCS-21).
+This subsection is non-normative. No test compares generated bindings with a file, because no generated file exists outside `OUT_DIR`. The build itself gives the checks that such a comparison would give:
 
-The test calls the library function `generate` on `$VULKAN_SDK/include/slang`, as the binary does (SCS-20). It compares each text that `Generated::files` returns byte for byte with its checked-in file, which are `crates/slang-compiler-sys/src/bindings.rs` and `crates/slang-compiler-sys/tests/sys/symbols.rs` (Section 7.4). It compares both files before it fails, so one failure names every file that differs.
+- Every build of `slang-compiler-sys` generates the bindings, so a defect of the generator that makes the text fail to compile fails the build, the checks, and CI on every platform.
+- The layout assertions (SCS-12) compare every struct with what libclang reports for the target.
+- The native-symbol test references every C function of the generated list (Section 11), and the smoke test calls Slang through a vtable.
+- `slang-compiler` and its tests compile against the generated items, so a renamed or missing item fails them.
 
-It is the first test of TEST-8. It holds the regenerated text in memory, which TEST-8 allows, because a comparison in memory needs no file.
-
-SCS-22. The regeneration test MUST fail, and MUST NOT skip, when `VULKAN_SDK` is unset, when the headers are missing, or when libclang cannot be loaded, and it is subject to SCS-21. A check that passes when it cannot run lets bindings that differ from the headers reach the main branch.
-
-The test panics with a message for each cause of failure, and nextest reports the panic as a failed test:
-
-| Cause | The message contains |
-| --- | --- |
-| `VULKAN_SDK` is unset or empty | "VULKAN_SDK is not set, so the bindings cannot be regenerated", and the pinned SDK version |
-| `generate` fails, such as when the header directory is missing or libclang cannot be loaded | "cannot regenerate the bindings:", followed by the error and each of its source errors (Section 7.7) |
-| A checked-in file cannot be read | "cannot read", followed by the path of the file and the error |
-| A regenerated text differs from its checked-in file | For each file that differs, the path of the file and the header directory, then the number of the first line that differs with that line from both texts, or the line count of each text when one text continues after the other ends, or that the texts differ only in line endings or in the final newline. The message ends with "The generated files are never edited by hand, so run `just generate-bindings` and commit the regenerated files together with the change that caused the difference" |
-
-The test runs in the default test tier, so `test`, `test-gpu`, and therefore `just check` run it on Linux, through `test-gpu` in `check-rust`. The Windows and macOS runners compile the crate with the checked-in bindings and never regenerate.
-
-The development container and the hosted Linux runner can have different versions of libclang. CI installs the libclang package of the runner's distribution (Section 7.1 of the tooling design), and the regeneration test detects a version of libclang that changes the output.
-
-These recipes exist, with the names and groups of Section 3.2 of the tooling design:
-
-- `generate-bindings`, in the group `rust`: Runs the generator's binary, which overwrites both generated files, `crates/slang-compiler-sys/src/bindings.rs` and `crates/slang-compiler-sys/tests/sys/symbols.rs`, from the headers at `VULKAN_SDK`. It needs `VULKAN_SDK`, libclang, and rustfmt, and the binary fails with a message that names `VULKAN_SDK` when the variable is unset or empty (Section 18.2).
-- `check-bindings`, in the group `checks`: Runs the regeneration test alone, through the nextest command of Section 4.8 of the coding standard with a filter expression that selects only that test, and with `--no-tests=fail` in place of `--no-tests=warn`.
-
-`check-bindings` passes `--no-tests=fail` under the departure that TOOL-7 of the tooling design permits and explains, so that it never passes without having run the test, as SCS-22 requires. On Windows and macOS, the recipe fails, because it selects no test there. `check` does not run `check-bindings`, because `test-gpu` runs the same test, and no CI job runs it.
-
-`check-bindings` starts the test binaries of the workspace through nextest, which runs each binary to list its tests. The test binary of `slang-compiler-sys` loads Slang when it starts, so the recipe carries the library path of Section 10.
-
-This command regenerates the bindings in the development container:
-
-```sh
-just generate-bindings
-```
-
-This command runs the regeneration test alone:
-
-```sh
-just check-bindings
-```
-
-A hand edit of either generated file makes the regeneration test fail, which enforces COM-9. An agent that changes the generator, its rule set, or the pin runs `generate-bindings` and commits both regenerated files in the same change.
+A comparison would also give a reviewed diff of the bindings when the recorded Slang moves. A reviewer gets that diff by running the binary of SCS-60 on the old and new headers and comparing the outputs, as Section 8.2 describes.
 
 ### 7.7. Error Reporting
 
@@ -815,130 +774,105 @@ The location is the file name without its directory and the line. Its method `ki
 
 | Kind | Failure |
 | --- | --- |
-| `Io` | The header directory cannot be read |
+| `Io` | The header directory or the shim directory cannot be read |
 | `Libclang` | libclang cannot be loaded or cannot parse a file |
-| `Diagnostic` | A parse reports a diagnostic of error severity or above (SCS-17) |
-| `Version` | `slang-tag-version.h` is unreadable, lacks the build tag, has a malformed one, or has another one than the pin (Section 7.2) |
+| `Target` | The target is not one of the supported targets (SCS-58) |
+| `Diagnostic` | The parse reports a diagnostic of error severity or above (SCS-58) |
 | `UnmatchedDeclaration` | Declarations or macros match no rule (SCS-2) |
 | `StaleRule` | Rules decide nothing (SCS-39) |
 | `Unsupported` | An included declaration uses a construct of SCS-19 |
-| `TargetDifference` | The models of two targets differ in a way that no rule accepts (SCS-18) |
 | `Evaluation` | A macro or a default member initializer cannot be evaluated or does not fit its type |
 | `NameCollision` | Two generated items would have the same Rust name (Section 5.11) |
-| `Rustfmt` | rustfmt cannot be started, fails, or does not finish or close its standard streams within 60 seconds |
 
-The errors of `UnmatchedDeclaration` and `StaleRule` list every unmatched declaration and every stale rule at once, so that one run shows the whole change to the rule set.
-
-When rustfmt fails, the message holds its exit status and its standard error. When it does not finish in time, the message says that the generator stopped it. When its standard streams stay open past the limit after it exits, the message says so.
+The errors of `UnmatchedDeclaration` and `StaleRule` list every unmatched declaration and every stale rule at once, so that one run shows the whole change to the rule set. The error of `Target` names the target and the supported targets.
 
 When libclang cannot start, the message says which of two cases applies:
 
-- libclang cannot be loaded. The message gives the reason and advises to install libclang or set `LIBCLANG_PATH`.
+- libclang cannot be loaded. The message gives the reason and advises to install libclang or set `LIBCLANG_PATH` to the directory that holds it.
 - The process already holds a libclang instance or failed to load libclang before. The message advises to generate the bindings once per process and from one thread.
 
 The binary prints the error and each source error, one per line, to standard error and exits with a failure status.
 
-## 8. The Pin
+## 8. Build Information
 
-### 8.1. Pin File
+### 8.1. Build Information Constant
 
-SCS-23. The pin MUST be recorded only in `crates/slang-compiler-sys/pin.rs`, as three Rust constants that hold the Vulkan SDK version, `1.4.363.1`, the Slang build tag, `2026.17-25-gc7954ebd1`, and the full Slang commit, `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`. The build script, the crate, and the generator MUST read it with `include!`, and recipes and the CI workflow MUST read it through a `just` recipe that prints its values.
+SCS-53. `slang-compiler-sys` MUST expose the constant `BUILD_INFO` of the type `BuildInfo`, whose values the build script writes into the file `build_info.rs` under `OUT_DIR` and the crate includes, and MUST NOT derive any of them from `cfg(feature = "vendored")` in the crate. The values describe the Slang that the build generated its bindings from and links, which only the build script knows, and the safe crate compares the Slang loaded at run time with them (Section 6.3 of `docs/design/slang-compiler.md`).
 
-ARCH-9 forbids a second copy of the pin, and a consumer that restates a value checks against a copy that can diverge.
+`BuildInfo` is a `#[non_exhaustive]` struct with these public fields, and `Linkage` is a `#[non_exhaustive]` enumeration with the variants `Dynamic` and `Static`. Both derive `Clone`, `Copy`, `Debug`, `PartialEq`, and `Eq`.
 
-This answers Q-6 of the architecture design. The file is Rust, so the build script reads it without a parser dependency. It lies inside the package directory, so it ships in the published crate, where the build script needs it.
+| Field | Type | Value |
+| --- | --- | --- |
+| `slang_build_tag` | `&'static str` | The build tag of the Slang of the build: `SLANG_TAG_VERSION` of the SDK on the dynamic route, and the build tag of `slang-src` on the vendored route |
+| `slang_commit` | `Option<&'static str>` | The full commit of the source tree on the vendored route, and `None` on the dynamic route, where the SDK records no full commit |
+| `linkage` | `Linkage` | `Dynamic` on the dynamic route and `Static` on the vendored route |
+| `version` | `&'static str` | The full version of the build, in the form below |
 
-The constants are `VULKAN_SDK_VERSION`, `SLANG_BUILD_TAG`, and `SLANG_COMMIT`, each a `pub const` of type `&str` with its own documentation. The crate root includes `pin.rs` with `include!("../pin.rs")`, so the constants are public items of `slang-compiler-sys`, and the smoke test and the safe crate read the pin from the crate.
+`version` is a Semantic Versioning 2.0.0 version made of the version of `slang-compiler-sys`, a plus sign, and build metadata that names the Slang and the route: `slang`, the Slang identifiers of the build tag, and `dynamic` or `vendored`. The Slang identifiers are those that SRC-13 of the `slang-src` design derives from a build tag, without the abbreviation of the hash, which a build tag already carries.
 
-These constants are the only way the crate exposes the pin, and the generator writes no copy of the pin into `src/bindings.rs`. The generator includes `pin.rs` by a path relative to its own source, as its public module `pin`.
-
-The recipe `pin`, in the group `rust`, prints the three constants as `NAME=value` lines, in the order above. It fails with a message that names the file and the constant when `pin.rs` does not define one of them as a string constant. This command prints the pin:
-
-```sh
-just pin
-```
-
-It prints:
+These are the values for the recorded Slang on each route, with `0.1.0` as an illustration of the crate version:
 
 ```text
-VULKAN_SDK_VERSION=1.4.363.1
-SLANG_BUILD_TAG=2026.17-25-gc7954ebd1
-SLANG_COMMIT=c7954ebd1f1984ad2bfde15f76248db41dc34aa3
+0.1.0+slang.2026.17.0.25.gc7954ebd1.dynamic
+0.1.0+slang.2026.17.0.25.gc7954ebd1.vendored
 ```
 
-The recipe reads only lines of the exact form `pub const NAME: &str = "value";`, so a change to the form of `pin.rs` makes it fail instead of printing a wrong value.
+A build tag of an installed SDK that does not have the form of SRC-12 of the `slang-src` design gives the build metadata `slang`, the build tag with every character other than an ASCII letter, a digit, or a hyphen replaced by a hyphen, and the route. The build tag itself is in `slang_build_tag` unchanged.
 
-The recipe runs on every CI runner, because every job reads the pin through it (Section 12). It runs on bash 3.2, which has no associative arrays and is the bash of the hosted macOS runner. It accepts lines that end in CRLF, as a checkout on Windows can have.
+`version` lets a program print one string that says which Slang it uses and how, and the build metadata, which Cargo ignores, is the place in a SemVer version for that information. The word `vendored` in it names the Cargo feature that a user enables to get the route, while `Linkage` names how Slang is linked.
 
-It also works when `just` runs from a subdirectory of the repository.
+The documentation of these hand-written public items follows Section 7 of the writing guide in full. They are, with the generated items, the whole public API of the crate (FFI-1).
 
-The expected SHA-256 checksums of the SDK downloads are not part of the pin and are not in `pin.rs`. They are recorded in the CI workflow file, as Section 7.3 of the tooling design states, and they change in the same change as the pin (ARCH-10).
+### 8.2. Moving the Recorded Slang
 
-### 8.2. Updating the Pin
+ARCH-30 of the architecture design governs a move of the recorded Slang. The agent that moves it takes these steps in one change:
 
-ARCH-10 to ARCH-12 of the architecture design govern a change of the pin. The agent that moves the pin takes these steps:
-
-1. Edit `pin.rs`.
-2. Install the new SDK.
-3. Run `just generate-bindings`.
-4. Update the checksums in the workflow.
-5. Fix what the regeneration breaks, and run every check.
-
-The generator then fails on any new declaration that its rule set does not cover (SCS-2), on any rule whose declaration the headers no longer have (SCS-39), and on any new construct that Section 5 cannot express (SCS-19). The layout assertions are regenerated from the new headers.
+1. Run the binary of SCS-60 on the headers of the current SDK and keep the output, for the diff of step 6.
+2. Change the Vulkan SDK version and its checksums in the CI configuration (Section 7.3 of the tooling design).
+3. Change `RECORDED_COMMIT` and `RECORDED_BUILD_TAG` in `crates/slang-src/recorded.rs`, and the manifest version of `slang-src` as SRC-13 of the `slang-src` design defines, together with the exact requirement of every crate that depends on it.
+4. Install the new SDK in the development container, or wait for the image that provides it.
+5. Run every check, and fix what the new headers break: a declaration that no rule covers (SCS-2), a rule whose declaration the headers no longer have (SCS-39), a construct that Section 5 cannot express (SCS-19), a lint expectation of SCS-13, and the safe crates.
+6. Run the binary of SCS-60 on the new headers and review the diff against the output of step 1.
+7. Run the vendored CI job on every platform (SCS-62).
 
 ## 9. Build Script
 
 ### 9.1. Route Selection
 
-SCS-24. The build script MUST select its route in this order:
+SCS-50. `slang-compiler-sys` MUST have exactly one Cargo feature, `vendored`, which is off by default and enables the optional dependency `slang-src`. The build script MUST take the vendored route of Section 9.3 when the feature is on, which it reads from `CARGO_FEATURE_VENDORED`, and the dynamic route of Section 9.2 otherwise. It MUST NOT select a route by any other input, such as an environment variable, because every additional input is another way to link a Slang that nobody chose.
 
-1. When `DOCS_RS` is present in the environment, it returns at once, as Section 9.4 states.
-2. Otherwise, when `SLANG_SOURCE_DIR` is present, it takes the static route and does not read `VULKAN_SDK`.
-3. Otherwise, it takes the dynamic route.
+The owner decided that static linking is the opt-in feature `vendored`, so that a default build stays fast and small and a vendored build is visible in the manifest of whoever asks for it. Cargo unifies features, so a crate in the user's graph that enables `vendored` makes the whole build vendored, which matches what linking means: one build graph links one Slang, as `links = "slang-compiler"` requires.
 
-It MUST NOT select a route by any other input, because every additional input is another way to link a Slang that nobody chose (SYS-7).
+The feature is not additive in the strict sense of DEP-1, because it replaces the dynamic link with a static one. It never removes an item of the API, so code that compiles without it compiles with it, which is the property that unification needs.
 
-`slang-compiler-sys` has no Cargo features. This answers Q-7, Q-8, and Q-9 of the architecture design and TQ-2 of the tooling design: the environment variable `SLANG_SOURCE_DIR` selects the static route, and the static route does not read `VULKAN_SDK`. The checks that pass `--all-features` and the feature matrix of `check-features` therefore never build Slang from source.
+Every crate between a user and `slang-compiler-sys` forwards the feature under the same name, so a user enables it on the crate they depend on. `--all-features` enables it, so the recipes of this repository pass an explicit list of features instead (Section 3.2 of the tooling design).
 
-The route is selected through the environment for these reasons:
+The build script never falls back from one route to the other. A user who enabled `vendored` and silently got a dynamic link would ship a program that needs the shared library at run time, and a user without the feature who silently got a vendored build would pay for a long native build and a network clone.
 
-- Every routine check passes `--all-features`, so a feature for the static route would force a native build of several hundred C++ files into Clippy, the documentation build, the doctests, and the tests.
-- Cargo features must be additive (DEP-1), and how the native library is linked is a choice between options that exclude each other, not an addition.
-- The choice belongs to whoever builds the final program, who controls the environment, and not to an intermediate dependency that requests a feature in its manifest.
+This illustration shows a dependency of a user's crate on `slang-compiler` with the feature:
 
-The cost is that a crate cannot request static linking in its manifest, though a project can set the variable in the `[env]` table of its `.cargo/config.toml`.
-
-The build script implements this order in the function `configure` of `route.rs` (Section 9.7). It reads `DOCS_RS`, then `SLANG_SOURCE_DIR`, then `VULKAN_SDK`. It treats a variable as present when the environment contains it, whatever its value, including an empty value.
-
-A present `SLANG_SOURCE_DIR` selects the static route of Section 9.3, whatever its value. The build script never falls back from it to the dynamic route, as ARCH-7 of the architecture design and SCS-27 require. A user who set the variable asked for a statically linked Slang, and a silent dynamic link would give that user a program that needs the shared library at run time.
-
-This illustration shows the command that builds the workspace on the static route from a clean git checkout of the pinned commit at `/tmp/slang`:
-
-```sh
-SLANG_SOURCE_DIR=/tmp/slang cargo build
+```toml
+[dependencies]
+slang-compiler = { version = "0.1", features = ["vendored"] }
 ```
 
 ### 9.2. Dynamic Route
 
-SCS-25. On the dynamic route, the build script MUST read `$VULKAN_SDK/include/slang/slang-tag-version.h` and extract the string that `SLANG_TAG_VERSION` defines. It MUST stop the build with the message of Section 9.6 when the file cannot be read, when the definition is missing or malformed, or when the string differs from the build tag of the pin.
+SCS-52. On the dynamic route, the build script MUST read `$VULKAN_SDK/include/slang/slang-tag-version.h`, extract the string that `SLANG_TAG_VERSION` defines, and record it as the build tag of the build information (SCS-53). It MUST stop the build with the message of Section 9.6 when the file cannot be read or when the definition is missing or malformed. It MUST NOT compare the build tag with any recorded version.
 
-It MUST NOT accept any setting that bypasses this check, because a library of another Slang build has layouts and vtables that differ from the checked-in bindings, which is undefined behaviour at run time (SYS-6).
+The bindings are generated from the headers of the same SDK, so the declarations match the library whatever its version, and a gate on one version would refuse a Slang that the build can serve. The run-time check of the safe crate compares the library that the program loads with this record, which catches a library that the loader found somewhere other than the SDK of the build (Section 6.3 of `docs/design/slang-compiler.md`). Another Slang version than the recorded one is best effort, as the crate documentation states (Section 5.3 of the architecture design).
 
-This answers Q-1 of the architecture design. The headers do not record the SDK version (Section 3.6), so the build script cannot check it. The build tag contains the abbreviated Slang commit, and the bindings depend only on Slang, so two SDKs that ship the same Slang build are equivalent for this crate.
+The build script reads the header with these rules. It reads every line whose first two words are `#define` and `SLANG_TAG_VERSION`, and takes the value of the last such line. It requires the rest of such a line to be exactly one string literal that holds no quotation mark and no control character, and it accepts lines that end in CRLF.
 
-The safe crate compares `spGetBuildTagString()` with the pin at run time, and the smoke test of Section 11 asserts the same.
-
-The build script reads the header with the rules that the generator uses (Section 7.2).
-
-It reads every line whose first two words are `#define` and `SLANG_TAG_VERSION`, and compares the value of the last such line. It requires the rest of such a line to be exactly one string literal that holds no quotation mark, and it accepts lines that end in CRLF. A missing definition and a malformed one are separate failures of Section 9.6, and the message of a malformed one names its line.
+A missing definition and a malformed one are separate failures of Section 9.6, and the message of a malformed one names its line.
 
 SCS-40. On the dynamic route, the build script MUST stop the build with the message of Section 9.6 when `VULKAN_SDK` is absent or empty. It MUST also stop the build when the value is not valid UTF-8, contains a line feed or a carriage return, or is not an absolute path. It MUST NOT read any file or emit any instruction that depends on such a value.
 
 A line break in the value would end a Cargo instruction early and let the rest of the value inject an instruction of its own. A value that is not UTF-8 cannot be written into an instruction without being altered.
 
-A relative path would let the header that the script checks and the library that the linker links resolve against different directories.
+A relative path would let the headers that the generator reads and the library that the linker links resolve against different directories.
 
-SCS-26. On the dynamic route, once the checks of SCS-25, SCS-40, and SCS-41 pass, the build script MUST emit `cargo::rustc-link-search=native=$VULKAN_SDK/lib` and `cargo::rustc-link-lib=dylib=slang-compiler`. It MUST NOT use pkg-config, emit an rpath, or search any other location, because a single mechanism behaves the same on every platform, and finding the library at run time is the job of the environment (Section 10).
+SCS-26. On the dynamic route, once the checks of SCS-40, SCS-41, and SCS-52 pass and the bindings are generated, the build script MUST emit `cargo::rustc-link-search=native=$VULKAN_SDK/lib` and `cargo::rustc-link-lib=dylib=slang-compiler`. It MUST NOT use pkg-config, emit an rpath, or search any other location, because a single mechanism behaves the same on every platform, and finding the library at run time is the job of the environment (Section 10).
 
 SCS-41. On the dynamic route, the build script MUST stop the build with the message of Section 9.6 when `$VULKAN_SDK/lib` cannot be accessed or is not a directory. When the operating system of the target is the operating system of the host, it MUST also stop the build when `$VULKAN_SDK/lib` does not hold the library file of the target as a file.
 
@@ -952,24 +886,35 @@ The build script asks the file system what a path is through `std::fs::metadata`
 
 For a foreign target, the build script checks only that `lib` is an accessible directory and then emits the link instructions, so a build for that target that links fails in the linker. The crate documentation states this rule (Section 13).
 
-When every check passes, the build script emits these instructions, in this order, with the rerun instructions of Section 9.5 before them:
+The dynamic route takes these steps, in this order:
+
+1. Validate `VULKAN_SDK` (SCS-40).
+2. Read the build tag (SCS-52).
+3. Check the library directory and the library file (SCS-41).
+4. Generate the bindings from `$VULKAN_SDK/include/slang` (Section 9.4).
+5. Write `build_info.rs` (SCS-53).
+6. Emit the link instructions and the `links` metadata.
+
+When every step passes, the build script emits these instructions, in this order, with the rerun instructions of Section 9.5 before them:
 
 ```text
 cargo::rustc-link-search=native=<VULKAN_SDK>/lib
 cargo::rustc-link-lib=dylib=slang-compiler
-cargo::metadata=include=<VULKAN_SDK>/include
+cargo::metadata=include=<VULKAN_SDK>/include/slang
 cargo::metadata=lib=<VULKAN_SDK>/lib
+cargo::metadata=linkage=dynamic
+cargo::metadata=build_tag=<build tag>
 ```
 
-In this listing, `<VULKAN_SDK>` stands for the value of the variable. A test of Section 9.7 asserts this exact list.
+In this listing, `<VULKAN_SDK>` stands for the value of the variable and `<build tag>` for the value of SCS-52. A test of Section 9.7 asserts this exact list.
 
-This answers Q-5 of the architecture design: pkg-config is not used, because the `.pc` file carries only the coarse version (Section 3.6) and Windows has no pkg-config. It also answers Q-4: the build script expects the headers under `include/slang` and the library under `lib` on every platform, with the import library under `lib` on Windows, which is the layout of Section 3.7.
+pkg-config is not used, because the `.pc` file carries only the coarse version (Section 3.6) and Windows has no pkg-config. The build script expects the headers under `include/slang` and the library under `lib` on every platform, with the import library under `lib` on Windows, which is the layout of Section 3.7.
 
 On Windows, the linker finds `Lib\slang-compiler.lib` through the lower-case path `lib` on the case-insensitive file system. The program then finds the DLL through `PATH` (Section 10).
 
-### 9.3. Static Route
+### 9.3. Vendored Route
 
-The function `static_route` of `route.rs` implements the static route (Section 9.7). The route never reads `VULKAN_SDK`, and it never falls back to the dynamic route (ARCH-7). It writes only under `OUT_DIR/slang`, which holds these paths:
+The function `vendored_route` of `route.rs` implements the vendored route (Section 9.7). The route never reads `VULKAN_SDK`, and it never falls back to the dynamic route (SCS-50). It writes only under `OUT_DIR/slang`, the generated files under `OUT_DIR`, and, when `slang-src` permits it, its entries in the cache directory (SCS-56). `OUT_DIR/slang` holds these paths:
 
 | Path under `OUT_DIR` | Content |
 | --- | --- |
@@ -980,31 +925,29 @@ The function `static_route` of `route.rs` implements the static route (Section 9
 | `slang/build.log` | The output of every `cmake` run of the current run of the build script |
 | `slang/stamp` | The stamp of the last verified build |
 
+SCS-55. On the vendored route, the build script MUST read the source tree, its commit, and its build tag only from `DEP_SLANG_SRC_ROOT`, `DEP_SLANG_SRC_COMMIT`, and `DEP_SLANG_SRC_BUILD_TAG`, and the cache directory only from `DEP_SLANG_SRC_CACHE_DIR`. It MUST stop the build when one of the first three is absent, when a path is not an absolute path in UTF-8 without line breaks, when the commit is not 40 lowercase hexadecimal digits, or when the build tag does not have the form of SRC-12 of the `slang-src` design. It MUST apply the same path checks to `OUT_DIR` and stop the build when `TARGET` or `HOST` is absent.
+
+`slang-src` is the one place that obtains the tree and decides whether the cache may be used (Section 4 of the `slang-src` design), so a second source in this build script could build another tree than the one that `slang-glslang-sys` builds. The checks guard the paths that the build script writes into Cargo instructions, and a missing variable would make the comparison of SCS-43 meaningless.
+
 The build script takes these steps, in this order. A step that fails returns the error of Section 9.6 for it, and no later step runs.
 
-1. Validate `SLANG_SOURCE_DIR`. An empty value, a value that is not an absolute path in UTF-8 without line breaks, and a path that is not an accessible directory each stop the build (SCS-42).
-2. Check that `OUT_DIR` is an absolute path in UTF-8 without line breaks, and read `TARGET` and `HOST`. A missing `TARGET` or `HOST` stops the build with its own error (SCS-42).
-3. Check the target. A target that differs from the host stops the build. So does a target other than Linux with the GNU C library, macOS, or Windows with the Microsoft toolchain (SCS-43).
-4. Check the commit. The build script runs `git rev-parse --is-inside-work-tree --show-prefix --git-path HEAD --git-path index --verify HEAD^{commit}` in the source tree (SCS-27, SCS-44). A failure of this command stops the build, which is how a tree without git metadata, such as a source archive, is refused.
-
-    The command has to print five lines. The build script emits `cargo::rerun-if-changed` for the two paths that git prints for `HEAD` and `index`, resolved against the source tree (Section 9.5). It then stops the build when the directory is not inside a work tree, when the prefix is not empty, which means that the directory lies below the top level of another work tree, and when the commit differs from `SLANG_COMMIT`.
-5. Check that the tree is clean. The build script runs `git status --porcelain=v1 --untracked-files=no --ignore-submodules=none` in the source tree and stops the build when it prints any line (SCS-27). This reports a tracked file that differs from the commit, and a submodule at another commit or with changed content. git does not report a submodule that was never initialized.
-6. Probe Ninja. The build script runs `ninja --version` and stops the build when Ninja cannot start or fails (SCS-28).
-7. Truncate the log `slang/build.log` to empty (SCS-48).
-8. Read the stamp. When `slang/stamp` holds exactly the stamp of this run, the build script skips steps 9 to 11 (SCS-46).
-9. Remove the old stamp, then list the files to copy. `git ls-files -z --stage` lists the tracked files of the source tree, and the entries with the mode `160000` are its gitlinks. For each of the eight submodules of Section 3.10, the build script requires a gitlink at that path and a `.git` entry, a file or a directory, inside it.
-
-    It then lists the tracked files of the submodule with the same command. A tracked path that is not made only of normal components, such as one with `..`, stops the build (SCS-45).
-10. Copy the listed files into `slang/source`. The build script removes every file of the copy that is not listed, and it writes a listed file only when its bytes differ from the copy (SCS-45).
-11. Configure the copy. The build script runs `cmake -S <copy> -B <build> -G Ninja` with the arguments `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<lib>`, `-DSLANG_VERSION_FULL=2026.17-25-gc7954ebd1`, `-DSLANG_VERSION_NUMERIC=2026.17`, and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, then the 27 options of the constant `SLANG_OPTIONS` of `route.rs`, then the options of the target (SCS-28).
-
-    The numeric version is the build tag of the pin up to its first hyphen. The build script removes `SLANG_USE_SCCACHE` from the environment of `cmake` and appends the output to the log.
-12. Build. The build script runs `cmake --build <build> --target slang`, followed by `--parallel` and the value of `NUM_JOBS` when that value is a whole number. It runs this step on every run, also when the stamp matched, and Ninja rebuilds only what changed.
-
-    It removes `SLANG_USE_SCCACHE` and appends the output to the log.
-13. Verify the result. Each of the six static libraries has to be a file in `slang/lib`, named `lib<name>.a`, or `<name>.lib` with the Microsoft toolchain. `slang/build/Release/include/slang-tag-version.h` has to define `SLANG_TAG_VERSION` as the build tag of the pin, read with the rules of Section 9.2 (SCS-47).
-14. Write the stamp, when step 9 ran (SCS-46).
+1. Read and check the metadata of `slang-src`, `OUT_DIR`, `TARGET`, and `HOST` (SCS-55).
+2. Check the target. A target that differs from the host stops the build. So does a target other than Linux with the GNU C library, macOS, or Windows with the Microsoft toolchain (SCS-43).
+3. Probe Ninja. The build script runs `ninja --version` and stops the build when Ninja cannot start or fails (SCS-28).
+4. Assemble the arguments of the configure step (SCS-28). When `DEP_SLANG_SRC_CACHE_DIR` is present, compute the cache key and lock the entry (SCS-56). When the entry is complete, skip to step 13 with the directories of the entry.
+5. Truncate the log `slang/build.log` to empty (SCS-48).
+6. Read the stamp. When `slang/stamp` holds exactly the stamp of this run, the build script skips steps 7 to 9 (SCS-46).
+7. Remove the old stamp, then list the files to copy with `git ls-files -z --stage`, whose entries with the mode `160000` are the gitlinks of the source tree. For each of the eight submodules of Section 3.10, the build script lists the tracked files of the submodule with the same command. A tracked path that is not made only of normal components, such as one with `..`, stops the build (SCS-45).
+8. Copy the listed files into `slang/source`. The build script removes every file of the copy that is not listed, and it writes a listed file only when its bytes differ from the copy (SCS-45).
+9. Configure the copy. The build script runs `cmake -S <copy> -B <build> -G Ninja` with the arguments of step 4. It removes `SLANG_USE_SCCACHE` from the environment of `cmake` and appends the output to the log.
+10. Build. The build script runs `cmake --build <build> --target slang`, followed by `--parallel` and the value of `NUM_JOBS` when that value is a whole number, removes `SLANG_USE_SCCACHE` from the environment of `cmake`, and appends the output to the log. It runs this step on every run that reaches it, also when the stamp matched, and Ninja rebuilds only what changed.
+11. Verify the result (SCS-47).
+12. Write the stamp, when step 7 ran (SCS-46). When the cache entry is locked, store the six libraries and the include directory of the build tree in it (SCS-56).
+13. Generate the bindings from the include directory of the build tree, or of the cache entry (Section 9.4).
+14. Write `build_info.rs` with the build tag and the commit of `slang-src` and the linkage `Static` (SCS-53).
 15. Emit the link instructions and the `links` metadata.
+
+The arguments of the configure step are `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<lib>`, `-DSLANG_VERSION_FULL=<build tag>`, `-DSLANG_VERSION_NUMERIC=<numeric version>`, and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, then the 27 options of the constant `SLANG_OPTIONS` of `route.rs`, then the options of the target. The build tag is the value of `DEP_SLANG_SRC_BUILD_TAG`, and the numeric version is its part before the first hyphen.
 
 The 27 options of `SLANG_OPTIONS` select a release build, `SLANG_LIB_TYPE=STATIC`, the embedded core module and its source, and `SLANG_SLANG_LLVM_FLAVOR=DISABLE`. They turn off these components:
 
@@ -1013,12 +956,12 @@ The 27 options of `SLANG_OPTIONS` select a release build, `SLANG_LIB_TYPE=STATIC
 - CUDA, OptiX, NVAPI, Xlib, and Aftermath.
 - The debug information of the release build and its split form, and sccache.
 
-They also exclude Dawn and Tint. With the Microsoft toolchain, the build script adds `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` when `CARGO_CFG_TARGET_FEATURE` holds `crt-static`, and `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` otherwise.
+They also exclude Dawn and Tint. With the Microsoft toolchain, the build script adds `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` when `CARGO_CFG_TARGET_FEATURE` holds `crt-static`, and `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` otherwise, and it adds `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF`, so that no build needs the submodule `external/mimalloc`, which `slang-src` does not require (Section 3.3 of the `slang-src` design).
 
-When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. In this listing, `<OUT_DIR>` stands for the value of the variable, and the last link instruction depends on the target:
+When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. In this listing, `<lib>` and `<include>` stand for `OUT_DIR/slang/lib` and `OUT_DIR/slang/build/Release/include`, or for the directories `lib` and `include` of the cache entry, and the last link instruction depends on the target:
 
 ```text
-cargo::rustc-link-search=native=<OUT_DIR>/slang/lib
+cargo::rustc-link-search=native=<lib>
 cargo::rustc-link-lib=static=slang-compiler
 cargo::rustc-link-lib=static=compiler-core
 cargo::rustc-link-lib=static=core
@@ -1026,201 +969,175 @@ cargo::rustc-link-lib=static=cmark-gfm
 cargo::rustc-link-lib=static=miniz
 cargo::rustc-link-lib=static=lz4
 cargo::rustc-link-lib=dylib=stdc++
-cargo::metadata=include=<OUT_DIR>/slang/build/Release/include
-cargo::metadata=lib=<OUT_DIR>/slang/lib
+cargo::metadata=include=<include>
+cargo::metadata=lib=<lib>
+cargo::metadata=linkage=static
+cargo::metadata=build_tag=<build tag>
 ```
 
 The C++ standard library is `dylib=stdc++` on Linux and `dylib=c++` on macOS. With the Microsoft toolchain, the build script emits no instruction for it.
 
-The link kind is plain `static`, so Cargo copies the archives into the rlib of the crate. A test binary linked on the static route depends only on the C++ and C runtime libraries of the system.
+The link kind is plain `static`, so Cargo copies the archives into the rlib of the crate. A test binary linked on the vendored route depends only on the C++ and C runtime libraries of the system, and a cache entry that the user removes after the build does not break the binaries already built.
 
-SCS-27. On the static route, the build script MUST verify through git that `SLANG_SOURCE_DIR` names the top level of a git work tree whose `HEAD` is the full commit of the pin. The build script MUST stop the build when `git status` reports any tracked file or submodule that differs from that commit.
-
-The build script MUST refuse a directory without git metadata, such as a source archive. The build script MUST NOT fall back to the dynamic route (ARCH-7).
-
-A static library built from another commit does not match the checked-in bindings, which is undefined behaviour at run time. A changed tree at the right commit would build a library that differs from the one that the bindings match.
-
-The commit of a tree without git metadata cannot be verified. A fallback to the dynamic route would give a user who asked for a statically linked Slang a program that needs the shared library at run time.
-
-This answers Q-2 of the architecture design. The check reads the tree only through git, and untracked and ignored files are neither checked nor copied.
-
-A tree with only the eight submodules of Section 3.10 initialized passes, because git does not report a submodule that was never initialized as changed. The check also refuses a changed submodule that the build does not use, which is stricter than the build needs.
-
-SCS-28. On the static route, the build script MUST run `cmake` with `std::process::Command` and check every exit status (SYS-4), or else a failed step surfaces later as an obscure link error. It MUST use the Ninja generator and MUST run `ninja --version` before it copies anything.
+SCS-28. On the vendored route, the build script MUST run `cmake` with `std::process::Command` and check every exit status (SYS-4), or else a failed step surfaces later as an obscure link error. It MUST use the Ninja generator and MUST run `ninja --version` before it copies anything.
 
 Without the probe, a missing Ninja would stop the build only after a copy of the source tree and a configure step.
 
-It MUST pass `-DSLANG_VERSION_FULL=` with the build tag of the pin and `-DSLANG_VERSION_NUMERIC=` with its numeric part. Without the first, the library reports `0.0.0-unknown`, which the smoke test rejects, and without the second, the configure step fails (Section 3.10).
+It MUST pass `-DSLANG_VERSION_FULL=` with the build tag of `slang-src` and `-DSLANG_VERSION_NUMERIC=` with its numeric part. Without the first, the library reports the modification time of the program as its build tag (Section 3.6), which the run-time check of the safe crate rejects, and without the second, the configure step fails (Section 3.10).
 
-It MUST disable the optional components and everything that downloads, and pass `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, because a build script that downloads breaks SYS-5. It MUST link the six static libraries of Section 3.10 and the C++ standard library of the target, or else the link fails with undefined references.
+It MUST disable the optional components and everything that downloads, and pass `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, because only `slang-src` reaches the network (ARCH-35). It MUST link the six static libraries of Section 3.10 and the C++ standard library of the target, or else the link fails with undefined references.
 
-SCS-42. On the static route, the build script MUST stop the build when `SLANG_SOURCE_DIR` is empty, is not valid UTF-8, contains a line feed or a carriage return, is not an absolute path, or does not name an accessible directory. It MUST apply the same checks, except the one for a directory, to `OUT_DIR`, and it MUST stop the build when `TARGET` or `HOST` is absent.
-
-A line break in a path would end a Cargo instruction early and let the rest inject an instruction of its own. A relative path would make git, CMake, and the linker resolve it against different directories. A missing variable would make the comparison of SCS-43 meaningless.
-
-SCS-43. On the static route, the build script MUST stop the build when `TARGET` differs from `HOST`, because Slang's build runs programs that it builds for the target, so a cross-compilation fails deep inside CMake or Ninja.
+SCS-43. On the vendored route, the build script MUST stop the build when `TARGET` differs from `HOST`, because Slang's build runs programs that it builds for the target, so a cross-compilation fails deep inside CMake or Ninja.
 
 It MUST also stop the build for a target other than Linux with the GNU C library, macOS, and Windows with the Microsoft toolchain. The build script knows the archive names and the C++ standard library of these three only, and a guess would fail in the linker.
 
 SCS-44. The build script MUST run every git command with `GIT_OPTIONAL_LOCKS=0` and with the 15 repository variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` removed from its environment. Those are the variables that `git rev-parse --local-env-vars` lists, such as `GIT_DIR` and `GIT_INDEX_FILE`.
 
-A git hook that runs Cargo sets such variables, and git would then answer for another repository than the one that `SLANG_SOURCE_DIR` names. Without `GIT_OPTIONAL_LOCKS=0`, `git status` refreshes the index of the clone and so writes into it, which SYS-5 forbids.
+A git hook that runs Cargo sets such variables, and git would then answer for another repository than the source tree. Without `GIT_OPTIONAL_LOCKS=0`, a git command can refresh the index of the source tree and so write into a tree that `slang-src` owns, which another build may be reading.
 
-SCS-45. On the static route, the build script MUST build a copy, inside `OUT_DIR`, of the tracked files of the source tree and of the eight submodules of Section 3.10, and MUST NOT run any build step in the source tree. It MUST stop the build when a required submodule has no gitlink or no `.git` entry, with a message that names the submodule and the command that fetches it.
+SCS-45. On the vendored route, the build script MUST build a copy, inside `OUT_DIR`, of the tracked files of the source tree and of the eight submodules of Section 3.10, and MUST NOT run any build step in the source tree. It MUST refuse a tracked path that is not made only of normal components. It MUST remove every file of the copy that the listing does not name.
 
-It MUST refuse a tracked path that is not made only of normal components. It MUST remove every file of the copy that the listing does not name.
+Slang's build writes into its source tree (Section 3.10). The source tree belongs to `slang-src`, it can be a local checkout of the user or a clone that other builds read at the same time, and two builds in one tree race on the same temporary files.
 
-Slang's build writes into its source tree (Section 3.10), which SYS-5 forbids. Without the message, CMake fails with an error that does not say what is missing.
+A path that is not made only of normal components would let the copy write outside `OUT_DIR`. A file that the commit no longer has would otherwise stay in the build. `slang-src` checks that every required submodule is checked out (SRC-4 of the `slang-src` design), so a missing submodule never reaches this step.
 
-A path that is not made only of normal components would let the copy write outside `OUT_DIR`. A file that the commit no longer has would otherwise stay in the build.
+SCS-46. On the vendored route, the build script MUST copy and configure again whenever the stamp differs from the stamp of the current run, and MUST write the stamp only after a build that SCS-47 verified.
 
-SCS-46. On the static route, the build script MUST copy and configure again whenever the stamp differs from the stamp of the current run, and MUST write the stamp only after a build that SCS-47 verified.
+The stamp holds the root of the source tree, its commit, its build tag, the list of required submodules, and the full argument list of the configure step, which carries the options of the target.
 
-The stamp holds the value of `SLANG_SOURCE_DIR`, the commit, the list of required submodules, and the full argument list of the configure step, which carries the pin and the options of the target.
+A stamp written before the verification would let an interrupted or failed build skip the copy and the configure step on the next run. The build script removes the old stamp before it copies, so a failure in steps 7 to 11 leaves no stamp.
 
-A stamp written before the verification would let an interrupted or failed build skip the copy and the configure step on the next run. The build script removes the old stamp before it copies, so a failure in steps 9 to 13 leaves no stamp.
+SCS-47. On the vendored route, after the build, the build script MUST check that each of the six static libraries exists as a file, named `lib<name>.a`, or `<name>.lib` with the Microsoft toolchain, and that `slang/build/Release/include/slang-tag-version.h` defines `SLANG_TAG_VERSION` as the build tag of `slang-src`, read with the rules of Section 9.2. A build that produced another layout or another version would otherwise reach the linker or the program, where the failure no longer names the cause.
 
-SCS-47. On the static route, after the build, the build script MUST check that each of the six static libraries exists as a file and that the version header of the build tree defines the build tag of the pin. A build that produced another layout or another version would otherwise reach the linker or the program, where the failure no longer names the cause.
-
-SCS-48. On the static route, the build script MUST append the output of every `cmake` run to `slang/build.log` under `OUT_DIR`, truncating the log once at the start of each run.
+SCS-48. On the vendored route, the build script MUST append the output of every `cmake` run to `slang/build.log` under `OUT_DIR`, truncating the log once at the start of each run that builds.
 
 On a failure of the configure or build step, its error MUST name the log and hold the last 40 lines of it.
 
 A full build prints hundreds of lines, and an error that holds them all buries the cause, while an error without them leaves the user to find the log.
 
-The code of the route for macOS and for Windows with the Microsoft toolchain follows a reading of Slang's CMake files and is unverified (Section 16, SQ-3). On Windows, the build with Ninja is expected to need the developer environment of the Microsoft toolchain, which the build script does not set up.
+SCS-56. When `DEP_SLANG_SRC_CACHE_DIR` is present, the build script MUST keep the six static libraries and the include directory of each verified build in an entry of the directory `slang-compiler-sys` of the cache directory, with the entry protocol of SRC-16 and the cache key of SRC-17 of the `slang-src` design, and MUST use a complete entry whose inputs equal those of the current build instead of building. It MUST NOT use the cache when the variable is absent.
 
-The recipe `test-static`, in the group `rust`, runs the tests of `slang-compiler-sys` on the static route (SCS-49). It fails with a message that names `SLANG_SOURCE_DIR` and says what to set when the variable is unset or empty. Otherwise it runs this command:
+A vendored build takes minutes and repeats in every target directory and profile, and in the shape of Section 8 of the `slang-src` design it runs twice for one command. With the cache, it runs once for each set of inputs on the machine.
 
-```sh
-env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/static CARGO_BUILD_WARNINGS=deny cargo nextest run -p slang-compiler-sys --all-features --profile default --no-tests=fail
-```
+An entry has the directories `lib`, with the six libraries, and `include`, with the headers and `slang-tag-version.h`, and the file `inputs`. The `files` input of the key is empty, because the build reads no file of this crate, and the `configure` input carries every option that changes the libraries. The build script builds in `OUT_DIR` as without the cache, then copies the two directories into the temporary directory of the entry and renames it, so a miss costs one copy of those two directories.
 
-SCS-49. The recipe `test-static` MUST run only the package `slang-compiler-sys`, in the target directory `target/static`, with `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` removed from the environment.
+The code of the route for macOS and for Windows with the Microsoft toolchain follows a reading of Slang's CMake files and runs first in the vendored CI job (Section 16, SQ-3). On Windows, the build with Ninja needs the developer environment of the Microsoft toolchain, which the build script does not set up (SGLA-6 of `docs/design/slang-glslang-sys.md`).
 
-Without `VULKAN_SDK` and the loader path, a test binary that still needed the Slang shared library could not start, so the tests pass only when the link is static. The regeneration test of the generator needs `VULKAN_SDK`, so a run of the whole workspace would fail.
+SCS-63. The recipe `test-vendored` MUST run the tests of `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `vendored` of `slang-compiler`, in the target directory `target/vendored`, with `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` removed from the environment, and MUST fail when it selects no test.
 
-A separate target directory keeps the static build from replacing the dynamic build of `target/`, which every other recipe uses. `check` and CI do not run `test-static`, because it builds Slang from source (SCS-36).
+Without `VULKAN_SDK` and the loader path, a test binary that still needed the Slang shared library could not start, and a build script that still read the SDK would fail, so the tests pass only when the link is static. A separate target directory keeps the vendored build from replacing the dynamic build of `target/`, which every other recipe uses.
 
-The recipe removes no variable that Windows uses to find a DLL, so on Windows it would not prove the static link in the same way. It passes `--no-tests=fail`, so it fails when it selects no test. This command verifies the static route from a clean git checkout of the pinned commit at `/tmp/slang`:
+The recipe needs network access unless `SLANG_SOURCE_DIR` or `SLANG_SRC_CACHE_DIR` provides the tree, and it passes both through. The tooling design specifies its command. This illustration shows a run in the development container from the source tree at `/opt/slang`:
 
 ```sh
-SLANG_SOURCE_DIR=/tmp/slang just test-static
+SLANG_SOURCE_DIR=/opt/slang just test-vendored
 ```
 
-### 9.4. Documentation Builds
+The recipe removes no variable that Windows uses to find a DLL, so on Windows it does not prove the static link in the same way.
 
-SCS-29. When `DOCS_RS` is present, whatever its value, the build script MUST return at once, after the rerun instruction for `DOCS_RS` (SCS-30), without reading any other variable, emitting any link instruction, or emitting `links` metadata.
+### 9.4. Generation of the Bindings
 
-docs.rs has no Slang, and a build script that fails there leaves the crate without published documentation (ARCH-8).
+SCS-64. On both routes, the build script MUST run `slang_bindgen::generate` on every run, with the header directory of the Slang that the build links and the value of `TARGET`, and MUST write both texts under `OUT_DIR` before it emits any link instruction. It MUST stop the build with the message of Section 9.6 when the generator fails.
 
-The checked-in bindings let the crate document itself without Slang. That docs.rs sets `DOCS_RS` is assumption A-7 of the architecture design. A program built with `DOCS_RS` present does not link, because the build script emits no link instruction.
+The header directory is `$VULKAN_SDK/include/slang` on the dynamic route, and the include directory of the build tree or of the cache entry on the vendored route, which holds the headers of the built commit and its generated `slang-tag-version.h`. The include directory of the source tree is not used, because it lacks `slang-tag-version.h` and could differ from the copy that was built.
 
-The recipe `check-doc-without-slang`, in the group `checks`, runs the documentation command of Section 4.8 of the coding standard with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment (Section 9 of the tooling design). `check-rust` runs it directly after `check-doc`. The recipe imitates the absence of Slang on docs.rs and cannot confirm A-7. docs.rs is not supported (Section 13 of the architecture design), so no docs.rs build will confirm A-7, and the design of M7 removes it together with this documentation-build route.
+Generation takes well under a second for one target. Running it on every run, without a stamp, keeps the bindings equal to the headers without a second record of what was generated, and the build script runs only when one of its inputs changed (Section 9.5).
 
-The manifest of `slang-compiler-sys` lists only the four supported targets of Section 6 under `targets` in `[package.metadata.docs.rs]`. These are `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `x86_64-apple-darwin`. The list keeps docs.rs from building for a 32-bit target, on which SCS-15 stops compilation (SA-8).
-
-This command runs the documentation build without Slang:
-
-```sh
-just check-doc-without-slang
-```
+A failure of the generator for a Slang other than the recorded one means that its headers hold declarations or constructs that the rule set does not cover. The message says that another Slang is best effort, names the Vulkan SDK of the recorded Slang and the feature `vendored` as the two ways to the tested Slang, and holds the error of the generator with each of its source errors.
 
 ### 9.5. Rerun Instructions and Metadata
 
-SCS-30. The build script MUST emit `cargo::rerun-if-env-changed` for `DOCS_RS` on every run, for `SLANG_SOURCE_DIR` on every run without `DOCS_RS`, and for `VULKAN_SDK` on the dynamic route. It MUST emit `cargo::rerun-if-changed` for `slang-tag-version.h` on the dynamic route, and for the `HEAD` and `index` files of the git checkout on the static route.
+SCS-30. The build script MUST emit these rerun instructions, each before it reads the input:
 
-A build that does not rerun after its input changes links a library that no longer matches the check it passed (SYS-1).
+- `cargo::rerun-if-env-changed` for `LIBCLANG_PATH` on every run.
+- On the dynamic route, `cargo::rerun-if-env-changed` for `VULKAN_SDK`, and `cargo::rerun-if-changed` for the directory `$VULKAN_SDK/include/slang`.
+- On the vendored route, `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, and `cargo::rerun-if-changed` for the file `inputs` of a cache entry that it uses.
 
-The build script emits each rerun instruction for a variable or a header before it reads it. On the static route, it emits the instructions for the two git files directly after `git rev-parse` reports their paths, and before any later check.
+A build that does not rerun after its input changes links a library or compiles bindings that no longer match it (SYS-1). Cargo scans a directory named by `rerun-if-changed` for changes, and the SDK's header directory holds a handful of files, so the instruction covers every header that the generator reads. The variables of the vendored route are those that CMake reads at configure time, so a change of compiler reruns the configure step through the stamp.
 
-`build.rs` prints every instruction that `configure` collected before it returns the result, so the instructions reach Cargo when the build script fails as well. A test of Section 9.7 asserts the rerun instructions on every failure path.
-
-On the static route, the paths are those that `git rev-parse --git-path HEAD --git-path index` prints, resolved against the source tree. For an ordinary clone, they are `<tree>/.git/HEAD` and `<tree>/.git/index`. A checkout or a commit rewrites the index in the normal workflow, so these two files stand for the state of the whole tree.
-
-The build script reads every tracked file when it copies the tree, but it does not watch those files, because the tree holds too many to watch on every build. SYS-1 of the coding standard permits this for a tree whose commit the build script verifies. On every run, before it compares the stamp, the build script checks through `git rev-parse` and `git status` that the tree is at the pinned commit and unmodified (steps 4 and 5 of Section 9.3).
-
-An edit of a tracked file without any git operation afterwards therefore does not rerun the build script, and the library stays the one built from the clean tree that the last run verified. The build script does not watch the reference file behind a symbolic `HEAD` or `packed-refs` either.
+`build.rs` prints every instruction that the logic collected before it returns the result, so the instructions reach Cargo when the build script fails as well. A test of Section 9.7 asserts the rerun instructions on every failure path.
 
 The build script emits no rerun instruction for these inputs:
 
-- `pin.rs`, `route.rs`, and `system.rs`, because Cargo rebuilds and reruns the build script when a file that it includes changes.
-- The variables that Cargo sets for each build, such as `CARGO_CFG_TARGET_OS`, `TARGET`, `HOST`, `OUT_DIR`, and `NUM_JOBS`.
+- `route.rs` and `system.rs`, because Cargo rebuilds and reruns the build script when a file that it includes changes.
+- The feature `vendored` and the variables that Cargo sets for each build, such as `CARGO_CFG_TARGET_OS`, `TARGET`, `HOST`, `OUT_DIR`, and `NUM_JOBS`, which Cargo tracks itself.
+- The metadata of `slang-src`, because Cargo runs this build script again when the build script of `slang-src` ran again (SRCA-1 of the `slang-src` design). `slang-src` watches the source tree (Section 10 of the `slang-src` design).
 - `$VULKAN_SDK/lib` and the library file, whose kind it checks but whose content it does not read.
 - The files under `OUT_DIR` that it writes itself.
-- `CC`, `CXX`, and `CMAKE_TOOLCHAIN_FILE`, which CMake reads from the environment (Section 16, SQ-5).
 
-The manifest declares `links = "slang-compiler"` (FFI-2). The build script emits the `links` metadata as `cargo::metadata=include=...` and `cargo::metadata=lib=...`. It exposes the directory of the headers as `include` and the directory of the library as `lib`, so a dependent build script reads them as `DEP_SLANG_COMPILER_INCLUDE` and `DEP_SLANG_COMPILER_LIB`.
+The build script reads every tracked file of the source tree when it copies the tree, but it does not watch those files, because the tree holds too many to watch on every build, as SYS-1 permits for a tree whose commit is checked. An edit of a file of a local checkout without a git operation afterwards therefore does not rerun the build script, as the crate documentation of `slang-src` states.
 
-On the dynamic route, they are `$VULKAN_SDK/include`, which holds the headers under `slang`, and `$VULKAN_SDK/lib`. On the static route, they are `slang/build/Release/include` and `slang/lib` under `OUT_DIR`. Under `DOCS_RS`, neither is set, and a dependent build script that needs them handles their absence.
+SCS-54. The manifest MUST declare `links = "slang-compiler"` (FFI-2), and the build script MUST export, with `cargo::metadata`, the keys `include`, `lib`, `linkage`, and `build_tag` on both routes. A later crate that builds against the same Slang, such as `slang-rhi-sys`, needs the headers, the libraries, and the linkage of the Slang that this crate links, and a second search would find another one.
 
-On the static route, the include directory holds the headers and `slang-tag-version.h` directly, without the directory `slang`. It is the include directory of the build tree, because it holds the headers that were built and the version header that the build script verified (SCS-47). The `include` directory of the source tree lacks `slang-tag-version.h`.
+A dependent build script reads them as `DEP_SLANG_COMPILER_INCLUDE`, `DEP_SLANG_COMPILER_LIB`, `DEP_SLANG_COMPILER_LINKAGE`, and `DEP_SLANG_COMPILER_BUILD_TAG`:
+
+| Key | Dynamic route | Vendored route |
+| --- | --- | --- |
+| `include` | `$VULKAN_SDK/include/slang` | The include directory of the build tree or of the cache entry |
+| `lib` | `$VULKAN_SDK/lib` | `slang/lib` under `OUT_DIR`, or the directory `lib` of the cache entry |
+| `linkage` | `dynamic` | `static` |
+| `build_tag` | The build tag of SCS-52 | The build tag of `slang-src` |
+
+On both routes, `include` is the directory that holds `slang.h` and `slang-tag-version.h` directly, so a dependent finds the headers the same way on each.
 
 ### 9.6. Failure Messages
 
 SCS-31. On each failure of this table, the build script MUST end by returning an error from its `main` (SYS-4) whose message contains every item of the table's second column. A build that stops without naming what is missing and how to supply it leaves the user to guess, and a guess often links the wrong Slang.
 
-In this table, the SDK advice is the sentence that tells the user two things. It says to install the LunarG Vulkan SDK of the pinned version from <https://vulkan.lunarg.com>. It says to set `VULKAN_SDK` to the absolute path of its directory that holds `include/slang` and `lib`, which is the `x86_64` directory of the SDK on Linux, the `macOS` directory on macOS, and the installation directory on Windows.
+In this table, the SDK advice is the sentence that tells the user two things. It says to install the LunarG Vulkan SDK from <https://vulkan.lunarg.com>. It says to set `VULKAN_SDK` to the absolute path of its directory that holds `include/slang` and `lib`, which is the `x86_64` directory of the SDK on Linux, the `macOS` directory on macOS, and the installation directory on Windows.
 
-The source advice is the sentence that tells the user to set `SLANG_SOURCE_DIR` to the absolute path of the top-level directory of a git clone of Slang at the pinned commit with its submodules. It gives the three commands `git clone --recursive https://github.com/shader-slang/slang`, `git checkout <commit>`, and `git submodule update --init --recursive`. It offers to unset `SLANG_SOURCE_DIR` to link the Slang of the Vulkan SDK of the pinned version that `VULKAN_SDK` names.
+The vendored advice is the sentence that says that enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, Python 3, and network access or `SLANG_SOURCE_DIR`.
 
 Every row is a failure that the build script raises. A function of `route.rs` builds the message of each, and a test of Section 9.7 checks each.
 
-The first eight rows belong to the dynamic route, and the others to the static route. A command in a message is the program followed by its arguments, without its environment.
+The first seven rows belong to the dynamic route, the eighth to both routes, and the others to the vendored route. A command in a message is the program followed by its arguments, without its environment.
 
 | Failure | The message contains |
 | --- | --- |
-| `VULKAN_SDK` is absent or empty, and `DOCS_RS` and `SLANG_SOURCE_DIR` are absent | The name `VULKAN_SDK` with "is not set" or "is set but empty", the SDK advice, and, as the other way to obtain Slang, building it from source by setting `SLANG_SOURCE_DIR` to the absolute path of a git checkout of Slang at the pinned commit (ARCH-5) |
+| `VULKAN_SDK` is absent or empty | The name `VULKAN_SDK` with "is not set" or "is set but empty", that `slang-compiler-sys` cannot find the Slang library to link, the SDK advice, and the vendored advice (ARCH-5) |
 | The value of `VULKAN_SDK` is not valid UTF-8, contains a line feed or a carriage return, or is not an absolute path (SCS-40) | The name `VULKAN_SDK` and its value in quotation marks, with every control character escaped and every byte that is not UTF-8 replaced, the statement that the value is not an absolute path in UTF-8 without line breaks, and the SDK advice |
 | `$VULKAN_SDK/include/slang/slang-tag-version.h` cannot be read | "cannot read", the full path, the reason that the operating system gives, why the build reads the file, and the SDK advice |
-| That file has no line that defines `SLANG_TAG_VERSION` | The full path, the name `SLANG_TAG_VERSION`, the build tag of the pin, and the SDK advice |
-| A line of that file defines `SLANG_TAG_VERSION` as anything other than one string literal | The number of the line, the full path, the build tag of the pin, and the SDK advice |
-| The build tag differs from the pin | The SDK directory, the build tag that it ships, the path of the file that records it, the build tag of the pin, the pinned SDK version, that the bindings match only that build, and the two remedies: install the pinned SDK and set `VULKAN_SDK` to it, or use the version of the crate that matches the installed SDK (SYS-6) |
+| That file has no line that defines `SLANG_TAG_VERSION` | The full path, the name `SLANG_TAG_VERSION`, and the SDK advice |
+| A line of that file defines `SLANG_TAG_VERSION` as anything other than one string literal | The number of the line, the full path, and the SDK advice |
 | `$VULKAN_SDK/lib` cannot be accessed or is not a directory (SCS-41) | "cannot access" with the path and the reason that the operating system gives, or the path with "is not a directory", then the SDK directory, the library directory, the name of the library file on each of Linux, macOS, and Windows, and the SDK advice |
 | The target has the operating system of the host, and the library file of the target in `$VULKAN_SDK/lib` cannot be accessed or is not a file (SCS-41) | "cannot access" with the path of the file and the reason that the operating system gives, or the path with "is not a file", then the same content as the previous row |
-| `SLANG_SOURCE_DIR` is empty (SCS-42) | "SLANG_SOURCE_DIR is set but empty", that this selects building Slang from source without naming a source tree, and the source advice (ARCH-7) |
-| The value of `SLANG_SOURCE_DIR` is not valid UTF-8, contains a line feed or a carriage return, or is not an absolute path (SCS-42) | The name `SLANG_SOURCE_DIR` and its value in quotation marks, escaped as for `VULKAN_SDK`, the statement that the value is not an absolute path in UTF-8 without line breaks, and the source advice |
-| `SLANG_SOURCE_DIR` is not a directory or cannot be accessed (SCS-42) | The name `SLANG_SOURCE_DIR`, the path, "which is not a directory" or "which cannot be accessed" with the reason that the operating system gives, and the source advice (ARCH-7) |
-| `OUT_DIR` is absent, or is not an absolute path in UTF-8 without line breaks (SCS-42) | The name `OUT_DIR` with "is not set" or its value in quotation marks, the statement that the build has no directory in which to build Slang, and that Cargo sets `OUT_DIR`, so the crate is built through Cargo with a target directory whose path is UTF-8 |
-| `TARGET` or `HOST` is absent (SCS-42) | The name of the variable with "is not set", that the build cannot compare the target with the host, and that Cargo sets the variable |
-| The target differs from the host (SCS-43) | Both target triples, that the build from source cannot cross-compile because Slang's build runs programs that it builds for the target, and the two remedies: build on a host of the target, or unset `SLANG_SOURCE_DIR` to link the Slang of the pinned Vulkan SDK |
+| The generator fails (SCS-64) | "cannot generate the Slang bindings", the header directory, the target, the error of the generator with each of its source errors, and, for an error of kind `Libclang`, the advice to install libclang or set `LIBCLANG_PATH`. For an error of kind `UnmatchedDeclaration`, `StaleRule`, or `Unsupported`, the build tag of the headers, that the crates are tested against the Slang that `slang-src` records and that another Slang is best effort, the SDK advice for the SDK that ships the recorded Slang, and the vendored advice. For an error of kind `Target`, the supported targets |
+| A variable of `slang-src` is absent, or a value fails a check of SCS-55 | The name of the variable, its value in quotation marks, escaped as for `VULKAN_SDK`, when it has one, and that the vendored route reads the source tree from `slang-src`, which has to be a direct dependency of the same version |
+| `OUT_DIR` is absent, or is not an absolute path in UTF-8 without line breaks (SCS-55) | The name `OUT_DIR` with "is not set" or its value in quotation marks, the statement that the build has no directory in which to build Slang, and that Cargo sets `OUT_DIR`, so the crate is built through Cargo with a target directory whose path is UTF-8 |
+| `TARGET` or `HOST` is absent (SCS-55) | The name of the variable with "is not set", that the build cannot compare the target with the host, and that Cargo sets the variable |
+| The target differs from the host (SCS-43) | Both target triples, that the build from source cannot cross-compile because Slang's build runs programs that it builds for the target, and the two remedies: build on a host of the target, or build without the feature `vendored` to link the Slang of a Vulkan SDK |
 | The target is not Linux with the GNU C library, macOS, or Windows with the Microsoft toolchain (SCS-43) | The three supported kinds of target, the target triple, and the same two remedies |
-| `git`, `ninja`, or `cmake` cannot start (SYS-4) | "cannot start" with the program, the command, and the reason that the operating system gives, that the build from source needs git, CMake 3.22 or later, and Ninja on `PATH`, the path of the source tree for `git` and `ninja`, and the remedies: install the missing program, or unset `SLANG_SOURCE_DIR` |
-| `git rev-parse` fails, as in a directory without git metadata (SCS-27) | The command, the source tree, the exit status, and the error output of git, that `SLANG_SOURCE_DIR` has to name the top level of a git checkout because the build verifies the commit through git, that a tree without git metadata, such as a source archive, cannot be verified, and the source advice |
-| `git rev-parse` does not print five lines, or `git ls-files` prints an entry that the build cannot read or a path that is not made only of normal components (SCS-45) | The command, the directory, and the output in quotation marks, with every control character escaped, and that it is not the output that the build expects from git |
-| The directory is not inside a git work tree, or lies below the top level of another work tree (SCS-27) | The path, "is not inside a git work tree" or "lies at" with the prefix and "inside a git work tree whose top level is another directory", that it is not the top level of a git checkout of Slang, and the source advice |
-| `HEAD` differs from the pin (SCS-27) | The path of the tree, its commit, the pinned commit with the build tag and the SDK version, that the bindings match only that commit, the commands `git -C <tree> checkout <commit>` and `git -C <tree> submodule update --init --recursive`, and the other remedy, the version of the crate that matches the tree |
-| `git status`, `git ls-files`, or `ninja --version` exits with a failure (SYS-4) | The command, the directory when the command has one, the exit status, or that a signal ended the program, and its error output |
-| `git status` reports a change (SCS-27) | The path of the tree, the pinned commit, the command, the first ten lines that it printed, each in quotation marks, and the number of further lines, that the build copies the tracked files and a changed file would build another library than the one that the bindings match, and the remedies: commit, stash, or discard the changes, or point `SLANG_SOURCE_DIR` at an unchanged checkout of the commit |
-| A required submodule has no gitlink or no `.git` entry (SCS-45) | The path of the submodule, the path of the tree, that the build needs it, and the command `git -C <tree> submodule update --init <submodule>`, which needs network access |
-| The `.git` entry of a required submodule cannot be accessed for a reason other than its absence (SCS-45) | "cannot access" with the path of the entry and the reason that the operating system gives, the path of the submodule, and the path of the tree |
+| `git`, `ninja`, or `cmake` cannot start (SYS-4) | "cannot start" with the program, the command, and the reason that the operating system gives, that the build from source needs git, CMake 3.22 or later, and Ninja on `PATH`, and the remedies: install the missing program, or build without the feature `vendored` |
+| `git ls-files` prints an entry that the build cannot read or a path that is not made only of normal components (SCS-45) | The command, the directory, and the output in quotation marks, with every control character escaped, and that it is not the output that the build expects from git |
+| `git ls-files` or `ninja --version` exits with a failure (SYS-4) | The command, the directory when the command has one, the exit status, or that a signal ended the program, and its error output |
 | A file of the copy cannot be listed or removed, the stamp or the log cannot be written or removed, or the log cannot be opened for a `cmake` run (SCS-45, SCS-46, SCS-48) | "cannot" with the action and the path, the reason that the operating system gives, and that the build keeps the copy, the build tree, and the log under `OUT_DIR` |
 | A file cannot be copied (SCS-45) | "cannot copy" with the source path and the destination path, the reason that the operating system gives, and that the build copies the tracked files into `OUT_DIR` because Slang's build writes into its source tree |
 | The configure or build step of `cmake` exits with a failure (SCS-48) | The command, the exit status, or that a signal ended the program, the name of the step, the path of the log, and its last 40 lines, or that the log cannot be read with the reason |
-| A static library is not a file, or the version header of the build tree cannot be read, lacks `SLANG_TAG_VERSION`, or defines it malformed (SCS-47) | "the build of Slang from source finished, but", the problem with the path, and that the build produced another layout than the one that this version of the crate expects from the pinned commit |
-| The version header of the build tree defines another build tag (SCS-47) | The build tag, the path of the header, and the pinned build tag, with the reason that the bindings match only that build |
+| A static library is not a file, or the version header of the build tree cannot be read, lacks `SLANG_TAG_VERSION`, or defines it malformed (SCS-47) | "the build of Slang from source finished, but", the problem with the path, and that the build produced another layout than the one that this version of the crate expects |
+| The version header of the build tree defines another build tag (SCS-47) | The build tag, the path of the header, and the build tag of `slang-src`, with the reason that the bindings and the build information name that build tag |
+| A cache entry or its lock cannot be created, locked, written, renamed, or removed (SCS-56) | "cannot" with the action and the path, the reason that the operating system gives, and that removing the entry when no build runs is safe |
 
-A variable is present when the environment contains it, whatever its value. An empty `SLANG_SOURCE_DIR` selects the static route and stops the build there, because a user who set the variable asked for that route, and ARCH-7 forbids a fallback.
+A variable is present when the environment contains it, whatever its value.
 
 The error type `BuildError` of `route.rs` holds the message. Its `Debug` implementation writes the message unchanged, so the error that `main` returns prints as readable text and not as an escaped string.
 
-The build script emits no `cargo::warning`. It writes the output of `cmake` and Ninja to its log, and it shows that output only in the error of a failed configure or build step (SCS-48).
+The build script emits no `cargo::warning`. Cargo shows the warnings of a registry dependency's build script only when the build fails, so a warning would not reach the user who needs it. It writes the output of `cmake` and Ninja to its log, and it shows that output only in the error of a failed configure or build step (SCS-48).
 
 This example shows the message when `VULKAN_SDK` is unset:
 
 ```text
-VULKAN_SDK is not set, so slang-compiler-sys cannot find the Slang library to link. Install the LunarG Vulkan SDK 1.4.363.1 from https://vulkan.lunarg.com, and set VULKAN_SDK to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows. The other way to obtain Slang is to build it from source: set SLANG_SOURCE_DIR to the absolute path of a git checkout of Slang at the commit c7954ebd1f1984ad2bfde15f76248db41dc34aa3.
+VULKAN_SDK is not set, so slang-compiler-sys cannot find the Slang library to link. Install the LunarG Vulkan SDK from https://vulkan.lunarg.com, and set VULKAN_SDK to the absolute path of its directory that holds include/slang and lib, which is the x86_64 directory of the SDK on Linux, the macOS directory on macOS, and the installation directory on Windows. Enabling the Cargo feature `vendored` builds Slang from source instead, which needs git, CMake, Ninja, a C++ compiler, Python 3, and network access or SLANG_SOURCE_DIR.
 ```
 
 ### 9.7. Structure and Tests of the Build Script
 
-The build script follows SYS-8 of the coding standard. It consists of three files that `build.rs` includes with `include!`, in this order: `pin.rs`, `route.rs`, and `system.rs`.
+The build script follows SYS-8 of the coding standard. It consists of two files that `build.rs` includes with `include!`, in this order: `route.rs` and `system.rs`.
 
 - `crates/slang-compiler-sys/route.rs` holds the logic, as plain functions without `main`. The test module `tests/sys/build_script.rs` includes it as well.
-- `crates/slang-compiler-sys/system.rs` holds the struct `System`, which implements the trait `Host` on the real environment, file system, and processes with the standard library only. The test module `tests/sys/build_script/ffi.rs` includes it as well.
+- `crates/slang-compiler-sys/system.rs` holds the struct `System`, which implements the trait `Host` on the real environment, file system, processes, and generator. The test module `tests/sys/build_script/ffi.rs` includes it as well.
 - `build.rs` calls `configure` with `System`, prints each collected instruction, and returns the result from `main`.
 
-The logic reaches the environment, the file system, and other programs only through the private trait `Host`, which has ten methods:
+The logic reaches the environment, the file system, the generator, and other programs only through the private trait `Host`, which has these methods:
 
 - `var`, which returns the value of an environment variable as an `OsString`, or nothing when the variable is absent.
 - `read`, which returns the text of a file, with every byte sequence that is not UTF-8 replaced, because the log of a failed build can hold compiler output in another encoding, and its last lines have to reach the error (SCS-48).
@@ -1232,44 +1149,50 @@ The logic reaches the environment, the file system, and other programs only thro
   Its variant `Log` says that the log file could not be opened or its handle duplicated, and its variant `Start` says that the program could not be started. The logic reports the first as a failure to open the log and the second as a program that cannot start (Section 9.6).
 - `files`, which lists every file under a directory, relative to it.
 - `sync_file`, which copies a file, creating the parent directories, and writes it only when its bytes differ from the existing copy.
-- `remove_file`, which removes a file.
+- `remove_file`, which removes a file, and `remove_dir_all`, which removes a directory with its content.
 - `write`, which writes a text to a file, creating the parent directories.
+- `rename`, which renames a directory.
+- `lock`, which opens a lock file, creating it, and takes an exclusive lock on it that lasts until the process exits.
+- `generate`, which calls `slang_bindgen::generate` and returns the two texts, or the message of the error with its kind and its source errors.
 
-The function `configure` takes a host and a vector of instructions, appends each Cargo instruction to the vector, and returns `Result<(), BuildError>`. `System` implements the methods with `std::env::var_os`, `std::fs`, `std::process::Command`, and `std::env::consts::OS`. It starts each program with standard input closed.
+The function `configure` takes a host and a vector of instructions, appends each Cargo instruction to the vector, and returns `Result<(), BuildError>`. `System` implements the methods with `std::env::var_os`, `std::fs`, `std::process::Command`, `std::env::consts::OS`, and `slang-bindgen`. It starts each program with standard input closed.
 
-`build.rs` has no dependencies and no build dependencies (SCS-38).
+The logic names no type of `slang-bindgen`, so the test binary compiles `route.rs` without the generator.
 
-The test module `build_script` includes `../../route.rs` and implements `Host` on a fake. The fake holds lists of variables, of file contents, and of path kinds or errors, the name of a host operating system, and a function that answers each program run.
+The test module `build_script` includes `../../route.rs` and implements `Host` on a fake. The fake holds lists of variables, of file contents, and of path kinds or errors, the name of a host operating system, a function that answers each program run, and a function that answers each generation.
 
-It records each variable that the logic reads, each program that it runs, and each file that it copies, removes, or writes. A path that the fake does not list is not found.
+It records each variable that the logic reads, each program that it runs, each generation that it requests, and each file and directory that it copies, removes, renames, locks, or writes. A path that the fake does not list is not found.
 
 The tests of the module `build_script` cover:
 
-- The dynamic route and the documentation build:
-  - The exact list of instructions on success, and the documentation build.
+- The dynamic route:
+  - The exact list of instructions on success, and the generation from the header directory of the SDK for the target.
   - An absent, empty, relative, non-UTF-8, and line-breaking `VULKAN_SDK`.
-  - A header that cannot be read, and a missing, malformed, and other build tag.
+  - A header that cannot be read, and a missing and malformed build tag, and any build tag accepted without comparison.
   - The last definition and CRLF lines.
   - Each case of the library check for the host's operating system, and a foreign or unknown target.
-- The static route:
+  - The content of `build_info.rs`, including a build tag that does not have the form of SRC-12.
+- The vendored route:
   - The exact list of instructions without a read of `VULKAN_SDK`.
-  - The programs with their arguments and environment.
+  - The programs with their arguments and environment, including the build tag of `slang-src` in the configure step.
   - The copy and the stamp written after the build, a matching stamp that skips the copy and the configure step, and the removal of stale files.
   - The archives and the C++ standard library of each supported target.
-- The failures of the static route:
-  - Every failure of Section 9.6 that the static route raises, and the cut-off of the changed files at ten lines.
+  - The use of a complete cache entry, a cache entry whose inputs differ, the storage of a new entry by rename, and no use of the cache without `DEP_SLANG_SRC_CACHE_DIR`.
+  - The content of `build_info.rs`.
+- The failures of both routes:
+  - Every failure of Section 9.6, and a failure of the generator of each kind.
   - A signal that ends a program.
   - A log that cannot be opened, which is not reported as a program that cannot start.
   - A `cmake` step that cannot start, a log that cannot be read, and a missing job count.
   - A stale stamp that stays removed after a failure.
-- The numeric version of the build tag.
 
-Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the static route also asserts that `VULKAN_SDK` was not read, and each test of a failure asserts that no stamp was written. These tests are pure Rust, so they run under nextest and under Miri.
+Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the vendored route also asserts that `VULKAN_SDK` was not read, and each test of a failure asserts that no stamp and no cache entry was written. These tests are pure Rust, so they run under nextest and under Miri.
 
 The module `build_script::ffi` includes `../../../system.rs` and tests `System` itself. Its tests cover:
 
 - Reading a variable, the kinds of paths, and the operating system of the host.
-- Listing the files of nested directories, writing and removing files and creating their parents, and keeping an unchanged file while rewriting a changed one.
+- Listing the files of nested directories, writing, renaming, and removing files and directories and creating their parents, and keeping an unchanged file while rewriting a changed one.
+- Taking a lock that a second lock on the same file waits for, in a child process.
 - Copying the tracked files and removing stale ones through the function `sync_copy` of `route.rs`.
 - Running `rustc` and capturing its exit status and output.
 - Running `rustc` with a variable set and another removed, and checking through `env!` and `option_env!` in the compiled code that it sees both changes (SCS-44).
@@ -1277,7 +1200,9 @@ The module `build_script::ffi` includes `../../../system.rs` and tests `System` 
 
 These tests work in `CARGO_TARGET_TMPDIR`. They start a process, so they sit in a module named `ffi`, which Miri skips (SCS-33), and they run on Linux, Windows, and macOS.
 
-`check-fmt` passes every Rust file that git tracks or does not ignore to rustfmt, including `pin.rs`, `route.rs`, and `system.rs` (Section 4.8 of the coding standard). `cargo fmt --all --check` alone does not read them, because a crate includes them with `include!`.
+The method `generate` of `System` has no test of its own, because it only calls the generator, and every build of the crate calls it on the real headers.
+
+`check-fmt` passes every Rust file that git tracks or does not ignore to rustfmt, including `route.rs` and `system.rs` (Section 4.8 of the coding standard). `cargo fmt --all --check` alone does not read them, because a crate includes them with `include!`.
 
 ## 10. Finding the Shared Library at Run Time
 
@@ -1291,21 +1216,21 @@ These requirements hold for three reasons:
 
 - The tests that call Slang fail before any test runs when the loader cannot find the library.
 - The development container provides the path only to processes that a login shell starts (Section 10 of the tooling design). macOS with System Integrity Protection enabled is expected to remove an exported `DYLD_*` variable when it starts the protected shell that runs a recipe.
-- `check-doc-without-slang` and every recipe that does not load Slang have to work without `VULKAN_SDK`.
+- `test-vendored` and every recipe that does not load Slang have to work without `VULKAN_SDK`.
 
 The `justfile` computes the variable with the `just` functions `os()`, `env()`, and `quote()`, so it holds the assignment as text and no recipe exports anything. This example shows the command that `just test` runs on Linux when `VULKAN_SDK` is `/tmp/vulkan-sdk/x86_64` and `LD_LIBRARY_PATH` is empty:
 
 ```sh
-LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --all-features --profile default --no-tests=warn
+LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile default --no-tests=warn
 ```
 
 On Windows, and when `VULKAN_SDK` is unset or empty, the variable is empty and the command starts with `CARGO_BUILD_WARNINGS=deny`.
 
-The recipes that carry the assignment are `test`, `test-gpu`, `test-hw-gpu`, `check-doctest`, `check-bindings`, and `coverage`. Each runs test binaries or doctests that load Slang. `check-bindings` carries it because nextest starts every test binary of the workspace to list its tests, including the test binary of `slang-compiler-sys`.
+The recipes that carry the assignment are `test`, `test-gpu`, `test-hw-gpu`, `check-doctest`, and `coverage`. Each runs test binaries or doctests that load Slang.
 
-`check-miri` does not carry it, because Miri runs no native code. The recipes that only compile, such as `check-clippy`, `check-doc`, `check-doc-without-slang`, `check-features`, and `check-msrv`, run no compiled code and do not carry it. TOOL-7 of the tooling design permits the assignment in front of a command of Section 4.8 of the coding standard.
+`check-miri` does not carry it, because Miri runs no native code. The recipes that only compile, such as `check-clippy`, `check-doc`, `check-features`, and `check-msrv`, run no compiled code and do not carry it, and neither does `check-slang-call-guard`, whose generator binary loads libclang and not Slang. TOOL-7 of the tooling design permits the assignment in front of a command of Section 4.8 of the coding standard.
 
-On the static route, a program needs no Slang library at run time, because the build links Slang statically (Section 9.3). `test-static` therefore carries no assignment and removes `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` instead (SCS-49). The statically linked Slang still loads a `slang-glslang` shared module by name when the dynamic loader finds one (Section 3.10).
+On the vendored route, a program needs no Slang library at run time, because the build links Slang statically (Section 9.3). `test-vendored` therefore carries no assignment and removes `VULKAN_SDK`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` instead (SCS-63). A statically linked Slang without the loader of `slang-glslang-sys` still loads a `slang-glslang` shared module by name when the dynamic loader finds one (Section 3.10).
 
 The assignment on the command line survives System Integrity Protection, because the shell that runs a recipe sets it for the program that it starts. The variable then reaches Cargo, which is not protected, and every program that Cargo starts inherits it. An exported variable would pass through the start of the protected shell, which is expected to remove it.
 
@@ -1330,66 +1255,59 @@ Without the variable, loading the library fails, because dyld then searches only
 
 SCS-33. Every test that calls native code, whether Slang or libclang, MUST sit in a module named `ffi`, and the nextest profile `default-miri` MUST exclude every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`. Miri cannot call foreign code, and a test that reaches a foreign call under Miri fails without a defect in the code.
 
-This answers TQ-5 of the tooling design. The selection by module name works like the GPU tiers (Section 4 of the tooling design). The `ffi` tests stay in the default test tier, so `test` and `test-gpu` run them.
+The selection by module name works like the GPU tiers (Section 4 of the tooling design). The `ffi` tests stay in the default test tier, so `test` and `test-gpu` run them.
 
-`check-miri` keeps the nextest form of Section 4.8 of the coding standard, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call. `cargo +nightly miri nextest run` builds the test binaries without linking the native library and passes when a filter excludes the tests with foreign calls. The build script still runs natively under Miri, so `check-miri` needs `VULKAN_SDK`, but it needs no library path.
+`check-miri` keeps the nextest form of Section 4.8 of the coding standard, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call. `cargo +nightly miri nextest run` builds the test binaries without linking the native library and passes when a filter excludes the tests with foreign calls. The build script still runs natively under Miri, so `check-miri` needs `VULKAN_SDK` and libclang, but it needs no library path.
 
 The crate `slang-compiler-sys` has one integration-test binary (TEST-10), `tests/sys/`, whose root is `tests/sys/main.rs`. It declares four modules:
 
-- `pin`: Three pure tests of the consistency of the pin constants:
-  - The commit is a full lowercase hexadecimal hash of 40 characters.
-  - The build tag names a release and, when it has a commit count, abbreviates the commit.
-  - The SDK version has four numeric components.
+- `build_info`: Pure tests of the build information. They assert that `version` is the crate version followed by `+slang.` and ends in `.vendored` exactly when the feature `vendored` is on, that `linkage` is `Static` and `slang_commit` holds a full commit exactly when the feature is on, and that `slang_build_tag` is not empty. The tests read the feature with `cfg!`, which compares the build script's record with the feature that Cargo passed.
 - `build_script`: The pure tests of the logic of the build script, and its module `ffi`, which tests the real host of `system.rs` and starts processes (Section 9.7).
-- `ffi`: The smoke test and the native-symbol test, which call Slang. The declaration `mod ffi;` carries `#[expect(unsafe_code, reason = "...")]`, whose reason says that the tests of the module call Slang through the raw bindings, which only unsafe code can do. This is the narrowest scope that needs the exception (LINT-1), and Section 4.4 of the coding standard lists it among the expected kinds of lint exception.
-- `symbols`: The generated list of C functions of Section 5.1, without a lint exception (Section 5.10).
+- `ffi`: The smoke test and the native-symbol test, which call Slang. The module carries `#[expect(unsafe_code, reason = "...")]`, whose reason says that the tests of the module call Slang through the raw bindings, which only unsafe code can do. This is the narrowest scope that needs the exception (LINT-1), and Section 4.4 of the coding standard lists it among the expected kinds of lint exception.
+- `symbols`: The generated list of C functions of Section 5.1, included from `OUT_DIR`, without a lint exception (Section 5.10).
 
-The tests of `pin` and of `build_script` outside its module `ffi` call no native code and start no process, so they run under Miri.
+The tests of `build_info` and of `build_script` outside its module `ffi` call no native code and start no process, so they run under Miri.
 
-The smoke test is `global_session_reports_the_pinned_build_tag_and_releases_every_reference`. It takes these steps:
+The smoke test is `global_session_reports_the_build_tag_of_the_build_and_releases_every_reference`. It takes these steps:
 
 1. Create a global session through `slang_createGlobalSession2` with `SlangGlobalSessionDesc::default()`, and assert the result `SLANG_OK` and a non-null session.
-2. Assert that `spGetBuildTagString` and `IGlobalSession::getBuildTagString` both return the build tag of the pin (SCS-34).
+2. Assert that `spGetBuildTagString` and `IGlobalSession::getBuildTagString` both return `BUILD_INFO.slang_build_tag` (SCS-34).
 3. Query the interface `ISlangUnknown` through `queryInterface` with the generated UUID, and assert that the result is the same pointer as the session.
 4. Release the interface pointer, which leaves a count of 1, and the session, which leaves a count of 0.
 
 The test function carries `#[expect(ffi_unwind_calls, reason = "...")]`, because it calls C functions declared `"C-unwind"` (SCS-11). Its reason says that an exception that escaped one of them would unwind into the test, which is defined and fails it.
 
-The native-symbol test is `every_c_function_of_the_bindings_resolves_to_a_native_symbol`, the second test of TEST-8. It asserts that the generated list `C_FUNCTIONS` is not empty and that the address of every function in it is not null. It reads each address through `std::hint::black_box`, so the compiler keeps every reference.
+The native-symbol test is `every_c_function_of_the_bindings_resolves_to_a_native_symbol`. It asserts that the generated list `C_FUNCTIONS` is not empty and that the address of every function in it is not null. It reads each address through `std::hint::black_box`, so the compiler keeps every reference.
 
 The test binary therefore imports every C function that the bindings declare. A function that the library does not export fails the link of the test binary with an error such as "undefined symbol".
 
 The test does not cover the methods of the interfaces, because a method is a slot of a vtable that Slang fills at run time, not a symbol of the library. Only the smoke test and the layout assertions of SCS-12 exercise them.
 
-Both tests run on both routes: through the test recipes on the dynamic route, and through `test-static` on the static route, where the native-symbol test links against the static libraries (Section 9.3).
+Both tests run on both routes: through the test recipes on the dynamic route, and through `test-vendored` on the vendored route, where the native-symbol test links against the static libraries (Section 9.3).
 
 When the loader cannot find the shared library, the test binary stops before any test runs. On Linux, it prints "error while loading shared libraries: libslang-compiler.so.0.2026.17: cannot open shared object file: No such file or directory" and exits with status 127. The recipes avoid this by supplying the library path (Section 10), and a user who runs a program outside them sets the path as the crate documentation says (Section 13).
 
-SCS-34. The smoke test MUST assert that `spGetBuildTagString()` returns the build tag of the pin, on both routes. A library that loads but is not the pinned build is the failure that SYS-6 and SCS-25 exist to prevent, and the run-time comparison catches a library that the loader found somewhere other than where the build script checked.
+SCS-34. The smoke test MUST assert that `spGetBuildTagString()` returns `BUILD_INFO.slang_build_tag`, on both routes. A library that loads but is not the Slang that the bindings were generated from has layouts and vtables that differ from them, and the run-time comparison catches a library that the loader found somewhere other than where the build script read the headers.
 
 The layout assertions of SCS-12 are compile-time checks and need no test. The tests of the generator are those of Section 7.5.
 
 ## 12. Continuous Integration
 
-SCS-35. The Linux, Windows, and macOS jobs of the CI workflow MUST install the pinned Vulkan SDK from LunarG and verify the download against the SHA-256 checksum that LunarG publishes, with the expected value recorded in the workflow (Section 7.3 of the tooling design). They MUST set `VULKAN_SDK` and put the SDK's library directory on the library path of the platform.
+SCS-35. The Linux, Windows, and macOS jobs of the CI workflow that build the default MUST install the Vulkan SDK version that the CI configuration records, from LunarG, and verify the download against the SHA-256 checksum that LunarG publishes, with the expected value recorded in the workflow (Section 7.3 of the tooling design). They MUST set `VULKAN_SDK`, put the SDK's library directory on the library path of the platform, and install libclang.
 
-Every job compiles `slang-compiler-sys`, which runs its build script, and every job that runs tests starts binaries that load Slang (TOOL-21, TOOL-23).
+Every job compiles `slang-compiler-sys`, which runs its build script and the generator, and every job that runs tests starts binaries that load Slang (TOOL-21, TOOL-23). After the installation, each job runs `just check-vulkan-sdk`, which checks the headers, the library, and `slangc` of the SDK against `RECORDED_BUILD_TAG` of `slang-src`, read through the recipe `recorded-slang`, and fails when they differ, so that every job tests the recorded Slang (SRC-11 of the `slang-src` design).
 
-Section 7.3 of the tooling design specifies the mechanism on each platform, including the download address, the installers, the recorded checksums, and the decision not to cache. It meets TOOL-21, TOOL-23, ARCH-9, and SCS-23: each job reads the pin through `just pin`, so the workflow does not restate the version. After the installation, each job runs `just check-vulkan-sdk`, which checks the headers, the library, and `slangc` of the SDK against the build tag of the pin.
+The Windows and macOS jobs link the test binary of `slang-compiler-sys` against the Slang of the SDK and run the smoke test, the native-symbol test (Section 11), and the tests of the real host of Section 9.7. The `check` and `coverage` jobs on Linux also run the generator's tests (Section 7.5).
 
-The `check` and `coverage` jobs on Linux also install libclang and the rustfmt component before they run the tests. The generator's tests (Section 7.5) and the regeneration test, which also reads the headers of the installed SDK (Section 7.6), need them. Section 7.1 of the tooling design specifies that step and states how it meets TOOL-21.
+SCS-62. The CI workflow MUST have one job on each of Linux, Windows, and macOS that runs `just test-vendored` in every run of the workflow, without the Vulkan SDK and without the cache directory. The jobs that build the default never enable `vendored`. One dedicated job per operating system tests the vendored route, because a route that no job builds breaks without notice.
 
-The jobs build the dynamic route only. The Windows and macOS jobs link the test binary of `slang-compiler-sys` against the Slang of the SDK and run the smoke test, the native-symbol test (Section 11), and the tests of the real host of Section 9.7.
-
-SCS-36. The CI workflow MUST NOT build the static route on every push or pull request that it runs on, because the route compiles several hundred C++ files, which would multiply the time of every run for a route that changes rarely.
-
-This answers Q-28 of the architecture design. The static route is verified locally through the recipe `test-static` (Section 9.3). Whether a scheduled CI job builds it is open (Section 16, SQ-4).
+The vendored jobs clone the recorded commit from GitHub, so they also test `slang-src`. Whether a vendored job fits the time limit of a hosted runner is Q-33 of the architecture design, which this document answers together with the tooling design. Section 7 of the tooling design specifies the jobs and what each installs, such as CMake, Ninja, Python 3, and, on Windows, the developer environment of the Microsoft toolchain.
 
 ## 13. Crate Documentation
 
-SCS-37. The crate-level documentation of `slang-compiler-sys` MUST contain the content of Sections 7.4 and 7.9 of the writing guide and MUST state the Slang rules of Section 3.9. The generated items have no documentation of their own (SCS-13), and the design document of the safe crate cites these rules for its `Send`, `Sync`, and lifetime decisions.
+SCS-37. The crate-level documentation of `slang-compiler-sys` MUST contain the content of Sections 7.4 and 7.9 of the writing guide and MUST state the Slang rules of Section 3.9. It MUST also state what a default build and a vendored build each need, and that another Slang than the recorded one is best effort. The generated items have no documentation of their own (SCS-13), and the design document of the safe crate cites these rules for its `Send`, `Sync`, and lifetime decisions.
 
-That content includes a `# Features` section that says the crate has no features, and a `# Platform support` section that names the supported targets of Section 6. It also includes how the crate finds or builds Slang on each route, how the library is found at run time on each platform, and the safety contract that every thunk and C function shares, with what happens when a C++ exception escapes a call.
+That content includes a `# Features` section that names the feature `vendored`, and a `# Platform support` section that names the supported targets of Section 6. It also includes how the crate obtains Slang on each route, how the library is found at run time on each platform, and the safety contract that every thunk and C function shares, with what happens when a C++ exception escapes a call.
 
 The shared safety contract is the one that Section 7.9 of the writing guide requires, and it is what lets the generated items go without `# Safety` sections and safety comments (Section 5.10). It says these things:
 
@@ -1400,46 +1318,39 @@ The shared safety contract is the one that Section 7.9 of the writing guide requ
 
 The documentation states that the crate promises nothing about threads: every function and thunk is `unsafe`, and no interface struct is `Send` or `Sync`. It links to Slang's documentation for the meaning of each item and points users to `slang-compiler`.
 
-The example of the crate-level documentation that creates a global session is marked `no_run`, because it needs the shared library at run time (Section 7.5 of the writing guide). The documentation of the hand-written public items, which are the constants of the pin, follows Section 7 of the writing guide in full.
+The example of the crate-level documentation that creates a global session is marked `no_run`, because it needs the shared library at run time (Section 7.5 of the writing guide).
 
 The crate-level documentation has these parts:
 
 - A summary of what the crate is, with SPIR-V, Vulkan, vtable, and UUID defined on first use. It says when to use the crate, that `slang-compiler` wraps the bindings in a safe API that compiles shaders and reflects their parameters, and that `slango` builds on that to run compute kernels and draw with render pipelines. It links to Slang's user guide for the meaning of each item, and says how each kind of C++ declaration appears in Rust.
 
-  It names the constants of the pin and says what the pin means for a user: one version of the crate works with exactly one Slang build, and the build script refuses any other.
+  It says that every build generates the bindings from the headers of the Slang that it links, names `BUILD_INFO`, and says that the crate is written and tested against the Slang that the version of `slang-src` it requires records, and that the generator can refuse the headers of another Slang.
 - `# Examples`: two doctests.
 
-  The first calls no Slang function and runs. It shows the default values of `SlangGlobalSessionDesc`, an enumeration value that the header does not list, and the sign of the result codes `SLANG_FAIL` and `SLANG_OK`.
+  The first calls no Slang function and runs. It shows the default values of `SlangGlobalSessionDesc`, an enumeration value that the header does not list, the sign of the result codes `SLANG_FAIL` and `SLANG_OK`, and the fields of `BUILD_INFO`.
 
-  The second is marked `no_run`. It creates a global session through `slang_createGlobalSession2`, reads its build tag through `IGlobalSession::getBuildTagString`, compares it with `SLANG_BUILD_TAG`, releases the session, and returns an error when the session cannot be created or the tag differs.
+  The second is marked `no_run`. It creates a global session through `slang_createGlobalSession2`, reads its build tag through `IGlobalSession::getBuildTagString`, compares it with `BUILD_INFO.slang_build_tag`, releases the session, and returns an error when the session cannot be created or the tag differs.
 
-  Its lead-in says that it needs the Slang shared library at run time, which the dynamic loader must find as `# Linking Slang` describes. Each `unsafe` block in it has a safety comment.
-- `# Features`: the crate has no Cargo features.
-- `# Platform support`: the four supported targets of Section 6, and the stop on a target whose pointers are not 64 bits wide. It also says what has run on each target: the dynamic route with its tests on x86_64 Linux, x86_64 Windows, and aarch64 macOS, only a type check on x86_64 macOS (Section 6), and the static route on x86_64 Linux only (SQ-3).
+  Its lead-in says that it needs the Slang shared library at run time on the dynamic route, which the dynamic loader must find as `# Linking Slang` describes. Each `unsafe` block in it has a safety comment.
+- `# Features`: the feature `vendored`, off by default, what it changes, that every crate above forwards it, and that `--all-features` enables it.
+- `# Platform support`: the four supported targets of Section 6, and the stop on any other target. It also says that the dynamic route runs with its tests in CI on x86_64 Linux, x86_64 Windows, and aarch64 macOS, the vendored route on the same three, and x86_64 macOS only as a type check (Section 6).
 - `# Linking Slang`: both routes, for a user, as the next list describes.
 - `# Safety`: the shared safety contract, the rules of Section 3.9 with reflection and component type defined, what happens when a C++ exception escapes a call, that no interface struct implements `Send` or `Sync`, and the promise that an implementation of the unsafe trait `Interface` makes.
 
 The section `# Linking Slang` says these things:
 
-- `SLANG_SOURCE_DIR` selects the static route, no Cargo feature selects a route, and the build never falls back from one route to the other.
-- For the dynamic route as Section 9.2 specifies it, it names the LunarG Vulkan SDK of `VULKAN_SDK_VERSION` and its download address, and says which directory `VULKAN_SDK` names on each platform. It describes the check of the build tag with no setting that skips it, the link from `$VULKAN_SDK/lib`, the failures that stop the build, and the rule of SCS-41 for a target of another operating system.
-- For the static route as Section 9.3 specifies it, it says that `SLANG_SOURCE_DIR` names the top level of a git clone at `SLANG_COMMIT` with its submodules. It lists the checks that git performs and the refusal of a source archive, and says that the build script never changes the clone.
-
-  It names git, CMake 3.22 or later, Ninja, and a C++ compiler as requirements. It describes the copy, the build, the log, the rebuild after a change, the check of the build tag, the six static libraries with the C++ standard library of each target, the supported targets, and the refusal of cross-compilation.
-- The static build leaves out `slang-glslang`, with the consequences of Section 3.10:
-  - SPIR-V that is not optimized and the diagnostics of the first generation, when the loader finds no `slang-glslang` library.
-  - The failure of output as SPIR-V assembly.
-  - Output that depends on the environment, when the loader finds a library.
-  - The standard modules that are not built.
-
-  The pinned Slang validates SPIR-V on neither route unless `SLANG_RUN_SPIRV_VALIDATION` is `1`.
-- `DOCS_RS` builds the documentation without Slang, and the `links` metadata of each route.
+- That the feature `vendored` selects the vendored route, that no environment variable selects a route, and that the build never falls back from one route to the other.
+- That every build needs libclang, found through `LIBCLANG_PATH` or the standard locations, with how to install it on each platform.
+- For the dynamic route as Section 9.2 specifies it, it names the LunarG Vulkan SDK and its download address, says which directory `VULKAN_SDK` names on each platform, that the build accepts the Slang of any SDK and records its build tag, the link from `$VULKAN_SDK/lib`, the failures that stop the build, and the rule of SCS-41 for a target of another operating system.
+- For the vendored route as Section 9.3 specifies it, it says that `slang-src` obtains the source tree and links to its documentation for the environment variables `SLANG_SOURCE_DIR`, `SLANG_SRC_COMMIT`, and `SLANG_SRC_CACHE_DIR`. It names git, CMake 3.22 or later, Ninja, a C++ compiler, and Python 3 as requirements, and describes the copy, the build, the log, the cache directory, the six static libraries with the C++ standard library of each target, the supported targets, and the refusal of cross-compilation.
+- That the vendored build of this crate alone leaves out slang-glslang, with the consequences of Section 3.10, and that `slang-compiler` with its feature `vendored` installs the loader of `slang-glslang-sys`, which a direct user installs as `slang-glslang-sys` documents. The recorded Slang validates SPIR-V on neither route unless `SLANG_RUN_SPIRV_VALIDATION` is `1`.
+- The `links` metadata of each route (SCS-54).
 - Which variable the dynamic loader reads on each platform, and what the loader reports on Linux when it cannot find the library.
 - That macOS removes the `DYLD_*` variables when it starts a protected program, and that an assignment on the command line of Cargo is expected to avoid that and is not verified (SA-7).
 
 The paragraph on exceptions in `# Safety` says these things:
 
-- Slang raises its internal errors as C++ exceptions, and some calls of the pinned build let one escape for some inputs.
+- Slang raises its internal errors as C++ exceptions, and some calls of the recorded Slang let one escape for some inputs.
 - Every foreign function is declared `"C-unwind"` and every vtable entry `"system-unwind"`, which name the same calling conventions as `"C"` and `"system"`, so an escaping exception is not undefined behaviour.
 - With `panic = "unwind"`, the exception unwinds through the caller's Rust frames and runs their destructors. The process then aborts at `catch_unwind` or at the root of the thread, or the exception is returned as an opaque error, which Rust leaves unspecified.
 - With `panic = "abort"`, the process aborts as soon as the exception reaches a Rust frame.
@@ -1448,11 +1359,11 @@ The paragraph on exceptions in `# Safety` says these things:
 
 ## 14. Dependencies and Licences
 
-SCS-38. The published crate `slang-compiler-sys` MUST have no dependencies and no build dependencies, because every dependency of a `-sys` crate runs on every user's machine.
+SCS-61. The published crate `slang-compiler-sys` MUST have exactly these dependencies: `slang-bindgen` with an exact version as its only build dependency, `slang-src` with an exact version as an optional dependency that only the feature `vendored` enables, and `slang-bindgen` as a development dependency for the tests of `system.rs`. Every dependency of a `-sys` crate runs on every user's machine, and the exact versions make the generated code and the source tree of a given version of this crate fixed.
 
-The build script needs only the standard library to read a header, start processes, copy files, and compare strings. The static route runs `cmake` through `std::process::Command` and uses no `cmake` crate.
+The build script needs only the standard library and the generator to read a header, generate the bindings, start processes, copy files, take locks, and compare strings. The vendored route runs `cmake` through `std::process::Command` and uses no `cmake` crate.
 
-The generator depends on the crate `clang` 2.1.0, and through it on `clang-sys`, `glob`, `libc`, `libloading`, `cfg-if`, and, on Windows, `windows-link`. These crates have these licences:
+The generator depends on the crate `clang` 2.1.0, and through it on `clang-sys`, `glob`, `libc`, `libloading`, `cfg-if`, and, on Windows, `windows-link`. Every build of `slang-compiler-sys` compiles them on the user's machine. These crates have these licences:
 
 - `clang` and `clang-sys`: Apache-2.0.
 - `libloading`: ISC.
@@ -1471,11 +1382,15 @@ The change in the last column confirms or corrects it, states the result in the 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SA-7 | On macOS with System Integrity Protection enabled, the library path that a recipe places on the command line of the program it runs reaches the test binary, although macOS is expected to remove the `DYLD_*` variables when it starts a protected system program such as the system shell | SCS-32 | A run of `just test` on a Mac with System Integrity Protection enabled and without `DYLD_LIBRARY_PATH` in the environment of `just`, by the owner or a developer with such a Mac. The hosted macOS runner cannot confirm it, because System Integrity Protection is disabled there (Section 10) |
-| SA-8 | docs.rs honours `targets` in `[package.metadata.docs.rs]` and builds no other target | Section 9.4 | No longer to be confirmed, because docs.rs is not supported (Section 13 of the architecture design). The design of M7 removes it together with the documentation-build route |
+| SA-11 | Exactly the nine lints of Section 5.10 fire on the generated code of the recorded Slang on each of the four supported targets, as they do on x86_64 Linux | SCS-13 | The CI jobs on Windows and macOS, and a Clippy check for `x86_64-apple-darwin` |
+| SA-12 | The parse for `x86_64-apple-darwin` reports no diagnostic and gives the same text as the parse for `aarch64-apple-darwin` | Section 6 | A Clippy check for `x86_64-apple-darwin` from Linux and a comparison of the output of the binary of SCS-60 for both targets |
+| SA-13 | The paths under `OUT_DIR` of the copy and the build tree of the vendored route stay within the path length limit of Windows for a target directory of usual depth | Section 9.3 | The vendored CI job on Windows |
+| SA-14 | `CMAKE_MSVC_RUNTIME_LIBRARY` reaches every library of the vendored build, so the runtime matches Rust's `crt-static` choice | Section 9.3 | The vendored CI job on Windows, which links without a runtime mismatch |
+| SA-15 | The headers of Slang releases near the recorded one generate without a change of the rule set, so that another Slang version is best effort and not impossible | Section 4.2 | A run of the binary of SCS-60 on the headers of the newest Slang release when the recorded Slang next moves |
 
-The next assumption takes SA-11.
+The next assumption takes SA-16.
 
-Assumptions A-6 and A-7 of the architecture design, that a dependency's build script cannot set the rpath of the final binary and that docs.rs sets `DOCS_RS`, also apply to this design and stay where the architecture design records them.
+Assumption A-6 of the architecture design, that a dependency's build script cannot set the rpath of the final binary, also applies to this design and stays where the architecture design records it.
 
 ## 16. Open Questions
 
@@ -1483,9 +1398,7 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| SQ-3 | Does the static route work on macOS and on Windows with the Microsoft toolchain? Its code for these targets follows a reading of Slang's CMake files and has never run: the archive names and the runtime option of the Microsoft toolchain, the C++ standard library `c++` on macOS, whether macOS needs a framework, Ninja in the developer environment on Windows, and whether the options of Section 9.3 avoid every download on both (Section 9.3) | This document | M7, before the first release |
-| SQ-4 | Should a scheduled CI job run `test-static`, on which platforms, and how often? CI does not build the static route on a push or a pull request (SCS-36) | This document, with Section 7.1 of the tooling design | M7 |
-| SQ-5 | Should the build script watch `CC`, `CXX`, and `CMAKE_TOOLCHAIN_FILE`, which CMake reads from the environment? A change of one of them after the first configure step has no effect until `SLANG_SOURCE_DIR`, the commit, or the configure arguments change (Section 9.5) | This document | M7 |
+| SQ-3 | Does the vendored route work on macOS and on Windows with the Microsoft toolchain? Its code for these targets follows a reading of Slang's CMake files: the archive names and the runtime option of the Microsoft toolchain, the C++ standard library `c++` on macOS, whether macOS needs a framework, Ninja in the developer environment on Windows, and whether the options of Section 9.3 avoid every download on both (Section 9.3) | This document | M7, through the vendored CI job |
 
 The next question takes SQ-6.
 
@@ -1493,97 +1406,93 @@ The next question takes SQ-6.
 
 The threat model has six parts:
 
-1. The Slang library and its headers come from the Vulkan SDK or from a source tree that the user names, and a defect in them, or a tampered copy, reaches every program that links the crate.
-2. The build script runs on the user's machine with the user's permissions and reads environment variables. On the static route, it runs `git`, CMake, and a native build of a large C++ code base from the source tree that `SLANG_SOURCE_DIR` names.
+1. The Slang library and its headers come from the Vulkan SDK, or from a source tree that `slang-src` clones or that the user names, and a defect in them, or a tampered copy, reaches every program that links the crate.
+2. The build script runs on the user's machine with the user's permissions and reads environment variables. It runs the generator, which loads libclang. On the vendored route, it runs `git`, CMake, and a native build of a large C++ code base from the source tree.
 3. The binding generator trusts the headers it parses and writes Rust declarations that the compiler trusts without checking them against the library.
-4. An agent edits the checked-in bindings by hand, or changes the generator so that it writes a wrong declaration.
-5. The generator's dependencies, such as `clang` and `clang-sys`, run their build scripts on the machines of maintainers.
+4. An agent changes the generator so that it writes a wrong declaration.
+5. The generator's dependencies, such as `clang` and `clang-sys`, run their build scripts on every user's machine.
 6. A CI job downloads the Vulkan SDK, and an attacker on the network or at the download host tampers with it.
 
-Unsafe code and FFI invariants. The crate relies on the native library being exactly the pinned build, which the tag check of SCS-25, the commit check of SCS-27, and the run-time assertion of SCS-34 secure. It relies on the declarations matching the headers, which the regeneration check (Section 7.6), the layout assertions (SCS-12), and the failures of SCS-18 and SCS-19 secure.
+Unsafe code and FFI invariants. The crate relies on the declarations matching the library, which holds because every build generates them from the headers of the Slang that the same build links (SCS-51, SCS-64), and which the run-time assertion of SCS-34 checks for the library that the loader found. It relies on the declarations matching the headers, which the layout assertions (SCS-12) and the refusals of SCS-19 secure.
 
 It guarantees its callers nothing beyond exact declarations. Every function and thunk is `unsafe`, and no interface struct is `Send` or `Sync`.
 
 Enumerations and `SlangResult` are integer newtypes so that an unknown value is not undefined behaviour (SCS-7, SCS-8). Thunks take raw pointers so that no Rust reference asserts an aliasing guarantee about a native object (SCS-10).
 
-Every vtable entry and C function is declared with an unwinding ABI. A C++ exception that escapes Slang, which some methods of the pinned build let happen (Section 3.3), is therefore defined behaviour and not undefined behaviour (SCS-10, SCS-11). It unwinds through the caller's Rust frames and runs their destructors, which can call Slang again while its state is inconsistent.
+Every vtable entry and C function is declared with an unwinding ABI. A C++ exception that escapes Slang, which some methods of the recorded Slang let happen (Section 3.3), is therefore defined behaviour and not undefined behaviour (SCS-10, SCS-11). It unwinds through the caller's Rust frames and runs their destructors, which can call Slang again while its state is inconsistent.
 
 A caller that must not let that happen stops the unwinding itself, as the guard of the safe crate does (Section 11.6 of `docs/design/slang-compiler.md`). The crate documentation states the shared safety contract, Slang's rules, and this behaviour (SCS-37).
 
 Untrusted shader source and file paths. This crate compiles nothing and reads no shader source. The safe crate decides which files Slang can read (Section 8 of `docs/design/slang-compiler.md`).
 
-Build scripts that run native builds. The dynamic route reads one header, asks the file system whether the library directory and the library file exist, and emits instructions. It searches no location other than `VULKAN_SDK` (SCS-26 and SCS-41).
+Build scripts that run native builds. The dynamic route reads the headers of the SDK, asks the file system whether the library directory and the library file exist, generates the bindings, and emits instructions. It searches no location other than `VULKAN_SDK` (SCS-26 and SCS-41).
 
 The dynamic route writes the value of `VULKAN_SDK` into Cargo instructions only after it has rejected a value that is not UTF-8, is not absolute, or contains a line feed or a carriage return (SCS-40). Cargo reads one instruction per line, so without this check a value with a line break could inject an instruction of its own, such as one that links another library or adds a search path. A test of Section 9.7 passes such values and asserts that the build script emits no link instruction and that its message holds no line break.
 
-The static route applies the same checks to `SLANG_SOURCE_DIR` and `OUT_DIR` (SCS-42). It refuses a tree at another commit, a changed tree, and a tree without git metadata (SCS-27). It reads the clone only through git, with the repository variables of the environment removed and optional locks off, so git answers for the directory that `SLANG_SOURCE_DIR` names and writes nothing into it (SCS-44).
+The vendored route applies the same checks to the paths that `slang-src` exports and to `OUT_DIR` (SCS-55). It reads the source tree only through git, with the repository variables of the environment removed and optional locks off, so git answers for the source tree and writes nothing into it (SCS-44). It reaches no network, because only `slang-src` does (ARCH-35, SCS-28).
 
-The static route copies the tracked files into `OUT_DIR` and builds the copy, so Slang's build, which writes into its source tree, writes only under `OUT_DIR` (SCS-45, SYS-5).
+The vendored route copies the tracked files into `OUT_DIR` and builds the copy, so Slang's build, which writes into its source tree, writes only under `OUT_DIR` (SCS-45). It refuses a tracked path that would leave the copy, disables every component that downloads (SCS-28), and checks the archives and the build tag that the build produced (SCS-47). The route is selected only by the feature `vendored`, which the manifest of whoever builds states (SCS-50).
 
-It refuses a tracked path that would leave the copy, disables every component that downloads (SCS-28), and checks the archives and the build tag that the build produced (SCS-47). The route is selected only by variables that the person who builds sets (SCS-24), and no setting bypasses the version checks.
+The cache directory holds libraries that the vendored route links without building them again (SCS-56). Section 13 of the `slang-src` design states the threat model of the cache directory and why an attacker who can write there is out of scope.
 
-Dependencies. The published crate has no dependencies (SCS-38). The generator's dependencies are checked by cargo-deny (TOOL-24, TOOL-26), and they run only for maintainers, never on a user's machine (ARCH-2).
+Dependencies. The published crate depends only on `slang-bindgen` and, under `vendored`, on `slang-src`, each with an exact version (SCS-61). The dependencies of the generator run on every user's machine, and cargo-deny checks them (TOOL-24, TOOL-26).
 
-The native library is fixed to one SDK version and one Slang commit by the pin (SCS-23), and CI verifies every SDK download against a checksum recorded in the workflow (SCS-35).
-
-The checked-in file is a review surface of several thousand lines, which no reviewer reads line by line.
-
-The regeneration check makes a hand edit fail `just check` on Linux. A reviewer therefore reviews the change to the generator, its rule set, and the summary of the regenerated diff instead of the whole file.
+The bindings are not a review surface in the repository. A reviewer reviews the change to the generator and its rule set, and the diff of the generated output that Section 8.2 produces when the recorded Slang moves.
 
 The rule set records a reason for every decision. The generator fails on a declaration that no rule decides (SCS-2) and on a rule that decides nothing (SCS-39), so the rule set that the reviewer reads matches the headers in both directions.
 
-A change to the generator that writes a wrong declaration and the regenerated file together pass the regeneration check. The generator's unit tests (Section 7.5) and the reviewer's reading of the generator change carry that risk.
+A change to the generator that writes a wrong declaration compiles in every build. The generator's unit tests (Section 7.5), the layout assertions, the tests of the safe crate, and the reviewer's reading of the generator change carry that risk.
 
 These attacks are out of scope:
 
 - A compromised Vulkan SDK or Slang release from LunarG or the Slang project runs with the full privileges of the program that links it, and no crate can constrain it.
-- A source tree that the user names for the static route is code that the user chose to build, and CMake runs it with the user's permissions. The same holds for its git metadata, which the commit check trusts, and for the programs named `git`, `cmake`, and `ninja` that `PATH` finds.
-- A defect in libclang that silently misreports a declaration without any diagnostic cannot be detected by the generator, though the comparison between targets and the layout assertions narrow it.
+- A source tree that the user selects or names is code that the user chose to build, and CMake runs it with the user's permissions. The same holds for the programs named `git`, `cmake`, and `ninja` that `PATH` finds, and for the libclang that `LIBCLANG_PATH` or the standard locations provide.
+- A defect in libclang that silently misreports a declaration without any diagnostic cannot be detected by the generator, though the layout assertions narrow it.
 - Attacks on the repository itself are a matter of access control.
 
-The residual risk has eight parts:
+The residual risk has seven parts:
 
-1. The layout assertions check structs and unions, not function signatures. A wrong parameter type in a function or a vtable entry that the generator's rules allow compiles and is undefined behaviour. The smoke test exercises only a few functions, and the native-symbol test checks only that each C function exists in the library, not its signature.
-2. The static route checks the clone only when the build script runs, which the `HEAD` and `index` files of the clone trigger (SCS-30). A change to a tracked file followed by no git operation does not rerun it, and the library then stays the one built from the tree that the last run verified. A change made by hand to the copy under `OUT_DIR` is not detected while the stamp matches, and Ninja builds it.
-3. The build tag check compares an abbreviated commit hash. A different build with the same tag is not detected by either check, because the run-time assertion of SCS-34 compares the same string. The build script also reads the header and not the library, so a library replaced in an SDK whose header is unchanged passes the build, and only the run-time assertion detects it.
+1. The layout assertions check structs and unions, not function signatures. A wrong parameter type in a function or a vtable entry that the generator's rules allow compiles and is undefined behaviour. The smoke test and the native-symbol test cover little of this: the first exercises only a few functions, and the second checks only that each C function exists in the library, not its signature.
+2. On the dynamic route, the build script reads the headers and not the library. A library replaced in an SDK whose headers are unchanged passes the build, and only the run-time assertion of SCS-34 and the check of the safe crate detect it, by its build tag, which names an abbreviated commit.
+3. A Slang other than the recorded one is best effort. Its headers generate bindings that match it, but the safe crates can depend on a behaviour of the recorded Slang that it does not have.
 4. Slang is a large C++ code base whose defects reach every program that links it, as Section 18 of the architecture design states.
 5. Miri cannot run any test that calls Slang (SCS-33), so the soundness of the declarations rests on the generator and its tests, not on Miri.
-6. A program linked on the static route still loads a `slang-glslang` shared library by name when the dynamic loader finds one (Section 3.10), and that library can come from another Slang build than the pin. The SPIR-V that such a program generates therefore depends on the environment that it runs in: with such a library on the loader path, Slang optimizes the SPIR-V, and without one, it does not.
-7. The checks of the static route on macOS and Windows are unverified (Section 16, SQ-3).
-8. A C++ exception that escapes Slang is defined behaviour through the unwinding ABIs, but it runs the destructors of the caller's Rust frames. A direct user of this crate that does not stop the unwinding can call Slang again while Slang is in the middle of unwinding, and Slang's state can be inconsistent after it.
+6. A program linked on the vendored route without the loader of `slang-glslang-sys` still loads a `slang-glslang` shared library by name when the dynamic loader finds one (Section 3.10), and that library can come from another Slang build. The SPIR-V that such a program generates then depends on the environment that it runs in.
+7. A C++ exception that escapes Slang is defined behaviour through the unwinding ABIs, but it runs the destructors of the caller's Rust frames. A direct user of this crate that does not stop the unwinding can call Slang again while Slang is in the middle of unwinding, and Slang's state can be inconsistent after it.
 
 ## 18. Operational Considerations
 
 ### 18.1. Cargo Features
 
-`slang-compiler-sys` has no Cargo features, and neither does the binding generator. The environment selects the route of the build script (Section 9.1).
+`slang-compiler-sys` has one Cargo feature, `vendored`, off by default. It enables the optional dependency `slang-src` and selects the vendored route (SCS-50). Without it, the build script takes the dynamic route. `slang-bindgen` has no Cargo features.
 
 ### 18.2. Environment Variables
 
-This table lists every environment variable that the build script or the generator reads, and every variable that the build script sets or removes for the programs that it runs, with its default. The variables that Cargo sets for every build script, such as `OUT_DIR`, `TARGET`, `HOST`, and the `CARGO_CFG_TARGET_*` variables, are not options, and the table lists those that the build script decides on.
+This table lists every environment variable that the build script or the generator reads, and every variable that the build script sets or removes for the programs that it runs, with its default. The variables that Cargo sets for every build script, such as `OUT_DIR`, `TARGET`, `HOST`, and the `CARGO_CFG_TARGET_*` variables, are not options, and the table lists those that the build script decides on. The variables that `slang-src` reads are in Section 14.2 of the `slang-src` design.
 
 | Variable | Read by | Default and behaviour when absent |
 | --- | --- | --- |
-| `DOCS_RS` | The build script, always | Absent, so the build proceeds on the route that Section 9.1 selects. When present, with any value, the build script returns at once (SCS-29). |
-| `SLANG_SOURCE_DIR` | The build script, when `DOCS_RS` is absent | Absent, so the dynamic route applies. When present, with any value, the static route applies (Section 9.3). An empty value, a value that is not an absolute path in UTF-8 without line breaks, and a path that is not an accessible directory stop the build (SCS-42). |
-| `OUT_DIR` | The build script on the static route | Set by Cargo. The static route keeps its copy, build tree, libraries, log, and stamp under `OUT_DIR/slang`. Absence, or a value that is not an absolute path in UTF-8 without line breaks, stops the build (SCS-42). |
-| `TARGET`, `HOST` | The build script on the static route | Set by Cargo. Absence of either stops the build, and so does a `TARGET` that differs from `HOST` (SCS-42, SCS-43). |
-| `CARGO_CFG_TARGET_ENV`, `CARGO_CFG_TARGET_FEATURE` | The build script on the static route | Set by Cargo for the target. The static route requires `gnu` on Linux and `msvc` on Windows (SCS-43). With the Microsoft toolchain, `crt-static` among the target features selects the static runtime library (Section 9.3). |
-| `NUM_JOBS` | The build script on the static route | Set by Cargo. When it holds a whole number, the build step passes it to `cmake --build` as `--parallel`. Otherwise the build step passes no job count, and Ninja chooses one. |
-| `PATH` | The operating system, when the build script starts `git`, `cmake`, and `ninja` on the static route | The build stops with a message that names the program when one of the three cannot start (Section 9.6). |
-| `GIT_OPTIONAL_LOCKS` | Set to `0` by the build script for every git command on the static route | The value of the environment is never used, so `git status` does not refresh the index of the clone (SCS-44). |
-| `GIT_DIR`, `GIT_INDEX_FILE`, and the other 13 variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` | Removed by the build script from the environment of every git command on the static route | A value in the environment of the build, such as one that a git hook sets, never reaches git (SCS-44). |
-| `SLANG_USE_SCCACHE` | Removed by the build script from the environment of `cmake` on the static route | A value in the environment never reaches Slang's CMake, and the configure step sets `-DSLANG_USE_SCCACHE=OFF`. |
-| `CC`, `CXX`, `CMAKE_TOOLCHAIN_FILE` | CMake, when the static route configures, and not the build script | Passed through unchanged. CMake chooses the compilers and the toolchain from them. The build script does not watch them (Section 16, SQ-5). |
-| `VULKAN_SDK` | The build script on the dynamic route, the generator, the regeneration test, and the variable `slang_library_path` of the `justfile` | No default. The static route never reads it, and `test-static` removes it (SCS-49). On the dynamic route, absence, an empty value, and a value that is not an absolute path in UTF-8 without line breaks stop the build (SCS-40 and Section 9.6). The generator's binary fails without it, or with it empty, with a message that names `VULKAN_SDK` and the pinned SDK version, and the regeneration test fails without it (SCS-22). Without it, or with it empty, `slang_library_path` is empty, so the recipes add no library path (SCS-32). The development container sets it. `check-doc-without-slang` removes it from the environment of the documentation build. |
-| `CARGO_CFG_TARGET_OS` | The build script on both routes | Set by Cargo for the target. On the dynamic route, when it names the operating system of the host, the build script also checks the library file of the target (SCS-41). When it is absent or names another or an unknown operating system, the build script does not look for the library file. On the static route, it selects the C++ standard library and the archive names, and a target other than Linux, macOS, or Windows stops the build (SCS-43). |
-| `LIBCLANG_PATH` | `clang-sys`, when the generator or its tests run | Absent, so `clang-sys` searches the locations that its documentation lists. When libclang is not found there, the generator fails with an error of kind `Libclang` that starts with "cannot load libclang" and advises to install libclang or set `LIBCLANG_PATH` (Section 7.7). |
+| `CARGO_FEATURE_VENDORED` | The build script, always | Set by Cargo when the feature `vendored` is on. Absent, so the dynamic route applies (SCS-50). |
+| `VULKAN_SDK` | The build script on the dynamic route, the recipe `check-slang-call-guard`, and the variable `slang_library_path` of the `justfile` | No default, and the development container sets it. The vendored route never reads it, and `test-vendored` removes it (SCS-63). On the dynamic route, absence, an empty value, and a value that is not an absolute path in UTF-8 without line breaks stop the build (SCS-40 and Section 9.6), and without it or with it empty `slang_library_path` is empty, so the recipes add no library path (SCS-32). |
+| `LIBCLANG_PATH` | `clang-sys`, when the generator runs in the build script, in the binary, or in its tests | Absent, so `clang-sys` searches the locations that its documentation lists. When libclang is not found there, the generator fails with an error of kind `Libclang` that advises to install libclang or set `LIBCLANG_PATH` (Section 7.7), and the build stops (Section 9.6). |
+| `DEP_SLANG_SRC_ROOT`, `DEP_SLANG_SRC_COMMIT`, `DEP_SLANG_SRC_BUILD_TAG` | The build script on the vendored route | Set by Cargo from the metadata of `slang-src`. Absence, or a value that SCS-55 rejects, stops the build. |
+| `DEP_SLANG_SRC_CACHE_DIR` | The build script on the vendored route | Absent, so the build script uses no cache. When present, it keeps and uses its entries there (SCS-56). |
+| `OUT_DIR` | The build script on both routes | Set by Cargo. The generated files are directly under it, and the vendored route keeps its copy, build tree, libraries, log, and stamp under `OUT_DIR/slang`. Absence, or a value that is not an absolute path in UTF-8 without line breaks, stops the build (SCS-55). |
+| `TARGET`, `HOST` | The build script on both routes | Set by Cargo. `TARGET` names the target of the generator on both routes. On the vendored route, absence of either stops the build, and so does a `TARGET` that differs from `HOST` (SCS-43, SCS-55). |
+| `CARGO_CFG_TARGET_ENV`, `CARGO_CFG_TARGET_FEATURE` | The build script on the vendored route | Set by Cargo for the target. The vendored route requires `gnu` on Linux and `msvc` on Windows (SCS-43). With the Microsoft toolchain, `crt-static` among the target features selects the static runtime library (Section 9.3). |
+| `NUM_JOBS` | The build script on the vendored route | Set by Cargo. When it holds a whole number, the build step passes it to `cmake --build` as `--parallel`. Otherwise the build step passes no job count, and Ninja chooses one. |
+| `PATH` | The operating system, when the build script starts `git`, `cmake`, and `ninja` on the vendored route | The build stops with a message that names the program when one of the three cannot start (Section 9.6). |
+| `GIT_OPTIONAL_LOCKS` | Set to `0` by the build script for every git command on the vendored route | The value of the environment is never used (SCS-44). |
+| `GIT_DIR`, `GIT_INDEX_FILE`, and the other 13 variables of the constant `GIT_REPOSITORY_VARIABLES` of `route.rs` | Removed by the build script from the environment of every git command on the vendored route | A value in the environment of the build, such as one that a git hook sets, never reaches git (SCS-44). |
+| `SLANG_USE_SCCACHE` | Removed by the build script from the environment of `cmake` on the vendored route | A value in the environment never reaches Slang's CMake, and the configure step sets `-DSLANG_USE_SCCACHE=OFF`. |
+| `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET` | CMake, when the vendored route configures, and the cache key | Passed through unchanged. CMake chooses the compilers, flags, and toolchain from them. The build script reruns when one changes (SCS-30). |
+| `CARGO_CFG_TARGET_OS` | The build script on both routes | Set by Cargo for the target. On the dynamic route, when it names the operating system of the host, the build script also checks the library file of the target, and when it is absent or names another or an unknown operating system, the build script does not look for the library file (SCS-41). On the vendored route, it selects the C++ standard library and the archive names, and a target other than Linux, macOS, or Windows stops the build (SCS-43). |
 
 ### 18.3. Platforms and Minimum Supported Rust Version
 
-Section 6 lists the supported targets, and SCS-15 stops compilation on any other.
+Section 6 lists the supported targets, the generator refuses any other (SCS-58), and SCS-15 stops compilation on any 32-bit target.
 
-The binding generator runs on Linux only (Sections 7.5 and 7.6), and it needs libclang and `rustfmt` on the `PATH` at run time. Its crate builds on every platform without libclang. Both crates use the workspace's `rust-version` (TOOL-4), which `check-msrv` verifies.
+Every build of `slang-compiler-sys` runs the generator, so every user needs libclang at build time on every platform. The tests of the generator run on Linux only (SCS-21). Both crates use the workspace's `rust-version` (TOOL-4), which `check-msrv` verifies.
 
 ### 18.4. Failure Modes
 
@@ -1591,38 +1500,31 @@ This table lists the failure modes that this design defines, how each is reporte
 
 | Failure | Reported by | Recovery |
 | --- | --- | --- |
-| `VULKAN_SDK` is absent, empty, not an absolute path in UTF-8 without line breaks, or names a directory without the pinned Slang headers, without `lib`, or without the library file of the host's target | The error that the build script returns, with the content of Section 9.6 | Install the LunarG Vulkan SDK of the pin and set `VULKAN_SDK` to the absolute path of its directory that holds `include/slang` and `lib` |
-| The SDK at `VULKAN_SDK` ships another Slang build | The error that the build script returns, with both build tags (Section 9.6) | Install the SDK of the pin and set `VULKAN_SDK` to it, or use the version of `slang-compiler-sys` that matches the installed SDK |
-| `SLANG_SOURCE_DIR` is empty, not an absolute path in UTF-8 without line breaks, not a directory, not the top level of a git work tree, or a tree without git metadata | The error that the build script returns, with the content of Section 9.6 | Set `SLANG_SOURCE_DIR` to the top level of a git clone of Slang at the pinned commit with its submodules, or unset it to use the dynamic route |
-| The source tree is at another commit | The error that the build script returns, with both commits and the commands that check out the pin (Section 9.6) | Check out the pinned commit and update the submodules, or use the version of `slang-compiler-sys` that matches the tree |
-| The source tree has a changed tracked file or submodule | The error that the build script returns, with up to ten lines of `git status` (Section 9.6) | Commit, stash, or discard the changes, or point `SLANG_SOURCE_DIR` at an unchanged checkout of the pinned commit |
-| A submodule that the build needs is missing | The error that the build script returns, with the command that fetches it (Section 9.6) | Run that command, which needs network access |
-| `git`, `cmake`, or `ninja` cannot start, or `git` fails | The error that the build script returns, with the command and its exit status or the reason (Section 9.6) | Install the missing program, or fix the clone that git reports on |
-| The target differs from the host, or is not a supported target of the static route | The error that the build script returns, with the triples (Section 9.6) | Build on a host of the target, or unset `SLANG_SOURCE_DIR` to use the dynamic route |
+| `VULKAN_SDK` is absent, empty, not an absolute path in UTF-8 without line breaks, or names a directory without the Slang headers, without `lib`, or without the library file of the host's target | The error that the build script returns, with the content of Section 9.6 | Install the LunarG Vulkan SDK and set `VULKAN_SDK` to the absolute path of its directory that holds `include/slang` and `lib`, or enable `vendored` |
+| libclang cannot be loaded | The error that the build script returns, with the error of kind `Libclang` (Section 9.6) | Install libclang or set `LIBCLANG_PATH` |
+| The headers of the Slang that the build links hold a declaration that no rule covers, a construct of SCS-19, or no declaration that a rule names | The error that the build script returns, with every unmatched declaration, construct, or stale rule (Section 9.6) | Use the SDK that ships the recorded Slang, or enable `vendored`. An agent extends the rule set and this design for a new recorded Slang |
+| The target is not a supported target | The error that the build script returns, with the error of kind `Target` | Build for a supported target |
+| The metadata of `slang-src` is missing or invalid | The error that the build script returns (Section 9.6) | Depend on the version of `slang-src` that this crate requires, as a direct dependency through the feature `vendored` |
+| `git`, `cmake`, or `ninja` cannot start, or `git` fails | The error that the build script returns, with the command and its exit status or the reason (Section 9.6) | Install the missing program, or build without `vendored` |
+| The target differs from the host, or is not a supported target of the vendored route | The error that the build script returns, with the triples (Section 9.6) | Build on a host of the target, or build without `vendored` |
 | The configure or build step of `cmake` fails | The error that the build script returns, with the path of `slang/build.log` under `OUT_DIR` and its last 40 lines (Section 9.6) | Read the log, and fix the toolchain or the environment that it names, such as `CC` |
-| The static build produced no archive or another build tag | The error that the build script returns, with the path that is missing or the tag (Section 9.6) | Check that the source tree is the pinned commit. The route expects the layout that the build of the pinned commit produces, so another layout needs a change to the build script and this design |
-| A file under `OUT_DIR` cannot be copied, listed, opened, removed, or written | The error that the build script returns, with the action, the path, and the reason (Section 9.6) | Free disk space or fix the permissions of the target directory |
-| A build that links for a target whose operating system differs from the host's | The linker, because the build script does not look for the library of a foreign target (SCS-41) | Build on a host of the target's operating system, with the SDK for that platform |
-| A target whose pointer width is not 64 | The `compile_error!` of SCS-15 | Build for a supported target |
+| The vendored build produced no archive or another build tag | The error that the build script returns, with the path that is missing or the tag (Section 9.6) | Use the recorded commit. The route expects the layout that the build of the recorded commit produces, so another layout needs a change to the build script and this design |
+| A file under `OUT_DIR` or the cache directory cannot be copied, listed, opened, locked, renamed, removed, or written | The error that the build script returns, with the action, the path, and the reason (Section 9.6) | Free disk space or fix the permissions of the target directory or the cache directory |
+| A build that links for a target whose operating system differs from the host's, on the dynamic route | The linker, because the build script does not look for the library of a foreign target (SCS-41) | Build on a host of the target's operating system, with the SDK for that platform |
+| A target whose pointer width is not 64 | The generator, with an error of kind `Target`, and the `compile_error!` of SCS-15 | Build for a supported target |
 | The shared library is not found at run time | The dynamic loader, which stops the program before `main`. On Linux, it prints "error while loading shared libraries", the file name `libslang-compiler.so.0.2026.17`, and "cannot open shared object file: No such file or directory", and the program exits with status 127 (Section 11) | Run the program through a recipe, which supplies the path, or put the SDK's library directory on the platform's library path as the crate documentation says (Sections 10 and 13) |
-| The library at run time is not the pinned build | The smoke test (SCS-34), and the safe crate | Make the loader find the pinned SDK's library |
-| A program linked on the static route finds no `slang-glslang` shared library at run time, so its SPIR-V is not optimized | Slang, only in the diagnostics of the first generation of SPIR-V in each global session, which begin `error[E00100]: failed to load downstream compiler 'spirv-opt'` while the call succeeds (Section 3.10) | Accept SPIR-V that is not optimized, or put the directory of a `slang-glslang` library of the pinned build on the platform's library path (Section 17) |
-| libclang cannot be loaded | The generator or its tests, with an error of kind `Libclang` that gives the reason (Section 7.7) | Install libclang or set `LIBCLANG_PATH` |
+| The library at run time is not the Slang that the bindings were generated from | The smoke test (SCS-34), and the error of kind `VersionMismatch` of the safe crate | Make the loader find the library of the SDK that the build used |
+| A program linked on the vendored route has no loader of `slang-glslang-sys` installed and finds no `slang-glslang` shared library at run time, so its SPIR-V is not optimized | Slang, only in the diagnostics of the first generation of SPIR-V in each global session, which begin `error[E00100]: failed to load downstream compiler 'spirv-opt'` while the call succeeds (Section 3.10) | Use `slang-compiler` with its feature `vendored`, which installs the loader, or install it as `slang-glslang-sys` documents |
 | The process already holds a libclang instance | The generator, with an error of kind `Libclang` that says so (Section 7.7) | Generate the bindings once per process and from one thread |
-| A parse reports an error diagnostic, a target difference has no rule, a construct of SCS-19 appears, or a declaration matches no rule | The generator, with the diagnostic, the difference, the construct, or every unmatched declaration, each with its location | Fix the shim headers, add a rule to the rule set, or extend the generator and this design |
-| A rule decides nothing | The generator, with every stale rule and its reason (SCS-39) | Remove or correct the rule, and update Section 4.3 or 4.4 when it records the rule |
-| rustfmt cannot be started, fails, or does not finish or close its standard streams within 60 seconds | The generator, with an error of kind `Rustfmt`, which holds rustfmt's exit status and standard error when rustfmt fails (Section 7.7) | Install rustfmt, or fix the generator when the generated text does not parse |
-| The headers do not match the pin | The generator, with both build tags (Section 7.2) | Install the pinned SDK, or move the pin (Section 8.2) |
-| A checked-in generated file differs from a regeneration | The regeneration test and `check-bindings`, with each file that differs (Section 7.6) | Run `just generate-bindings` and commit both regenerated files with the change that caused the difference |
-| A C function of the bindings is not exported by the library | The linker, when it links the test binary of `slang-compiler-sys` for the native-symbol test (Section 11) | Install the SDK of the pin, or move the pin and regenerate (Section 8.2) |
+| A C function of the bindings is not exported by the library | The linker, when it links the test binary of `slang-compiler-sys` for the native-symbol test (Section 11) | Make the build use headers and a library of the same Slang |
 
 ### 18.5. Logs
 
 The build script emits no warnings. Its only output is the Cargo instructions and, on a failure, its error.
 
-On the static route, it writes the output of every `cmake` run to `slang/build.log` under `OUT_DIR`, which it truncates at the start of each run, so the log holds the output of the last run only (SCS-48). The error of a failed configure or build step names the log and holds its last 40 lines (Section 9.6).
+On the vendored route, it writes the output of every `cmake` run to `slang/build.log` under `OUT_DIR`, which it truncates at the start of each run that builds, so the log holds the output of the last such run only (SCS-48). The error of a failed configure or build step names the log and holds its last 40 lines (Section 9.6).
 
-The generator prints its errors to standard error. Neither crate emits logs at run time.
+The generator's binary prints its errors to standard error. Neither crate emits logs at run time.
 
 ## 19. References
 
@@ -1639,56 +1541,55 @@ The generator prints its errors to standard error. Neither crate emits logs at r
 
 ## Appendix A. Requirement Summary
 
-This table lists every labelled requirement of this document with a one-line summary.
+This table lists every labelled requirement of this document with a one-line summary. The labels SCS-5, SCS-14, SCS-16, SCS-17, SCS-18, SCS-20, SCS-22 to SCS-25, SCS-27, SCS-29, SCS-36, SCS-38, SCS-42, and SCS-49 belonged to requirements that this design removed, and they are not reused.
 
 | Label | Section | Summary |
 | --- | --- | --- |
 | SCS-1 | 4.1 | Include all of `slang.h` except the exclusions of Section 4.3, and only the `spReflection*` part of `slang-deprecated.h` without `spReflection_GetSession`, and exclude the other headers. |
-| SCS-2 | 4.1 | A checked-in rule set decides inclusion, and an unmatched declaration fails the generator. |
+| SCS-2 | 4.1 | The rule set decides inclusion, an unmatched declaration fails the generator, and no setting relaxes this. |
 | SCS-3 | 4.1 | No bindings for symbols exported only under mangled names or for inline C++ wrappers. |
 | SCS-4 | 4.1 | Excluded types that included declarations use become opaque types, and every vtable slot stays. |
-| SCS-5 | 5.1 | Two rustfmt-formatted files from one parse: `src/bindings.rs`, in a private module re-exported at the crate root, and `tests/sys/symbols.rs`, the list of C functions, as the module `symbols` of the integration-test binary. |
 | SCS-6 | 5.2 | Types map by typedef name, never by canonical type. |
 | SCS-7 | 5.3 | Named enumerations are `#[repr(transparent)]` integer newtypes, unnamed ones are free constants of their assigned typedef, and none is a Rust enum. |
 | SCS-8 | 5.4 | Macro constants come from a synthetic translation unit and an allow-list, without platform macros, and `SlangResult` is an `i32` newtype with the result codes as its constants. |
 | SCS-9 | 5.5 | Structs and unions are `#[repr(C)]`, with a `Default` that reproduces C++ default member initializers. |
 | SCS-10 | 5.6 | Each interface has a struct, a vtable struct with the base first and `"system-unwind"` entries, a UUID through a trait, and thunks on raw pointers. |
 | SCS-11 | 5.7 | C functions are in `unsafe extern "C-unwind"` blocks, and opaque types cannot be constructed. |
-| SCS-12 | 5.8 | Compile-time assertions of size, alignment, and field offsets for every struct and union. |
-| SCS-13 | 5.10 | No comments or item documentation except one `//!` line, one `#[expect]` on `mod bindings;` with the lints that fire, and a second one for `ffi_unwind_calls`. |
-| SCS-14 | 5.10 | `check-typos` passes on the generated file through the narrowest recorded exclusion. |
-| SCS-15 | 6 | The generated file starts with a `compile_error!` for every target whose pointer width is not 64. |
-| SCS-16 | 7.1 | The generator is `tools/bindings-generator`, unpublished, on the `clang` crate with `runtime`, without unsafe code. |
-| SCS-17 | 7.2 | One parse per supported target with `-nostdinc` and shim headers, and no error diagnostic accepted. |
-| SCS-18 | 7.3 | Only the two listed differences between targets are accepted. |
-| SCS-19 | 7.3 | Every included construct that the generated Rust cannot express, as Section 7.3 lists, and every unmatched declaration fail on every target. |
-| SCS-20 | 7.4 | The binary and the regeneration test call the same library function with the same inputs. |
+| SCS-12 | 5.8 | Compile-time assertions of size, alignment, and field offsets for every struct and union, for the target of the parse. |
+| SCS-13 | 5.10 | No comment, documentation, or inner attribute in the generated code, one `#[expect]` on the module `bindings` with the lints that fire, and a second one for `ffi_unwind_calls`. |
+| SCS-15 | 6 | The generated bindings start with a `compile_error!` for every target whose pointer width is not 64. |
+| SCS-19 | 7.3 | Every included construct that the generated Rust cannot express, as Section 7.3 lists, and every unmatched declaration fail for the target of the parse. |
 | SCS-21 | 7.5 | Generator tests that load libclang sit in `ffi` modules and compile for Linux only. |
-| SCS-22 | 7.6 | The regeneration test fails, never skips, without the SDK, the headers, or libclang. |
-| SCS-23 | 8.1 | The pin lives only in `pin.rs`, read through `include!` or a recipe. |
-| SCS-24 | 9.1 | `DOCS_RS`, then `SLANG_SOURCE_DIR`, then the dynamic route, and no Cargo feature. |
-| SCS-25 | 9.2 | The dynamic route checks `SLANG_TAG_VERSION` against the pin, with no bypass. |
-| SCS-26 | 9.2 | After the checks of SCS-25, SCS-40, and SCS-41, the dynamic route links `slang-compiler` from `$VULKAN_SDK/lib`, without pkg-config, rpath, or other locations. |
-| SCS-27 | 9.3 | The static route requires the top level of a clean git checkout of the pinned commit, refuses a tree without git metadata, and never falls back. |
-| SCS-28 | 9.3 | The static route runs CMake through `Command` with Ninja, probed first, disables downloads, sets the full and numeric version, and links the six archives and the C++ standard library. |
-| SCS-29 | 9.4 | With `DOCS_RS` present, the build script returns at once. |
-| SCS-30 | 9.5 | Rerun instructions for the route variables, for `slang-tag-version.h` on the dynamic route, and for the `HEAD` and `index` files of the clone on the static route. |
+| SCS-26 | 9.2 | After its checks and the generation, the dynamic route links `slang-compiler` from `$VULKAN_SDK/lib`, without pkg-config, rpath, or other locations. |
+| SCS-28 | 9.3 | The vendored route runs CMake through `Command` with Ninja, probed first, disables downloads, passes the build tag of `slang-src` and its numeric part, and links the six archives and the C++ standard library. |
+| SCS-30 | 9.5 | Rerun instructions for `LIBCLANG_PATH`, for `VULKAN_SDK` and its header directory on the dynamic route, and for the variables that CMake reads and a used cache entry on the vendored route. |
 | SCS-31 | 9.6 | Each build failure returns an error with the content of the table. |
 | SCS-32 | 10 | Each recipe that runs compiled code which loads Slang starts its command line with the SDK library path assignment of `slang_library_path`, which is never exported and is empty on Windows and without `VULKAN_SDK`. |
 | SCS-33 | 11 | Tests that call native code sit in `ffi` modules, which `default-miri` excludes with `gpu` and `hw_gpu`. |
-| SCS-34 | 11 | The smoke test asserts the pinned build tag at run time on both routes. |
-| SCS-35 | 12 | CI installs and verifies the pinned SDK on all three platforms and sets the paths. |
-| SCS-36 | 12 | CI does not build the static route on every push or pull request. |
-| SCS-37 | 13 | The crate documentation has the content of the writing guide, the shared safety contract with the behaviour of an escaping C++ exception, and Slang's rules. |
-| SCS-38 | 14 | The published crate has no dependencies. |
+| SCS-34 | 11 | The smoke test asserts at run time, on both routes, that the loaded Slang reports the build tag of `BUILD_INFO`. |
+| SCS-35 | 12 | The default CI jobs install and verify the SDK version that the CI configuration records, set the paths, install libclang, and check the SDK against the recorded Slang. |
+| SCS-37 | 13 | The crate documentation has the content of the writing guide, both routes with their requirements, the best effort for another Slang, the shared safety contract with the behaviour of an escaping C++ exception, and Slang's rules. |
 | SCS-39 | 4.1 | A rule that decides no declaration or macro fails the generator, with each stale rule and its reason. |
 | SCS-40 | 9.2 | The dynamic route stops on a `VULKAN_SDK` that is absent, empty, not UTF-8, not absolute, or contains a line break. |
 | SCS-41 | 9.2 | The dynamic route stops when `$VULKAN_SDK/lib` is not an accessible directory, and, for a target of the host's operating system only, when it lacks the target's library file. |
-| SCS-42 | 9.3 | The static route stops on a `SLANG_SOURCE_DIR` or `OUT_DIR` that is empty, not UTF-8, not absolute, or contains a line break, on a `SLANG_SOURCE_DIR` that is not an accessible directory, and on an absent `TARGET` or `HOST`. |
-| SCS-43 | 9.3 | The static route refuses cross-compilation and every target other than Linux with glibc, macOS, and Windows with MSVC. |
-| SCS-44 | 9.3 | Every git command runs with `GIT_OPTIONAL_LOCKS=0` and without the 15 repository variables, so git answers for the named tree and writes nothing into it. |
-| SCS-45 | 9.3 | The static route builds a copy of the tracked files of the tree and of the eight required submodules inside `OUT_DIR`, refuses a missing submodule and a path that leaves the tree, and removes stale files. |
-| SCS-46 | 9.3 | The static route copies and configures again whenever the stamp differs, and writes the stamp only after a verified build. |
-| SCS-47 | 9.3 | After the build, the six archives exist and the version header of the build tree defines the pinned build tag. |
+| SCS-43 | 9.3 | The vendored route refuses cross-compilation and every target other than Linux with glibc, macOS, and Windows with MSVC. |
+| SCS-44 | 9.3 | Every git command runs with `GIT_OPTIONAL_LOCKS=0` and without the 15 repository variables, so git answers for the source tree and writes nothing into it. |
+| SCS-45 | 9.3 | The vendored route builds a copy of the tracked files of the source tree and of the eight required submodules inside `OUT_DIR`, refuses a path that leaves the tree, and removes stale files. |
+| SCS-46 | 9.3 | The vendored route copies and configures again whenever the stamp differs, and writes the stamp only after a verified build. |
+| SCS-47 | 9.3 | After the build, the six archives exist and the version header of the build tree defines the build tag of `slang-src`. |
 | SCS-48 | 9.3 | The output of `cmake` goes to `slang/build.log`, and a failed step's error names the log and holds its last 40 lines. |
-| SCS-49 | 9.3 | `test-static` runs only `slang-compiler-sys`, in `target/static`, without `VULKAN_SDK` and the loader path variables. |
+| SCS-50 | 9.1 | One Cargo feature, `vendored`, off by default, selects the vendored route, and nothing else selects a route or falls back. |
+| SCS-51 | 5.1 | The build script writes `bindings.rs` and `symbols.rs` into `OUT_DIR` on every run, the crate includes them, and no generated file is in the repository or the package. |
+| SCS-52 | 9.2 | The dynamic route reads `SLANG_TAG_VERSION` of the SDK and records it without comparing it with any version. |
+| SCS-53 | 8.1 | `BUILD_INFO` records the build tag, the commit, the linkage, and the full version with build metadata, written by the build script and never derived from `cfg`. |
+| SCS-54 | 9.5 | `links = "slang-compiler"`, and the metadata keys `include`, `lib`, `linkage`, and `build_tag` on both routes. |
+| SCS-55 | 9.3 | The vendored route reads the tree, commit, build tag, and cache directory only from the metadata of `slang-src`, and checks them, `OUT_DIR`, `TARGET`, and `HOST`. |
+| SCS-56 | 9.3 | With the cache directory of `slang-src`, the vendored route keeps and reuses its libraries and headers in cache entries. |
+| SCS-57 | 7.1 | The generator is the published crate `slang-bindgen` with a thin binary, on the `clang` crate with `runtime`, without unsafe code. |
+| SCS-58 | 7.2 | One parse for the target that the caller names, only for a supported target, with `-nostdinc` and shim headers, and no error diagnostic accepted. |
+| SCS-59 | 7.4 | The library returns the two texts and writes no file, starts no process, formats nothing, and writes no comment or inner attribute. |
+| SCS-60 | 7.4 | The binary writes `bindings.rs` and `symbols.rs` for a header directory and a target through the same library call, for `check-slang-call-guard`. |
+| SCS-61 | 14 | The crate depends only on `slang-bindgen` and, under `vendored`, `slang-src`, each with an exact version. |
+| SCS-62 | 12 | One CI job per operating system runs `test-vendored` in every run, without the SDK and the cache, and the default jobs never enable `vendored`. |
+| SCS-63 | 9.3 | `test-vendored` runs the tests of the native crates and `slang-compiler` with `vendored` in `target/vendored`, without `VULKAN_SDK` and the loader path variables. |
+| SCS-64 | 9.4 | On both routes, every run generates the bindings for `TARGET` from the headers of the linked Slang before any link instruction, and a generator failure stops the build. |

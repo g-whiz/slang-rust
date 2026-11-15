@@ -43,11 +43,11 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
    No agent weakens the lint or tool configuration to make a check pass. Rules LINT-1 and LINT-2 in Section 4.4 of the coding standard define the form of an exception and when the configuration may change. The `reason` states the reason in plain words and names no rule identifier, as Hard Rule 15 requires.
 7. **Soundness and security by default.** When two approaches are otherwise comparable, the agent MUST choose the sounder and more secure one and say so in its report, because unsound or insecure code that works is rarely revisited.
 
-   Unsafe code appears only in `slang-compiler-sys` and `slang-compiler`, and any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states.
+   Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, and `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`). Any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states.
 
    Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions in `crates/slang-compiler-sys/tests/sys/symbols.rs` are never edited by hand, and the agent changes them only by running the binding generator again (FFI-1, COM-9).
 
-   No file in the repository contains a secret. A build script downloads nothing, installs nothing, and writes only inside `OUT_DIR` (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
+   No file in the repository contains a secret. A build script installs nothing, writes only inside `OUT_DIR` or the cache directory that the user names, and reaches no network, except the build script of `slang-src`, which fetches the Slang tree by full commit hash and the tags of a commit that the user selects (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
 8. **Every action is a `just` recipe.** Every command, build step, and check is a recipe in the root `justfile`, which is one flat file with `[group]` attributes and no `just` modules, because modules hide their recipes from `just --list`. The agent invokes no script under `scripts/` directly when a recipe wraps it.
 
    Every recipe has a help comment, and every shell script starts with `#!/usr/bin/env bash` and `set -euo pipefail`. Every shell script and every recipe that contains shell is `shellcheck`-clean. Section 3.2 of `docs/design/tooling.md` lists every recipe, and Validating Changes names the recipes to run for each kind of change.
@@ -93,7 +93,7 @@ As of 2026-11-15, the repository is at a very early stage. The agent updates thi
 - M5, `slang-slint` and the Slint example, is complete on 2026-11-11. A Slint program can make Slint create a wgpu device that suits `slango`, turn that device into a `slango::Device`, and show what a `slango` render pipeline draws as a Slint image. A user can run the Slint example `shader-playground`.
 - M6, `slango-macros` and its generator `slango-codegen`, is complete on 2026-11-13. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
 
-On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. M7, the rework of the native crates, is the next milestone. No work on it has begun.
+On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. M7, the rework of the native crates, is the next milestone. Its design exists in `docs/design/slang-compiler-sys.md`, `docs/design/slang-src.md`, `docs/design/slang-glslang-sys.md`, and the documents that they changed, and no code of it exists yet.
 
 What exists and works:
 
@@ -201,7 +201,8 @@ What does not exist yet:
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
 - The recipe `check-semver`, which arrives with the first release in M8.
 - The CI job `semver`, which arrives in M8.
-- The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, and `slango-codegen`, which is written as the first task of the milestone that delivers the crate.
+- The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
+- Everything that the design of M7 specifies and the code lacks: the crates `slang-bindgen`, `slang-src`, and `slang-glslang-sys`, the Cargo feature `vendored` of every crate that forwards it, the build information `BUILD_INFO` and the bindings generated in every build, the recipes `recorded-slang`, `test-vendored`, and `check-vendored`, and the vendored CI jobs.
 
 The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states.
 
@@ -415,21 +416,23 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 
 These locations are planned and do not exist yet:
 
-- `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, and `slango-codegen`, written as the first task of the crate's milestone.
+- `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, written as the first task of the crate's milestone.
 ## Technology Decisions
 
-`docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and pinned, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree.
+`docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and which Slang is recorded, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree.
 
 `docs/design/tooling.md` is the design for the toolchain configuration, the recipes, the hooks, the CI workflow, and the requirements on the container image, and it prevails over this section on those topics.
 
-`docs/design/slang-compiler-sys.md` is the design of `slang-compiler-sys` and the binding generator. `docs/design/slang-compiler.md` is the design of `slang-compiler` and the compile-and-reflect example. Each prevails over this section on its topics.
+`docs/design/slang-compiler-sys.md` is the design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-src.md` is the design of `slang-src`, and `docs/design/slang-glslang-sys.md` is the design of `slang-glslang-sys`. `docs/design/slang-compiler.md` is the design of `slang-compiler` and the compile-and-reflect example. Each prevails over this section on its topics.
+
+This section summarizes the target design, which includes the rework of the native crates that M7 designs. The code implements the earlier design until the M7 code steps land: the bindings and their list of C functions are checked in, the pin is in `crates/slang-compiler-sys/pin.rs`, and `SLANG_SOURCE_DIR` selects a static build. The crates `slang-bindgen`, `slang-src`, and `slang-glslang-sys`, the feature `vendored`, the recipes `recorded-slang`, `test-vendored`, and `check-vendored`, and the vendored CI jobs do not exist yet, and the recipes still pass `--all-features`. Project Status says what exists, and Validating Changes names the recipes that exist today.
 
 The planned crates are:
 
-- `slang-compiler-sys`: The raw bindings only, generated and checked in, with a build script that links the native library and the manifest key `links = "slang-compiler"`. Its directory holds the checked-in bindings, the pin, and the build script, which links the Slang of an installed Vulkan SDK or builds Slang from source and links it statically, as Project Status describes.
-
-  M7 plans to generate the bindings in every build, remove the checked-in bindings, add the crates `slang-src` and `slang-glslang-sys`, and make static linking of a cloned Slang the opt-in Cargo feature `vendored`, with dynamic linking to the Slang of an installed Vulkan SDK as the default (Section 15.10 of `docs/design/architecture.md`). Until M7 changes the code, the rules of this file that describe the checked-in bindings and the two routes still bind it.
-- `slang-compiler`: Safe, idiomatic wrappers over `slang-compiler-sys`, with no graphics processing unit (GPU) dependency. Its compile and reflection API exists, as Project Status describes.
+- `slang-compiler-sys`: The raw bindings, which its build script generates with `slang-bindgen` in every build from the headers of the Slang that it links, the build information `BUILD_INFO`, and the linking of Slang, with the manifest key `links = "slang-compiler"` (Section 6 of `docs/design/architecture.md`).
+- `slang-src`: The crate whose build script obtains the Slang source tree for a vendored build and exports its path. It is the only code of the workspace that reaches the network during a build (ARCH-35, `docs/design/slang-src.md`).
+- `slang-glslang-sys`: The crate that builds slang-glslang from the same tree and holds the in-process loader through which a statically linked Slang optimizes SPIR-V (`docs/design/slang-glslang-sys.md`).
+- `slang-compiler`: Safe, idiomatic wrappers over `slang-compiler-sys`, with no graphics processing unit (GPU) dependency. Its compile and reflection API exists, as Project Status describes. With its feature `vendored`, it installs the loader of `slang-glslang-sys` on every global session, and it checks when it creates a global session that the loaded Slang reports the build tag of `BUILD_INFO` (SLC-5, SLC-34 of `docs/design/slang-compiler.md`).
 
   Every wrapper holds the object that Slang created it from, and no wrapper, builder that holds one, reflection handle, or iterator over them is `Send` or `Sync`. A call that returns diagnostics returns its value together with them on success. Every failure is the crate's one `Error` type, whose kind callers match on (Sections 5.2, 6.8, 6.9, and 10 of `docs/design/slang-compiler.md`).
 
@@ -448,7 +451,7 @@ The planned crates are:
   Two rules bind every change to its compiler options, because Slang reads some options only from fields of the target descriptor and others only from the session:
 
   - `SessionBuilder::build` fills the floating-point mode, the line directive mode, the scalar layout, and the method of generating SPIR-V of each target descriptor. It takes each from the target's options, otherwise the session's, and reads it exactly as Slang reads it, so that a setting of the session is not silently overwritten (SLC-31 of `docs/design/slang-compiler.md`).
-  - `SessionBuilder::build` rejects `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` in the options of a target with `ErrorKind::InvalidArgument`, because the pinned Slang never reads them there (SLC-6).
+  - `SessionBuilder::build` rejects `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` in the options of a target with `ErrorKind::InvalidArgument`, because the recorded Slang never reads them there (SLC-6).
 - `slango`: A high-level convenience library, with a feature set like SlangPy and design patterns like vulkano. Its only runtime backend today is wgpu. M10 plans slang-rhi as an opt-in backend behind the Cargo feature `rhi`, with wgpu kept as the default backend, and later milestones add pipeline kinds on the slang-rhi backend only (Sections 15.13 to 15.21 of `docs/design/architecture.md`). It first offers a runtime call API driven by reflection, and its first milestone, M3, covers compute kernels compiled to SPIR-V only.
 
   In M3 it calls existing compute entry points only, which are functions marked `[shader("compute")]`, with bindings built from reflection. Generated kernels around plain Slang functions, broadcasting over array arguments, and differentiable functions belong to later milestones (Section 8.1 of the architecture design).
@@ -456,12 +459,12 @@ The planned crates are:
   In M3, `slango` uses wgpu 30 and loads every shader through wgpu's validated SPIR-V path, so it has no unsafe code. A load copies what the kernels need into a private, owned layout snapshot and releases every Slang object before it returns, so no Slang object outlives a load and the public types are `Send` and `Sync`. A call sets each parameter by name (SLO-1, SLO-2, SLO-5, SLO-6, and Section 9.1 of `docs/design/slango.md`).
 
   Since M4, it also draws into a texture with render pipelines built from existing vertex and fragment entry points, still with SPIR-V only and no unsafe code. A shader target configurable per backend is deferred with no milestone assigned (Sections 1.4 and 1.5 of `docs/design/slango.md`).
-- `slango-macros`: A function-like procedural macro, `shader!`, of M6, that compiles a `.slang` file with the pinned Slang during compilation and generates typed Rust bindings to its compute kernels. The generated code embeds the precompiled SPIR-V and layout snapshot and calls the same core of `slango` as the runtime API through a hidden module of `slango`, and the generator is in the library crate `slango-codegen` (SLM-1, SLM-6, and Section 7 of `docs/design/slango-macros.md`). Every crate that uses it needs the pinned Slang at build time, and `slango` does not re-export it in M6 (Section 4.1 of that design).
+- `slango-macros`: A function-like procedural macro, `shader!`, of M6, that compiles a `.slang` file with Slang during compilation and generates typed Rust bindings to its compute kernels. The generated code embeds the precompiled SPIR-V and layout snapshot and calls the same core of `slango` as the runtime API through a hidden module of `slango`, and the generator is in the library crate `slango-codegen` (SLM-1, SLM-6, and Section 7 of `docs/design/slango-macros.md`). Every crate that uses it needs Slang at build time, and `slango` does not re-export it in M6 (Section 4.1 of that design). The feature `vendored` of `slango` does not reach the copy of Slang that the macro links, so a program without a Vulkan SDK at build time enables `vendored` on `slango-macros` as well (Section 4.3 of that design).
 - `slango-codegen`: The library crate of M6, to be published, that holds the generator of `slango-macros`, so that its pure tests run under Miri (SLM-1 of `docs/design/slango-macros.md`).
 - `slang-slint`: An extension to Slint that provides a view backed by a Slang render pipeline, built on `slango`, with wgpu only, permanently. In M5 it is a minimal view that hands a texture that `slango` draws to an ordinary Slint `Image` element, on a narrow range of Slint versions with wgpu 30 only. Slint creates the device from a configuration that `slang-slint` supplies (SLS-1, SLS-6, and SLS-9 of `docs/design/slang-slint.md`).
 
   The licence consequence of depending on Slint is in Section 4.2 of `docs/design/slang-slint.md`.
-- The binding generator: A tool in this repository that parses the Slang headers with libclang. It is not published yet. M7 plans to make it the published crate `slang-bindgen` and a build dependency of `slang-compiler-sys` (Section 15.10 of `docs/design/architecture.md`).
+- `slang-bindgen`: The binding generator, a published library crate with a thin binary, which parses the Slang headers with libclang and is a build dependency of `slang-compiler-sys` (Section 6.2 of `docs/design/architecture.md`).
 - The examples, which also serve as the integration testbed and are not published:
   - A command-line program that compiles and reflects Slang source.
   - A headless compute kernel, which later gains a broadcasting case and a differentiable function.
@@ -476,28 +479,26 @@ The binding generator produces the `#[repr(C)]` vtable structs, UUID constants, 
 
 Every named C++ enumeration becomes a `#[repr(transparent)]` integer newtype with associated constants, never a Rust `enum`. The enumerators of an unnamed enumeration become constants of the integer typedef that a rule assigns.
 
-The raw bindings are checked in, and a test regenerates them and fails if the result differs, so users of the crates need no libclang. The generator also writes the list of the C functions of the bindings that the native-symbol test of `slang-compiler-sys` uses, so no list of generated names is kept by hand. The bindings support 64-bit targets only, and `slang-compiler-sys` stops compilation on any other.
+No generated binding is kept in the repository or a package. Every build generates the bindings and the list of their C functions, which the native-symbol test of `slang-compiler-sys` uses, from the headers of the Slang that it links, so every build needs libclang and no list of generated names is kept by hand (ARCH-33). The bindings support 64-bit targets only, and `slang-compiler-sys` stops compilation on any other.
 
 The generated declarations of Slang's functions use unwinding ABIs, `"system-unwind"` for vtable entries and `"C-unwind"` for C functions. A callback type and every function that Rust implements for a vtable stay non-unwinding, `"C"` or `"system"`, so that a Rust panic never unwinds into Slang (FFI-7 of the coding standard).
 
-The Slang version is always the one that ships in the latest stable LunarG Vulkan software development kit (SDK). The first target is Vulkan SDK 1.4.363.1, whose `slangc` reports `2026.17-25-gc7954ebd1`. That is a commit past the tag `v2026.17`, so the pin is the SDK version together with the Slang commit, not a Slang tag.
+The crates target the Slang that ships in the latest stable LunarG Vulkan software development kit (SDK). The recorded Slang is that of Vulkan SDK 1.4.363.1, whose `slangc` reports `2026.17-25-gc7954ebd1`, a commit past the tag `v2026.17`. `slang-src` records its commit and build tag, and the CI configuration records the SDK version (Section 5 of `docs/design/architecture.md`).
 
-The pin is recorded only in `crates/slang-compiler-sys/pin.rs`, which every consumer reads.
+No recorded version gates a build. The build records the build tag of the Slang that it links, `slang-compiler` compares the loaded Slang with that record at run time (ARCH-34), and the crates are written and tested against the recorded Slang only, so another Slang is best effort (ARCH-31).
 
-Slang is obtained in exactly one of two ways, and the build script implements both:
+Slang is obtained in exactly one of two ways (Section 4 of `docs/design/architecture.md`):
 
-- By default, the build uses an installed Vulkan SDK and links Slang dynamically.
-- As an opt-in, a static build builds Slang from source and links it statically. It is selected by setting the environment variable `SLANG_SOURCE_DIR` to the top level of a clean git checkout of the pinned commit with its submodules.
+- By default, the dynamic route links the Slang of an installed Vulkan SDK at `VULKAN_SDK`.
+- The opt-in Cargo feature `vendored`, which every crate between a user and `slang-compiler-sys` forwards, selects the vendored route. It builds Slang from the source tree that `slang-src` clones or takes from `SLANG_SOURCE_DIR` and links it statically.
 
-The static build copies the tracked files into `OUT_DIR` and builds the copy, because Slang's build writes into its source tree. It refuses a tree that git cannot verify as the pinned commit, a changed tree, and cross-compilation (Section 9.3 of `docs/design/slang-compiler-sys.md`).
-
-No Cargo feature selects the route. There is no prebuilt download and no other way.
+No environment variable selects the route, the build never falls back from one route to the other, and there is no prebuilt download. The recipes pass an explicit list of features and never `--all-features`, and only `test-vendored`, `check-vendored`, and the vendored CI jobs build the vendored route (Section 3 of `docs/design/tooling.md`).
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates.
 
 The crates use edition 2024 and Cargo resolver 3. The licence is GPL-3.0-or-later, and `LICENSE` holds its text.
 
-CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, installs the pinned Vulkan SDK on all three, and runs the default test tier on all three. It also runs the GPU tier on all three, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS.
+CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, installs the Vulkan SDK version that the CI configuration records on all three, and runs the default test tier on all three. One job on each platform also builds and tests the vendored route (Section 7.4 of `docs/design/tooling.md`). It also runs the GPU tier on all three, with lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform (WARP) on Direct3D 12 on Windows, and hosted Metal on macOS.
 
 Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
@@ -518,7 +519,7 @@ The development container provides this environment:
 
 Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. One planned recipe does not exist yet: `check-semver`, which runs cargo-semver-checks and arrives with the first release.
 
-CI installs the latest version of each tool on its runners, and the Vulkan SDK of the pin. A tool version in CI can therefore differ from the one in the container, as Section 7.1 of `docs/design/tooling.md` states.
+CI installs the latest version of each tool on its runners, and the Vulkan SDK version that the CI configuration records. A tool version in CI can therefore differ from the one in the container, as Section 7.1 of `docs/design/tooling.md` states.
 
 Section 4.8 of the coding standard lists what each tool checks, and its Section 1.1 records the versions that were verified. Section 10 of `docs/design/tooling.md` lists every requirement on the image, which slang-rs-env defines.
 

@@ -89,7 +89,7 @@ A library that enables no windowing backend and no renderer needs the features `
 
 `compat-1-2` adds only features of the linuxkms backend to `compat-1-18` (read). `unsafe-single-threaded` gives up thread safety, as its name says, which a library cannot impose on an application (inferred).
 
-A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` 6.0.1 of `fontique` 0.11.1 of `i-slint-common`, found through pkg-config, so it needs the development files of fontconfig (run). This holds for the library alone, without a renderer, and the hosted Linux runner of CI lacks them (run). The build script of `yeslogic-fontconfig-sys` also runs when `DOCS_RS` is set, so a documentation build without fontconfig fails (run).
+A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` 6.0.1 of `fontique` 0.11.1 of `i-slint-common`, found through pkg-config, so it needs the development files of fontconfig (run). This holds for the library alone, without a renderer, and the hosted Linux runner of CI lacks them (run). The build script of `yeslogic-fontconfig-sys` also runs in a documentation build, so a documentation build without fontconfig fails (run).
 
 The build environment of docs.rs, the repository `rust-lang/crates-build-env`, lists `libfontconfig1`, `libfontconfig1-dev`, and `pkg-config` in `linux/packages.txt` on its default branch (read). docs.rs is not supported, and CI builds and hosts the documentation instead (Section 13 of `docs/design/architecture.md`), so whether docs.rs could build `slang-slint` no longer matters.
 
@@ -175,7 +175,9 @@ SLS-4. `slang-slint` MUST contain no unsafe code and MUST emit no logs. The devi
 
 This answers Q-19 and Q-16 of the architecture design for `slang-slint`.
 
-The crate inherits the workspace lints and has no Cargo features.
+The crate inherits the workspace lints. Its manifest has no `[package.metadata.docs.rs]` table, because docs.rs is not supported (Section 4.5 of `docs/design/architecture.md`).
+
+SLS-17. `slang-slint` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, off by default, and MUST NOT read it in its own code. A Slint program that depends on `slang-slint` then links a statically built Slang by enabling the feature on the crate that it depends on (Section 19.1 of the architecture design, SLO-27 of `docs/design/slango.md`).
 
 ### 4.2. Licences
 
@@ -420,9 +422,9 @@ The residual risk is a defect in Slint, in its native libraries, which read the 
 
 ### 14.1. Cargo Features and Environment Variables
 
-`slang-slint` has no Cargo features and reads no environment variable. Slint reads `SLINT_WGPU_CPU`. When it is unset, Slint's selection with `Automatic` fails on a machine whose only adapter runs on the CPU, such as lavapipe (Section 3.3).
+`slang-slint` has one Cargo feature, `vendored`, which it forwards to `slango` (SLS-17), and reads no environment variable. Slint reads `SLINT_WGPU_CPU`. When it is unset, Slint's selection with `Automatic` fails on a machine whose only adapter runs on the CPU, such as lavapipe (Section 3.3).
 
-The tests of Section 9 do not need `SLINT_WGPU_CPU`. Building needs `VULKAN_SDK`, as `slango` does, and on Linux the development files of fontconfig (Section 3.2).
+The tests of Section 9 do not need `SLINT_WGPU_CPU`. Building needs what building `slango` needs on the route that the feature selects (Section 17.1 of `docs/design/slango.md`), and on Linux the development files of fontconfig (Section 3.2).
 
 ### 14.2. Platforms and Minimum Supported Rust Version
 
@@ -480,3 +482,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLS-14 | 8 | `View`, `Error`, and `ErrorKind` are `Send` and `Sync` without a manual implementation, asserted in a test. |
 | SLS-15 | 9 | No test opens a window or needs a display. |
 | SLS-16 | 10 | Example 4 offers `--frames N` and fails after 10 seconds without a frame. |
+| SLS-17 | 4.1 | One Cargo feature, `vendored`, off by default, which only forwards to `slango`. |

@@ -20,7 +20,7 @@ A check of the stride alone of a bound buffer lets a `Buffer<u32>` bind to a `St
 
 ### 1.2. Purpose
 
-`slango-macros` turns these run-time mistakes into compile errors. The macro reads a `.slang` file, compiles it with the pinned Slang, and generates one typed kernel for each compute entry point and one Rust struct for each Slang structure that the kernels take, with layout assertions. The generated code calls the same core as the runtime API (ARCH-17).
+`slango-macros` turns these run-time mistakes into compile errors. The macro reads a `.slang` file, compiles it with the Slang of the build, and generates one typed kernel for each compute entry point and one Rust struct for each Slang structure that the kernels take, with layout assertions. The generated code calls the same core as the runtime API (ARCH-17).
 
 This document implements Section 8.4 and milestone M6 (Section 15.9) of `docs/design/architecture.md`. It answers Q-26 and confirms A-10 of that design, as Sections 4.1 and 3.9 record.
 
@@ -74,7 +74,7 @@ This section is non-normative. It states each fact about Slang, Cargo, rustc, an
 
 Each fact carries one of these marks:
 
-- (run): Observed by running code with Rust 1.99.1 and the pinned Vulkan SDK, on x86_64 Linux unless the fact names another platform. A GPU result holds on a hardware NVIDIA GPU and on lavapipe.
+- (run): Observed by running code with Rust 1.99.1 and the Vulkan SDK of the recorded Slang, on x86_64 Linux unless the fact names another platform. A GPU result holds on a hardware NVIDIA GPU and on lavapipe.
 - (read): Read in the named source.
 - (inferred): Concluded from other facts and not verified. Section 11 lists the assumptions on which a requirement depends.
 
@@ -114,11 +114,11 @@ A load from an embedded, encoded snapshot takes about a millisecond, while a loa
 
 An embedded source that imports another file fails with `cannot open file 'common.slang'`, because `load_module_from_source` sets no search path (run). The precompiled snapshot resolves the import at build time (run).
 
-### 3.6. The Static Route
+### 3.6. The Vendored Route
 
-With `SLANG_SOURCE_DIR` set and no SDK, the macro library and the program have no Slang library as a needed library (run). The saxpy kernels run. A kernel with a structure fails at load with `UnsupportedShader` and naga's `UnsupportedInstruction(Function, CopyLogical)`, because Slang skips `spirv-opt` without `slang-glslang`, which the static build lacks (run, and read, `docs/design/slang-compiler-sys.md`).
+With a statically linked Slang and no SDK, the macro library and the program have no Slang library as a needed library (run). The saxpy kernels run. Without the loader of `slang-glslang-sys`, a kernel with a structure fails at load with `UnsupportedShader` and naga's `UnsupportedInstruction(Function, CopyLogical)`, because Slang skips `spirv-opt` without `slang-glslang` (run, and read, Section 3.11 of `docs/design/slang-compiler.md`).
 
-So the SPIR-V that the macro embeds depends on the Slang of the machine that expanded the macro (inferred).
+`slang-compiler` with its feature `vendored` installs that loader on every global session, so the copy of Slang that the macro links optimizes SPIR-V when the feature reaches that copy (SLC-34 of `docs/design/slang-compiler.md`, Section 4.3). So the SPIR-V that the macro embeds depends on the Slang of the machine that expanded the macro and on the features of the macro's copy of Slang (inferred).
 
 ### 3.7. Diagnostics, Aborts, and Cross-Compilation
 
@@ -128,17 +128,10 @@ A panic in the macro becomes `error: proc macro panicked` at the call (run). An 
 
 `cargo check --target x86_64-pc-windows-msvc` from Linux passes and runs the macro with the host's Slang (run). The generated SPIR-V and snapshot do not depend on the target (inferred).
 
-### 3.8. docs.rs
+### 3.8. Documentation Builds
 
-With `DOCS_RS` set and no SDK, `cargo doc` fails with `E0463`, because the macro library is linked with Slang's symbols unresolved (run). With a `cfg` that the macro's build script sets when `DOCS_RS` is present, under which the macro emits a stub and calls no generator, the library has no undefined Slang symbol (run). `cargo doc` then passes, without the generated items in the documentation (run).
-
-Under the stub, a crate that names a generated item other than `Shader` builds its documentation only in some positions (run, with `DOCS_RS` set and `VULKAN_SDK` removed):
-
-- A `use` declaration of a generated arguments struct or a generated structure fails with `error[E0432]: unresolved imports`, at the top of a file and inside the body of a function.
-- A function signature that names such an item fails, because the compiler cannot find the type, for private functions at the top level and for functions nested inside the body of another function.
-- A reference inside the body of a function passes, in an expression, such as a call of `particles::Particle::new` and a struct literal of `particles::AdvanceArgs`, and in the type annotation of a `let`.
-
-So rustdoc resolves every path to a generated item outside a function body, public or private, and the stub leaves such a path unresolved. A struct field, a type alias, or a constant that names a generated item fails the same way (inferred). A private signature in a library documented without its private items is not established.
+`cargo doc` of a crate that calls the macro loads the macro library, which links Slang, so it fails with `E0463` when rustc cannot load Slang (Section 3.3).
+A documentation build therefore expands the macro with Slang like any other build. docs.rs is not supported, and CI builds and hosts the documentation instead (Sections 4.5 and 13 of the architecture design), so the macro has no form for a build without Slang.
 
 ### 3.9. Generated Code
 
@@ -172,7 +165,7 @@ On 2026-11-15, the crates.io name `slango-codegen` was free in both its hyphen a
 
 The owner decided:
 
-1. A function-like procedural macro in `slango-macros` that runs Slang during compilation, so every crate that uses it needs the pinned Slang at build time (Section 6).
+1. A function-like procedural macro in `slango-macros` that runs Slang during compilation, so every crate that uses it needs Slang at build time (Section 6).
 2. The generated code embeds the encoded snapshot and loads it without a call into Slang, and the program still links Slang in M6 (Section 5).
 3. Compute kernels only, with generated structs for Slang structures (Section 7).
 4. The element type check of `bind` in `slango` (Section 5.1).
@@ -219,6 +212,22 @@ With these versions, the two crates add no licence, no skip, and no advisory exc
 SLM-4. `slango-macros` and `slango-codegen` MUST contain no unsafe code and MUST emit no logs, because neither needs either: they call only safe `slango` code and report every failure as a compile error or an error value. This answers Q-16 of the architecture design for both crates.
 
 SIMP-4 of the coding standard prefers functions to macros. The macro is the deliverable of M6 that Section 8.4 of the architecture design decides, and the generator behind it is plain functions and types.
+
+### 4.3. Cargo Features
+
+SLM-23. `slango-codegen` MUST have exactly one Cargo feature, `vendored = ["slango/vendored"]`, and `slango-macros` MUST have exactly one Cargo feature, `vendored = ["slango-codegen/vendored"]`, both off by default, and each crate MUST NOT read its feature in its own code. Every crate between a user and `slang-compiler-sys` forwards the feature (Section 19.1 of the architecture design).
+
+With Cargo resolver 3, Cargo resolves the features of a host dependency apart from those of the target. The copy of Slang that the macro links while the user's crate builds is a host dependency, and the copy that the user's program links is a target dependency, so the feature `vendored` of `slango` does not reach the macro's copy, and that of `slango-macros` does not reach the program's copy.
+
+A program that needs no Vulkan SDK at build time therefore enables `vendored` on both `slango` and `slango-macros`. A vendored build with the macro can build Slang twice, once for the host and once for the target, in the commands that Section 8 of `docs/design/slang-src.md` lists, and that section states the remedies: the cache directory and, for release builds, a `build-override` profile.
+
+This illustration shows the dependencies of such a program:
+
+```toml
+[dependencies]
+slango = { version = "0.1", features = ["vendored"] }
+slango-macros = { version = "0.1", features = ["vendored"] }
+```
 
 ## 5. Changes to `slango`
 
@@ -315,23 +324,19 @@ The generated code therefore contains absolute paths of the build machine. When 
 
 ### 6.3. The Build Script
 
-SLM-12. The build script of `slango-macros` MUST print `cargo::rustc-link-arg=-Wl,-rpath,<VULKAN_SDK>/lib` when `VULKAN_SDK` is set and not empty and the macro is built for Linux or macOS, `cargo::rerun-if-env-changed` for `VULKAN_SDK` and `DOCS_RS`, and the `cfg` of SLM-13 with its `cargo::rustc-check-cfg` declaration, and nothing else. Without the rpath, every build of a crate that uses the macro fails with a misleading `E0463` unless the user puts the library on the path of rustc (Section 3.3).
+SLM-12. The build script of `slango-macros` MUST print `cargo::rustc-link-arg=-Wl,-rpath,<VULKAN_SDK>/lib` when `VULKAN_SDK` is set and not empty and the macro is built for Linux or macOS, and `cargo::rerun-if-env-changed` for `VULKAN_SDK`, and nothing else. Without the rpath, every build of a crate that uses the macro fails with a misleading `E0463` unless the user puts the library on the path of rustc (Section 3.3).
 
-The build script reads two variables and prints Cargo instructions. It writes no file, downloads nothing, and installs nothing, so it meets Hard Rule 7 of `AGENTS.md` and SYS-5 of the coding standard. The rpath is the build machine's own directory, stored in the macro library, which only the compiler on that machine loads.
+The build script reads one variable and prints Cargo instructions. It writes no file, reaches no network, and installs nothing, so it meets Hard Rule 7 of `AGENTS.md` and SYS-5 of the coding standard. The rpath is the build machine's own directory, stored in the macro library, which only the compiler on that machine loads.
 
-On the static route, `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (Section 3.3). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
+On the vendored route of the macro's copy of Slang (Section 4.3), `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (Section 3.3). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
 
-The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run under Miri (SYS-8 of the coding standard). The rpath and the `cfg` of SLM-13 are independent of each other.
+The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run under Miri (SYS-8 of the coding standard).
 
 When the script would print the rpath, a `VULKAN_SDK` that is not valid UTF-8 stops the build of `slango-macros`. So does one that contains a comma, which the linker would read as the end of the `-Wl` argument. The message says to install the SDK in another directory.
 
-### 6.4. docs.rs
+### 6.4. Documentation Builds
 
-SLM-13. When `DOCS_RS` is present, the build script MUST set the `cfg` `slango_docs_rs`, and under it the macro MUST emit a documented stub `pub struct Shader;` and MUST NOT call the generator. Otherwise the macro library links Slang's symbols unresolved and rustdoc cannot load it (Section 3.8).
-
-The stub's documentation says that the bindings are generated only in a build with Slang. The macro emits the stub without resolving or reading the path, so a wrong path does not fail the documentation build. The other generated items are absent from the documentation of the user's crate.
-
-A crate builds its documentation without Slang only when it names every generated item other than `Shader` inside function bodies alone, in expressions and in the type annotations of `let` (Section 3.8). Section 14.6 states the consequence.
+The macro has no stub and no `cfg` for a documentation build, which expands the macro with Slang like any other build (Section 3.8). The generated items therefore appear in the documentation of the user's crate, and the user's crate may name them anywhere.
 
 ### 6.5. Diagnostics
 
@@ -495,7 +500,7 @@ The module `ffi` of its integration-test binary `tests/codegen/` (TEST-10) compi
 - A nested structure that two kernels use.
 - A uniform structure beside an element that also serves as a uniform value.
 
-Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`. So the snapshots do not depend on the machine, the checkout, or the SPIR-V of the pin.
+Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`. So the snapshots do not depend on the machine, the checkout, or the SPIR-V of the Slang of the build.
 
 Further `ffi` tests of `slango-codegen` check:
 
@@ -510,7 +515,7 @@ Further `ffi` tests of `slango-codegen` check:
 - The module `bindings`, which Miri runs, asserts SLM-21. It resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10).
 - The module `build_script` tests the logic of the build script under Miri (Section 6.3).
 - The module `structs` sits in no `ffi` module, so Miri runs it, although it calls the macro. It checks the round trip of `write_bytes` and `read_bytes` for generated structs over many seeds, the rejection of bytes of another length, and that `write_bytes` puts each scalar at the `offset_of!` of its field, nested fields included, and zero in the padding.
-- The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a new pin can change it (SLM-22).
+- The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a move of the recorded Slang can change it (SLM-22).
 - The module `ffi` also compares the size, stride, and field offsets of generated structs with what `precompile_file` reflects. They cover tail padding, a gap between fields, arrays, nested structures, and a `new` of eight arguments.
 - The module `gpu` runs saxpy through `dispatch` and through `dispatch_groups` with a count that stops inside the last group, against values computed on the CPU. It also runs a kernel over a buffer of particles with a nested structure, a uniform structure `Step` that nests the structure `Wind`, and a uniform `Motion` that the element form of `Motion` serves. It compares the whole buffer exactly with values computed on the CPU.
 
@@ -535,7 +540,7 @@ The macro embeds the shader when the example builds, so the example takes no fil
 
 It exits with a failure status when a result differs from the values that it computes on the CPU. Every input is dyadic, so every result is exact on every adapter.
 
-The example names the generated items other than `Shader` only inside function bodies, so that `check-doc-without-slang` documents it without Slang (Section 6.4), and its crate-level documentation says why. Its tests in `examples/tests/examples/` are:
+Its tests in `examples/tests/examples/` are:
 
 - In `gpu.rs`, a `gpu` test that runs the example, checks that it succeeds and that standard error starts with `running on `, and compares standard output with the `insta` snapshot `examples__gpu__particles.snap`.
 - In `ffi/typed_kernel.rs`, `ffi` tests that check the usage text for `-h` and `--help` and the failure for an argument.
@@ -550,7 +555,7 @@ The `gpu` tests of saxpy in `tests/macros/gpu.rs` of `slango-macros` run the bin
 
 So they are the compiled example of the same use that the writing guide asks for. The example `typed-kernel` is a further compiled use, with another shader.
 
-SLM-22. An agent that changes the pin MUST run the compile-fail tests and update their expected text in the same change, because that text contains Slang's messages.
+SLM-22. An agent that moves the recorded Slang MUST run the compile-fail tests and update their expected text in the same change, because that text contains Slang's messages.
 
 A new Slang can therefore fail the tests with no change to the macro.
 
@@ -580,7 +585,7 @@ The threat model treats the `.slang` file, the files it imports, and the path in
 
 Neither crate has unsafe code (SLM-4), and `slango` keeps none (SLO-2 of `docs/design/slango.md`). So a wrong `StructElement` implementation or a corrupt encoded snapshot can produce wrong bytes or an error, never undefined behaviour (Section 5.4).
 
-The build script of `slango-macros` writes nothing and downloads nothing, and adds the SDK's library directory to the macro library's rpath (SLM-12). The new dependencies are widely used crates under licences that the allow-list admits, fixed by `Cargo.lock` and checked by `cargo-deny` (SLM-3).
+The build script of `slango-macros` writes nothing and reaches no network, and adds the SDK's library directory to the macro library's rpath (SLM-12). With the feature `vendored`, the build of the macro's copy of Slang runs the build scripts of `slang-src`, `slang-compiler-sys`, and `slang-glslang-sys`, whose design documents state their security considerations. The new dependencies are widely used crates under licences that the allow-list admits, fixed by `Cargo.lock` and checked by `cargo-deny` (SLM-3).
 
 These attacks are out of scope, because the user chose the input: a malicious shader, a shader that reaches a defect of Slang, and a `.slang` file outside the crate that a relative path names.
 
@@ -590,7 +595,9 @@ The residual risk is a defect in Slang that corrupts memory inside rustc during 
 
 ### 14.1. Cargo Features and Environment Variables
 
-Neither crate has Cargo features. The build script of `slango-macros` reads `VULKAN_SDK`, which sets the rpath, and `DOCS_RS`, which selects the stub (SLM-12, SLM-13). Building a crate that uses the macro needs what building `slango` needs: the pinned Slang through `VULKAN_SDK` or `SLANG_SOURCE_DIR` (Section 9 of `docs/design/slang-compiler-sys.md`).
+Each crate has one Cargo feature, `vendored`, off by default, which it forwards to the crate below (SLM-23). The build script of `slango-macros` reads `VULKAN_SDK`, which sets the rpath (SLM-12).
+
+Building a crate that uses the macro needs what building `slango` needs, once for the macro's copy of Slang and once for the program's (Section 17.1 of `docs/design/slango.md`). Without the feature on `slango-macros`, the macro's copy needs the Vulkan SDK at `VULKAN_SDK` and libclang. With it, the macro's copy is built from source through `slang-src`, whose environment variables Section 14.2 of `docs/design/slang-src.md` lists.
 
 ### 14.2. Platforms and Minimum Supported Rust Version
 
@@ -603,11 +610,11 @@ CI builds and tests both crates on Linux, Windows, and macOS. On macOS, the CI j
 | Failure | Reported as | Recovery |
 | --- | --- | --- |
 | The Slang library is not on rustc's library path, such as on Windows without the SDK on `PATH` | `E0463: can't find crate for 'slango_macros'` | Set `VULKAN_SDK` before the first build on Linux and macOS, or put the SDK's library directory on the path |
-| `VULKAN_SDK` is unset and `SLANG_SOURCE_DIR` is unset | The build script of `slang-compiler-sys` fails | Install the pinned SDK and set `VULKAN_SDK` |
+| `VULKAN_SDK` is unset in a build in which the macro's copy of Slang is not vendored | The build script of `slang-compiler-sys` fails | Install the Vulkan SDK of the recorded Slang and set `VULKAN_SDK`, or enable `vendored` on `slango-macros` and on `slango` (Section 4.3) |
 | The `.slang` file does not compile or cannot be read | A compile error at the path literal with Slang's text | Fix the shader or the path |
 | A parameter or field is not supported | A compile error at the path literal that names it (Section 7.5) | Change the shader, or use the runtime API |
 | Slang aborts during an expansion | rustc exits with `SIGABRT` after one line on standard error | Report it as a defect of Slang (Hard Rule 14) |
-| naga rejects the embedded SPIR-V | `UnsupportedShader` at `Shader::load` | Build with the Slang of the Vulkan SDK (Section 3.6) |
+| naga rejects the embedded SPIR-V | `UnsupportedShader` at `Shader::load` | Build with the Slang of the Vulkan SDK, or enable `vendored` on `slango-macros`, so that the macro's copy of Slang has the loader of `slang-glslang-sys` (Section 3.6) |
 | The encoded snapshot is of another version | A compile error from the version assertion, or `InvalidArgument` at load | Use the matching versions (SLM-2) |
 
 ### 14.4. Logs
@@ -616,7 +623,7 @@ Neither crate emits logs (SLM-4).
 
 ### 14.5. Costs
 
-Section 3.10 states the build-time costs of the macro: each call runs on every compilation of the crate that contains it, a release build compiles the runtime dependencies twice, and the first trybuild run is slow.
+Section 3.10 states the build-time costs of the macro: each call runs on every compilation of the crate that contains it, a release build compiles the runtime dependencies twice, and the first trybuild run is slow. With the feature `vendored`, some commands also build Slang twice, which Section 8 of `docs/design/slang-src.md` states with its remedies.
 
 ### 14.6. Known Limits
 
@@ -626,8 +633,8 @@ These are properties of the design, recorded and not guarded against:
 - The embedded SPIR-V depends on the Slang of the build machine (Section 3.6).
 - A release build compiles `slango`, `wgpu`, and `naga` twice (Section 3.10).
 - A new file that changes how an `import` resolves does not trigger a rebuild (Section 3.4).
-- The generated items are absent from the documentation on docs.rs (Section 6.4).
-- A crate that names a generated item other than `Shader` in a `use` declaration, an item signature, or a struct field does not build its documentation on docs.rs in M6. That is the ordinary way to use typed bindings, and the owner accepts the limit for M6 (Sections 3.8 and 6.4). docs.rs is not supported, and CI builds and hosts the documentation instead (Section 13 of `docs/design/architecture.md`).
+- A documentation build of a crate that calls the macro needs Slang, and docs.rs, which has none, is not supported (Section 3.8).
+- The feature `vendored` of `slango` does not reach the macro's copy of Slang, so a program without a Vulkan SDK at build time enables it on `slango-macros` as well (Section 4.3).
 
 These are not determined: the macro in rust-analyzer and in a cross build that links, the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5), and the behaviour of cargo-semver-checks on hidden items.
 
@@ -655,8 +662,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLM-9 | 6.1 | One macro, `shader!`, which takes one string literal. |
 | SLM-10 | 6.1 | Paths resolve against the invoking file, with no fallback. |
 | SLM-11 | 6.2 | The expansion includes every file that Slang read with `include_bytes!`. |
-| SLM-12 | 6.3 | The build script prints only the rpath on Linux and macOS, its rerun instructions, and the `cfg` of SLM-13. |
-| SLM-13 | 6.4 | With `DOCS_RS`, the macro emits a stub and calls no generator. |
+| SLM-12 | 6.3 | The build script prints only the rpath on Linux and macOS and its rerun instruction for `VULKAN_SDK`. |
 | SLM-14 | 6.5 | Every failure is a compile error at the literal, never a panic. |
 | SLM-15 | 7.1 | `Shader` loads the embedded snapshot and looks up every kernel. |
 | SLM-16 | 7.1 | Each kernel struct dispatches through the public call API with literal paths. |
@@ -665,4 +671,5 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLM-19 | 7.4 | Names follow fixed rules, and a conflict is a compile error. |
 | SLM-20 | 8 | `slango-codegen` has one `Error` type with three kinds. |
 | SLM-21 | 9 | `Shader` and kernel structs are `Send` and `Sync`, asserted in a test. |
-| SLM-22 | 10 | A change of the pin updates the expected text of the compile-fail tests. |
+| SLM-22 | 10 | A move of the recorded Slang updates the expected text of the compile-fail tests. |
+| SLM-23 | 4.3 | Each crate has one Cargo feature, `vendored`, off by default, which only forwards to the crate below. |
