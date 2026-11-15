@@ -4,6 +4,17 @@ members = [
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
     "crates/slang-slint",
+    "crates/slang-src",
+    "crates/slango",
+    "crates/slango-codegen",
+    "crates/slango-macros",
+    "examples",
+    "tools/bindings-generator",
+]
+default-members = [
+    "crates/slang-compiler",
+    "crates/slang-compiler-sys",
+    "crates/slang-slint",
     "crates/slango",
     "crates/slango-codegen",
     "crates/slango-macros",

@@ -34,6 +34,7 @@
       "Bash(just check-doc-references-self-test)",
       "Bash(just check-bindings)",
       "Bash(just check-vulkan-sdk)",
+      "Bash(just recorded-slang)",
       "Bash(just pin)",
       "Bash(just test)",
       "Bash(just test-gpu)",

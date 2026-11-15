@@ -149,7 +149,7 @@ SGL-6. The build script MUST keep the five libraries of each verified build in a
 
 The build takes minutes, and Cargo gives each profile and each host or target unit its own `OUT_DIR`, so the build would otherwise repeat for every profile and for a procedural macro that links Slang (Section 8 of the `slang-src` design). With the shared folder, it runs once for each set of inputs in a target directory.
 
-SGL-7. The build script MUST emit `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, which CMake reads, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses. A change of these inputs changes the libraries, and a build that does not rerun links libraries that no longer match them (SYS-1). Cargo reruns the build script when a file of the crate changes, such as the wrapper project or the shim, and when the metadata of `slang-src` changes (Section 15, SRCA-1, of the `slang-src` design).
+SGL-7. The build script MUST emit `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, and `MACOSX_DEPLOYMENT_TARGET`, which CMake reads, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses. A change of these inputs changes the libraries, and a build that does not rerun links libraries that no longer match them (SYS-1). Cargo reruns the build script when a file of the crate changes, such as the wrapper project or the shim, and when the metadata of `slang-src` changes (Section 16, SRCA-1, of the `slang-src` design).
 
 The build script follows SYS-4 and SYS-8: it runs `cmake` and `ninja --version` with `std::process::Command`, checks every exit status, writes their output to `OUT_DIR/build.log`, and on a failure returns an error that names the command, the log, and its last 40 lines. Its logic is in `build_logic.rs`, behind a host trait, which the build script and the tests both include, and the real host is in `system.rs`.
 
@@ -226,7 +226,7 @@ SGL-14. The crate-level documentation MUST state what the crate builds and why, 
 
 The threat model has four parts:
 
-1. The source tree comes from `slang-src`, which fetches it by commit hash (Section 13 of the `slang-src` design), and the wrapper build runs its CMake scripts and its Python script with the user's permissions.
+1. The source tree comes from `slang-src`, which fetches it by commit hash (Section 14 of the `slang-src` design), and the wrapper build runs its CMake scripts and its Python script with the user's permissions.
 2. Slang calls the loader for every library that a global session loads, including the name of a downstream compiler that a shader's options select.
 3. The program that links this crate can link another copy of glslang or SPIRV-Tools, such as through a crate that builds shaderc.
 4. An attacker who can place a library on the loader path of the program, or in a directory that Slang searches, can have the default loader load it.
@@ -242,7 +242,7 @@ Dependencies. The crate depends on `slang-src` with its exact version and on `sl
 These attacks are out of scope:
 
 - A source tree whose content is malicious, which the user chose by patching in a fork of `slang-src`.
-- An attacker with write access to the target directory, who can place any library in an entry, as Section 13 of the `slang-src` design states.
+- An attacker with write access to the target directory, who can place any library in an entry, as Section 14 of the `slang-src` design states.
 - A library that an attacker places where the default loader finds it, which is the same exposure that a program without this crate has.
 - Attacks on the repository itself, which are a matter of access control.
 

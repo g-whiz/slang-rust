@@ -1449,7 +1449,7 @@ The vendored route applies the same checks to the paths that `slang-src` exports
 
 The vendored route copies the tracked files into `OUT_DIR` and builds the copy, so Slang's build, which writes into its source tree, writes only under `OUT_DIR` (SCS-45). It refuses a tracked path that would leave the copy, disables every component that downloads (SCS-28), and checks the archives and the build tag that the build produced (SCS-47). The route is selected only by the feature `vendored`, which the manifest of whoever builds states (SCS-50).
 
-The shared folder holds libraries that the vendored route links without building them again (SCS-56). It lies in the Cargo target directory, and Section 13 of the `slang-src` design states why an attacker who can write there is out of scope.
+The shared folder holds libraries that the vendored route links without building them again (SCS-56). It lies in the Cargo target directory, and Section 14 of the `slang-src` design states why an attacker who can write there is out of scope.
 
 Dependencies. The published crate depends only on `slang-bindgen` and, under `vendored`, on `slang-src`, each with an exact version (SCS-61). The dependencies of the generator run on every user's machine, and cargo-deny checks them (TOOL-24, TOOL-26).
 
@@ -1484,7 +1484,7 @@ The residual risk has seven parts:
 
 ### 18.2. Environment Variables
 
-This table lists every environment variable that the build script or the generator reads, and every variable that the build script sets or removes for the programs that it runs, with its default. The variables that Cargo sets for every build script, such as `OUT_DIR`, `TARGET`, `HOST`, and the `CARGO_CFG_TARGET_*` variables, are not options, and the table lists those that the build script decides on. The variables of Cargo and git that the build script of `slang-src` reads or sets are in Section 14.2 of the `slang-src` design.
+This table lists every environment variable that the build script or the generator reads, and every variable that the build script sets or removes for the programs that it runs, with its default. The variables that Cargo sets for every build script, such as `OUT_DIR`, `TARGET`, `HOST`, and the `CARGO_CFG_TARGET_*` variables, are not options, and the table lists those that the build script decides on. The variables of Cargo and git that the build script of `slang-src` reads or sets are in Section 15.2 of the `slang-src` design.
 
 | Variable | Read by | Default and behaviour when absent |
 | --- | --- | --- |

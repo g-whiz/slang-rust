@@ -3705,6 +3705,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "slang-src"
+version = "0.1.0-slang.2026.17.0.25.gc7954ebd1"
+
+[[package]]
 name = "slango"
 version = "0.1.0"
 dependencies = [

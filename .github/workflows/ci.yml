@@ -175,3 +175,37 @@ jobs:
           path: target/lcov.info
           if-no-files-found: error
           retention-days: 14
+
+  vendored:
+    name: Test the vendored build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - *checkout
+      - name: Install the stable Rust toolchain
+        env:
+          COMPONENTS: ${{ matrix.os == 'ubuntu-latest' && 'clippy' || '' }}
+        run: |
+          if [[ -n "${COMPONENTS}" ]]; then
+            rustup toolchain install stable --profile minimal --component "${COMPONENTS}"
+          else
+            rustup toolchain install stable --profile minimal
+          fi
+      - name: Install just and cargo-nextest
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just,cargo-nextest
+          fallback: none
+      - name: Show the version of git, which clones Slang
+        run: git --version
+      - name: Run Clippy and the documentation build of the vendored build
+        if: matrix.os == 'ubuntu-latest'
+        run: just check-vendored
+      - name: Run the tests of the vendored build
+        run: just test-vendored
+      - name: Check where the vendored build kept its Slang clone
+        run: just check-vendored-shared-folder

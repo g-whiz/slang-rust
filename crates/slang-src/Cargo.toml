@@ -1,0 +1,16 @@
+[package]
+name = "slang-src"
+description = "The Slang source tree at a recorded commit, cloned for the crates that build Slang from source."
+keywords = ["slang", "shader", "source", "vendored", "build"]
+categories = ["development-tools::build-utils", "graphics"]
+links = "slang-src"
+version = "0.1.0-slang.2026.17.0.25.gc7954ebd1"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0 WITH LLVM-exception"
+repository.workspace = true
+readme.workspace = true
+
+[lints]
+workspace = true

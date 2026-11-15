@@ -37,7 +37,7 @@ This document covers:
 - The metadata that the build script exports.
 - The shared folder, how the build script finds it, its layout, its keys, and its locking, which every crate that builds Slang from the tree follows.
 - How a procedural macro that links Slang shares the folder with the program.
-- The crate documentation, the security considerations, and the operational considerations.
+- The tests, the crate documentation, the security considerations, and the operational considerations.
 
 ### 1.5. Non-Goals
 
@@ -77,7 +77,7 @@ This document calls those files the writing guide, the coding standard, the arch
 - object ID: The name of a git object, which is the SHA-1 hash of its content. A commit hash is the object ID of a commit.
 - recorded commit: The Slang commit that `slang-src` clones, which is the commit of the Slang in the Vulkan SDK that CI installs (Section 7).
 - recorded Slang: The Slang build at the recorded commit, named by its build tag.
-- required submodule: One of the submodules of the Slang tree that the dependent build scripts read (Section 3.3).
+- required submodule: One of the submodules of the Slang tree that the dependent build scripts read (Section 3.4).
 - shared folder: The directory `slang-src` in the base directory, in which `slang-src` keeps its clone entries and each dependent build script keeps its entries of built libraries (Section 9).
 - source tree: The Slang work tree that `slang-src` exports, with its required submodules checked out.
 - stamp file: The file `stamp` of an entry, written last and with an old modification time, which the build scripts that use the entry name in `cargo::rerun-if-changed` (SRC-16).
@@ -96,15 +96,17 @@ A build script cannot see the command-line option `--offline`. Cargo passes the 
 
 Each target directory, profile, and host or target unit has its own `OUT_DIR` for a build script, so a build script that writes only into `OUT_DIR` repeats its work in each of them. Cargo gives a build script no variable that names the target directory or the build directory.
 
+A build script sets an environment variable for the compilation of its own package with `cargo::rustc-env=NAME=VALUE`, which the code of every target of the package, including its tests, reads with `env!`.
+
 A pre-release identifier made only of digits compares numerically, and any other identifier compares as ASCII text and ranks above every numeric identifier. A numeric identifier with a leading zero is not valid. A version with a pre-release orders below the same version without one.
 
 A caret requirement on a pre-release version, such as `"0.1.0-slang.2026.17.0.25.gc7954ebd1"`, matches every later pre-release of `0.1.0`, so `cargo update` moves it to a version that carries another Slang. Only the exact requirement `"=0.1.0-slang.2026.17.0.25.gc7954ebd1"` holds one version. A requirement such as `"0.1"` matches no pre-release at all.
 
-Cargo's `[patch]` table replaces a package of a registry with another source, such as a git repository, in the whole build graph of a project. Cargo uses a patch only when its version satisfies the requirements of the packages that depend on it (Section 15, SRCA-8).
+Cargo's `[patch]` table replaces a package of a registry with another source, such as a git repository, in the whole build graph of a project. Cargo uses a patch only when its version satisfies the requirements of the packages that depend on it (Section 16, SRCA-8).
 
 ### 3.2. The Target Directory
 
-These facts hold for Cargo 1.99.1 on x86_64 Linux. Section 15, SRCA-5 and SRCA-7, records them as assumptions on Windows and macOS.
+These facts hold for Cargo 1.99.1 on x86_64 Linux. Section 16, SRCA-5 and SRCA-7, records them as assumptions on Windows and macOS.
 
 - Cargo writes a file named `CACHEDIR.TAG` into a target directory or build directory when it creates that directory. A build with `--target` also gets a tagged directory named after the target triple below it, which holds the units of the target, while the units of the host stay in the profile directories at the top.
 - Cargo writes no tag into a directory that existed before the first build, such as one created by `mkdir`, and it does not write the tag again after someone deleted it.
@@ -114,16 +116,25 @@ These facts hold for Cargo 1.99.1 on x86_64 Linux. Section 15, SRCA-5 and SRCA-7
 - Cargo does not serialize two builds with different profiles in one target directory, so their build scripts run at the same time.
 - `cargo clean` without options removes the whole target directory. `cargo clean -p <package>` and `cargo clean --release` remove only files of their packages or profile.
 - Cargo runs a build script again when a file that its `cargo::rerun-if-changed` names is missing, or has a modification time later than the start of the last run of the build script.
+- `cargo miri` builds in the directory `miri` inside the target directory, which carries its own tag.
 
 ### 3.3. git
 
 `git clone --depth 1` cannot fetch a commit by its hash. `git init` followed by `git fetch --depth 1 origin <commit>` can, and GitHub serves any commit that a branch or tag of the repository reaches. `git submodule update --init --depth 1 -- <paths>` fetches the commit that each gitlink records, also when the default branch of the submodule does not contain it.
 
+`git submodule update` stops with a pathspec error when one of its paths has no gitlink in the commit, before it reports anything about the other paths. `git ls-tree HEAD -- <paths>` lists each path of the commit with its mode and type, which are `160000` and `commit` for a gitlink, and reaches no network.
+
 A shallow clone holds no tags, so `git describe` fails in it. The build tag of the clone therefore comes from `recorded.rs` (Section 7.1).
 
 git verifies the object ID of every object it receives, so a fetched commit, its trees, and its files are the content that the hash names. Every gitlink records the commit of its submodule by object ID, so the commit of the superproject determines the content of every submodule. git uses a variant of SHA-1 that detects the known collision attacks.
 
-The git settings `http.lowSpeedLimit` and `http.lowSpeedTime` stop a transfer that stays below a rate for a time. git has no setting that bounds the time to connect, and the operating system then bounds it (Section 15, SRCA-2).
+The git settings `http.lowSpeedLimit` and `http.lowSpeedTime` stop a transfer that stays below a rate for a time. git has no setting that bounds the time to connect, and the operating system then bounds it (Section 16, SRCA-2).
+
+The environment variable `GIT_ALLOW_PROTOCOL`, when set, overrides the settings `protocol.allow` and `protocol.<name>.allow`, including those given with `-c`.
+
+`git rev-parse --local-env-vars` lists the environment variables that name or change the repository that git works on, such as `GIT_DIR`. git 2.47.3 lists 15 of them.
+
+`git init` copies the git template directory into the new repository. git's default template holds only hooks whose names end in `.sample`, which git never runs. The setting `init.templateDir` of the user's git configuration can name another template, whose hooks git runs, such as a hook that runs after a checkout.
 
 ### 3.4. The Slang Tree
 
@@ -144,7 +155,7 @@ These are the required submodules of the recorded Slang:
 | `external/glslang` | `slang-glslang-sys` |
 | `external/spirv-tools` | `slang-glslang-sys` |
 
-`external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). Section 15, SRCA-3, records that no other submodule is needed on Windows or macOS.
+`external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). Section 16, SRCA-3, records that no other submodule is needed on Windows or macOS.
 
 A shallow clone of the recorded commit with these submodules takes about half a minute on a fast connection and occupies under 300 MB.
 
@@ -175,15 +186,18 @@ The crate has these files:
 - `recorded.rs` holds the recorded commit and its build tag (Section 7.1).
 - `source.rs` holds the logic, as plain functions behind the trait `Host`.
 - `system.rs` holds the struct `System`, which implements `Host` with the standard library.
-- `src/lib.rs` holds the crate-level documentation (Section 12).
+- `src/lib.rs` holds the crate-level documentation (Section 13).
+- `tests/slang_src/` is the integration-test binary (Section 12).
 
 ## 5. The Source
 
-SRC-21. The source tree MUST always be a clone of the recorded commit (Section 6.1). The build script MUST NOT read an environment variable of its own, and MUST NOT take the tree, the commit, or the shared folder from any input other than `recorded.rs` and the variables of Section 14.2. A user who needs another commit uses Cargo's `[patch]` table (Section 7.3).
+SRC-21. The source tree MUST always be a clone of the recorded commit (Section 6.1). The build script MUST NOT read an environment variable of its own, and MUST NOT take the tree, the commit, or the shared folder from any input other than `recorded.rs` and the variables of Section 15.2. A user who needs another commit uses Cargo's `[patch]` table (Section 7.3).
 
 One source keeps every build of one version of the crate on one Slang, and a crate without settings of its own has nothing that a user has to learn or that a build can set by accident.
 
-SRC-4. The build script MUST check that each required submodule of Section 3.4 has a gitlink in the tree and a `.git` entry, a file or a directory, inside its directory. It MUST stop the build when one does not, with the message of Section 11. A dependent build that reaches a missing submodule fails inside CMake with an error that does not say what is missing.
+SRC-4. The build script MUST check, directly after the checkout and before it fetches any submodule, that each required submodule of Section 3.4 has a gitlink in the commit, through `git ls-tree`. After the submodule update, it MUST check that each required submodule has a `.git` entry, a file or a directory, inside its directory. It MUST stop the build when either check fails, with the message of Section 11. A dependent build that reaches a missing submodule fails inside CMake with an error that does not say what is missing.
+
+The gitlinks are checked before the update because `git submodule update` stops with a pathspec error at a path without a gitlink (Section 3.3), which does not say that the commit lacks a required submodule.
 
 The list of required submodules is a constant of `source.rs`. A change of the native builds that reads another submodule changes this list and Section 3.4 in the same change. A missing gitlink happens only with a commit whose layout differs from the recorded one, such as the commit of a fork patched in through `[patch]`.
 
@@ -196,9 +210,10 @@ SRC-7. The build script MUST clone with these commands, in this order, in an emp
 1. `git init` in the temporary directory, followed by `git remote add origin https://github.com/shader-slang/slang.git`.
 2. `git fetch --depth 1 origin <commit>`, with the full recorded commit hash.
 3. `git checkout --detach FETCH_HEAD`.
-4. `git submodule update --init --depth 1 -- <path>...`, with the paths of the required submodules of Section 3.4.
+4. `git ls-tree -z HEAD -- <path>...`, with the paths of the required submodules of Section 3.4, for the check of the gitlinks of SRC-4.
+5. `git submodule update --init --depth 1 -- <path>...`, with the same paths.
 
-It MUST then check the required submodules (SRC-4), write the recorded build tag into the file `build-tag` and then the stamp file, and rename the temporary directory to the clone entry only after every step succeeded, with the entry protocol of SRC-16. A clone entry that exists is therefore complete, and an interrupted clone leaves only a temporary directory, which the next run removes before it clones again.
+It MUST then check the `.git` entry of each required submodule (SRC-4), write the recorded build tag into the file `build-tag` and then the stamp file, and rename the temporary directory to the clone entry only after every step succeeded, with the entry protocol of SRC-16. A clone entry that exists is therefore complete, and an interrupted clone leaves only a temporary directory, which the next run removes before it clones again.
 
 The clone entry is `src/<commit>` in the shared folder and has this layout:
 
@@ -208,15 +223,21 @@ The clone entry is `src/<commit>` in the shared folder and has this layout:
 | `build-tag` | The build tag of the tree, as one line |
 | `stamp` | The stamp file (SRC-16) |
 
-When a clone entry exists, the build script checks that its `tree` reports the recorded commit through `git rev-parse --verify HEAD^{commit}` and then uses it without any network access. A clone entry that reports another commit, or that git cannot read, stops the build with the error of Section 11 that names the entry, because another build may be reading it.
+When a clone entry exists, the build script checks that its `tree` exists and that it reports the recorded commit through `git rev-parse --verify HEAD^{commit}`, and then uses it without any network access. A clone entry without its `tree`, one that reports another commit, or one that git cannot read stops the build with the error of Section 11 that names the entry, because another build may be reading it.
 
-SRC-8. The build script MUST run every git command that reaches the network with the settings `protocol.allow=never`, `protocol.https.allow=always`, `http.lowSpeedLimit=1000`, and `http.lowSpeedTime=60`, passed with `-c`, and with `GIT_TERMINAL_PROMPT=0` in its environment. It MUST run every git command with `GIT_OPTIONAL_LOCKS=0` and with the repository variables that `git rev-parse --local-env-vars` lists removed from its environment.
+The build script checks that `tree` exists before it starts git there. git cannot start in a directory that does not exist, and the error for a program that cannot start would advise installing git, which does not help.
 
-Only HTTPS can then carry the clone, so no URL in `.gitmodules` can make git start an SSH client or read a local repository. git fails instead of asking for credentials, which it does when a repository or a commit does not exist, and a build would otherwise wait for input that never comes. A transfer that stalls below 1000 bytes per second for 60 seconds fails instead of hanging.
+SRC-8. The build script MUST run every git command that reaches the network with the settings `protocol.allow=never`, `protocol.https.allow=always`, `http.lowSpeedLimit=1000`, and `http.lowSpeedTime=60`, passed with `-c`, with `GIT_TERMINAL_PROMPT=0` in its environment, and with `GIT_ALLOW_PROTOCOL` removed from its environment. It MUST run every git command with `GIT_OPTIONAL_LOCKS=0` and with the repository variables removed from its environment.
+
+The repository variables are a constant list of `source.rs`, which holds the variables that `git rev-parse --local-env-vars` lists. A test of the real host MUST fail when the installed git lists a variable that the constant lacks.
+
+Only HTTPS can then carry the clone, so no URL in `.gitmodules` can make git start an SSH client or read a local repository. `GIT_ALLOW_PROTOCOL` would override the protocol settings (Section 3.3), so a value in the environment of the build could allow another protocol. git fails instead of asking for credentials, which it does when a repository or a commit does not exist, and a build would otherwise wait for input that never comes. A transfer that stalls below 1000 bytes per second for 60 seconds fails instead of hanging.
 
 A git hook that runs Cargo sets repository variables such as `GIT_DIR`, and git would then answer for another repository. Without `GIT_OPTIONAL_LOCKS=0`, `git status` and other read commands refresh the index of a tree that another build may be reading.
 
-The build script runs every git command with `std::process::Command`, checks every exit status (SYS-4), and starts each with standard input closed. The user's git configuration still applies, such as a proxy or a rewrite of URLs, which Section 13 discusses.
+A constant list keeps the git commands and the tests against a fake host independent of the installed git, while the test of the real host reports a git that adds a variable. Asking git for the list on every run would add a process to every build and a failure mode to the build script.
+
+The build script runs every git command with `std::process::Command`, checks every exit status (SYS-4), and starts each with standard input closed. The user's git configuration still applies, such as a proxy or a rewrite of URLs, which Section 14 discusses.
 
 ### 6.2. Network Access
 
@@ -228,9 +249,9 @@ The error says that a build without the Cargo feature `vendored` links the Slang
 
 ### 7.1. Recording
 
-SRC-11. The recorded commit and its build tag MUST be recorded only in `crates/slang-src/recorded.rs`, as the two constants `RECORDED_COMMIT` and `RECORDED_BUILD_TAG`, and in the manifest version of `slang-src`, which encodes the build tag as Section 7.2 defines. A test MUST fail when the two disagree. Recipes and scripts that need the recorded commit or build tag MUST read them through the recipe `recorded-slang`, which prints both as `NAME=value` lines.
+SRC-11. The recorded commit and its build tag MUST be recorded in `crates/slang-src/recorded.rs`, as the two constants `RECORDED_COMMIT` and `RECORDED_BUILD_TAG`, in the manifest version of `slang-src`, which encodes the build tag as Section 7.2 defines, and in the crate-level documentation, which states the commit, the build tag, and the version (SRC-20). Tests MUST fail when the constants disagree with the manifest version or when the crate documentation does not state all three. Recipes and scripts that need the recorded commit or build tag MUST read them through the recipe `recorded-slang`, which prints both as `NAME=value` lines.
 
-Two records that can diverge are only safe when a test compares them, and Cargo reads the version only from the manifest, while the build script needs the full commit, which the version abbreviates. The recipe keeps every other consumer, such as the check of the Vulkan SDK in CI, from restating either value.
+Records that can diverge are only safe when a test compares them. Cargo reads the version only from the manifest, the build script needs the full commit, which the version abbreviates, and a reader of the crate documentation needs the commit as text. The recipe keeps every other consumer, such as the check of the Vulkan SDK in CI, from restating either value.
 
 These are the values of the recorded Slang:
 
@@ -240,6 +261,8 @@ These are the values of the recorded Slang:
 | `RECORDED_BUILD_TAG` | `2026.17-25-gc7954ebd1` |
 
 The recorded commit is the commit of the Slang in the Vulkan SDK version that CI installs, which the CI configuration records (Section 5.1 of the architecture design). The CI check of the installed SDK compares its build tag with `RECORDED_BUILD_TAG` and fails when they differ, so that every job tests one Slang (Section 7.3 of `docs/design/tooling.md`).
+
+SRC-24. The build script MUST stop the build, before it reads any variable or touches the file system, when `RECORDED_COMMIT` is not 40 lowercase hexadecimal digits. The commit becomes a component of the paths of the clone entry and its lock and part of a Cargo instruction, so a value of a fork with a path separator, `..`, or a line break could reach outside the shared folder or add an instruction.
 
 ### 7.2. The Version Scheme
 
@@ -266,7 +289,7 @@ slang-src = { version = "=0.1.0-slang.2026.17.0.25.gc7954ebd1", path = "../slang
 
 SRC-22. The crates MUST offer no way to build another Slang commit other than Cargo's `[patch]` table. A user who needs another commit forks `slang-src`, changes `RECORDED_COMMIT` and `RECORDED_BUILD_TAG` in `recorded.rs`, keeps the manifest version, and names the fork in the `[patch]` table of the root manifest of the project. The crate documentation states these steps and that another commit is best effort.
 
-The fork keeps the manifest version because every dependent requires that exact version (SRC-14), and Cargo uses a patch only when its version satisfies every requirement (Section 3.1, Section 15, SRCA-8). The version of the fork therefore does not name the Slang that it clones. The test of SRC-11 fails in the fork, which marks it as a build for one project and never a release.
+The fork keeps the manifest version because every dependent requires that exact version (SRC-14), and Cargo uses a patch only when its version satisfies every requirement (Section 3.1, Section 16, SRCA-8). The version of the fork therefore does not name the Slang that it clones. The tests of SRC-11 fail in the fork, which marks it as a build for one project and never a release.
 
 The commit and the build tag that the fork exports still name its Slang, so the build information of `slang-compiler-sys` reports the Slang that was built (Section 8.1 of the sys design).
 
@@ -283,7 +306,7 @@ slang-src = { git = "https://example.com/user/slang-src.git", branch = "other-sl
 
 This section is non-normative. `docs/design/slango-macros.md` states what a user of `slango-macros` enables.
 
-`slango-macros` links Slang into the procedural macro that the compiler runs on the host. Cargo builds a dependency of a procedural macro as a host unit, with the profile settings of `build-override`, and merges a host unit with the target unit of the same package only when their settings and target agree. Section 15, SRCA-4, records that these counts come from stub crates in the shape of the workspace and are an assumption for the real crates.
+`slango-macros` links Slang into the procedural macro that the compiler runs on the host. Cargo builds a dependency of a procedural macro as a host unit, with the profile settings of `build-override`, and merges a host unit with the target unit of the same package only when their settings and target agree. Section 16, SRCA-4, records that these counts come from stub crates in the shape of the workspace and are an assumption for the real crates.
 
 A vendored build of a crate that calls `slango-macros` therefore runs the build scripts of `slang-src` and of the crates that build Slang once for each unit in these cases:
 
@@ -311,6 +334,8 @@ SRC-23. The build script MUST find the base directory with these steps, and the 
 The build script MUST create the shared folder when it does not exist and MUST export its path as `shared_dir`. It MUST NOT find the folder by any other input, such as a count of levels above `OUT_DIR` or an environment variable.
 
 Step 1 finds the target directory, or the build directory when Cargo uses a separate one, because Cargo tags the directory that it creates and `OUT_DIR` lies below it (Section 3.2). Step 2 keeps the target units of a build with `--target` in the same folder as its host units, because their nearest tag is the directory of the triple. A count of levels breaks when Cargo changes its layout, while the tag does not move.
+
+An error while the build script looks for a tag counts as no tag, so the search moves on to the next ancestor and, at the end, to step 3. The lookup then loses only the sharing, as step 3 does.
 
 Step 3 keeps the build correct when Cargo wrote no tag, and only the sharing is lost: each unit then keeps its clone and its libraries below its own `OUT_DIR`, as a build script without the folder would. These cases have no tag, and the crate documentation lists them as known limits:
 
@@ -346,7 +371,7 @@ SRC-16. Every build script that writes an entry, which is the build script of `s
 
 Cargo does not serialize builds of different profiles (Section 3.2), so the lock is what makes two build scripts that need the same entry at the same time build it once, while the second waits and uses it. An entry is renamed into place only when complete, so a crash leaves a temporary directory, never a partial entry, and a temporary directory can be removed safely while the lock is held.
 
-A build script that uses an entry MUST emit `cargo::rerun-if-changed` for its stamp file. Cargo then runs the build script again when the entry was removed (Section 3.2, Section 15, SRCA-5). The old modification time keeps an entry that another unit created after the start of this run from causing a needless run, because Cargo reruns a build script only for a file newer than its last run.
+A build script that uses an entry MUST emit `cargo::rerun-if-changed` for its stamp file. Cargo then runs the build script again when the entry was removed (Section 3.2, Section 16, SRCA-5). The old modification time keeps an entry that another unit created after the start of this run from causing a needless run, because Cargo reruns a build script only for a file newer than its last run.
 
 An entry is never changed after the rename. An entry that has to be built again is removed, never edited in place, because no build script reruns for a change inside it.
 
@@ -371,15 +396,17 @@ SRC-17. A dependent build script MUST name each entry of libraries by an entry k
 
 Every input that changes the built libraries changes the key, so an entry is never used for another build. The file `inputs` makes a collision of two keys harmless, because step 2 of SRC-16 compares it in full.
 
-A hash without cryptographic strength is enough, because the comparison of the inputs and not the hash decides a hit, and an attacker who can write into the target directory can write any entry directly (Section 13). The hash needs no dependency.
+A hash without cryptographic strength is enough, because the comparison of the inputs and not the hash decides a hit, and an attacker who can write into the target directory can write any entry directly (Section 14). The hash needs no dependency.
 
-The Cargo profile is not an input, because the native builds always use the CMake build type `Release`, so every profile shares an entry. The paths of `OUT_DIR` and of the source tree are not inputs, so that the host and target units, whose `OUT_DIR` differ, share an entry. Section 15, SRCA-6, records that `VCToolsVersion` identifies the Microsoft compiler well enough.
+The Cargo profile is not an input, because the native builds always use the CMake build type `Release`, so every profile shares an entry. The paths of `OUT_DIR` and of the source tree are not inputs, so that the host and target units, whose `OUT_DIR` differ, share an entry. Section 16, SRCA-6, records that `VCToolsVersion` identifies the Microsoft compiler well enough.
 
 ## 10. Rerun Instructions
 
-SRC-18. The build script MUST emit `cargo::rerun-if-changed` for the stamp file of the clone entry that it exports, and no other rerun instruction.
+SRC-18. The build script MUST emit `cargo::rerun-if-changed` for the stamp file of the clone entry that it exports, and no other rerun instruction. After the metadata of SRC-1, it MUST emit `cargo::rustc-env=SLANG_SRC_SHARED_DIR=<shared folder>`, with the shared folder that it found. It MUST emit no other instruction.
 
-The build script has no input of its own other than `recorded.rs`, which it compiles in, so a change of the recorded commit rebuilds and reruns it. The stamp file makes Cargo rerun it when the clone entry was removed (SRC-16). A dependent build script emits its own rerun instruction for the stamp file of each entry that it uses, and Section 15, SRCA-1, records that it runs again whenever the metadata of `slang-src` changes, such as after a change of `recorded.rs` in a fork patched in through `[patch]`.
+The build script has no input of its own other than `recorded.rs`, which it compiles in, so a change of the recorded commit rebuilds and reruns it. The stamp file makes Cargo rerun it when the clone entry was removed (SRC-16). A dependent build script emits its own rerun instruction for the stamp file of each entry that it uses, and Section 16, SRCA-1, records that it runs again whenever the metadata of `slang-src` changes, such as after a change of `recorded.rs` in a fork patched in through `[patch]`.
+
+`SLANG_SRC_SHARED_DIR` is neither a rerun instruction nor `links` metadata, and it reaches only the compilation of `slang-src` itself (Section 3.1), where the test of the real host reads the shared folder that the build script of the same build used (Section 12). A test cannot find that folder again from its own `OUT_DIR`, because it does not know the `TARGET` of the build. The build script never reads the variable, so SRC-21 holds, and only the crate's tests read it.
 
 ## 11. Failure Messages
 
@@ -389,19 +416,46 @@ In this table, the offline advice is the sentence that says two things: a vendor
 
 | Failure | The message contains |
 | --- | --- |
+| `RECORDED_COMMIT` is not 40 lowercase hexadecimal digits (SRC-24) | The value in quotation marks, escaped as for `OUT_DIR`, and that the recorded commit has to be a full commit hash of 40 lowercase hexadecimal digits |
+| `RECORDED_BUILD_TAG` has a form that SRC-12 rejects | The value in quotation marks, escaped as for `OUT_DIR`, and the form that a build tag needs |
 | `OUT_DIR` is not an absolute path in UTF-8 without line breaks | The value in quotation marks, with every control character escaped and every byte that is not UTF-8 replaced, and that Cargo sets it |
-| `git` cannot start | The command, the reason that the operating system gives, and that a vendored build needs git on `PATH` |
+| `git` cannot start | The command and the reason that the operating system gives. Only when the operating system does not find the program, it adds that a vendored build needs git on `PATH`, because that advice misleads for any other reason |
 | `CARGO_NET_OFFLINE` is `true` and no clone entry of the recorded commit exists | That the build needs to clone Slang, the commit, and the offline advice |
 | A git command that reaches the network fails | The command, its exit status, its error output, the commit, and the offline advice |
 | Another git command fails | The command, the directory, its exit status, and its error output |
-| A required submodule is missing (SRC-4) | The path of the submodule, the commit, and that the native builds need it, which a commit patched in through `[patch]` may lack |
-| `RECORDED_BUILD_TAG` has a form that SRC-12 rejects | The value in quotation marks, escaped as above, and the form that a build tag needs |
-| A clone entry reports another commit, or git cannot read it | The path of the entry, both commits or the error output of git, and that removing the entry or running `cargo clean` when no build runs fixes it |
-| A file or directory under `OUT_DIR` or the shared folder cannot be created, locked, renamed, removed, or written | The action, the path, and the reason that the operating system gives |
+| A required submodule has no gitlink or is not checked out (SRC-4) | The path of the submodule, the commit, and that the native builds need it, which a commit patched in through `[patch]` may lack |
+| A clone entry has no work tree, reports another commit, or git cannot read it | The path of the entry, and the missing work tree, both commits, or the command with its exit status and error output. It also says that another build may be reading the entry, and that removing the entry or running `cargo clean` when no build runs fixes it |
+| A file or directory under `OUT_DIR` or the shared folder cannot be inspected, listed, created, locked, renamed, removed, or written | The action, the path, and the reason that the operating system gives |
 
 The build script emits no `cargo::warning`. Cargo shows the warnings of a registry dependency's build script only when the build fails, so a warning would not reach the user who needs it, and an error does.
 
-## 12. Crate Documentation
+## 12. Tests
+
+The crate has one integration-test binary, `tests/slang_src/`, whose root `main.rs` declares the module `build_script`. No test clones Slang. The build script that builds the test binary performs the real clone, and a test of the real host checks what it left.
+
+- `build_script`: The pure tests of `source.rs`, which the module includes with `recorded.rs`, against a fake host. They run under Miri, and they cover these parts:
+  - The git commands of the clone in order, with their settings and environment, and the network settings only on the commands that fetch (SRC-7, SRC-8).
+  - The use of an existing clone entry without the network, and the variables that the build script reads (SRC-21).
+  - `CARGO_NET_OFFLINE`, which stops a clone only when it is exactly `true` (SRC-9).
+  - The removal of only the numbered temporary directories of the recorded commit (SRC-16).
+  - Every failure of Section 11 with its message, including each file operation that fails and an `OUT_DIR` that is not UTF-8, on Unix and on Windows.
+  - The lookup of the base directory and the shared folder that the build script exports (SRC-23).
+  - The forms of the recorded commit and the build tag, and the version identifiers that a build tag gives (SRC-12, SRC-13, SRC-24).
+  - The agreement of the constants with the manifest version and with the crate documentation (SRC-11).
+- `build_script::ffi`: The tests of `system.rs` on the real host. They start git and write files under `CARGO_TARGET_TMPDIR`, so they sit in a module named `ffi`, which Miri skips. They cover these parts:
+  - The file operations, the stamp time, and the lock, which `System` holds until it is dropped.
+  - The environment and the closed standard input of git, and the list of repository variables against the one that the installed git prints (SRC-8).
+  - The lookup of SRC-23 on a real file system.
+  - The rejection of a clone entry without its work tree.
+  - The reuse of the clone entry that the build script of the same build wrote.
+
+The reuse test reads the shared folder from `SLANG_SRC_SHARED_DIR` (SRC-18) and runs the logic on the real host with `CARGO_NET_OFFLINE=true`, so it uses that clone entry and cannot clone. It checks the exported instructions, the work tree with every required submodule, the file `build-tag`, the time of the stamp file, and that no temporary directory is left. It fails, and does not skip, when the entry is missing.
+
+The test binary builds only through `test-vendored` and `check-vendored`, because every other recipe leaves `slang-src` out (TOOL-32 of `docs/design/tooling.md`). The vendored CI job runs `test-vendored` on Linux, Windows, and macOS, so the clone runs on each platform. A second clone inside a test would cost as much time and disk space as the first and prove nothing more.
+
+No recipe runs the pure tests under Miri, which is a known gap. Every recipe that runs Miri leaves `slang-src` out, and `cargo miri` builds in a tagged directory of its own inside the target directory (Section 3.2), where the lookup of SRC-23 finds another shared folder, so the build script would clone a second time (Section 17, SRCQ-3).
+
+## 13. Crate Documentation
 
 SRC-20. The crate-level documentation of `slang-src` and `README.md` MUST state what a vendored build needs, which is git, CMake 3.22 or later, Ninja, a C++ compiler, Python 3, and network access for the first build in a target directory. They MUST also state the shared folder:
 
@@ -416,13 +470,13 @@ They MUST NOT name an environment variable of `slang-src`, because none exists (
 The crate-level documentation also states:
 
 - That the crate builds nothing and is a dependency of `slang-compiler-sys` and `slang-glslang-sys` under their vendored builds.
-- The recorded commit, and that the version of a release of the crate names it (Section 7.2).
+- The recorded commit, its build tag, and the version of the crate, and that the version of a release names the commit (Section 7.2). The tests of SRC-11 keep them equal to `recorded.rs` and the manifest.
 - How to build another commit through `[patch]`, and that it is best effort (SRC-22).
-- What the crate fetches and from where, the git settings of SRC-8, that it honours `CARGO_NET_OFFLINE`, and that it runs nothing from the tree (Section 13).
+- What the crate fetches and from where, the git settings of SRC-8, that it honours `CARGO_NET_OFFLINE`, and that it runs nothing from the tree (Section 14).
 - `# Features`: the crate has no Cargo features.
-- `# Platform support`: the crate runs wherever git runs, and the vendored builds that use it are tested on the platforms of the vendored CI jobs (Section 14.3).
+- `# Platform support`: the crate runs wherever git runs, and the vendored builds that use it are tested on the platforms of the vendored CI jobs (Section 15.3).
 
-## 13. Security Considerations
+## 14. Security Considerations
 
 The threat model has five parts:
 
@@ -432,17 +486,17 @@ The threat model has five parts:
 4. The environment of the build, such as a git hook or a parent build, sets git variables or Cargo variables that the build script reads.
 5. The user patches in a fork of `slang-src` whose commit is malicious.
 
-Untrusted shader source and file paths. The crate reads no shader source and gives no path to Slang. It reads only the variables of Section 14.2 and git's answers.
+Untrusted shader source and file paths. The crate reads no shader source and gives no path to Slang. It reads only the variables of Section 15.2 and git's answers.
 
 Unsafe code and foreign function interface (FFI) invariants. The crate has no unsafe code and declares no foreign function (SRC-2).
 
-Build scripts that run native builds. The build script runs git and nothing else. It runs no CMake, no compiler, no script of the tree, and no hook, because `git init` creates an empty hooks directory and a fetch never brings hooks. It fetches only the recorded commit from `https://github.com/shader-slang/slang.git` and the commits of the required submodules from the HTTPS URLs that `.gitmodules` of that commit names, and SRC-8 forbids every other protocol and every prompt for credentials. It fetches no tags and no history.
+Build scripts that run native builds. The build script runs git and nothing else. It runs no CMake, no compiler, and no script of the tree. A fetch never brings hooks, and `git init` installs only the hooks of the user's git template, which in git's default template are inactive samples (Section 3.3). It fetches only the recorded commit from `https://github.com/shader-slang/slang.git` and the commits of the required submodules from the HTTPS URLs that `.gitmodules` of that commit names, and SRC-8 forbids every other protocol and every prompt for credentials. It fetches no tags and no history.
 
 It fetches by full commit hash, and git verifies the object ID of every object it receives (Section 3.3). The commit hash therefore identifies the content of the superproject, and its gitlinks identify the content of each submodule, so an attacker on the network or in control of a branch or tag cannot substitute other content for the recorded commit. HTTPS adds confidentiality.
 
 The build script writes only into `OUT_DIR` and into the shared folder in the base directory (SRC-23), which Cargo created for this build. It writes nothing outside them.
 
-Every path that it writes into a Cargo instruction derives from `OUT_DIR`, which is checked for line breaks first (Section 11), so a value cannot inject an instruction. It removes the repository variables from the environment of git (SRC-8), so git answers for the tree it was given.
+Every path that it writes into a Cargo instruction derives from `OUT_DIR`, which is checked for line breaks first (Section 11), and from the recorded commit, which has to be 40 lowercase hexadecimal digits (SRC-24). A value therefore cannot add an instruction or name a path outside the shared folder. It removes the repository variables and `GIT_ALLOW_PROTOCOL` from the environment of git (SRC-8), so git answers for the tree it was given and keeps the protocol settings.
 
 Dependencies. The crate has no dependencies (SRC-2). Every crate that depends on it requires its exact version (SRC-14), which fixes the recorded commit for a given version of each dependent.
 
@@ -450,22 +504,22 @@ These attacks are out of scope:
 
 - A malicious commit in a fork that the user patches in is code that the user chose to build. The dependent builds run its CMake scripts and compile it with the user's permissions.
 - An attacker with write access to the target directory can place any library in an entry, and the dependent builds link it. Such an attacker can already replace any artifact that Cargo builds there, so the shared folder adds no new exposure.
-- The user's git configuration, such as a proxy or a rule that rewrites URLs, applies to every git command, because the user controls it and needs it on some networks.
+- The user's git configuration applies to every git command, because the user controls it and needs it on some networks. It includes a proxy, a rule that rewrites URLs, and a template of `init.templateDir` whose active hooks git runs in the clone, such as a hook that runs after the checkout. The build script does not guard against it.
 - Attacks on the repository of this workspace are a matter of access control.
 
 The residual risk has three parts:
 
 1. git's object IDs are SHA-1 hashes. git's variant detects the known collision attacks, but an attacker who could produce a new SHA-1 collision could substitute content for a commit.
 2. A clone entry in the shared folder is trusted once it exists, and the build script does not verify its content again.
-3. A network that stalls a connection without transferring anything can hold a build until the operating system gives up the connection, which can take minutes (Section 15, SRCA-2).
+3. A network that stalls a connection without transferring anything can hold a build until the operating system gives up the connection, which can take minutes (Section 16, SRCA-2).
 
-## 14. Operational Considerations
+## 15. Operational Considerations
 
-### 14.1. Cargo Features
+### 15.1. Cargo Features
 
 `slang-src` has no Cargo features. It is a dependency of the crates that build Slang only under their feature `vendored`, so a default build never compiles it.
 
-### 14.2. Environment Variables
+### 15.2. Environment Variables
 
 This table lists every environment variable that the build script reads or sets for git, with its default. The build script reads no environment variable of its own (SRC-21).
 
@@ -473,17 +527,18 @@ This table lists every environment variable that the build script reads or sets 
 | --- | --- | --- |
 | `CARGO_NET_OFFLINE` | The build script, before it clones | Absent or any value other than `true`, so the build script may clone. When `true`, it does not reach the network (SRC-9). |
 | `OUT_DIR` | The build script | Set by Cargo. The start of the search for the base directory (SRC-23). A value that is not an absolute path in UTF-8 without line breaks stops the build. |
-| `TARGET` | The build script | Set by Cargo. Compared with the name of the nearest tagged directory (SRC-23). |
+| `TARGET` | The build script | Set by Cargo. Compared with the name of the nearest tagged directory (SRC-23). When it is absent or not UTF-8, step 2 of SRC-23 does not apply. |
 | `PATH` | The operating system, when the build script starts git | git has to be on it, or the build stops (Section 11). |
 | `GIT_TERMINAL_PROMPT` | Set to `0` by the build script for every git command that reaches the network | The value of the environment is never used, so git never asks for credentials (SRC-8). |
+| `GIT_ALLOW_PROTOCOL` | Removed by the build script from the environment of every git command that reaches the network | A value in the environment of the build never overrides the protocol settings (SRC-8). |
 | `GIT_OPTIONAL_LOCKS` | Set to `0` by the build script for every git command | The value of the environment is never used (SRC-8). |
 | `GIT_DIR`, `GIT_INDEX_FILE`, and the other repository variables | Removed by the build script from the environment of every git command | A value in the environment of the build never reaches git (SRC-8). |
 
-### 14.3. Platforms and Minimum Supported Rust Version
+### 15.3. Platforms and Minimum Supported Rust Version
 
 The crate builds on every platform that Rust supports, and its build script runs where git runs. The vendored builds that use it are tested on the targets of the vendored CI jobs, and allowed on other 64-bit targets with the limits of Section 6 of the sys design. The crate uses the workspace's `rust-version`, and `std::fs::File::lock` is stable at that version.
 
-### 14.4. Failure Modes
+### 15.4. Failure Modes
 
 This table lists the failure modes of the crate, how each is reported, and the recovery. Every error is the error that the build script returns, with the content of Section 11.
 
@@ -491,23 +546,24 @@ This table lists the failure modes of the crate, how each is reported, and the r
 | --- | --- |
 | No network access, a blocked host, or `CARGO_NET_OFFLINE` set to `true`, and no clone in the shared folder | Build once with network access in the same target directory, or build without `vendored` |
 | A required submodule is missing from a commit patched in through `[patch]` | Use the recorded commit, or a commit with the submodules of Section 3.4 |
+| The recorded commit or build tag of a fork patched in through `[patch]` has the wrong form | Write the full commit hash and the build tag of that commit into `recorded.rs` (SRC-12, SRC-24) |
 | git is missing | Install git |
-| A clone entry is at another commit or cannot be read | Remove the entry, or run `cargo clean`, when no build runs |
+| A clone entry has no work tree, is at another commit, or cannot be read | Remove the entry, or run `cargo clean`, when no build runs |
 | The shared folder or `OUT_DIR` cannot be written | Free disk space or fix the permissions of the target directory |
 | A commit patched in through `[patch]` builds a Slang that the binding generator or the safe crates do not support | Use the recorded commit, which the crates are tested against |
 
-### 14.5. Logs
+### 15.5. Logs
 
-The build script emits no warnings and writes no log. Its only output is the Cargo instructions and, on a failure, its error. The crate emits nothing at run time.
+The build script emits no warnings and writes no log. Its only output is the instructions of SRC-1 and SRC-18 and, on a failure, its error. The crate emits nothing at run time.
 
-## 15. Assumptions to Confirm
+## 16. Assumptions to Confirm
 
 Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in the section that relies on it, and removes the row. An identifier is never reused.
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SRCA-1 | Cargo runs a dependent build script again whenever the build script of `slang-src` runs again and its metadata changes | Section 10 | A build in the M7 code steps that changes `RECORDED_COMMIT` between two builds in one target directory |
-| SRCA-2 | The low-speed settings of SRC-8 stop a transfer that stalls after it connected, and the operating system stops a connection attempt to an unreachable address after about two minutes | SRC-8, Section 13 | A run of the clone against an unroutable proxy, on Linux, Windows, and macOS |
+| SRCA-2 | The low-speed settings of SRC-8 stop a transfer that stalls after it connected, and the operating system stops a connection attempt to an unreachable address after about two minutes | SRC-8, Section 14 | A run of the clone against an unroutable proxy, on Linux, Windows, and macOS |
 | SRCA-3 | The ten required submodules of Section 3.4 are all that the native builds read on Windows and macOS, with mimalloc turned off | Section 3.4 | The vendored CI jobs on Windows and macOS |
 | SRCA-4 | The counts of Section 8, and the single clone and native build for each target directory, which come from stub crates in the shape of the workspace on x86_64 Linux, hold for the real crates | Section 8 | A vendored build of the example that calls `slango-macros`, with each command of the table |
 | SRCA-5 | On Windows and macOS, as on x86_64 Linux, Cargo runs a build script again when the stamp file that it names is missing, and not for a stamp file whose modification time is 2000-01-01 | SRC-16, Section 9.3 | The vendored CI jobs on Windows and macOS, with a test that removes the shared folder between two builds |
@@ -517,48 +573,50 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 The next assumption takes SRCA-9.
 
-## 16. Open Questions
+## 17. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SRCQ-1 | Does the clone fit within the path length limit of Windows when the target directory is deep, or does the build script need a shorter layout of the shared folder on Windows? | This document, with `docs/design/slang-compiler-sys.md` | M7 |
+| SRCQ-3 | Which recipe runs the pure tests of `slang-src` under Miri, and how does it keep the build script from cloning a second time in the target directory of Miri (Section 12)? | `docs/design/tooling.md`, with this document | M7 |
 
-The next question takes SRCQ-3.
+The next question takes SRCQ-4.
 
-## 17. References
+## 18. References
 
-### 17.1. Normative References
+### 18.1. Normative References
 
 - [RFC2119] Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997, <https://www.rfc-editor.org/info/rfc2119>.
 - [RFC8174] Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017, <https://www.rfc-editor.org/info/rfc8174>.
 
-### 17.2. Informative References
+### 18.2. Informative References
 
 - [SEMVER] Preston-Werner, T., "Semantic Versioning 2.0.0", <https://semver.org/spec/v2.0.0.html>.
 
 ## Appendix A. Requirement Summary
 
-This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-24.
+This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-25.
 
 | Label | Section | Summary |
 | --- | --- | --- |
 | SRC-1 | 4 | `links = "slang-src"`, the metadata keys `root`, `commit`, `build_tag`, and `shared_dir`, and direct dependents only. |
 | SRC-2 | 4 | No unsafe code, no dependencies, and the logic behind a host trait in an included file. |
-| SRC-4 | 5 | The tree has the ten required submodules, or the build stops with the message of Section 11. |
-| SRC-7 | 6.1 | The clone is an init, a depth-1 fetch of the recorded commit, a checkout, and a depth-1 update of the required submodules, renamed into place in the shared folder when complete. |
-| SRC-8 | 6.1 | git runs with HTTPS only, no prompt, a low-speed limit, no optional locks, and no repository variables. |
+| SRC-4 | 5 | The ten required submodules have gitlinks, checked after the checkout, and `.git` entries, checked after the update, or the build stops with the message of Section 11. |
+| SRC-7 | 6.1 | The clone is an init, a depth-1 fetch of the recorded commit, a checkout, a local check of the gitlinks, and a depth-1 update of the required submodules, renamed into place in the shared folder when complete. |
+| SRC-8 | 6.1 | git runs with HTTPS only, no prompt, no `GIT_ALLOW_PROTOCOL`, a low-speed limit, no optional locks, and no repository variables, which a constant lists and a test checks against the installed git. |
 | SRC-9 | 6.2 | No network access with `CARGO_NET_OFFLINE=true`, and a failed or impossible clone stops the build with the offline advice and never falls back. |
-| SRC-11 | 7.1 | The recorded commit and build tag live only in `recorded.rs` and the manifest version, a test compares them, and scripts read them through `recorded-slang`. |
+| SRC-11 | 7.1 | The recorded commit and build tag live in `recorded.rs`, the manifest version, and the crate documentation, tests compare them, and scripts read them through `recorded-slang`. |
 | SRC-12 | 7.2 | A build tag has the form `<major>.<minor>[.<patch>][-<count>-g<hash>]`, or the build stops. |
 | SRC-13 | 7.2 | The version is `<crate version>-slang.<major>.<minor>.<patch>.<count>.g<hash>`, with a minor bump for a new commit and a patch bump for a crate fix. |
 | SRC-14 | 7.2 | Every dependent requires the exact version with `=`. |
 | SRC-16 | 9.2 | Every entry is built under an exclusive lock in a temporary directory, gets a stamp file with an old time, is renamed into place when complete, and is watched through its stamp file. |
 | SRC-17 | 9.4 | An entry of libraries is named by the FNV-1a hash of its listed inputs, which the entry holds and a hit compares in full. |
-| SRC-18 | 10 | The only rerun instruction is the stamp file of the clone entry. |
+| SRC-18 | 10 | The only rerun instruction is the stamp file of the clone entry, and the only other instruction after the metadata is `cargo::rustc-env=SLANG_SRC_SHARED_DIR` for the crate's own tests. |
 | SRC-19 | 11 | Each failure returns an error with the content of the table. |
-| SRC-20 | 12 | The crate documentation and `README.md` state the requirements and the shared folder with its limits, and name no environment variable of the crate. |
+| SRC-20 | 13 | The crate documentation and `README.md` state the requirements and the shared folder with its limits, and name no environment variable of the crate. |
 | SRC-21 | 5 | The tree is always a clone of the recorded commit, and the build script reads no environment variable of its own. |
 | SRC-22 | 7.3 | Another commit only through `[patch]` with a fork that keeps the manifest version, best effort. |
 | SRC-23 | 9.1 | The shared folder is `slang-src` in the nearest tagged ancestor of `OUT_DIR`, its parent when that ancestor is the directory of `TARGET` under another tag, or `OUT_DIR` without a tag. |
+| SRC-24 | 7.1 | A recorded commit that is not 40 lowercase hexadecimal digits stops the build before anything else. |
