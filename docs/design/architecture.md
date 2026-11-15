@@ -3,12 +3,12 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | The whole workspace |
 
 ## Abstract
 
-This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates, the direction of the dependencies between them, and what each crate is responsible for. It also fixes how the native Slang library is obtained and pinned, and sets out the roadmap of milestones M0 to M7.
+This document specifies the architecture of slang-rust, a set of Rust crates for using the Slang shader language and its compiler. It defines the crates, the direction of the dependencies between them, and what each crate is responsible for. It also fixes how the native Slang library is obtained and pinned, and sets out the roadmap of milestones M0 to M18.
 
 ## 1. Introduction
 
@@ -38,7 +38,7 @@ This document does not specify the public API of any crate. Each crate's design 
 
 It does not specify the workspace configuration, the lint configuration, the `just` recipes, the nextest profiles, the continuous integration (CI) workflows, or the requirements on the development container image. The document `docs/design/tooling.md` owns those topics.
 
-It does not design a slang-rhi backend or the path-tracing demo, which Section 15.11 lists as later items. It does not restate the rules of `docs/rust-coding-standards.md`, which it cites by rule identifier.
+It does not design the slang-rhi crates, the slang-rhi backend of `slango`, the new pipeline kinds, or the path-tracing demo. The milestone of Section 15 that delivers each one designs it. It does not restate the rules of `docs/rust-coding-standards.md`, which it cites by rule identifier.
 
 ## 2. Requirements Language
 
@@ -52,16 +52,19 @@ This document uses the terms that Section 2.2 of `docs/writing-documentation.md`
 
 It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defines, such as binding generator, `-sys` crate, safe crate, library crate, native library, interface, vtable, thunk, interface pointer, result code, blob, diagnostics blob, and universally unique identifier (UUID). This document calls those two files the writing guide and the coding standard. It adds these terms:
 
+- acceleration structure: A GPU data structure over geometry that ray tracing traverses to find the geometry that a ray hits.
 - adapter: The wgpu name for one implementation of a graphics API that a program can open a device on, such as a hardware GPU or a software implementation such as lavapipe.
 - application binary interface (ABI): The layout of types and the calling conventions that compiled code relies on. A library whose ABI is not stable can change these between versions without a change in its source API.
 - automatic differentiation: A Slang feature that derives the derivative of a function from its source code.
 - broadcasting: Calling a function written for single values over arrays of values, where an argument with fewer dimensions is repeated across the others, as in NumPy.
 - buffer: A block of GPU memory that holds data for a shader.
+- build metadata: The part of a Semantic Versioning (SemVer) 2.0.0 version after a plus sign, such as `+slang.2026.17` in `0.1.0+slang.2026.17`. It names the build and does not take part in version precedence.
 - CMake: A build system generator for C and C++ projects. Slang builds with it.
 - COM-style interface: An interface in the sense of Section 2.2 of the coding standard. COM is a binary convention for objects in which every object counts its references through `AddRef` and `Release`, and a caller selects one of the object's interfaces through `QueryInterface` with a UUID.
 - component type: Slang's name for a unit of code that can be composed with others and linked, such as a module or an entry point.
 - compute dispatch: One GPU command that runs a compute shader over a grid of threads.
 - compute kernel: A function that runs on the GPU in many threads at once, started by a compute dispatch.
+- cooperative vector: A vector whose operations, such as a matrix-vector product, the threads of a group carry out together on hardware for machine learning. Slang names its type `CoopVec`.
 - crates.io: The public registry of Rust crates.
 - CUDA: NVIDIA's platform and API for computing on its GPUs.
 - device: An open connection to an adapter, through which a program creates GPU resources and submits work.
@@ -69,15 +72,20 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 - docs.rs: The service that builds and hosts the API documentation of every crate published on crates.io.
 - dynamic route: The default way of obtaining Slang, which links dynamically to the Slang of an installed Vulkan SDK (Section 4.2).
 - entry point: A function in Slang source that a pipeline starts, such as the main function of a compute shader.
+- geometry stage: The optional stage of a render pipeline that runs once per primitive and can emit new primitives.
+- GitHub Pages: GitHub's service that hosts static web pages from a repository.
 - global session: The Slang object that holds the shared state of the compiler, from which sessions are created.
 - graphics processing unit (GPU): A processor for parallel graphics and compute work.
 - headless: Running without a window or a display.
+- hit group: The set of shaders, such as a closest-hit shader and an any-hit shader, that a ray tracing pipeline runs when a ray hits one kind of geometry.
 - hot reload: Recompiling a shader and replacing it in the running program when its source file changes.
+- hull and domain stages: The stages of a render pipeline that control and evaluate tessellation, which subdivides primitives on the GPU. Vulkan calls them the tessellation control and tessellation evaluation stages.
 - lavapipe: The software implementation of Vulkan in the Mesa project.
 - libclang: The C interface to the parser of the Clang compiler, which reads C and C++ headers.
 - marshalling: Converting a Rust value into the memory layout that a shader parameter expects, and converting a result back.
+- mesh shading: A render pipeline in which a task stage and a mesh stage, which run like compute shaders, produce the primitives that the fragment stage draws, in place of the vertex stage.
 - Metal: The graphics API of macOS. Metal Shading Language (MSL) is its shader language.
-- milestone: One step of the roadmap in Section 15, identified as M0 to M7.
+- milestone: One step of the roadmap in Section 15, identified as M0 to M18.
 - Miri: An interpreter for Rust that detects some undefined behaviour in unsafe code. It runs on the nightly toolchain and cannot call native code.
 - module: One file of Slang source, like a Rust module.
 - nextest profile: A named set of settings in the configuration of cargo-nextest, such as a filter that selects tests.
@@ -85,14 +93,19 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 - pkg-config: A tool that reports the compiler and linker flags of an installed library from a `.pc` file.
 - pin: The one Slang build that the workspace targets, named by a Vulkan SDK version together with a Slang commit (Section 5.1).
 - procedural macro: A Rust macro, compiled as a crate of its own, that runs during the compilation of the code that uses it and generates Rust code.
+- ray query: A query that traces a ray through an acceleration structure from inside an ordinary shader, without a ray tracing pipeline.
+- ray tracing pipeline: A GPU pipeline whose stages generate rays, run a hit group on each hit, and run a miss shader on each miss.
 - reflection: Slang's API for querying the parameters, types, layouts, functions, and entry points of compiled Slang code.
 - render pipeline: A GPU object that combines the shaders and the fixed settings that draw an image.
 - run-time search path (rpath): A list of directories, stored in a binary, where the dynamic loader of the operating system looks for shared libraries.
 - session: A Slang object that holds the settings of one compilation context, such as its targets and search paths, and loads modules.
 - shader: A program that runs on a GPU.
 - shader passthrough: A path in wgpu that passes shader code in the backend's own format to the backend without translating it.
+- shader table: The table in GPU memory through which a ray tracing pipeline finds the ray generation shader, the miss shaders, and the hit group for each ray.
 - shader target: The output format that Slang compiles a shader to, such as SPIR-V or MSL.
+- shallow clone: A git clone that fetches only the named commit, without the history before it.
 - Slint: A Rust toolkit for graphical user interfaces.
+- slang-glslang: The library of the Slang tree that wraps glslang and the SPIR-V optimizer. The Vulkan SDK's Slang ships it, and Slang uses it to optimize the SPIR-V it emits.
 - slang-rhi: Slang's render hardware interface, a C++ library that gives one API over several graphics and compute APIs.
 - SlangPy: A Python library that calls Slang functions on the GPU from Python.
 - smoke test: A short test that shows that the basic path works, such as creating one object and reading one value.
@@ -101,6 +114,7 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 - spike: A short experiment whose result is a recorded finding, not shipped code.
 - static route: The opt-in way of obtaining Slang, which builds Slang from source and links it statically (Section 4.3).
 - tensor: A multi-dimensional array of elements in GPU memory.
+- trainable primitive: A Slang function with parameters that a training loop adjusts from the gradients of a loss, in the style of SlangPy.
 - Vulkan: A cross-platform graphics and compute API.
 - Vulkan SDK: The LunarG Vulkan software development kit (SDK), which ships Vulkan tools, headers, and libraries, including Slang.
 - vulkano: A Rust library that wraps Vulkan in a safe API. Its companion crate vulkano-shaders generates typed Rust code from shaders at build time.
@@ -112,7 +126,7 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 
 ### 3.1. Workspace Members
 
-This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`.
+This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`. The rows of `slang-rhi-sys` and `slang-rhi` are planned crates, whose directories the design of M9 chooses (Section 15.12).
 
 | Member | Directory | Responsibility | Published | Milestone |
 | --- | --- | --- | --- | --- |
@@ -122,7 +136,9 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Yes | M5 |
 | `slango-macros` | `crates/slango-macros/` | Typed Rust bindings to Slang code, generated at build time (Section 8.4) | Yes | M6 |
 | `slango-codegen` | `crates/slango-codegen/` | The generator of `slango-macros`, as a library (Section 4.2 of `docs/design/slango-macros.md`) | Yes | M6 |
-| Binding generator | `tools/bindings-generator/` | Writes the raw bindings of `slang-compiler-sys` (Section 6.2) | No, `publish = false` | M1 |
+| `slang-rhi-sys` | Planned | Raw bindings of slang-rhi and the build script that builds it | Planned for the second release (Section 13) | M9 |
+| `slang-rhi` | Planned | Safe wrappers over `slang-rhi-sys` | Planned for the second release (Section 13) | M9 |
+| Binding generator | `tools/bindings-generator/` | Writes the raw bindings of `slang-compiler-sys` (Section 6.2) | No, `publish = false`. M7 makes it a published crate (Section 15.10) | M1, M7 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
 
 ### 3.2. Dependency Direction
@@ -159,6 +175,8 @@ ARCH-1. A library crate MUST depend only on the library crates below it in the d
 
 ARCH-2. A library crate MUST NOT depend on the binding generator or on an example, at build time or otherwise, because the generator needs libclang, and the checked-in bindings exist so that users need neither libclang nor the generator (Section 14.2).
 
+The roadmap changes this layering. M7 makes the binding generator a build dependency of `slang-compiler-sys` and replaces ARCH-2, and M9 adds `slang-rhi-sys` and `slang-rhi` to the diagram (Sections 15.10 and 15.12).
+
 ### 3.3. Unsafe Code
 
 Unsafe code appears only in `slang-compiler-sys` and `slang-compiler`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. The other crates have none:
@@ -168,6 +186,8 @@ Unsafe code appears only in `slang-compiler-sys` and `slang-compiler`, as Hard R
 - `slango-codegen` and `slango-macros` generate and compile Rust tokens only.
 
 A later feature of `slango` or `slang-slint` may need unsafe code, such as for shader passthrough or for interoperation with Slint or wgpu-hal. Each such need follows the procedure of Section 4.4 of the coding standard, and the design document of that crate decides it (Section 17, Q-19).
+
+The planned crates `slang-rhi-sys` and `slang-rhi` of M9 will hold unsafe code, as `slang-compiler-sys` and `slang-compiler` do. The design of M9 records the reason before any of their code exists, and the same change widens this section and Hard Rule 7 of `AGENTS.md` (Section 15.12).
 
 ### 3.4. Design Documents per Crate
 
@@ -307,7 +327,7 @@ ARCH-14. `slang-compiler` MUST NOT depend on wgpu or on any other graphics API c
 - A call that returns diagnostics returns them with its value on success and in the error on failure (Section 6.8 of that document).
 - Compiler options have typed setters for the options of its Section 7.2 and `unsafe` raw setters for every other option. A setting in the options of a session reaches every target, and an option that Slang reads only from the session is an error in the options of a target (Section 7 of that document).
 - A loaded module stays loaded for the life of its session, so hot reload creates a new session from the same global session and loads the module again (Section 8.5 of that document).
-- A user cannot give a session a custom file system. It is deferred with no milestone assigned (Section 15.11).
+- A user cannot give a session a custom file system. It is deferred with no milestone assigned (Section 15.22).
 
 When a C++ exception escapes Slang, which the pinned build does for types nested past its limit of 128 levels, `slang-compiler` aborts the process instead of returning an error. It writes a message on standard error unless the program builds with `panic = "abort"`. Rust offers no defined way to turn a foreign exception into an error, and a C++ shim that could would make every build need a C++ compiler (Section 11.6 of that document).
 
@@ -358,7 +378,7 @@ ARCH-17. `slango-macros` MUST generate code that calls the same core of `slango`
 
 ### 8.5. Shader Target
 
-`slango` compiles shaders to SPIR-V only, for compute and for rendering. Section 14.9 gives the reason for SPIR-V first. A shader target configurable per backend, such as MSL on macOS, is deferred with no milestone assigned (Section 15.11, Section 17, Q-23), for the reason that Section 1.5 of `docs/design/slango.md` states.
+`slango` compiles shaders to SPIR-V only, for compute and for rendering. Section 14.9 gives the reason for SPIR-V first. A shader target configurable per backend, such as MSL on macOS, is deferred with no milestone assigned (Section 15.22, Section 17, Q-23), for the reason that Section 1.5 of `docs/design/slango.md` states.
 
 wgpu's SPIR-V reader rejects some valid SPIR-V modules (Section 3.5 of `docs/design/slango.md`). wgpu offers a shader passthrough path, which runs SPIR-V (Section 3.2 of that document) and is reported to cover other targets (Section 16, A-11).
 
@@ -393,11 +413,14 @@ The examples are complete programs that also serve as the integration testbed, a
 | Number | Example | Needs | Milestone | Automated check |
 | --- | --- | --- | --- | --- |
 | 1 | `compile-and-reflect`, a command-line program that compiles Slang source and prints its reflection | Slang, no GPU | M2 | Runs headless in CI |
-| 2 | `compute-kernel`, a compute kernel. A broadcasting case and a differentiable function that uses Slang's automatic differentiation arrive with those features in a later milestone (Section 8.1) | Slang and any adapter | M3 | Runs headless in CI on a software adapter |
+| 2 | `compute-kernel`, a compute kernel. A broadcasting case and a differentiable function that uses Slang's automatic differentiation arrive with those features in M16 (Sections 8.1 and 15.19) | Slang and any adapter | M3 | Runs headless in CI on a software adapter |
 | 3 | `windowed-renderer`, a windowed renderer with winit and shader hot reload | Slang, a display, and an adapter | M4 | Built in CI on the three platforms and run locally, with its scene drawn offscreen by tests in CI (Section 13.5 of `docs/design/slango.md`) |
 | 4 | `shader-playground`, a Slint application with a `slang-slint` view and sliders bound to shader parameters | Slang, a display, and an adapter | M5 | Built in CI and run locally, with its scene drawn offscreen by tests (Section 10 of `docs/design/slang-slint.md`) |
 | 5 | `typed-kernel`, a headless compute kernel called through the typed bindings of `slango-macros`, with a generated struct for a Slang structure | Slang at build time and any adapter | M6 | Runs headless in the GPU tier on a software adapter (Section 10 of `docs/design/slango-macros.md`) |
-| 6 | A path-tracing renderer demo | Not designed | Later | Not designed |
+| 6 | A path-tracing renderer demo, which shows the ray tracing of `slango` | Not designed | M14 | Not designed |
+| 7 | A renderer with hull, domain, and geometry stages | Not designed | M12 | Not designed |
+| 8 | A renderer with a mesh shading pipeline | Not designed | M13 | Not designed |
+| 9 | A training example built on the neural primitives of `slango` | Not designed | M17 | Not designed |
 
 The shader hot reload of example 3 loads the module again through `slango` for each change of a source file, because a session never reloads a module (Section 7). Each load creates a new global session, and Section 7.2 of `docs/design/slango.md` states why that cost is acceptable.
 
@@ -443,13 +466,22 @@ Only 64-bit targets are supported: x86_64 Linux, x86_64 Windows with the Microso
 
 ## 13. Publishing
 
-The workspace plans for publication on crates.io from the start. The published crates are `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, and `slango-codegen`. The binding generator and the examples set `publish = false`.
+The workspace plans for publication on crates.io in two releases. The examples set `publish = false` and are never published.
 
-The availability of the name `slango-codegen` is checked before the first release (SLMA-8 of `docs/design/slango-macros.md`).
+| Release | Milestone | Crates | Condition |
+| --- | --- | --- | --- |
+| First | M8 | The binding generator, `slang-compiler-sys`, and `slang-compiler` | The rework of M7, the slang-rhi build spike of M8, and the publishing prerequisites of M8 are done |
+| Second | M11 | `slango`, `slango-codegen`, `slango-macros`, `slang-slint`, `slang-rhi-sys`, and `slang-rhi` | slang-rhi is the default backend of `slango`, as M10 delivers |
 
-Publishing readiness means complete publication metadata, documentation that builds on docs.rs without Slang installed (Section 4.5), and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these.
+The first release holds only the crates whose shape the rework of M7 settles. A published version locks in its public API and its build behaviour, so every change that would break them comes before the release that publishes them (Section 15.23).
 
-Milestone M0 sets up the metadata and the documentation build so that they are checked from the start. M7 adds the check for breaking changes with the first release, because cargo-semver-checks needs a published version to compare with. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
+On 2026-11-15, every planned crate name above, other than the binding generator's, was free on crates.io in both its hyphen and its underscore form. The design of M7 chooses the name of the binding generator after a check of crates.io.
+
+Publishing readiness means complete publication metadata, a licence file in each published package, a release procedure, hosted documentation, and checks for breaking changes with cargo-semver-checks. `docs/design/tooling.md` specifies these, and M8 adds the parts that do not exist yet.
+
+docs.rs is not supported. CI builds the documentation of every published crate and hosts it outside docs.rs, such as on GitHub Pages, and the documentation link of each crate's manifest points there. The reason is that every build of `slang-compiler-sys` after M7 generates its bindings with libclang and either clones Slang over the network or links an installed Slang, and docs.rs is reported to build without network access (Section 16, A-25).
+
+Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes with the first release, because cargo-semver-checks needs a published version to compare with. Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
 
 The licence consequence of depending on Slint, for `slang-slint` and the programs that combine it with Slint, is stated in Section 4.2 of `docs/design/slang-slint.md`.
 
@@ -479,11 +511,17 @@ The raw bindings live in `slang-compiler-sys`, separate from the safe crate `sla
 
 The separate `-sys` crate changes only when Slang changes. It is the one package that carries `links = "slang-compiler"`, which stops two copies of the native library from entering one build (FFI-2). Every decision about ownership, lifetimes, and errors stays in the safe crate (FFI-1), and users who need raw access can depend on the `-sys` crate without the safe API.
 
-### 14.4. wgpu First, slang-rhi Deferred
+### 14.4. wgpu First, slang-rhi as the Default Backend Later
 
-`slango` uses wgpu as its first and only backend, and the bindings for slang-rhi are deferred. slang-rhi is reported to publish no releases or prebuilt binaries and to need a C++20 build with CMake (Section 16, A-15). Binding it would therefore put a C++ build on every user's machine, which the default route avoids.
+`slango` uses wgpu as its first and only backend. slang-rhi is reported to publish no releases or prebuilt binaries and to need a C++20 build with CMake (Section 16, A-15). When M3 began, binding it would have put a C++ build on every user's machine, which the default route avoided.
 
 Slint accepts wgpu textures directly (Section 3.4 of `docs/design/slang-slint.md`), so a wgpu backend serves `slang-slint` without any bridge. A slang-rhi backend would add targets that wgpu does not offer, reported to include CUDA, the CPU, and OptiX (Section 16, A-16). That is why ARCH-15 keeps a later slang-rhi backend possible without building an abstraction now.
+
+The owner decided to make slang-rhi the default backend of `slango`, with wgpu kept as the other backend behind a Cargo feature (Section 15.13). The owner's goals include ray tracing, render pipelines with hull, domain, and geometry stages, mesh shading, and cooperative vectors. wgpu 30 is reported to offer no tessellation, geometry stage, or cooperative vectors, and to offer ray tracing pipelines and mesh shaders only as experimental features (Section 16, A-22). slang-rhi is reported to cover each of them on at least one of its device backends (Section 16, A-21).
+
+The cost that kept slang-rhi out has also changed. After M7, the default build of `slang-compiler-sys` builds Slang from source with a C++ toolchain, so slang-rhi adds no new kind of build requirement. slang-rhi is reported to be a submodule of the Slang tree, so the pinned Slang commit also pins it (Section 16, A-19).
+
+wgpu stays, because `slang-slint` needs it and a wgpu backend keeps compute kernels and vertex plus fragment pipelines free of unsafe code. The new pipeline kinds exist on the slang-rhi backend only, and the wgpu backend reports them as unsupported (Section 15.13).
 
 ### 14.5. The Vulkan SDK's Slang as the Version Target
 
@@ -529,6 +567,10 @@ The agent MUST NOT report a milestone complete until its exit criteria hold, bec
 
 The exit criteria of every milestone include every check passing and every affected document updated, including this document. When a milestone's design document confirms an assumption of Section 16 or answers a question of Section 17, the same change removes that row and records the answer in that design document.
 
+From M7 on, each milestone opens with its own design round, which writes or revises the design documents that the milestone names. The owner's decisions that bind a milestone are stated in its subsection, and its design round works within them.
+
+Several milestones replace requirements of this document that the code satisfies today. Those requirements stay in force until the milestone that names them, and the first task of that milestone rewrites them together with the sections that hold them.
+
 ### 15.2. Summary
 
 | Milestone | Delivers | Depends on | Design document before any code |
@@ -540,13 +582,24 @@ The exit criteria of every milestone include every check passing and every affec
 | M4 | `slango` rendering and example 3, without the configurable shader target | M3 | The rendering design in `docs/design/slango.md` |
 | M5 | `slang-slint` and example 4 | M4 | `docs/design/slang-slint.md` |
 | M6 | `slango-macros`, `slango-codegen`, and example 5 | M3 | `docs/design/slango-macros.md` |
-| M7 | Publishing | M0 to M6 | `docs/design/tooling.md` |
+| M7 | Rework of `slang-compiler-sys` and the binding generator | M6 | `docs/design/slang-compiler-sys.md`, revised |
+| M8 | slang-rhi build spike and the first release | M7 | The publishing sections of `docs/design/tooling.md`, revised |
+| M9 | `slang-rhi-sys`, `slang-rhi`, and additive reflection in `slang-compiler` | M8 | `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, new, and `docs/design/slang-compiler.md`, revised |
+| M10 | Backend split of `slango`, with slang-rhi as the default backend | M9 | `docs/design/slango.md`, `docs/design/slango-macros.md`, and `docs/design/slang-slint.md`, revised |
+| M11 | The second release | M10 | The release procedure in `docs/design/tooling.md` |
+| M12 | Render pipelines with hull, domain, and geometry stages, and example 7 | M10 | A design in `docs/design/slango.md` |
+| M13 | Mesh shading pipelines and example 8 | M10 | A design in `docs/design/slango.md` |
+| M14 | Ray tracing and example 6 | M9, M10 | A design in `docs/design/slango.md` |
+| M15 | The opt-in slang-rhi backends CUDA with OptiX, and CPU | M14 | Designs in `docs/design/slang-rhi-sys.md` and `docs/design/slango.md` |
+| M16 | Generated kernels with broadcasting, automatic differentiation, and tensors, and the new cases of example 2 | M9, M10 | A design in `docs/design/slango.md` |
+| M17 | Neural primitives and example 9 | M16 | A design in `docs/design/slango.md` |
+| M18 | Typed bindings of `slango-macros` for the new pipeline kinds | M12, M13, M14 | `docs/design/slango-macros.md`, revised |
 
 ### 15.3. M0: Tooling and Skeleton
 
 - Deliverables: the contents of `docs/design/tooling.md`. They include the deletion of the abandoned sketch in `crates/slang-compiler-sys` and an empty and documented skeleton crate so that every tool has something to check. They also include the workspace lint configuration, `clippy.toml`, `deny.toml`, the nextest configuration, the `just` recipes for the Rust checks, the licence file, `README.md`, the CI workflow, and the publication metadata, so that it is checked from the start.
 
-  The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M7 (Section 15.10).
+  The recipes for typos, taplo, cargo machete, Miri, cargo hack, and cargo llvm-cov are part of M0, and the recipe that runs actionlint arrives with the first workflow. The check for breaking changes is not part of M0 and arrives in M8 (Section 15.11).
 - Depends on: the container image defined in the repository slang-rs-env, which provides every tool that M0 needs.
 - Design document, which exists before any code of the milestone: `docs/design/tooling.md`.
 - Exit criteria: `just check` passes with the Rust checks, Miri, and the checks of typos, taplo, actionlint, and cargo machete included, and the CI workflow passes on Linux, Windows, and macOS, including the jobs for the feature combinations and the MSRV. The coverage job is part of M1. No example exists yet.
@@ -566,7 +619,7 @@ The exit criteria of every milestone include every check passing and every affec
 
 ### 15.5. M2: `slang-compiler`
 
-- Deliverables: the safe API of Section 7 and example 1. The custom file system of Section 8 of `docs/design/slang-compiler.md` is not a deliverable (Section 15.11).
+- Deliverables: the safe API of Section 7 and example 1. The custom file system of Section 8 of `docs/design/slang-compiler.md` is not a deliverable (Section 15.22).
 - Depends on: M1.
 - Design document, which exists before any code of the milestone: `docs/design/slang-compiler.md`.
 - Exit criteria: every check passes, and example 1 runs headless in CI. `AGENTS.md`, `README.md`, and this document are updated.
@@ -599,30 +652,174 @@ The exit criteria of every milestone include every check passing and every affec
 - Design document, which exists before any code of the milestone: `docs/design/slango-macros.md`.
 - Exit criteria: every check passes, including the tests that Section 10 of `docs/design/slango-macros.md` names. `AGENTS.md`, `README.md`, and this document are updated.
 
-### 15.10. M7: Publishing
+### 15.10. M7: Rework of `slang-compiler-sys` and the Binding Generator
 
-- Deliverables: a verified documentation build of every published crate on docs.rs, a review of the public API of every published crate against the coding standard, and the first release of the published crates after the owner's go-ahead (ARCH-24). They also include the check for breaking changes with its CI job, which needs the first release as its baseline. The publication metadata is in place from M0 (Section 15.3).
-- Depends on: M0 to M6.
-- Design document, which exists before any code of the milestone: `docs/design/tooling.md`, whose publishing requirements apply.
-- Exit criteria: every check passes, the documentation of every published crate builds on docs.rs, and the owner has approved the release. `README.md` and this document are updated.
+- Deliverables: these changes to `slang-compiler-sys`, the binding generator, and the build tag check of `slang-compiler`:
+  - The binding generator as a publishable library crate and a build dependency of `slang-compiler-sys`.
+  - Bindings that the build script generates with libclang in every build. The checked-in bindings and the checked-in list of C functions leave the repository.
+  - The Cargo feature `static` of `slang-compiler-sys`, on by default. With it, the build script shallow-clones the pinned Slang commit from the Slang git repository, builds Slang with slang-glslang, and links it statically. Without it, the build script links the Slang of an installed Vulkan SDK dynamically, as today.
+  - A way for a user to target a Slang commit other than the pin.
+  - The version identifiers and the constant with the build information.
+  - Build tag checks relaxed so that a build for another commit can proceed.
+  - One CI job per operating system that builds and tests the default `static` feature.
 
-### 15.11. Later Items
+  The design round starts from the proposal to keep `SLANG_SOURCE_DIR` as the offline override of the clone, because a sandboxed build cannot clone. Whether slang-glslang can be linked into a static build, what the binding generator is named, and how long the static build takes on the hosted CI runners are open (Section 17, Q-32 to Q-34).
+- Owner decisions that bind it:
+  - Every build generates the bindings with libclang in the build script, and no package contains pregenerated bindings.
+  - The binding generator becomes a published crate of its own, a build dependency of `slang-compiler-sys` and later of `slang-rhi-sys`. The design of M7 settles its name after a check of crates.io.
+  - The pin stays the Slang commit of the latest stable Vulkan SDK.
+  - The manifest version of `slang-compiler-sys` carries the pinned Slang as build metadata, as `-sys` crates such as libgit2-sys do, for example `0.1.0+slang.2026.17-25-gc7954ebd1`. The crate also exposes a constant with the full SemVer string of the actual build, which names the real commit and whether Slang is linked statically or dynamically.
+  - Another Slang commit is best effort. The raw bindings regenerate for it, while the safe crates are written and tested against the pin only and document any other commit as unsupported.
+  - The static build includes slang-glslang, so that it emits optimized SPIR-V like the Slang of the Vulkan SDK.
+  - The recipes of this repository and most CI jobs turn the `static` feature off and link the Slang of the Vulkan SDK, as today. One dedicated CI job per operating system builds and tests the default.
+- Replaces: ARCH-2, ARCH-6, ARCH-8, and ARCH-9 to ARCH-13, with Sections 4, 5, 6, 14.2, 14.6, 18, 19.1, and 19.2 of this document. The design round also rewrites ARCH-4, ARCH-5, and ARCH-7 where the feature changes how a route is selected. Outside this document, it replaces SYS-5, SYS-6, SYS-7, TEST-8, and COM-9 of the coding standard, SCS-5, SCS-20, SCS-22 to SCS-29, SCS-36, and SCS-38 of `docs/design/slang-compiler-sys.md`, and Hard Rule 7 of `AGENTS.md`.
+- Depends on: M6.
+- Design document, which exists before any code of the milestone: `docs/design/slang-compiler-sys.md`, revised, which also covers the binding generator. The CI job is specified in `docs/design/tooling.md`.
+- Exit criteria: every check passes, including the static CI job on Linux, Windows, and macOS. Git tracks no generated bindings, and the recipes still link the Slang of the Vulkan SDK. `AGENTS.md`, `README.md`, the coding standard, `docs/design/tooling.md`, and this document are updated.
+
+### 15.11. M8: slang-rhi Build Spike and the First Release
+
+- Deliverables:
+  - A throwaway slang-rhi build spike, which confirms what `slang-compiler-sys` must export to a later `slang-rhi-sys` and which raw accessors `slang-compiler` needs. The spike records its findings in the design documents of both crates, and every change that they call for lands before the release. The code of the spike is not shipped.
+  - The publishing prerequisites: a licence file in each published package, a release procedure, the recipe `check-semver` with its CI job, and a review of the public API of each crate of the release against the coding standard.
+  - The hosted documentation of each crate of the release, built in CI.
+  - The first release, after the owner's go-ahead (ARCH-24).
+- Owner decisions that bind it:
+  - The first release holds the binding generator, `slang-compiler-sys`, and `slang-compiler` only. It follows as soon as the rework of M7, the spike, and the publishing prerequisites are done.
+  - docs.rs is not supported. CI builds the documentation and hosts it elsewhere, such as on GitHub Pages, and the documentation link of each crate points there.
+  - Nothing is published without the owner's explicit go-ahead.
+- Replaces: the docs.rs requirements of `docs/design/tooling.md`.
+- Depends on: M7.
+- Design document, which exists before any code of the milestone: the publishing sections of `docs/design/tooling.md`, revised. The spike comes before that revision and ships no code.
+- Exit criteria: every check passes, including the check for breaking changes against the release. The documentation link of each released crate leads to its hosted documentation, and the owner has approved the release. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.12. M9: `slang-rhi-sys`, `slang-rhi`, and Additive Reflection
+
+- Deliverables:
+  - The crate `slang-rhi-sys`, with raw bindings that the binding generator, extended to the slang-rhi headers, generates in its build script, and a build script that builds slang-rhi from the Slang tree.
+  - The crate `slang-rhi`, with safe wrappers over `slang-rhi-sys`.
+  - Additive reflection in `slang-compiler`: functions found by name, function modifiers such as `Differentiable`, function attributes, specialization with argument types, generics, and the metadata of cooperative types.
+
+  The CMake build of slang-rhi is reported to download its dependencies when it configures, so how the build script of `slang-rhi-sys` obtains them is open (Section 16, A-20, and Section 17, Q-35).
+- Owner decisions that bind it:
+  - The binding generator is a build dependency of `slang-rhi-sys`, as it is of `slang-compiler-sys`.
+  - The Vulkan, D3D12, and Metal device backends of slang-rhi are built by default on their platforms. CUDA with OptiX, and the CPU, are opt-in Cargo features, which M15 delivers.
+- Replaces: ARCH-1 and the diagram of Section 3.2, which gain the two crates, and Section 3.3 with the list of crates in Hard Rule 7 of `AGENTS.md` that may hold unsafe code. It confirms or corrects A-15, A-16, and A-19 to A-21 (Section 16).
+- Depends on: M8, whose spike shapes what `slang-compiler-sys` exports.
+- Design document, which exists before any code of the milestone: `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, new, `docs/design/slang-compiler-sys.md`, revised for the generator, and `docs/design/slang-compiler.md`, revised for reflection.
+- Exit criteria: every check passes, including the tests of both new crates in the GPU tier on the adapters that the design names. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.13. M10: Backend Split of `slango`
+
+- Deliverables:
+  - A backend-neutral public API of `slango`.
+  - The wgpu backend behind a Cargo feature.
+  - The slang-rhi backend as the default, at parity with the wgpu backend for compute kernels and vertex plus fragment pipelines.
+  - `slango-macros` and `slango-codegen` reworked for the split.
+  - `slang-slint` on the wgpu feature of `slango`.
+  - The five existing examples on both backends.
+
+  Which shader target the slang-rhi backend compiles to for each device backend is open (Section 17, Q-36).
+- Owner decisions that bind it:
+  - slang-rhi is the default backend and wgpu the other, and Cargo features select them.
+  - The wgpu backend keeps compute kernels and vertex plus fragment pipelines, stays free of unsafe code, and reports an unsupported error for every other pipeline kind.
+  - `slang-slint` stays on wgpu and enables the wgpu feature of `slango`. A Slint view shows compute output and vertex plus fragment output only, so ARCH-20 stays.
+- Replaces: ARCH-15 with Section 8.2, and the parts of Sections 3.3, 8.5, and 8.6 that assume wgpu is the only backend. ARCH-19 then binds the wgpu feature.
+- Depends on: M9.
+- Design document, which exists before any code of the milestone: `docs/design/slango.md`, `docs/design/slango-macros.md`, and `docs/design/slang-slint.md`, revised.
+- Exit criteria: every check passes, including the GPU tier on both backends on the adapters that the design names, and the five examples run on both backends. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.14. M11: The Second Release
+
+- Deliverables: the second release of `slango`, `slango-codegen`, `slango-macros`, `slang-slint`, `slang-rhi-sys`, and `slang-rhi`, with their hosted documentation and the check for breaking changes extended to them, after the owner's go-ahead (ARCH-24).
+- Owner decisions that bind it: the second release follows once slang-rhi is the default backend of `slango`, and nothing is published without the owner's explicit go-ahead.
+- Depends on: M10.
+- Design document, which exists before any code of the milestone: the release procedure in `docs/design/tooling.md`, extended to these crates.
+- Exit criteria: every check passes, the documentation link of each released crate leads to its hosted documentation, and the owner has approved the release. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.15. M12: Hull, Domain, and Geometry Stages
+
+- Deliverables: render pipelines with hull, domain, and geometry stages on the slang-rhi backend, and example 7.
+- Owner decisions that bind it: the new stages exist on the slang-rhi backend only, and the wgpu backend reports them as unsupported. A Slint view does not show them.
+- Depends on: M10. The roadmap places M12 after M11.
+- Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`.
+- Exit criteria: every check passes, including the tests of the new stages on the adapters that the design names and the automated check of example 7 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.16. M13: Mesh Shading
+
+- Deliverables: mesh shading pipelines on the slang-rhi backend, and example 8.
+- Owner decisions that bind it: mesh shading exists on the slang-rhi backend only, and the wgpu backend reports it as unsupported. A Slint view does not show it.
+- Depends on: M10. The roadmap places M13 after M12.
+- Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`.
+- Exit criteria: every check passes, including the tests of mesh shading on the adapters that the design names and the automated check of example 8 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.17. M14: Ray Tracing
+
+- Deliverables: acceleration structures, ray tracing pipelines with shader tables and hit groups, and ray queries on the slang-rhi backend, with any support for hardware ray tracing that `slang-compiler-sys` and `slang-compiler` still lack. Example 6, the path-tracing demo, shows them.
+
+  Slang is reported to offer no reflection of hit groups, so the design decides how a user describes them (Section 16, A-23).
+- Owner decisions that bind it: ray tracing exists on the slang-rhi backend only, and the wgpu backend reports it as unsupported. A Slint view does not show it.
+- Depends on: M9 and M10. The roadmap places M14 after M13.
+- Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`, which also designs example 6 and answers Q-29.
+- Exit criteria: every check passes, including the tests of ray tracing on the adapters that the design names and the automated check of example 6 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.18. M15: The CUDA and CPU Backends
+
+- Deliverables: the opt-in device backends of slang-rhi for CUDA with OptiX and for the CPU, as Cargo features of `slang-rhi-sys`, `slang-rhi`, and `slango`. OptiX runs the ray tracing interface of M14.
+- Owner decisions that bind it: CUDA with OptiX, and the CPU, are opt-in Cargo features, while Vulkan, D3D12, and Metal stay the defaults on their platforms.
+- Depends on: M14.
+- Design document, which exists before any code of the milestone: designs in `docs/design/slang-rhi-sys.md` and `docs/design/slango.md`.
+- Exit criteria: every check passes, including the tests of each new backend in the tier that the design names. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.19. M16: Generated Kernels, Automatic Differentiation, and Tensors
+
+- Deliverables: kernels that `slango` generates around plain Slang functions, with broadcasting over array arguments, automatic differentiation, and tensors. Example 2 gains its broadcasting case and its differentiable function (Section 10).
+
+  Slang is reported to offer no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source (Section 16, A-24). The design uses the reflection of functions that M9 adds.
+- Owner decisions that bind it: none specific to this milestone. Which backends offer the feature is open (Section 17, Q-37).
+- Depends on: M9 and M10. The roadmap places M16 after M15.
+- Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`, which confirms or corrects A-9.
+- Exit criteria: every check passes, including the GPU tier tests of the new cases of example 2. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.20. M17: Neural Primitives
+
+- Deliverables: cooperative vectors, the `slang.neural` module of Slang, and trainable primitives, with example 9, a training example. wgpu 30 is reported to offer no cooperative vectors (Section 16, A-22), and which backends offer the rest is open (Section 17, Q-37).
+- Owner decisions that bind it: the neural scope is cooperative vectors (Slang's `CoopVec`), trainable primitives with a SlangPy-style interface of tensors, gradients of Slang functions, and an optimizer loop, and Slang's own `slang.neural` module. The pinned Slang marks `slang.neural` experimental (Section 16, A-26).
+- Depends on: M16, and M9 for the metadata of cooperative types.
+- Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`.
+- Exit criteria: every check passes, including the automated check of example 9 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.21. M18: Typed Bindings for the New Pipeline Kinds
+
+- Deliverables: typed bindings of `slango-macros` for render pipelines with hull, domain, and geometry stages, for mesh shading pipelines, and for ray tracing pipelines.
+- Owner decisions that bind it: the new pipeline kinds exist on the slang-rhi backend only, so their typed bindings do too.
+- Depends on: M12, M13, and M14.
+- Design document, which exists before any code of the milestone: `docs/design/slango-macros.md`, revised.
+- Exit criteria: every check passes, including the tests that the design names for each pipeline kind. `AGENTS.md`, `README.md`, and this document are updated.
+
+### 15.22. Later Items
 
 These items are not scheduled and have no design yet:
 
-- The path-tracing demo, example 6 (Section 17, Q-29).
 - A shader target of `slango` configurable per backend, deferred out of M4 (Section 8.5, Section 17, Q-23).
 - The custom file system of `slang-compiler`, deferred out of M2 because it serves hosts that keep shaders in a virtual file system and nothing on the roadmap is such a host (Section 8 of `docs/design/slang-compiler.md`).
-- A slang-rhi backend with the crates `slang-rhi-sys` and `slang-rhi`.
 - Further platforms.
 
 Each one gets a design document when the owner schedules it.
 
-### 15.12. Order Rationale
+### 15.23. Order Rationale
 
-This subsection is non-normative. Each milestone is the smallest step that the next one needs.
+This subsection is non-normative. Up to M6, each milestone is the smallest step that the next one needs.
 
 The bindings come before the safe crate that wraps them, the safe crate before the library that compiles through it, and compute before rendering, as Section 14.8 explains. Every milestone up to M3 runs headless, so CI tests each one fully before any work that needs a display begins.
+
+From M7 on, compatibility impact sets the order. What a published version locks in comes before the release that publishes it, because a published version cannot be deleted and a later change to it is a breaking release. Additive work follows the releases.
+
+M7 changes how `slang-compiler-sys` builds, links, and names its versions, which every user of the first release depends on, so it precedes the first release in M8. The spike of M8 comes before that release, because what `slang-compiler-sys` must export to `slang-rhi-sys` would otherwise be a breaking change after it.
+
+M9 and M10 change the public API of `slango` and its sibling crates, so they precede the second release in M11. The reflection of M9 is additive, but M16 and M17 depend on it.
+
+M12 to M18 add pipeline kinds, backends, and features without breaking the released API. M15 follows M14 because OptiX runs the ray tracing interface of M14, and comes before M16 because training workloads commonly run on CUDA. M18 comes last, because its typed bindings wrap the pipeline kinds of M12 to M14.
 
 ## 16. Assumptions to Confirm
 
@@ -633,12 +830,20 @@ The design document or milestone in the last column confirms or corrects it, and
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | A-6 | The build script of a dependency cannot set the rpath of the final binary | Section 4.4 | Section 10 of `docs/design/slang-compiler-sys.md`, if a change of it proposes an rpath. The recipes put the library path on the command line instead (SCS-32), which does not rely on A-6 |
-| A-7 | docs.rs sets the environment variable `DOCS_RS` during its builds | ARCH-8 | The first docs.rs build, at M7. The recipe `check-doc-without-slang` imitates a build without Slang locally and cannot confirm what docs.rs sets |
-| A-9 | SlangPy's portable core is kernels generated from reflection and cached per call signature, broadcasting with an explicit `map()`, a unified tensor type, automatic differentiation through `bwds`, and a device layer | Sections 8.1 and 14.8 | The design document of the milestone that adds generated kernels. Section 3.7 of `docs/design/slango.md` finds it consistent with SlangPy's documentation |
+| A-7 | docs.rs sets the environment variable `DOCS_RS` during its builds | ARCH-8 | No docs.rs build will confirm it, because docs.rs is not supported (Section 13). The design of M7, which replaces ARCH-8, removes this row. The recipe `check-doc-without-slang` imitates a build without Slang locally and cannot confirm what docs.rs sets |
+| A-9 | SlangPy's portable core is kernels generated from reflection and cached per call signature, broadcasting with an explicit `map()`, a unified tensor type, automatic differentiation through `bwds`, and a device layer | Sections 8.1 and 14.8 | The design of M16, which adds generated kernels. Section 3.7 of `docs/design/slango.md` finds it consistent with SlangPy's documentation |
 | A-11 | wgpu offers a shader passthrough path for targets other than SPIR-V | Section 8.5 | The design of the configurable shader target. Section 3.2 of `docs/design/slango.md` confirms the path for SPIR-V |
 | A-14 | Slint has no public Vulkan hook, and its wgpu API can change in minor releases | Section 9 | The design of a change that widens the Slint range of SLS-1 of `docs/design/slang-slint.md` or needs a Vulkan hook |
-| A-15 | slang-rhi publishes no releases or prebuilt binaries and needs a C++20 build with CMake | Section 14.4 | The design document of a slang-rhi backend, when the owner schedules one |
-| A-16 | A slang-rhi backend would add CUDA, CPU, and OptiX targets | Section 14.4 | The design document of a slang-rhi backend, when the owner schedules one |
+| A-15 | slang-rhi publishes no releases or prebuilt binaries and needs a C++20 build with CMake | Section 14.4 | The design of M9 |
+| A-16 | A slang-rhi backend would add CUDA, CPU, and OptiX targets | Sections 14.4 and 15.18 | The design of M9 |
+| A-19 | slang-rhi is the submodule `external/slang-rhi` of the Slang tree, so the Slang commit pins it, and the Vulkan SDK does not ship it, so it is always built from source | Section 14.4 | The design of M9, after the spike of M8 |
+| A-20 | The CMake build of slang-rhi downloads dependencies when it configures, each verified with a SHA-256 checksum: DXC, the Agility SDK, and NVAPI on Windows, metal-cpp on macOS, the OptiX headers for CUDA, and Dawn for its WebGPU backend | Section 15.12 | The design of M9, after the spike of M8 |
+| A-21 | slang-rhi offers ray tracing pipelines on Vulkan, D3D12, and CUDA through OptiX, and ray queries only on Metal. It offers hull, domain, and geometry stages and mesh shading on Vulkan and D3D12, and cooperative vectors on Vulkan, CUDA, and D3D12 through NVAPI | Section 14.4 | The design of M9 |
+| A-22 | wgpu 30 offers no tessellation, geometry stage, or cooperative vectors, and offers ray tracing pipelines and mesh shaders only as experimental features | Sections 14.4 and 15.20 | The design of M10 |
+| A-23 | Slang offers no reflection of hit groups | Section 15.17 | The design of M14 |
+| A-24 | Slang offers no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source | Section 15.19 | The design of M16 |
+| A-25 | docs.rs builds crates without network access | Section 13 | The design of M8 |
+| A-26 | The pinned Slang holds the module `slang.neural` under `source/standard-modules/neural`, marks it experimental, and needs the experimental feature flag to use it | Section 15.20 | The design of M17 |
 
 ## 17. Open Questions
 
@@ -648,9 +853,15 @@ Each row is a question that this document leaves open. The design document in th
 | --- | --- | --- | --- |
 | Q-16 | Does each crate other than `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, and `slango-codegen` emit logs, and through which crate? | Each later crate's design document | The milestone of each later crate |
 | Q-19 | Which unsafe code would `slango` need for shader passthrough or another later feature, and why? | The design of the configurable shader target | The milestone of that target |
-| Q-23 | How is the shader target configured per backend? | The design of the configurable shader target | Deferred with no milestone assigned (Section 15.11) |
+| Q-23 | How is the shader target configured per backend? | The design of the configurable shader target | Deferred with no milestone assigned (Section 15.22) |
 | Q-24 | Can the windows of examples 3 and 4 be checked headless, and how? | A design document, written when a CI runner can show a window | Not scheduled |
-| Q-29 | What is the design of the path-tracing demo? | A design document written when the owner schedules the demo | Later |
+| Q-29 | What is the design of the path-tracing demo? | The design of M14 | M14 |
+| Q-32 | Can slang-glslang be linked into a static build of Slang on Linux, Windows, and macOS? | `docs/design/slang-compiler-sys.md` | M7 |
+| Q-33 | How long does the static build take on each hosted CI runner, and does the static CI job fit the time limit of a job? | `docs/design/slang-compiler-sys.md`, with `docs/design/tooling.md` | M7 |
+| Q-34 | What is the crates.io name of the binding generator? | `docs/design/slang-compiler-sys.md` | M7 |
+| Q-35 | How does the build script of `slang-rhi-sys` obtain the dependencies that the CMake build of slang-rhi downloads, and how does an offline or sandboxed build get them? | `docs/design/slang-rhi-sys.md` | M9 |
+| Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
+| Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
 
 ## 18. Security Considerations
 

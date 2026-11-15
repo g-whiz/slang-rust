@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -2008,7 +2008,7 @@ Each row is a question that this document leaves open. The owner in the third co
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | CQ-3 | Can the bound `Send + Sync` of `FileSystem` be relaxed while every wrapper stays on one thread, which CONC-6 would prefer (Section 8.3), given that tightening it again later would be a breaking change? | This document | Answered with the custom file system, before the trait is first released |
-| CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 is reported as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M7 |
+| CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 is reported as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M8 |
 
 ## 17. Security Considerations
 

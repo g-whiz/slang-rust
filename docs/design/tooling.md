@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
@@ -174,7 +174,7 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` |
 | `check-features` | `checks` | The cargo hack command of Section 4.8 for the feature powerset, which includes each single feature | No, the CI job `ci-only` runs it |
 | `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 14.3) |
-| `check-semver` | `checks` | Planned for M7, with the first release, and not yet in the `justfile`: cargo semver-checks against the last published version of each published crate (Section 9) | No, the planned CI job `semver` runs it |
+| `check-semver` | `checks` | Planned for M8, with the first release, and not yet in the `justfile`: cargo semver-checks against the last published version of each published crate (Section 9) | No, the planned CI job `semver` runs it |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 7.1) |
 
 `check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines (Section 4).
@@ -672,7 +672,7 @@ This table lists the jobs, with the name that GitHub shows for each and the host
 | `check` | Run every check on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just check` |
 | `test` | Test on `windows-latest`, Test on `macos-latest` | A matrix of `windows-latest`, Windows x86_64, with the Windows Advanced Rasterization Platform (WARP) as the software adapter, and `macos-latest`, macOS arm64, with the hosted Metal device as the adapter, with `fail-fast: false` | `just check-clippy`, `just check-doctest`, and `just test-gpu` |
 | `ci-only` | Run `check-features` on Linux, Run `check-msrv` on Linux | `ubuntu-latest`, Linux x86_64, as a matrix of the two recipes, with `fail-fast: false` | `just check-features` and `just check-msrv` |
-| `semver` | Not yet named | Linux x86_64 | `just check-semver`. Planned for M7, with the first release, and not yet in the workflow (Section 9) |
+| `semver` | Not yet named | Linux x86_64 | `just check-semver`. Planned for M8, with the first release, and not yet in the workflow (Section 9) |
 | `coverage` | Measure test coverage on Linux | `ubuntu-latest`, Linux x86_64, with lavapipe as the software adapter | `just coverage`, then the upload of `target/lcov.info` as the artifact `coverage-lcov` |
 
 The `test` job runs Clippy and the doctests on Windows and macOS as well as the tests, because a lint exception has to be fulfilled on every target that is checked (Section 4.4 of the coding standard), and code under `#[cfg]` differs between platforms. It compiles the checked-in bindings of `slang-compiler-sys` there and never regenerates them. The tests for Linux only are not compiled there.
@@ -986,11 +986,11 @@ The documentation build on docs.rs has to work without Slang, as ARCH-8 of the a
 env -u VULKAN_SDK DOCS_RS=1 CARGO_BUILD_WARNINGS=deny cargo doc --workspace --no-deps --all-features
 ```
 
-With `DOCS_RS` present, the build script of `slang-compiler-sys` reads nothing else and links nothing (Section 9.4 of `docs/design/slang-compiler-sys.md`), so the recipe passes on a machine without the Vulkan SDK. It reproduces only the absence of Slang, not the rest of the docs.rs environment, which M7 verifies on docs.rs itself. Each crate's design document defines any docs.rs settings that the crate's manifest needs.
+With `DOCS_RS` present, the build script of `slang-compiler-sys` reads nothing else and links nothing (Section 9.4 of `docs/design/slang-compiler-sys.md`), so the recipe passes on a machine without the Vulkan SDK. It reproduces only the absence of Slang, not the rest of the docs.rs environment. docs.rs is not supported, and CI builds and hosts the documentation instead (Section 13 of `docs/design/architecture.md`). Each crate's design document defines any docs.rs settings that the crate's manifest needs.
 
 The command documents every member of the workspace, so a new member needs no change to the recipe. `slang-compiler` has no build script, so its documentation builds without Slang because the build script of `slang-compiler-sys` links nothing when `DOCS_RS` is set (Section 13.7 of `docs/design/slang-compiler.md`). The examples package holds `typed-kernel`, which calls the macro `shader!`, so the recipe also builds the documentation of a caller of the macro in its stub form (Section 6.4 of `docs/design/slango-macros.md`).
 
-The recipe `check-semver` compares each published crate with its last version on crates.io. It arrives in M7 with the first release, together with the CI job `semver`, because only then does each published crate have a published version to compare with.
+The recipe `check-semver` compares each published crate with its last version on crates.io. It arrives in M8 with the first release, together with the CI job `semver`, because only then does each published crate have a published version to compare with.
 
 cargo-semver-checks 0.51.0 fails on a crate that has no published version, with the message "not found in registry" and exit status 101, and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace. Before the first release, a comparison with `main` would report every change to the API, which tells a reviewer nothing.
 
@@ -1035,8 +1035,8 @@ Each row is a question that this document leaves open. The design document in th
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
-| TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M7 |
-| TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 9)? | This document | M7 |
+| TQ-4 | How is a release carried out: which recipe publishes, in which order the crates are published, and where the crates.io token is kept outside the repository? | This document | M8 |
+| TQ-6 | How does each published crate carry the text of its licence, which the GPL requires to accompany the work, given that Cargo does not package the root `LICENSE` when a manifest sets only the `license` field (Section 9)? | This document | M8 |
 
 An identifier is never reused, so the next question takes TQ-10.
 

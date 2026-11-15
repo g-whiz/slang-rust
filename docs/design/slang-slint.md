@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | `crates/slang-slint` and the Slint example |
 
 ## Abstract
@@ -91,7 +91,7 @@ A library that enables no windowing backend and no renderer needs the features `
 
 A Linux build links `libfontconfig` through `yeslogic-fontconfig-sys` 6.0.1 of `fontique` 0.11.1 of `i-slint-common`, found through pkg-config, so it needs the development files of fontconfig (run). This holds for the library alone, without a renderer, and the hosted Linux runner of CI lacks them (run). The build script of `yeslogic-fontconfig-sys` also runs when `DOCS_RS` is set, so a documentation build without fontconfig fails (run).
 
-The build environment of docs.rs, the repository `rust-lang/crates-build-env`, lists `libfontconfig1`, `libfontconfig1-dev`, and `pkg-config` in `linux/packages.txt` on its default branch (read). So docs.rs is expected to build the documentation of `slang-slint` (inferred, SLSA-4).
+The build environment of docs.rs, the repository `rust-lang/crates-build-env`, lists `libfontconfig1`, `libfontconfig1-dev`, and `pkg-config` in `linux/packages.txt` on its default branch (read). docs.rs is not supported, and CI builds and hosts the documentation instead (Section 13 of `docs/design/architecture.md`), so whether docs.rs could build `slang-slint` no longer matters.
 
 A user interface declared with the macro `slint::slint!` needs no build script (run). Slint 1.18.1 declares `rust-version = "1.92"` (read).
 
@@ -398,8 +398,6 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SLSA-3 | With the configuration of SLS-6, Slint's device request fails on an adapter without immediates or with a smaller immediate size | Section 5.1 | Deferred until such an adapter is used. Every adapter tested offers 128 bytes or more |
-| SLSA-4 | docs.rs builds the documentation of `slang-slint`, because its build environment provides fontconfig and pkg-config | Section 3.2 | The first release, in M7 |
-
 Section 3.3 confirms A-14 of the architecture design in part: external GPU content enters Slint through its rendering notifier and its import of wgpu textures, and Slint names the features of that API unstable. Whether Slint has a public Vulkan hook, and whether the API changes in a minor release, is not established. SLS-1 depends on neither.
 
 ## 12. Open Questions

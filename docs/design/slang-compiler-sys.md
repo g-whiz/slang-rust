@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | `crates/slang-compiler-sys` and `tools/bindings-generator` |
 
 ## Abstract
@@ -1116,7 +1116,7 @@ docs.rs has no Slang, and a build script that fails there leaves the crate witho
 
 The checked-in bindings let the crate document itself without Slang. That docs.rs sets `DOCS_RS` is assumption A-7 of the architecture design. A program built with `DOCS_RS` present does not link, because the build script emits no link instruction.
 
-The recipe `check-doc-without-slang`, in the group `checks`, runs the documentation command of Section 4.8 of the coding standard with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment (Section 9 of the tooling design). `check-rust` runs it directly after `check-doc`. The recipe imitates the absence of Slang on docs.rs and cannot confirm A-7, which the first docs.rs build confirms in M7.
+The recipe `check-doc-without-slang`, in the group `checks`, runs the documentation command of Section 4.8 of the coding standard with `DOCS_RS` set to `1` and `VULKAN_SDK` removed from the environment (Section 9 of the tooling design). `check-rust` runs it directly after `check-doc`. The recipe imitates the absence of Slang on docs.rs and cannot confirm A-7. docs.rs is not supported (Section 13 of the architecture design), so no docs.rs build will confirm A-7, and the design of M7 removes it together with this documentation-build route.
 
 The manifest of `slang-compiler-sys` lists only the four supported targets of Section 6 under `targets` in `[package.metadata.docs.rs]`. These are `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `x86_64-apple-darwin`. The list keeps docs.rs from building for a 32-bit target, on which SCS-15 stops compilation (SA-8).
 
@@ -1471,7 +1471,7 @@ The change in the last column confirms or corrects it, states the result in the 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SA-7 | On macOS with System Integrity Protection enabled, the library path that a recipe places on the command line of the program it runs reaches the test binary, although macOS is expected to remove the `DYLD_*` variables when it starts a protected system program such as the system shell | SCS-32 | A run of `just test` on a Mac with System Integrity Protection enabled and without `DYLD_LIBRARY_PATH` in the environment of `just`, by the owner or a developer with such a Mac. The hosted macOS runner cannot confirm it, because System Integrity Protection is disabled there (Section 10) |
-| SA-8 | docs.rs honours `targets` in `[package.metadata.docs.rs]` and builds no other target | Section 9.4 | The first docs.rs build, in M7 |
+| SA-8 | docs.rs honours `targets` in `[package.metadata.docs.rs]` and builds no other target | Section 9.4 | No longer to be confirmed, because docs.rs is not supported (Section 13 of the architecture design). The design of M7 removes it together with the documentation-build route |
 
 The next assumption takes SA-11.
 

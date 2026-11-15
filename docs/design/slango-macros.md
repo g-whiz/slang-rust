@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-12 |
+| Date | 2026-11-15 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
@@ -41,7 +41,7 @@ These are not part of M6:
 - A mode that embeds the Slang source and compiles it at run time, because it cannot resolve an `import` (Section 3.5).
 - A program that runs without the Slang library (Section 12, SLMQ-1).
 - A re-export of the macro by `slango` (Section 12, SLMQ-2).
-- A cache of the generated code that lets a crate build without Slang, as `sqlx` keeps one (Section 12, SLMQ-3).
+- A cache of the generated code that lets a crate build without Slang, as `sqlx` keeps one. Documentation is built in CI instead of on docs.rs, so it does not need one (Section 13 of `docs/design/architecture.md`).
 
 ### 1.6. Defects of Third-Party Components and Trusted Input
 
@@ -162,6 +162,8 @@ The crate trybuild builds the macro and its dependencies in a package of its own
 
 `syn`, `quote`, `proc-macro2`, `prettyplease`, `trybuild`, and `target-tuple`, which trybuild brings, are `MIT OR Apache-2.0`, which the allow-list admits. Each declares a `rust-version` of 1.88 or less (run).
 
+On 2026-11-15, the crates.io name `slango-codegen` was free in both its hyphen and its underscore form (read, Section 13 of `docs/design/architecture.md`).
+
 `syn` 2, `syn` 3, and `prettyplease` 0.2 are in the lock file already, and `deny.toml` skips the duplicate `syn` 2 (read, `Cargo.lock` and `deny.toml`). `proc-macro-error` and `proc-macro-error2` are unmaintained (read, RUSTSEC-2024-0370 and RUSTSEC-2026-0173).
 
 ## 4. Crate Structure and Dependencies
@@ -185,7 +187,7 @@ The owner decided:
 
 SLM-1. The generator MUST live in the library crate `slango-codegen`, and `slango-macros` MUST hold only the macro entry point, its path resolution, its build script, and the conversion of errors to compile errors. A procedural macro crate exports nothing but macros, and Miri runs the pure tests of the generator in a library crate (Section 3.9), so a generator inside the macro crate could leave its pure tests without Miri.
 
-The owner approved `slango-codegen` as a separate published crate, and Sections 3.1, 3.2, and 13 of `docs/design/architecture.md` list it. Its crates.io name is checked before the first release (SLMA-8).
+The owner approved `slango-codegen` as a separate published crate, and Sections 3.1, 3.2, and 13 of `docs/design/architecture.md` list it. Its crates.io name was free on 2026-11-15 (Section 3.10).
 
 `slango-codegen` has two public functions, and both return a `proc_macro2::TokenStream`:
 
@@ -560,17 +562,15 @@ The change that confirms or corrects it states the result in Section 3 and in th
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M7 |
+| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The second release, in M11 |
 | SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run |
-| SLMA-8 | The crates.io name `slango-codegen` is available | SLM-1 | The first release, in M7 |
 
 ## 12. Open Questions
 
 | Identifier | Question | Answered by |
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
-| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M7, at publishing |
-| SLMQ-3 | How does a crate that names generated items outside function bodies get its documentation on docs.rs, where the stub breaks its documentation build (Section 14.6)? The candidates are a checked-in cache of the generated interface that the macro reads when Slang is absent, in the style of the offline mode of `sqlx`, which would also show the generated items, and documentation built elsewhere than on docs.rs. | M7, at publishing |
+| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M11, at the second release |
 
 An identifier is never reused.
 
@@ -627,7 +627,7 @@ These are properties of the design, recorded and not guarded against:
 - A release build compiles `slango`, `wgpu`, and `naga` twice (Section 3.10).
 - A new file that changes how an `import` resolves does not trigger a rebuild (Section 3.4).
 - The generated items are absent from the documentation on docs.rs (Section 6.4).
-- A crate that names a generated item other than `Shader` in a `use` declaration, an item signature, or a struct field does not build its documentation on docs.rs in M6. That is the ordinary way to use typed bindings, and the owner accepts the limit for M6 (Sections 3.8 and 6.4, SLMQ-3).
+- A crate that names a generated item other than `Shader` in a `use` declaration, an item signature, or a struct field does not build its documentation on docs.rs in M6. That is the ordinary way to use typed bindings, and the owner accepts the limit for M6 (Sections 3.8 and 6.4). docs.rs is not supported, and CI builds and hosts the documentation instead (Section 13 of `docs/design/architecture.md`).
 
 These are not determined: the macro in rust-analyzer and in a cross build that links, the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5), and the behaviour of cargo-semver-checks on hidden items.
 
