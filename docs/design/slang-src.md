@@ -106,7 +106,7 @@ Cargo's `[patch]` table replaces a package of a registry with another source, su
 
 ### 3.2. The Target Directory
 
-These facts hold for Cargo 1.99.1 on x86_64 Linux. Section 16, SRCA-5 and SRCA-7, records them as assumptions on Windows and macOS.
+These facts hold for Cargo 1.99.1 on x86_64 Linux. On Windows and macOS, the vendored CI jobs confirm the first fact for a target directory that Cargo creates without `--target`. In such a directory, the build script finds the shared folder through the tag, takes the lock, writes the stamp file, and clones once. Section 16, SRCA-5 and SRCA-9, records the rest as assumptions on Windows and macOS.
 
 - Cargo writes a file named `CACHEDIR.TAG` into a target directory or build directory when it creates that directory. A build with `--target` also gets a tagged directory named after the target triple below it, which holds the units of the target, while the units of the host stay in the profile directories at the top.
 - Cargo writes no tag into a directory that existed before the first build, such as one created by `mkdir`, and it does not write the tag again after someone deleted it.
@@ -568,10 +568,10 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 | SRCA-4 | The counts of Section 8, and the single clone and native build for each target directory, which come from stub crates in the shape of the workspace on x86_64 Linux, hold for the real crates | Section 8 | A vendored build of the example that calls `slango-macros`, with each command of the table |
 | SRCA-5 | On Windows and macOS, as on x86_64 Linux, Cargo runs a build script again when the stamp file that it names is missing, and not for a stamp file whose modification time is 2000-01-01 | SRC-16, Section 9.3 | The vendored CI jobs on Windows and macOS, with a test that removes the shared folder between two builds |
 | SRCA-6 | `VCToolsVersion` changes whenever the Microsoft compiler that CMake finds changes | SRC-17 | The vendored CI job on Windows, by a review of the developer environment it runs in |
-| SRCA-7 | On Windows and macOS, as on x86_64 Linux, Cargo tags the target directory and the build directory that it creates and the directory of the triple under `--target`, names that directory exactly after `TARGET`, and `std::fs::File::lock` serializes two build scripts, so that SRC-23 and SRC-16 give one folder and one creation of each entry | SRC-16, SRC-23, Section 8 | The vendored CI jobs on Windows and macOS, by a check that the shared folder is in the target directory of the recipe |
 | SRCA-8 | A `[patch]` entry that names a fork of `slang-src` with the same manifest version and another recorded commit replaces `slang-src` for every dependent, and the build exports the commit of the fork | SRC-22 | A build in the M7 code steps of a scratch project that patches `slang-src` with a local copy that records another commit |
+| SRCA-9 | On Windows and macOS, as on x86_64 Linux, Cargo tags the build directory that it creates and the directory of the triple under `--target`, names that directory exactly after `TARGET`, and `std::fs::File::lock` serializes two build scripts that run at once, so that SRC-23 and SRC-16 give one folder and one creation of each entry | SRC-16, SRC-23, Section 8 | A vendored build on Windows and macOS with `--target`, with a separate build directory, and with two units that clone at once |
 
-The next assumption takes SRCA-9.
+The next assumption takes SRCA-10.
 
 ## 17. Open Questions
 

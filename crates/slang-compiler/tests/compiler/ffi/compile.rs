@@ -1,6 +1,6 @@
 //! The tests of modules, entry points, composition, specialization, linking,
 //! code generation, blobs, and metadata against the Slang library of the
-//! pinned Vulkan SDK.
+//! Vulkan SDK of the build.
 
 use std::fs;
 use std::slice;

@@ -16,9 +16,10 @@ defaults:
   run:
     shell: bash
 
-# The SHA-256 checksums of the Vulkan SDK downloads of the version that crates/slang-compiler-sys/pin.rs
-# pins. They change in the same change as the pin.
+# The version of the Vulkan SDK that every job except vendored installs, and the SHA-256 checksums of
+# its downloads. They change together, in the change that moves the Slang that slang-src records.
 env:
+  VULKAN_SDK_VERSION: 1.4.363.1
   VULKAN_SDK_SHA256_LINUX: b7867d8ca658563813af666f34b93db87f1b1c7d9d69d97e924c210c7ba33eb8
   VULKAN_SDK_SHA256_MACOS: a65c707cf0a32bf8c2ca6b9af1985b7af61dbadfc19b352dae51a323f3a547a6
   VULKAN_SDK_SHA256_WINDOWS: c02932bd9a968b22d404536108adaacac908c081cd6b0113f5bfefc523dd0a6a
@@ -43,11 +44,37 @@ jobs:
         with:
           tool: just,shellcheck,typos,taplo,cargo-machete,cargo-deny,cargo-nextest
           fallback: none
-      - &read-pin
-        name: Read the pin of slang-compiler-sys
+      - &install-libclang
+        name: Make libclang available, which the build script of slang-compiler-sys loads to generate the Slang bindings
         run: |
-          pin="$(just pin)"
-          printf '%s\n' "${pin}" | tee -a "${GITHUB_ENV}"
+          case "${RUNNER_OS}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install --yes --no-install-recommends libclang-dev
+              exit 0
+              ;;
+            Windows)
+              directory='C:\Program Files\LLVM\bin'
+              found="$(cygpath --unix "${directory}")/libclang.dll"
+              ;;
+            macOS)
+              directory="$(xcode-select --print-path)/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+              if [[ ! -f "${directory}/libclang.dylib" ]]; then
+                directory=/Library/Developer/CommandLineTools/usr/lib
+              fi
+              found="${directory}/libclang.dylib"
+              ;;
+            *)
+              printf '::error::No libclang is known for the runner OS %s\n' "${RUNNER_OS}"
+              exit 1
+              ;;
+          esac
+          if [[ ! -f "${found}" ]]; then
+            printf '::error::The runner image provides no libclang at %s, which every build of slang-compiler-sys needs to generate the Slang bindings\n' "${found}"
+            exit 1
+          fi
+          printf 'libclang: %s\n' "${found}"
+          printf 'LIBCLANG_PATH=%s\n' "${directory}" >>"${GITHUB_ENV}"
       - &install-vulkan-sdk
         name: Install the Vulkan SDK
         env:
@@ -76,11 +103,6 @@ jobs:
           mkdir -p "${HOME}/.local/bin"
           install -m 0755 "${work}/actionlint" "${HOME}/.local/bin/actionlint"
           printf '%s\n' "${HOME}/.local/bin" >>"${GITHUB_PATH}"
-      - &install-libclang
-        name: Install libclang for the tests of the binding generator
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libclang-dev
       - &install-lavapipe
         name: Install lavapipe as the software Vulkan adapter for the tests of the GPU tier
         run: |
@@ -111,7 +133,7 @@ jobs:
         with:
           tool: just,cargo-nextest
           fallback: none
-      - *read-pin
+      - *install-libclang
       - *install-vulkan-sdk
       - *check-vulkan-sdk
       - name: Run Clippy
@@ -138,7 +160,7 @@ jobs:
         with:
           tool: just,cargo-hack
           fallback: none
-      - *read-pin
+      - *install-libclang
       - *install-vulkan-sdk
       - *check-vulkan-sdk
       - *install-fontconfig
@@ -160,10 +182,9 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
           fallback: none
-      - *read-pin
+      - *install-libclang
       - *install-vulkan-sdk
       - *check-vulkan-sdk
-      - *install-libclang
       - *install-lavapipe
       - *install-fontconfig
       - name: Write the coverage report

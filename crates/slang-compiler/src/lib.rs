@@ -56,7 +56,7 @@
 //!
 //! Aborts of the process, instead of errors, happen when a C++ exception
 //! escapes a call of this crate into Slang. Slang is written in C++ and
-//! catches its exceptions in most calls, but the pinned build lets one escape
+//! catches its exceptions in most calls, but the recorded Slang lets one escape
 //! some calls for some inputs. The crate then writes one line to standard
 //! error that names the Slang call and aborts the process, before any
 //! destructor of the crate or of the program runs. When the program is built
@@ -154,32 +154,12 @@
 //!
 //! # Finding the Slang library
 //!
-//! `slang-compiler-sys` finds or builds the Slang library and links it, as
-//! its [crate documentation](slang_compiler_sys) describes. By default, that
-//! is the Slang shared library of the pinned Vulkan SDK, which the dynamic
+//! `slang-compiler-sys` finds the Slang library and links it, as its
+//! [crate documentation](slang_compiler_sys) describes. That is the Slang
+//! shared library of the Vulkan SDK of the build, which the dynamic
 //! loader has to find when the program starts. Creating a global session
 //! checks that the loaded library is the build that this crate was built for,
 //! and fails with [`ErrorKind::VersionMismatch`] when it is not.
-//!
-//! When Slang is linked statically, from a build of Slang's source, it does
-//! not include `slang-glslang`, the library through which Slang optimizes
-//! SPIR-V and validates it when the environment variable
-//! `SLANG_RUN_SPIRV_VALIDATION` is `1`. When the dynamic loader then finds no
-//! `slang-glslang` shared library at run time, generating SPIR-V still
-//! succeeds, but the SPIR-V is neither optimized nor validated. Slang reports
-//! the missing library once in each [`GlobalSession`], in the diagnostics of
-//! the first code generation, which begin
-//! `error[E00100]: failed to load downstream compiler 'spirv-opt'` although
-//! the generation succeeds.
-//! `spirv-opt` is the SPIR-V optimizer, which Slang loads as a separate tool.
-//! No message says that validation was skipped. When the dynamic loader finds
-//! a `slang-glslang` shared library, such as the one in the library directory
-//! of the Vulkan SDK, the statically linked Slang loads it and behaves as the
-//! Slang shared library does, so the output of such a program depends on the
-//! environment in which it runs. This crate
-//! does not detect which way Slang was linked, and it returns what Slang
-//! reports. What [`GlobalSession::check_target_support`] reports for SPIR-V
-//! on that build has not been established.
 //!
 //! # Process-level inputs
 //!

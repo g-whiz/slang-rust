@@ -1,1 +1,1 @@
-check-slang-call-guard: crates/slang-compiler-sys/src/bindings.rs declares no C function in an unsafe extern "C-unwind" block
+check-slang-call-guard: target/slang-bindgen/bindings.rs declares no C function in an unsafe extern "C-unwind" block

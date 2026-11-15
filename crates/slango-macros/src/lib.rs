@@ -77,19 +77,6 @@
 //! `too-many-arguments-threshold` to that number of arguments or more gets
 //! the warning `unfulfilled_lint_expectations` on that `new`.
 //!
-//! # Documentation without Slang
-//!
-//! When the environment variable `DOCS_RS` is present while this crate
-//! builds, as on docs.rs, the macro reads no file and calls no Slang. It
-//! generates only an empty, documented struct `Shader`, so the other
-//! generated items are absent from the documentation of the calling crate.
-//!
-//! A crate that names another generated item outside the body of a
-//! function, such as in a `use` declaration, a function signature, or a
-//! struct field, then fails to build its documentation. A crate that names
-//! those items only inside function bodies, in expressions and in the type
-//! annotations of `let`, builds it.
-//!
 //! # Limits
 //!
 //! The macro has these limits:
@@ -97,9 +84,7 @@
 //! - A C++ exception that escapes Slang during the expansion ends the
 //!   compiler, with one line on standard error and no compile error.
 //! - The compiled code that the macro embeds depends on the Slang of the
-//!   machine that builds the crate. Slang built from source without its
-//!   SPIR-V optimizer can produce code that `slango` rejects with
-//!   `slango::ErrorKind::UnsupportedShader` when `Shader::load` runs.
+//!   machine that builds the crate.
 //! - The generated code holds the absolute paths of the Slang file and of
 //!   every file that Slang read for it, on the machine that builds the
 //!   crate.
@@ -123,9 +108,9 @@
 //! # Finding the Slang library
 //!
 //! The macro runs Slang inside the compiler, so building a crate that calls
-//! it needs the pinned Slang, as building `slango` does. That is the Vulkan
-//! SDK that `VULKAN_SDK` names, or the source tree that `SLANG_SOURCE_DIR`
-//! names, as the crate `slang-compiler-sys` describes.
+//! it needs Slang, as building `slango` does. That is the Slang of the Vulkan
+//! SDK that `VULKAN_SDK` names, as the crate `slang-compiler-sys` describes.
+//! A documentation build expands the macro with Slang like any other build.
 //!
 //! With the Vulkan SDK, the macro library links the Slang shared library, so
 //! the compiler has to find that library when it loads the macro. Without
@@ -142,9 +127,6 @@
 //! rpath alone may not suffice there. On Windows, a library has no rpath, so
 //! `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, has to be on `PATH`
 //! when the compiler runs.
-//!
-//! With Slang built from source and linked statically, the macro library
-//! needs no Slang shared library.
 
 use proc_macro::TokenStream;
 use syn::LitStr;
@@ -229,7 +211,6 @@ fn parse(input: TokenStream) -> syn::Result<LitStr> {
     }
 }
 
-#[cfg(not(slango_docs_rs))]
 fn expand(literal: &LitStr) -> syn::Result<TokenStream> {
     let path = resolve(literal)?;
     slango_codegen::generate(&path)
@@ -237,34 +218,8 @@ fn expand(literal: &LitStr) -> syn::Result<TokenStream> {
         .map_err(|error| syn::Error::new(literal.span(), error.report()))
 }
 
-#[cfg(slango_docs_rs)]
-fn expand(_literal: &LitStr) -> syn::Result<TokenStream> {
-    use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenTree};
-    const DOCUMENTATION: &str = " The bindings that `slango_macros::shader!` generates, which exist only in a build with the Slang library, not in this documentation.";
-    let ident = |name| TokenTree::Ident(Ident::new(name, Span::call_site()));
-    let attribute = [
-        ident("doc"),
-        TokenTree::Punct(Punct::new('=', Spacing::Alone)),
-        TokenTree::Literal(Literal::string(DOCUMENTATION)),
-    ];
-    Ok([
-        TokenTree::Punct(Punct::new('#', Spacing::Alone)),
-        TokenTree::Group(Group::new(
-            Delimiter::Bracket,
-            attribute.into_iter().collect(),
-        )),
-        ident("pub"),
-        ident("struct"),
-        ident("Shader"),
-        TokenTree::Punct(Punct::new(';', Spacing::Alone)),
-    ]
-    .into_iter()
-    .collect())
-}
-
 /// Returns the absolute path that a path literal names, relative to the
 /// directory of the Rust file that calls the macro.
-#[cfg(not(slango_docs_rs))]
 fn resolve(literal: &LitStr) -> syn::Result<std::path::PathBuf> {
     let error = |text: String| syn::Error::new(literal.span(), text);
     let file = proc_macro::Span::call_site().local_file().ok_or_else(|| {

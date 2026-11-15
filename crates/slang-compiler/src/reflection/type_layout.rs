@@ -188,7 +188,7 @@ impl<'a> TypeLayout<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`] when Slang reports a kind that the
-    /// pinned Slang header does not list.
+    /// Slang header does not list.
     ///
     /// # Panics
     ///
@@ -613,7 +613,7 @@ impl<'a> TypeLayout<'a> {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::Unrecognized`] when Slang
-    /// reports a category that the pinned Slang header does not list.
+    /// reports a category that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -703,7 +703,7 @@ impl<'a> TypeLayout<'a> {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::Unrecognized`] when Slang
-    /// reports a matrix layout that the pinned Slang header does not list.
+    /// reports a matrix layout that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -1047,7 +1047,7 @@ position_iterator!(FieldLayouts<'a>, VariableLayout<'a>);
 /// [`TypeLayout::categories`] returns.
 ///
 /// Each item is a [`Result`](crate::Result), because the crate converts each
-/// category that Slang reports, and a value that the pinned Slang header
+/// category that Slang reports, and a value that the Slang header
 /// does not list is an error of kind [`ErrorKind::Unrecognized`]. A position
 /// at which Slang reports no category yields no item, so the iterator does
 /// not implement [`ExactSizeIterator`]. Each call of `next` panics when it is

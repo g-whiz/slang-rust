@@ -555,7 +555,7 @@ CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude sl
 cargo deny check
 ```
 
-Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands.
+Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
 
 These commands run the checks of the tools from `cargo hack` to Miri. The first checks the features, and the second checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed.
 

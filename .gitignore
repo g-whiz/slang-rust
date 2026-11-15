@@ -103,3 +103,4 @@ http-client.private.env.json
 .worktrees/
 .code-review/
 .idea/
+!/scripts/fixtures/check-slang-call-guard/*/target/

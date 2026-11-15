@@ -1,1 +1,1 @@
-check-slang-call-guard: cannot read crates/slang-compiler-sys/src/bindings.rs: no such file
+check-slang-call-guard: cannot read target/slang-bindgen/bindings.rs: no such file

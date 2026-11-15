@@ -154,7 +154,7 @@ impl<'a> Type<'a> {
     /// undefined behaviour:
     ///
     /// - `raw` points to a type that a reflection function of the Slang
-    ///   library of the build tag [`slang_compiler_sys::SLANG_BUILD_TAG`]
+    ///   library of the build information [`slang_compiler_sys::BUILD_INFO`]
     ///   returned for an object of `session`, such as the layout of one of its
     ///   modules.
     /// - The type stays alive while `session` lives, which holds for the types
@@ -214,7 +214,7 @@ impl<'a> Type<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a kind that the pinned Slang header does not list.
+    /// reports a kind that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -343,7 +343,7 @@ impl<'a> Type<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a scalar type that the pinned Slang header does not list.
+    /// reports a scalar type that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -629,7 +629,7 @@ impl<'a> Type<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports an access that the pinned Slang header does not list.
+    /// reports an access that the Slang header does not list.
     ///
     /// # Panics
     ///

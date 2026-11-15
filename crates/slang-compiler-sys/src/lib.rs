@@ -51,23 +51,28 @@
 //!   [`SlangReflectionType`], is a struct that code cannot construct and only
 //!   reaches through pointers.
 //!
-//! The pin is the version of Slang that the bindings match:
-//! [`VULKAN_SDK_VERSION`] names the Vulkan software development kit (SDK)
-//! that ships that Slang, [`SLANG_BUILD_TAG`] is the version string of that
-//! Slang build, and [`SLANG_COMMIT`] is its commit. One version of this crate
-//! works with exactly one Slang build. The build script refuses any other, on
-//! both routes by which it obtains Slang, which
-//! [Linking Slang](#linking-slang) describes. To use another Slang build, a
-//! program needs a version of this crate whose pin names that build.
+//! Every build generates the bindings, with the binding generator
+//! `slang-bindgen`, from the headers of the Slang that it links, so the
+//! declarations always match that library. The constant [`BUILD_INFO`]
+//! records which Slang the build used and how it links it. The crate is
+//! written and tested against the Slang that the version of `slang-src` that
+//! it requires records, which is the Slang of the Vulkan software development
+//! kit (SDK) 1.4.363.1. Another Slang is best effort: its headers generate
+//! bindings that match it, but the binding generator refuses headers that
+//! hold a declaration or a construct that its rules do not cover, and the
+//! crates built on this one can depend on a behaviour of the recorded Slang.
 //!
 //! # Examples
 //!
 //! This example calls no Slang function. It shows that a struct takes the
 //! default values of its C++ declaration, that an enumeration accepts a value
-//! that the header does not list, and that a failed result code is negative:
+//! that the header does not list, that a failed result code is negative, and
+//! what the build information records:
 //!
 //! ```
-//! use slang_compiler_sys::{SlangCompileTarget, SlangGlobalSessionDesc, SlangResult};
+//! use slang_compiler_sys::{
+//!     BUILD_INFO, Linkage, SlangCompileTarget, SlangGlobalSessionDesc, SlangResult,
+//! };
 //!
 //! let desc = SlangGlobalSessionDesc::default();
 //! assert_eq!(usize::try_from(desc.structureSize)?, size_of::<SlangGlobalSessionDesc>());
@@ -77,22 +82,27 @@
 //!
 //! assert!(SlangResult::SLANG_FAIL.0 < 0);
 //! assert!(SlangResult::SLANG_OK.0 >= 0);
+//!
+//! assert_ne!(BUILD_INFO.slang_build_tag, "");
+//! assert_eq!(BUILD_INFO.linkage, Linkage::Dynamic);
+//! assert_eq!(BUILD_INFO.slang_commit, None);
+//! assert!(BUILD_INFO.version.ends_with(".dynamic"));
+//! println!("{} on a tested target: {}", BUILD_INFO.version, BUILD_INFO.tested_target);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! This example creates the global session that every compilation starts
-//! from, checks that the Slang library that the program loaded is the build
-//! of the pin, and releases the session. It needs the Slang shared library at
-//! run time, which the dynamic loader must find as [Linking Slang](#linking-slang)
-//! describes, so it is compiled but not run:
+//! from, checks that the Slang library that the program loaded reports the
+//! build tag of [`BUILD_INFO`], and releases the session. It needs the Slang
+//! shared library at run time, which the dynamic loader must find as
+//! [Linking Slang](#linking-slang) describes, so it is compiled but not run:
 //!
 //! ```no_run
 //! use std::ffi::CStr;
 //! use std::ptr;
 //!
 //! use slang_compiler_sys::{
-//!     IGlobalSession, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
-//!     slang_createGlobalSession2,
+//!     BUILD_INFO, IGlobalSession, SlangGlobalSessionDesc, SlangResult, slang_createGlobalSession2,
 //! };
 //!
 //! let desc = SlangGlobalSessionDesc::default();
@@ -110,13 +120,17 @@
 //! let matches = !tag.is_null()
 //!     // SAFETY: `tag` is non-null and points to the null-terminated build tag,
 //!     // which Slang keeps for as long as the library stays loaded.
-//!     && unsafe { CStr::from_ptr(tag) }.to_bytes() == SLANG_BUILD_TAG.as_bytes();
+//!     && unsafe { CStr::from_ptr(tag) }.to_bytes() == BUILD_INFO.slang_build_tag.as_bytes();
 //!
 //! // SAFETY: `session` holds the one reference that Slang returned, and the
 //! // example does not use `session` or `tag` after this release.
 //! unsafe { IGlobalSession::release(session) };
 //! if !matches {
-//!     return Err(format!("the loaded Slang library is not the build {SLANG_BUILD_TAG}").into());
+//!     return Err(format!(
+//!         "the loaded Slang library is not the build {}",
+//!         BUILD_INFO.slang_build_tag
+//!     )
+//!     .into());
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -127,61 +141,66 @@
 //!
 //! # Platform support
 //!
-//! The bindings support 64-bit targets only, which are these:
+//! The bindings support 64-bit targets only. These four targets are tested:
 //!
 //! - Linux on x86-64, `x86_64-unknown-linux-gnu`.
 //! - Windows on x86-64 with the Microsoft toolchain, `x86_64-pc-windows-msvc`.
 //! - macOS on Apple silicon, `aarch64-apple-darwin`, and on x86-64,
 //!   `x86_64-apple-darwin`.
 //!
-//! One set of bindings serves all of them, and compile-time assertions check
-//! the size, the alignment, and the offset of every field of every struct on
-//! each. Compilation stops with an error on a target whose pointers are not
-//! 64 bits wide, because Slang uses another calling convention and other
-//! struct layouts there.
+//! Every build generates the bindings for its own target, and compile-time
+//! assertions check the size, the alignment, and the offset of every field of
+//! every struct against the layout that the binding generator read for that
+//! target. The Slang of the Vulkan SDK has been linked, and the tests that call
+//! it have passed, on `x86_64` Linux, `x86_64` Windows, and aarch64 macOS. On
+//! `x86_64` macOS, the bindings are only type-checked, and they are never
+//! linked or run.
 //!
-//! Not every supported target has run every part of this crate. The Slang of
-//! the pinned Vulkan SDK has been linked, and the tests that call it have
-//! passed, on `x86_64` Linux, `x86_64` Windows, and aarch64 macOS. On `x86_64`
-//! macOS, the bindings have only been type-checked, and they have never been
-//! linked or run. The build of Slang from source has run only on `x86_64`
-//! Linux, and its code for macOS and Windows has never run.
+//! Every other 64-bit target is allowed, untested, and unsupported. The build
+//! script then emits a warning that names the target, which Cargo shows when
+//! the build fails, and [`BuildInfo::tested_target`] is `false`, but the
+//! build goes on. The build stops with an error on a target whose pointers
+//! are not 64 bits wide, because Slang uses another calling convention and
+//! other struct layouts there.
 //!
 //! # Linking Slang
 //!
-//! The build script of this crate obtains Slang by one of two routes. By
-//! default, it takes the dynamic route and links the Slang shared library of
-//! an installed LunarG Vulkan SDK. When the environment variable
-//! `SLANG_SOURCE_DIR` is present, whatever its value, it takes the static
-//! route instead, which builds Slang from source and links it statically. No
-//! Cargo feature selects the route, and the build never falls back from one
-//! route to the other.
+//! The build script links the Slang shared library of an installed LunarG
+//! Vulkan SDK dynamically. You can download the SDK from
+//! <https://vulkan.lunarg.com>. When the build script runs, it reads the
+//! environment variable `VULKAN_SDK`, which holds the absolute path of the
+//! directory of the SDK that contains `include/slang` and `lib`. That is the
+//! directory `x86_64` of the SDK on Linux, the directory `macOS` on macOS, and
+//! the installation directory on Windows. The setup script of the SDK sets
+//! `VULKAN_SDK` on Linux and macOS, and its installer sets it on Windows.
 //!
-//! On the dynamic route, the SDK has to be the one that [`VULKAN_SDK_VERSION`]
-//! names. You can download it from <https://vulkan.lunarg.com>. When the
-//! build script runs, it reads the environment variable `VULKAN_SDK`, which
-//! holds the absolute path of the directory of the SDK that contains
-//! `include/slang` and `lib`. That is the directory `x86_64` of the SDK on
-//! Linux, the directory `macOS` on macOS, and the installation directory on
-//! Windows. The setup script of the SDK sets `VULKAN_SDK` on Linux and macOS,
-//! and its installer sets it on Windows.
+//! Every build also needs libclang, the C and C++ parser library of the LLVM
+//! project, because the build script generates the bindings with it. The
+//! binding generator loads libclang from the directory that the environment
+//! variable `LIBCLANG_PATH` names, or otherwise from the standard locations of
+//! each platform. On Linux, the package of the distribution, such as
+//! `libclang-dev` on Debian and Ubuntu, provides it. On macOS, the Xcode
+//! command line tools provide it, and on Windows, an installation of LLVM
+//! does.
 //!
-//! Before it links anything, the build script reads the build tag that
-//! `SLANG_TAG_VERSION` defines in `$VULKAN_SDK/include/slang/slang-tag-version.h`,
-//! and it stops the build when that tag differs from [`SLANG_BUILD_TAG`],
-//! because the bindings match only that Slang build. No setting skips this
-//! check. It then tells Cargo to link the library `slang-compiler`
-//! dynamically from `$VULKAN_SDK/lib`. On Windows, that directory holds the
-//! import library `slang-compiler.lib`, the file that tells the linker which
-//! functions the library exports. The build script uses no pkg-config, sets
-//! no run-time search path (rpath), and searches no other location.
+//! The build script reads the build tag that `SLANG_TAG_VERSION` defines in
+//! `$VULKAN_SDK/include/slang/slang-tag-version.h` and records it in
+//! [`BUILD_INFO`]. It accepts the Slang of any SDK and compares the build tag
+//! with no recorded version. It then generates the bindings from the headers
+//! in `$VULKAN_SDK/include/slang` and tells Cargo to link the library
+//! `slang-compiler` dynamically from `$VULKAN_SDK/lib`. On Windows, that
+//! directory holds the import library `slang-compiler.lib`, the file that tells
+//! the linker which functions the library exports. The build script uses no
+//! pkg-config, sets no run-time search path (rpath), and searches no other
+//! location.
 //!
 //! The build stops with an error that says what to set when `VULKAN_SDK` is
 //! unset, empty, or not an absolute path, when the header is missing or does
-//! not define the build tag, when the build tag is another one, and when
-//! `$VULKAN_SDK/lib` is not a directory or cannot be accessed. When the
-//! operating system cannot report on that directory, the error includes the
-//! reason that it gives, such as a denied permission.
+//! not define the build tag as one string literal, when `$VULKAN_SDK/lib` is
+//! not a directory or cannot be accessed, when libclang cannot be loaded, and
+//! when the binding generator refuses the headers. When the operating system
+//! cannot report on a path, the error includes the reason that it gives, such
+//! as a denied permission.
 //!
 //! When the target has the operating system of the host, the build also stops
 //! when `$VULKAN_SDK/lib` does not hold the Slang library of the target:
@@ -192,84 +211,19 @@
 //! library of the host. Commands that do not link, such as `cargo check` and
 //! `cargo clippy`, then work, and a build that links fails in the linker.
 //!
-//! On the static route, the build script does not read `VULKAN_SDK`.
-//! `SLANG_SOURCE_DIR` holds the absolute path of the top-level directory of a
-//! git clone of Slang at the commit [`SLANG_COMMIT`], with its submodules.
-//! The build script asks git about that directory, and it stops the build
-//! when the directory is not the top level of a git work tree, when its commit
-//! differs from [`SLANG_COMMIT`], when a tracked file or a submodule differs
-//! from that commit as `git status` reports it, or when a submodule that the
-//! build needs is missing. A tree without git metadata, such as a source
-//! archive, is refused, because its commit cannot be verified. The build
-//! script runs git so that it does not write to the clone, and it never
-//! changes the clone.
-//!
-//! The static build needs the programs `git`, `cmake` 3.22 or later, and
-//! `ninja`, and a C++ compiler that `cmake` finds on the build machine, and it
-//! downloads nothing. Slang's build writes into its source tree, so the build
-//! script copies the files that git tracks into `slang/source` in its output
-//! directory. It copies them from the clone and from the submodules that the
-//! build uses. It then configures and builds that copy with `cmake` and
-//! `ninja`, keeps the build tree in `slang/build`, and puts the static
-//! libraries in `slang/lib`. The first build takes several minutes. A later
-//! run of the build script copies and configures again only when
-//! `SLANG_SOURCE_DIR`, the commit, or the configuration has changed, and
-//! `ninja` rebuilds only what changed. The output of `cmake` and `ninja` goes
-//! to the file `slang/build.log` in the output directory, and a step that
-//! fails stops the build with an error that names the log and shows its last
-//! lines. After the build, the build script checks that the built Slang
-//! reports the build tag [`SLANG_BUILD_TAG`].
-//!
-//! The static build then links the static libraries `slang-compiler`,
-//! `compiler-core`, `core`, `cmark-gfm`, `miniz`, and `lz4`, followed by the
-//! C++ standard library of the target, which is `stdc++` on Linux, `c++` on
-//! macOS, and none with the Microsoft toolchain. It supports Linux with the
-//! GNU C library, macOS, and Windows with the Microsoft toolchain, and it
-//! stops the build when the target differs from the host, because Slang's
-//! build runs programs that it builds. A program linked this way needs no
-//! Slang library at run time.
-//!
-//! The static build leaves out `slang-glslang`, the shared module of Slang
-//! that holds glslang and SPIRV-Tools, the tools through which Slang optimizes
-//! and validates SPIR-V. When the dynamic loader finds no `slang-glslang`
-//! shared library at run time, generating SPIR-V still succeeds, but the
-//! SPIR-V is not optimized, and it is not validated even when the environment
-//! variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, the only setting under which
-//! the pinned Slang validates SPIR-V on either route. The first generation of
-//! SPIR-V in each global session returns diagnostics that begin
-//! `error[E00100]: failed to load downstream compiler 'spirv-opt'`, followed
-//! by notes that name the libraries that Slang could not load, among them
-//! `slang-glslang`. A downstream compiler is a separate tool that Slang loads
-//! to process its output, and `spirv-opt` is the SPIR-V optimizer. Despite the
-//! word error, the generation succeeds. Later generations in the same global
-//! session succeed with no diagnostics, and no message says that validation
-//! was skipped. Output as SPIR-V assembly, the text form of SPIR-V, fails, as
-//! does every other feature that needs the module. When the dynamic loader
-//! finds a `slang-glslang` shared library, such as the one in `$VULKAN_SDK/lib`
-//! when that directory is on the library path, the statically linked Slang
-//! loads it and behaves as on the dynamic route: it reports no such
-//! diagnostic, optimizes SPIR-V, and those features work. The output of a
-//! statically linked program therefore depends on the environment in which it
-//! runs. The standard modules of Slang, such as `slang.neural`, are not built
-//! either.
-//!
-//! When the environment variable `DOCS_RS` is present, whatever its value, as
-//! on docs.rs, the build script reads nothing else and links nothing, so the
-//! documentation builds without Slang. A program built that way does not link.
-//!
 //! The manifest key `links` of this crate is `slang-compiler`, so the build
-//! script of a crate that depends on this one reads the directory of the
-//! Slang headers from `DEP_SLANG_COMPILER_INCLUDE` and the directory of the
-//! library from `DEP_SLANG_COMPILER_LIB`. On the dynamic route, they are
-//! `$VULKAN_SDK/include`, which holds the headers under `slang`, and
-//! `$VULKAN_SDK/lib`. On the static route, they are `slang/build/Release/include`
-//! and `slang/lib` in the output directory of the build script, and the
-//! former holds the headers and `slang-tag-version.h` directly. Neither is set
-//! when `DOCS_RS` is present.
+//! script of a crate that depends on this one reads what this build links
+//! from these variables:
 //!
-//! On the dynamic route, the dynamic loader of the operating system finds the
-//! shared library when the program starts, and the build script cannot tell
-//! it where the library is, so the environment of the program does:
+//! - `DEP_SLANG_COMPILER_INCLUDE`: `$VULKAN_SDK/include/slang`, the directory
+//!   that holds `slang.h` and `slang-tag-version.h`.
+//! - `DEP_SLANG_COMPILER_LIB`: `$VULKAN_SDK/lib`.
+//! - `DEP_SLANG_COMPILER_LINKAGE`: `dynamic`.
+//! - `DEP_SLANG_COMPILER_BUILD_TAG`: the build tag of [`BUILD_INFO`].
+//!
+//! The dynamic loader of the operating system finds the shared library when
+//! the program starts, and the build script cannot tell it where the library
+//! is, so the environment of the program does:
 //!
 //! - Linux: `$VULKAN_SDK/lib` is on `LD_LIBRARY_PATH`. The setup script of
 //!   the SDK puts it there.
@@ -329,7 +283,7 @@
 //!   where a shader starts to run.
 //!
 //! Slang is written in C++ and raises its internal errors as C++ exceptions.
-//! Most calls catch them, but some calls of the pinned build let an exception
+//! Most calls catch them, but some calls of the recorded Slang let an exception
 //! escape for some inputs. Every foreign function of this crate is therefore
 //! declared with the ABI `"C-unwind"`, and every vtable entry with
 //! `"system-unwind"`, which name the same calling conventions as `"C"` and
@@ -377,8 +331,106 @@
     ffi_unwind_calls,
     reason = "the thunks call vtable entries declared with the unwinding ABI, because Slang is C++ and some of its calls let an exception escape, which is undefined behaviour through a non-unwinding ABI"
 )]
-mod bindings;
+mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
 
 pub use bindings::*;
 
-include!("../pin.rs");
+/// The record of the Slang that a build of this crate generated its
+/// bindings from and links, and of how it links it.
+///
+/// Use it to report which Slang a program uses, or to check that the Slang
+/// library that a program loads at run time is the one that the build
+/// generated the bindings from. The build script writes the values, so they
+/// describe the build and not the source of this crate. [`BUILD_INFO`] holds
+/// the record of the current build.
+///
+/// # Examples
+///
+/// This example prints the version of the build and the Slang that it uses:
+///
+/// ```
+/// use slang_compiler_sys::BUILD_INFO;
+///
+/// println!(
+///     "{} uses Slang {} on a tested target: {}",
+///     BUILD_INFO.version, BUILD_INFO.slang_build_tag, BUILD_INFO.tested_target
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BuildInfo {
+    /// The build tag of the Slang of the build, such as
+    /// `2026.17-25-gc7954ebd1`.
+    ///
+    /// A build tag is the output of `git describe` on the Slang commit: the
+    /// nearest release tag, the number of commits after it, and `g` followed
+    /// by the abbreviated commit hash. It is the value that
+    /// `SLANG_TAG_VERSION` defines in `slang-tag-version.h` of the Vulkan SDK
+    /// that the build used. The Slang library returns the same string from
+    /// [`spGetBuildTagString`], so a program can compare the two at run time.
+    pub slang_build_tag: &'static str,
+    /// The full hash of the Slang commit of the build, when the build knows
+    /// it.
+    ///
+    /// It is `None` for a build that links the Slang of a Vulkan SDK, because
+    /// the SDK records no full commit.
+    pub slang_commit: Option<&'static str>,
+    /// How the build links Slang.
+    pub linkage: Linkage,
+    /// Whether the target of the build is one of the tested targets that
+    /// [Platform support](crate#platform-support) lists.
+    pub tested_target: bool,
+    /// The full version of the build, which names the Slang and the way the
+    /// build obtained it, such as
+    /// `0.1.0+slang.2026.17.0.25.gc7954ebd1.dynamic`.
+    ///
+    /// It is the version of this crate, a plus sign, and build metadata made
+    /// of `slang`, the numbers of the build tag with a missing patch or
+    /// commit count written as `0`, `g` followed by the abbreviated commit
+    /// hash of the build tag, and `dynamic` for a build that links the Slang
+    /// of a Vulkan SDK. A build tag of another form appears with every
+    /// character other than an ASCII letter, a digit, or a hyphen replaced by
+    /// a hyphen.
+    pub version: &'static str,
+}
+
+/// How a build of this crate links Slang.
+///
+/// Use it to tell whether a program needs the Slang shared library at run
+/// time. [`BuildInfo::linkage`] holds the linkage of the current build.
+///
+/// # Examples
+///
+/// This example says whether the program needs the Slang shared library:
+///
+/// ```
+/// use slang_compiler_sys::{BUILD_INFO, Linkage};
+///
+/// if BUILD_INFO.linkage == Linkage::Dynamic {
+///     println!("this program loads the Slang shared library when it starts");
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Linkage {
+    /// The build links the Slang shared library of a Vulkan SDK, which the
+    /// dynamic loader finds when the program starts.
+    Dynamic,
+    /// Slang is linked statically into the program, which then needs no
+    /// Slang library at run time. The build script of this crate links the
+    /// Slang shared library of a Vulkan SDK, so it never records this
+    /// linkage.
+    Static,
+}
+
+/// The record of the Slang that this build generated its bindings from and
+/// links.
+///
+/// Use it to report the Slang of a program, such as in its version output, or
+/// to compare it with the build tag that the loaded library reports.
+/// [`BuildInfo`] describes each field and has an example.
+pub const BUILD_INFO: BuildInfo = include!(concat!(env!("OUT_DIR"), "/build_info.rs"));

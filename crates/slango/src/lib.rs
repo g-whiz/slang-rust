@@ -279,7 +279,7 @@
 //!
 //! `slang-compiler` links the Slang library through `slang-compiler-sys`, as
 //! the [crate documentation of `slang-compiler`](slang_compiler) describes.
-//! By default, that is the Slang shared library of the pinned Vulkan SDK,
+//! By default, that is the Slang shared library of the Vulkan SDK of the build,
 //! which the dynamic loader has to find when the program starts.
 
 #[doc(hidden)]

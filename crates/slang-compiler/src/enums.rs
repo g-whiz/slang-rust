@@ -6,11 +6,11 @@ use slang_compiler_sys::{
 
 use crate::error::{Error, ErrorKind, Operation, Result};
 
-/// Returns the error for a value of a Slang enumeration that the pinned
+/// Returns the error for a value of a Slang enumeration that the Slang
 /// header does not list, which `what` names, such as `stage`.
 pub(crate) fn unrecognized(what: &str, value: u32) -> Error {
     Error::new(ErrorKind::Unrecognized, Operation::Reflect).with_detail(format!(
-        "Slang returned the {what} {value}, which the pinned Slang header does not list"
+        "Slang returned the {what} {value}, which the Slang header does not list"
     ))
 }
 
@@ -985,7 +985,7 @@ mod tests {
             assert_eq!(
                 error.to_string(),
                 format!(
-                    "cannot read reflection: Slang returned the stage {}, which the pinned Slang header does not list",
+                    "cannot read reflection: Slang returned the stage {}, which the Slang header does not list",
                     value.0
                 )
             );

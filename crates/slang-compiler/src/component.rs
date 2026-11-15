@@ -791,7 +791,7 @@ impl ComponentType {
     /// generates code or metadata for that target, so options added after
     /// that have no effect on that target.
     ///
-    /// The pinned Slang build applies these options of [`CompilerOptions`]
+    /// The recorded Slang applies these options of [`CompilerOptions`]
     /// this way:
     ///
     /// - [`CompilerOptions::force_dx_layout`],
@@ -900,7 +900,7 @@ impl ComponentType {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live component type that the Slang library of the
-    ///   build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   build information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session that the component type was created in.
     /// - `entry_point_count` is the number of entry points of the component
@@ -915,7 +915,7 @@ impl ComponentType {
         entry_point_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live component
-        // type of the pinned build and transfers one reference to it.
+        // type of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,
@@ -1126,7 +1126,7 @@ impl TypeConformance {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live type conformance that the Slang library of
-    ///   the build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   the build information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session that the type conformance was created in.
     /// - The type conformance is not used on another thread while the
@@ -1134,7 +1134,7 @@ impl TypeConformance {
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<ITypeConformance>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live type
-        // conformance of the pinned build and transfers one reference to it.
+        // conformance of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }
@@ -1535,7 +1535,7 @@ impl LinkedProgram {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live component type that the Slang library of the
-    ///   build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created, and that
+    ///   build information [`slang_compiler_sys::BUILD_INFO`] created, and that
     ///   is fully specialized and linked.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session that the component type was created in.
@@ -1551,7 +1551,7 @@ impl LinkedProgram {
         entry_point_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live linked
-        // component type of the pinned build and transfers one reference to it.
+        // component type of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,

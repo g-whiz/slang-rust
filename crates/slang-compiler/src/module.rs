@@ -237,7 +237,7 @@ impl Session {
     ///
     /// # Safety
     ///
-    /// `create_blob` returns null or a blob of the pinned Slang build with
+    /// `create_blob` returns null or a blob of the Slang of the build with
     /// one new reference that the caller of `create_blob` owns, and the blob
     /// holds a copy of the bytes that it was given. Breaking this is undefined
     /// behaviour.
@@ -584,8 +584,8 @@ impl Module {
     /// `[shader(...)]` attribute was checked when the module was loaded, and
     /// Slang returns it without another check, whatever `stage` is.
     ///
-    /// Aborts the process, instead of returning an error, when the pinned
-    /// Slang build lets a C++ exception escape this call, which it does for
+    /// Aborts the process, instead of returning an error, when the recorded
+    /// Slang lets a C++ exception escape this call, which it does for
     /// some functions, such as one whose parameter is a struct nested more
     /// than 128 levels deep. Before it aborts, it writes one line to standard
     /// error that names the Slang call `IModule::findAndCheckEntryPoint`. When
@@ -971,7 +971,7 @@ impl Module {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live module that the Slang library of the build
-    ///   tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session that loaded the module.
     /// - The module is not used on another thread while the returned value or
@@ -979,7 +979,7 @@ impl Module {
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IModule>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live module of
-        // the pinned build and transfers one reference to it.
+        // the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }
@@ -1314,7 +1314,7 @@ impl EntryPoint {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live entry point that the Slang library of the
-    ///   build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   build information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session of the module of the entry point.
     /// - The entry point is not used on another thread while the returned
@@ -1322,7 +1322,7 @@ impl EntryPoint {
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IEntryPoint>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live entry point
-        // of the pinned build and transfers one reference to it.
+        // of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }

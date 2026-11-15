@@ -114,7 +114,7 @@ com_interfaces!(
 /// object.
 ///
 /// It is the only code of the crate that adds or releases a reference. Its
-/// invariant is that `raw` points to a live object of the pinned Slang build
+/// invariant is that `raw` points to a live object of the Slang of the build
 /// that implements `T`, and that the value owns one reference to it.
 pub(crate) struct Owned<T: ComInterface> {
     raw: NonNull<T>,
@@ -125,7 +125,7 @@ impl<T: ComInterface> Owned<T> {
     ///
     /// # Safety
     ///
-    /// `raw` points to a live object of the pinned Slang build that implements
+    /// `raw` points to a live object of the Slang of the build that implements
     /// `T`, the caller owns one reference to it, because the call returned a
     /// new reference, and the caller transfers that reference to the returned
     /// value. Breaking any of them is undefined behaviour.
@@ -153,7 +153,7 @@ impl<T: ComInterface> Owned<T> {
     ///
     /// # Safety
     ///
-    /// `raw` points to a live object of the pinned Slang build that implements
+    /// `raw` points to a live object of the Slang of the build that implements
     /// `T`, which the call returned as a borrowed pointer, and the object that
     /// owns it is still alive. Breaking either is undefined behaviour.
     pub(crate) unsafe fn from_borrowed(raw: NonNull<T>) -> Self {

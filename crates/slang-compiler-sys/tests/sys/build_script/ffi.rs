@@ -1,10 +1,8 @@
 use std::ffi::OsString;
-use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 
-use super::{EntryKind, Exit, Finished, Host, Invocation, LoggedRunError, invocation, sync_copy};
+use super::{EntryKind, Generated, GenerationError, GenerationErrorKind, Host};
 
 include!("../../../system.rs");
 
@@ -20,23 +18,15 @@ fn scratch(name: &str) -> io::Result<PathBuf> {
     Ok(dir)
 }
 
-fn rustc(args: &[&str]) -> Invocation {
-    Invocation {
-        program: "rustc",
-        args: args.iter().map(|arg| (*arg).to_owned()).collect(),
-        ..invocation()
-    }
-}
-
 #[test]
 fn system_reads_variables_kinds_and_the_host_os() -> io::Result<()> {
     let dir = scratch("kinds")?;
     let file = dir.join("file.txt");
     System.write(&file, "text")?;
     assert_eq!(System.read(&file)?, "text");
-    let log = dir.join("build.log");
-    fs::write(&log, b"cl: \xfc\xe9 error\n")?;
-    assert_eq!(System.read(&log)?, "cl: \u{FFFD}\u{FFFD} error\n");
+    let other = dir.join("other.txt");
+    fs::write(&other, b"tag: \xfc\xe9\n")?;
+    assert_eq!(System.read(&other)?, "tag: \u{FFFD}\u{FFFD}\n");
     assert_eq!(System.kind(&dir)?, EntryKind::Directory);
     assert_eq!(System.kind(&file)?, EntryKind::File);
     assert_eq!(
@@ -55,220 +45,80 @@ fn system_reads_variables_kinds_and_the_host_os() -> io::Result<()> {
 }
 
 #[test]
-fn system_lists_every_file_under_nested_directories() -> io::Result<()> {
-    let dir = scratch("files")?;
-    for file in ["top.txt", "a/one.txt", "a/b/c/deep.txt"] {
-        System.write(&dir.join(file), file)?;
-    }
-    fs::create_dir_all(dir.join("empty"))?;
-    let mut files = System.files(&dir)?;
-    files.sort();
-    assert_eq!(
-        files,
-        [
-            Path::new("a").join("b").join("c").join("deep.txt"),
-            Path::new("a").join("one.txt"),
-            PathBuf::from("top.txt"),
-        ]
-    );
-    assert_eq!(
-        System
-            .files(&dir.join("missing"))
-            .map_err(|error| error.kind()),
-        Err(io::ErrorKind::NotFound)
-    );
-    fs::remove_dir_all(&dir)
-}
-
-#[test]
-fn system_writes_and_removes_files_and_creates_their_parents() -> io::Result<()> {
+fn system_writes_files_and_creates_their_parents() -> io::Result<()> {
     let dir = scratch("write")?;
-    let file = dir.join("x").join("y").join("stamp");
+    let file = dir.join("x").join("y").join("bindings.rs");
     System.write(&file, "first")?;
     System.write(&file, "second")?;
     assert_eq!(fs::read_to_string(&file)?, "second");
-    System.remove_file(&file)?;
-    assert_eq!(
-        System.remove_file(&file).map_err(|error| error.kind()),
-        Err(io::ErrorKind::NotFound)
-    );
     fs::remove_dir_all(&dir)
 }
 
 #[test]
-fn system_sync_keeps_an_unchanged_file_and_rewrites_a_changed_one() -> io::Result<()> {
-    let dir = scratch("sync")?;
-    let (from, to) = (
-        dir.join("source.h"),
-        dir.join("copy").join("nested").join("source.h"),
-    );
-    fs::write(&from, "one")?;
-    System.sync_file(&from, &to)?;
-    assert_eq!(fs::read_to_string(&to)?, "one");
-
-    let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
-    File::options().write(true).open(&to)?.set_modified(old)?;
-    System.sync_file(&from, &to)?;
-    assert_eq!(fs::metadata(&to)?.modified()?, old);
-
-    fs::write(&from, "two")?;
-    System.sync_file(&from, &to)?;
-    assert_eq!(fs::read_to_string(&to)?, "two");
-    assert_ne!(fs::metadata(&to)?.modified()?, old);
-    fs::remove_dir_all(&dir)
-}
-
-#[test]
-fn system_sync_copy_copies_tracked_files_and_removes_stale_ones() -> io::Result<()> {
-    let dir = scratch("sync-copy")?;
-    let (source, copy) = (dir.join("source"), dir.join("copy"));
-    let tracked = [
-        PathBuf::from("CMakeLists.txt"),
-        Path::new("src").join("a.cpp"),
-    ];
-    for file in &tracked {
-        System.write(&source.join(file), "tracked")?;
-    }
-    System.write(&copy.join("src").join("generated.h"), "stale")?;
-    System.write(&copy.join("stale.txt"), "stale")?;
-    assert_eq!(
-        sync_copy(&System, &source, &copy, &tracked).map_err(|error| format!("{error:?}")),
-        Ok(())
-    );
-    let mut files = System.files(&copy)?;
-    files.sort();
-    assert_eq!(files, tracked);
-    fs::remove_dir_all(&dir)
-}
-
-#[test]
-fn system_runs_a_program_and_captures_its_output_and_exit_status() -> io::Result<()> {
-    let Finished {
-        exit,
-        stdout,
-        stderr,
-    } = System.run(&rustc(&["--version"]))?;
-    assert_eq!(exit, Exit { code: Some(0) });
-    assert!(stdout.starts_with("rustc "), "{stdout:?}");
-    assert_eq!(stderr, "");
-
-    let failed = System.run(&rustc(&["--no-such-option"]))?;
-    assert!(!failed.exit.success(), "{failed:?}");
-    assert!(failed.stderr.contains("no-such-option"), "{failed:?}");
-
-    let dir = scratch("run")?;
-    let missing = Invocation {
-        dir: Some(dir.join("missing")),
-        ..rustc(&["--version"])
+fn system_generate_maps_each_failure_of_the_generator_and_keeps_its_causes() -> io::Result<()> {
+    let dir = scratch("generate")?;
+    let failure = |target: &str| {
+        System
+            .generate(&dir, target)
+            .expect_err("the scratch headers do not generate")
     };
-    assert!(System.run(&missing).is_err());
-    fs::remove_dir_all(&dir)
-}
-
-#[test]
-fn system_runs_a_program_with_the_variables_that_it_sets_and_removes() -> io::Result<()> {
-    let removed = "CARGO_MANIFEST_DIR";
+    let missing = failure("x86_64-unknown-linux-gnu");
+    assert_eq!(missing.kind, GenerationErrorKind::Other, "{missing:?}");
     assert!(
-        std::env::var_os(removed).is_some(),
-        "the test process lacks {removed}"
+        missing.message.starts_with(&format!(
+            "cannot read the main header {}, caused by: ",
+            dir.join("slang.h").display()
+        )),
+        "{missing:?}"
     );
-    let dir = scratch("env")?;
-    let (set, absent) = (dir.join("set.rs"), dir.join("absent.rs"));
-    fs::write(
-        &set,
-        "const _: () = assert!(matches!(env!(\"SLANG_COMPILER_SYS_SET\").as_bytes(), b\"set\"));\n",
-    )?;
-    fs::write(
-        &absent,
-        format!("const _: () = assert!(option_env!(\"{removed}\").is_none());\n"),
-    )?;
-    let check = |source: &Path| {
-        let out = dir.display().to_string();
-        let source = source.display().to_string();
-        rustc(&[
-            "--edition",
-            "2024",
-            "--crate-type",
-            "lib",
-            "--emit",
-            "metadata",
-            "--out-dir",
-            &out,
-            &source,
-        ])
-    };
-    for (invocation, compiles) in [
-        (check(&set), false),
-        (
-            Invocation {
-                env: vec![("SLANG_COMPILER_SYS_SET", "set")],
-                ..check(&set)
-            },
-            true,
+    fs::write(dir.join("slang.h"), "struct Unknown { int value; };\n")?;
+    let headers = failure("x86_64-unknown-linux-gnu");
+    assert_eq!(headers.kind, GenerationErrorKind::Headers, "{headers:?}");
+    assert!(
+        headers
+            .message
+            .contains("decide no declaration or macro of the headers"),
+        "{headers:?}"
+    );
+    let target = failure("notanarch-unknown-unknown");
+    assert_eq!(target.kind, GenerationErrorKind::Target, "{target:?}");
+    assert!(
+        target.message.starts_with(
+            "libclang cannot parse slang.h for target notanarch-unknown-unknown, which it does when it does not accept the target triple, caused by: "
         ),
-        (check(&absent), false),
-        (
-            Invocation {
-                env_remove: vec![removed],
-                ..check(&absent)
-            },
-            true,
-        ),
-    ] {
-        let finished = System.run(&invocation)?;
-        assert_eq!(
-            finished.exit.success(),
-            compiles,
-            "{invocation:?}: {finished:?}"
+        "{target:?}"
+    );
+    fs::remove_dir_all(&dir)
+}
+
+const CHILD: &str = "SLANG_COMPILER_SYS_TEST_WITHOUT_LIBCLANG";
+
+#[test]
+fn system_generate_reports_a_libclang_that_cannot_be_loaded() -> io::Result<()> {
+    let name = "build_script::ffi::system_generate_reports_a_libclang_that_cannot_be_loaded";
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("build-script-system")
+        .join("no-libclang");
+    if std::env::var_os(CHILD).is_some() {
+        let error = System
+            .generate(&dir, "x86_64-unknown-linux-gnu")
+            .expect_err("libclang cannot be loaded");
+        assert_eq!(error.kind, GenerationErrorKind::Libclang, "{error:?}");
+        assert!(
+            error.message.starts_with("cannot load libclang: "),
+            "{error:?}"
         );
+        return Ok(());
     }
-    fs::remove_dir_all(&dir)
-}
-
-#[test]
-fn system_appends_the_output_of_a_logged_program_to_its_log() -> io::Result<()> {
-    let dir = scratch("log")?;
-    let log = dir.join("build.log");
-    fs::write(&log, "earlier\n")?;
-    let exit = System.run_to_log(&rustc(&["--version"]), &log);
-    assert_eq!(exit.map_err(logged_kind), Ok(Exit { code: Some(0) }));
-    let failed = System.run_to_log(&rustc(&["--no-such-option"]), &log);
-    assert!(failed.is_ok_and(|exit| !exit.success()));
-    let text = fs::read_to_string(&log)?;
-    assert!(text.starts_with("earlier\nrustc "), "{text:?}");
-    assert!(text.contains("no-such-option"), "{text:?}");
-    fs::remove_dir_all(&dir)
-}
-
-fn logged_kind(error: LoggedRunError) -> (&'static str, io::ErrorKind) {
-    match error {
-        LoggedRunError::Log(error) => ("log", error.kind()),
-        LoggedRunError::Start(error) => ("start", error.kind()),
-    }
-}
-
-#[test]
-fn system_tells_a_log_that_cannot_be_opened_from_a_program_that_cannot_start() -> io::Result<()> {
-    let dir = scratch("log-errors")?;
-    let parent = dir.join("not-a-directory");
-    fs::write(&parent, "")?;
-    let unopenable = System.run_to_log(&rustc(&["--version"]), &parent.join("build.log"));
-    assert!(
-        matches!(unopenable, Err(LoggedRunError::Log(_))),
-        "{:?}",
-        unopenable.map_err(logged_kind)
-    );
-
-    let log = dir.join("build.log");
-    let missing = Invocation {
-        dir: Some(dir.join("missing")),
-        ..rustc(&["--version"])
-    };
-    let unstartable = System.run_to_log(&missing, &log);
-    assert!(
-        matches!(unstartable, Err(LoggedRunError::Start(_))),
-        "{:?}",
-        unstartable.map_err(logged_kind)
-    );
+    let dir = scratch("no-libclang")?;
+    fs::write(dir.join("slang.h"), "")?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", name, "--nocapture"])
+        .env(CHILD, "1")
+        .env("LIBCLANG_PATH", dir.join("no-such-directory"))
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{output:?}");
+    assert!(stdout.contains("1 passed"), "{stdout}");
     fs::remove_dir_all(&dir)
 }

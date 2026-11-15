@@ -74,7 +74,7 @@ impl Bytes {
 ///
 /// # Safety
 ///
-/// `raw` is null or points to a live blob of the pinned Slang build whose one
+/// `raw` is null or points to a live blob of the Slang of the build whose one
 /// reference the caller owns and transfers. Breaking this is undefined
 /// behaviour.
 pub(crate) unsafe fn take_diagnostics(raw: *mut ISlangBlob) -> Diagnostics {
@@ -127,7 +127,7 @@ pub(crate) fn take_text(
 ///
 /// # Safety
 ///
-/// `out` is null or points to a live object of the pinned Slang build that
+/// `out` is null or points to a live object of the Slang of the build that
 /// implements `T`, and `diagnostics` is null or points to a live blob. Each
 /// non-null pointer carries one reference that the caller owns and transfers,
 /// which is the new reference that the call returned in the output. Breaking
@@ -354,8 +354,8 @@ impl Blob {
     /// The caller guarantees all of these, and breaking any of them is
     /// undefined behaviour:
     ///
-    /// - `raw` points to a live blob that the Slang library of the build tag
-    ///   [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    /// - `raw` points to a live blob that the Slang library of the build information
+    ///   [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session of the call that returned the blob.
     /// - The blob's bytes do not change or move while the blob lives.
@@ -363,7 +363,7 @@ impl Blob {
     ///   clone of it exists.
     pub unsafe fn from_raw(raw: NonNull<ISlangBlob>, session: Session) -> Result<Self> {
         // SAFETY: the caller guarantees that `raw` points to a live blob of the
-        // pinned build and transfers one reference to it.
+        // Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         guard::call("Blob::from_raw", || {
             Self::new(raw, session, Operation::ReadBlob)
@@ -635,7 +635,7 @@ impl Metadata {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live metadata object that the Slang library of the
-    ///   build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   build information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `session` is the session of the call that returned the metadata.
     /// - The metadata is not used on another thread while the returned value
@@ -643,7 +643,7 @@ impl Metadata {
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IMetadata>, session: Session) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live metadata
-        // object of the pinned build and transfers one reference to it.
+        // object of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw, session }
     }

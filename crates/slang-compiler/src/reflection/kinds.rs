@@ -325,7 +325,7 @@ impl ResourceShape {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when the
-    /// base shape is a value that the pinned Slang header does not list.
+    /// base shape is a value that the Slang header does not list.
     pub fn base(self) -> Result<ResourceBaseShape> {
         use SlangResourceShape as S;
         Ok(

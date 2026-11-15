@@ -1,5 +1,5 @@
 //! The tests that observe the effect of the settings of a session, a target,
-//! and `link_with_options` on what the Slang library of the pinned Vulkan SDK
+//! and `link_with_options` on what the Slang library of the Vulkan SDK of the build
 //! loads and generates.
 
 use std::fs;
@@ -51,7 +51,7 @@ fn options(set: impl FnOnce(&mut CompilerOptions)) -> CompilerOptions {
 fn raw_int(name: CompilerOptionName, value: i32) -> CompilerOptions {
     let name = OptionName::new(name.0).expect("an option that an option set holds");
     let mut options = CompilerOptions::default();
-    // SAFETY: the pinned build reads each option that these tests set this
+    // SAFETY: the recorded Slang reads each option that these tests set this
     // way, `MatrixLayoutRow`, `MatrixLayoutColumn`, `UseUpToDateBinaryModule`,
     // and `RestrictiveCapabilityCheck`, as a Boolean from the first integer,
     // and 0 and 1 are values that it accepts.

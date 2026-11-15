@@ -1,6 +1,6 @@
 [package]
 name = "slang-compiler-sys"
-description = "Raw bindings to the Slang shader compiler, generated from the Slang headers."
+description = "Raw bindings to the Slang shader compiler, generated from the Slang headers in every build."
 keywords = ["slang", "shader", "ffi", "bindings", "gpu"]
 categories = ["external-ffi-bindings", "graphics"]
 links = "slang-compiler"
@@ -12,13 +12,11 @@ license = "Apache-2.0 WITH LLVM-exception"
 repository.workspace = true
 readme.workspace = true
 
-[package.metadata.docs.rs]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-]
+[build-dependencies]
+slang-bindgen.workspace = true
+
+[dev-dependencies]
+slang-bindgen.workspace = true
 
 [lints]
 workspace = true

@@ -1,5 +1,4 @@
 use std::fs;
-use std::process::{Command, Stdio};
 
 struct System;
 
@@ -27,85 +26,38 @@ impl Host for System {
         std::env::consts::OS
     }
 
-    fn run(&self, invocation: &Invocation) -> io::Result<Finished> {
-        let output = system_command(invocation).output()?;
-        Ok(Finished {
-            exit: Exit {
-                code: output.status.code(),
-            },
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
-    }
-
-    fn run_to_log(&self, invocation: &Invocation, log: &Path) -> Result<Exit, LoggedRunError> {
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log)
-            .map_err(LoggedRunError::Log)?;
-        let output = file.try_clone().map_err(LoggedRunError::Log)?;
-        let status = system_command(invocation)
-            .stdout(output)
-            .stderr(file)
-            .status()
-            .map_err(LoggedRunError::Start)?;
-        Ok(Exit {
-            code: status.code(),
-        })
-    }
-
-    fn files(&self, root: &Path) -> io::Result<Vec<PathBuf>> {
-        let mut files = Vec::new();
-        let mut pending = vec![PathBuf::new()];
-        while let Some(relative) = pending.pop() {
-            for entry in fs::read_dir(root.join(&relative))? {
-                let entry = entry?;
-                let path = relative.join(entry.file_name());
-                if entry.file_type()?.is_dir() {
-                    pending.push(path);
-                } else {
-                    files.push(path);
-                }
-            }
-        }
-        Ok(files)
-    }
-
-    fn sync_file(&self, from: &Path, to: &Path) -> io::Result<()> {
-        let data = fs::read(from)?;
-        if fs::read(to).is_ok_and(|existing| existing == data) {
-            return Ok(());
-        }
-        if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(to, data)
-    }
-
-    fn remove_file(&self, path: &Path) -> io::Result<()> {
-        fs::remove_file(path)
-    }
-
     fn write(&self, path: &Path, text: &str) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(path, text)
     }
+
+    fn generate(&self, header_dir: &Path, target: &str) -> Result<Generated, GenerationError> {
+        let generated = slang_bindgen::generate(header_dir, target)
+            .map_err(|error| generation_failure(&error))?;
+        Ok(Generated {
+            bindings: generated.bindings,
+            symbols: generated.symbols,
+        })
+    }
 }
 
-fn system_command(invocation: &Invocation) -> Command {
-    let mut command = Command::new(invocation.program);
-    command.args(&invocation.args).stdin(Stdio::null());
-    if let Some(dir) = &invocation.dir {
-        command.current_dir(dir);
+fn generation_failure(error: &slang_bindgen::Error) -> GenerationError {
+    let kind = match error.kind() {
+        slang_bindgen::ErrorKind::Libclang => GenerationErrorKind::Libclang,
+        slang_bindgen::ErrorKind::Target => GenerationErrorKind::Target,
+        slang_bindgen::ErrorKind::UnmatchedDeclaration
+        | slang_bindgen::ErrorKind::StaleRule
+        | slang_bindgen::ErrorKind::Unsupported => GenerationErrorKind::Headers,
+        _ => GenerationErrorKind::Other,
+    };
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(", caused by: ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
     }
-    for (name, value) in &invocation.env {
-        command.env(name, value);
-    }
-    for name in &invocation.env_remove {
-        command.env_remove(name);
-    }
-    command
+    GenerationError { kind, message }
 }

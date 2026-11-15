@@ -337,13 +337,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bindings-generator"
-version = "0.1.0"
-dependencies = [
- "clang",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3670,6 +3663,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "slang-bindgen"
+version = "0.1.0"
+dependencies = [
+ "clang",
+ "clang-sys",
+]
+
+[[package]]
 name = "slang-compiler"
 version = "0.1.0"
 dependencies = [
@@ -3680,6 +3681,9 @@ dependencies = [
 [[package]]
 name = "slang-compiler-sys"
 version = "0.1.0"
+dependencies = [
+ "slang-bindgen",
+]
 
 [[package]]
 name = "slang-rust-examples"

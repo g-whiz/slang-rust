@@ -2,7 +2,6 @@ use std::ffi::OsString;
 use std::fmt;
 
 const VULKAN_SDK: &str = "VULKAN_SDK";
-const DOCS_RS: &str = "DOCS_RS";
 const TARGET_OS: &str = "CARGO_CFG_TARGET_OS";
 
 /// What the logic of the build script reads from its environment.
@@ -22,19 +21,11 @@ impl fmt::Debug for BuildError {
     }
 }
 
-/// Returns the instructions for Cargo: the rerun instructions, the `cfg` of
-/// the stub for docs.rs, and, on Linux and macOS, the rpath of the library
-/// directory of the Vulkan SDK, through which the macro library finds the
-/// Slang library when rustc loads it.
+/// Returns the instructions for Cargo: the rerun instruction and, on Linux
+/// and macOS, the rpath of the library directory of the Vulkan SDK, through
+/// which the macro library finds the Slang library when rustc loads it.
 fn instructions(environment: &impl Environment) -> Result<Vec<String>, BuildError> {
-    let mut out = vec![
-        format!("cargo::rerun-if-env-changed={VULKAN_SDK}"),
-        format!("cargo::rerun-if-env-changed={DOCS_RS}"),
-        "cargo::rustc-check-cfg=cfg(slango_docs_rs)".to_owned(),
-    ];
-    if environment.var(DOCS_RS).is_some() {
-        out.push("cargo::rustc-cfg=slango_docs_rs".to_owned());
-    }
+    let mut out = vec![format!("cargo::rerun-if-env-changed={VULKAN_SDK}")];
     let target_os = environment.var(TARGET_OS);
     let rpath = matches!(
         target_os.as_ref().and_then(|os| os.to_str()),

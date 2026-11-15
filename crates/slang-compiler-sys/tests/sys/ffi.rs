@@ -3,7 +3,7 @@ use std::hint::black_box;
 use std::ptr;
 
 use slang_compiler_sys::{
-    IGlobalSession, ISlangUnknown, Interface, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
+    BUILD_INFO, IGlobalSession, ISlangUnknown, Interface, SlangGlobalSessionDesc, SlangResult,
     slang_createGlobalSession2, spGetBuildTagString,
 };
 
@@ -14,7 +14,7 @@ use crate::symbols::C_FUNCTIONS;
     ffi_unwind_calls,
     reason = "the smoke test calls the C functions of Slang directly, and an exception that escaped one would unwind into the test, which is defined and fails it"
 )]
-fn global_session_reports_the_pinned_build_tag_and_releases_every_reference() {
+fn global_session_reports_the_build_tag_of_the_build_and_releases_every_reference() {
     let desc = SlangGlobalSessionDesc::default();
     let mut session: *mut IGlobalSession = ptr::null_mut();
     // SAFETY: `desc` is a live descriptor whose size field holds its own size,
@@ -32,7 +32,7 @@ fn global_session_reports_the_pinned_build_tag_and_releases_every_reference() {
     // which Slang keeps for as long as the library stays loaded, and the test
     // binary never unloads it.
     let tag = unsafe { CStr::from_ptr(tag) };
-    assert_eq!(tag.to_str(), Ok(SLANG_BUILD_TAG));
+    assert_eq!(tag.to_str(), Ok(BUILD_INFO.slang_build_tag));
 
     // SAFETY: `session` is the live global session that
     // `slang_createGlobalSession2` returned above, and only this thread uses it.
@@ -41,7 +41,7 @@ fn global_session_reports_the_pinned_build_tag_and_releases_every_reference() {
     // SAFETY: `session_tag` is non-null and points to the null-terminated
     // build tag, which Slang keeps for as long as the library stays loaded.
     let session_tag = unsafe { CStr::from_ptr(session_tag) };
-    assert_eq!(session_tag.to_str(), Ok(SLANG_BUILD_TAG));
+    assert_eq!(session_tag.to_str(), Ok(BUILD_INFO.slang_build_tag));
 
     let uuid = ISlangUnknown::UUID;
     let mut unknown: *mut c_void = ptr::null_mut();

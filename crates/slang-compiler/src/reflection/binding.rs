@@ -30,7 +30,7 @@ use crate::guard;
 /// A binding is a numbered slot of a graphics API through which a shader
 /// reaches one resource. Slang reports a kind as a base kind combined with a
 /// flag that marks resources that a shader writes, and this enumeration has
-/// one variant for each combination that the pinned Slang header names. The
+/// one variant for each combination that the Slang header names. The
 /// enumeration is non-exhaustive, so a later version can add kinds, and a
 /// `match` on it needs a wildcard arm.
 ///
@@ -193,7 +193,7 @@ impl<'a> BindingRange<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a kind that the pinned Slang header does not list.
+    /// reports a kind that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -942,7 +942,7 @@ impl DescriptorRange<'_> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a kind that the pinned Slang header does not list.
+    /// reports a kind that the Slang header does not list.
     ///
     /// # Panics
     ///
@@ -994,7 +994,7 @@ impl DescriptorRange<'_> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a category that the pinned Slang header does not list.
+    /// reports a category that the Slang header does not list.
     ///
     /// # Panics
     ///

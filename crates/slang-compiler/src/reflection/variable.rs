@@ -377,7 +377,7 @@ impl<'a> VariableLayout<'a> {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::Unrecognized`] when Slang
-    /// reports a stage that the pinned Slang header does not list.
+    /// reports a stage that the Slang header does not list.
     ///
     /// # Panics
     ///

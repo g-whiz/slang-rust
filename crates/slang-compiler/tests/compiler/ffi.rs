@@ -17,12 +17,12 @@ use std::thread;
 use slang_compiler::{
     ErrorKind, GlobalSession, LanguageVersion, Operation, Session, Target, TargetFormat, Toggle,
 };
-use slang_compiler_sys::SLANG_BUILD_TAG;
+use slang_compiler_sys::BUILD_INFO;
 
 #[test]
-fn global_session_new_reports_the_pinned_build_tag() {
+fn global_session_new_reports_the_build_tag_of_the_build() {
     let global = GlobalSession::new().expect("Slang creates a global session");
-    assert_eq!(global.build_tag(), SLANG_BUILD_TAG);
+    assert_eq!(global.build_tag(), BUILD_INFO.slang_build_tag);
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn global_session_builder_creates_a_global_session_with_its_settings() {
         .min_language_version(LanguageVersion::V2026)
         .build()
         .expect("Slang creates a global session with GLSL input");
-    assert_eq!(global.build_tag(), SLANG_BUILD_TAG);
+    assert_eq!(global.build_tag(), BUILD_INFO.slang_build_tag);
 }
 
 #[test]
@@ -101,7 +101,10 @@ fn a_global_session_on_another_thread_succeeds_while_one_is_alive() {
     })
     .join()
     .expect("the other thread does not panic");
-    assert_eq!(other.expect("SPIR-V is supported"), SLANG_BUILD_TAG);
+    assert_eq!(
+        other.expect("SPIR-V is supported"),
+        BUILD_INFO.slang_build_tag
+    );
     global
         .check_target_support(TargetFormat::Spirv)
         .expect("the first global session still works");
@@ -113,7 +116,7 @@ fn into_raw_and_from_raw_hand_the_global_session_over() {
         .expect("Slang creates a global session")
         .into_raw();
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    // global session of the pinned build, and only this thread uses it.
+    // global session of the Slang of the build, and only this thread uses it.
     let global = unsafe { GlobalSession::from_raw(raw) };
     assert_eq!(global.as_raw(), raw);
     global

@@ -1,12 +1,12 @@
 //! The tests of sessions, targets, and compiler options against the Slang
-//! library of the pinned Vulkan SDK.
+//! library of the Vulkan SDK of the build.
 
 use slang_compiler::{
     CompilerOptions, DebugInfoLevel, ErrorKind, FloatingPointMode, GlobalSession, LanguageVersion,
     LineDirectiveMode, MatrixLayout, Operation, OptimizationLevel, OptionName, Session,
     SessionBuilder, Target, TargetFormat, Toggle,
 };
-use slang_compiler_sys::{CompilerOptionName, ISession, SLANG_BUILD_TAG};
+use slang_compiler_sys::{BUILD_INFO, CompilerOptionName, ISession};
 
 fn spirv() -> Target {
     Target::new(TargetFormat::Spirv)
@@ -67,7 +67,7 @@ fn assert_rejected(builder: SessionBuilder, kind: ErrorKind, text: &str) {
     }
 }
 
-/// Shows only that the pinned Slang accepts a session descriptor that holds
+/// Shows only that the recorded Slang accepts a session descriptor that holds
 /// every setting, and creates the session. The test loads no module, so it
 /// observes no effect of any setting on what Slang compiles.
 #[test]
@@ -76,7 +76,7 @@ fn a_session_with_four_targets_and_every_setting_is_created() {
     let uniformity =
         OptionName::new(CompilerOptionName::ValidateUniformity.0).expect("a stored option");
     let mut options = every_typed_option();
-    // SAFETY: the pinned Slang reads `ValidateUniformity` with
+    // SAFETY: the recorded Slang reads `ValidateUniformity` with
     // `getBoolOption`, from the first integer of the entry, and any value is
     // valid for it.
     unsafe { options.set_int(uniformity, 1, 0) };
@@ -215,7 +215,7 @@ fn build_rejects_a_language_version_on_a_target_and_takes_it_on_the_session() {
     assert_rejected(
         Session::builder(&global).target(spirv().profile("spirv_1_5").options(options.clone())),
         ErrorKind::InvalidArgument,
-        "the options of target 0 set `LanguageVersion`, which the pinned Slang build reads only \
+        "the options of target 0 set `LanguageVersion`, which the recorded Slang reads only \
          from the options of the session, so set it on the session instead",
     );
     let session = Session::builder(&global)
@@ -254,14 +254,17 @@ fn a_session_keeps_its_global_session_alive_after_the_handle_is_dropped() {
         .build()
         .expect("Slang creates the session");
     drop(global);
-    assert_eq!(session.global_session().build_tag(), SLANG_BUILD_TAG);
+    assert_eq!(
+        session.global_session().build_tag(),
+        BUILD_INFO.slang_build_tag
+    );
     session
         .global_session()
         .check_target_support(TargetFormat::Spirv)
         .expect("the global session still works");
 }
 
-/// Shows only that the pinned Slang accepts each of the four settings that
+/// Shows only that the recorded Slang accepts each of the four settings that
 /// Slang takes from fields of the target descriptor, set on the session, on a
 /// target, and on both. The test loads no module, so it observes no effect of
 /// them on generated code.
@@ -312,7 +315,7 @@ fn into_raw_and_from_raw_hand_the_session_over() {
     let raw_global = unsafe { ISession::getGlobalSession(raw.as_ptr()) };
     assert_eq!(raw_global, global.as_raw().as_ptr());
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    // session of the pinned build that `parent` created with two targets, and
+    // session of the Slang of the build that `parent` created with two targets, and
     // only this thread uses it.
     let session = unsafe { Session::from_raw(raw, parent, 2) };
     assert_eq!(session.as_raw(), raw);
@@ -331,7 +334,7 @@ fn the_global_session_of_into_raw_outlives_the_release_of_the_raw_session() {
         .into_raw();
     drop(global);
     // SAFETY: `raw` carries the one reference that `into_raw` gave up, of a
-    // live session of the pinned build that only this thread uses, and
+    // live session of the Slang of the build that only this thread uses, and
     // `parent` keeps its global session alive past this release.
     unsafe { ISession::release(raw.as_ptr()) };
     parent

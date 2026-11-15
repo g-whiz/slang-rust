@@ -6,30 +6,33 @@ The crates let a Rust program compile Slang code, read the parameters it declare
 
 ## Crates
 
-The workspace holds six crates. No crate is published yet.
+The workspace holds eight crates. No crate is published yet.
 
 | Crate | Purpose |
 | --- | --- |
-| `slang-compiler-sys` | Raw bindings to the native Slang library, generated from the Slang headers. Bindings are Rust declarations that let Rust code call a library written in another language. |
+| `slang-compiler-sys` | Raw bindings to the native Slang library, which its build script generates from the headers of the Slang that it links. Bindings are Rust declarations that let Rust code call a library written in another language. |
+| `slang-bindgen` | The binding generator, which reads the Slang headers with libclang and writes the raw bindings for `slang-compiler-sys`. |
+| `slang-src` | The crate that obtains the Slang source tree for a build of Slang from source. No crate uses it yet. |
 | `slang-compiler` | Safe, idiomatic wrappers over `slang-compiler-sys`, with no GPU dependency. It compiles Slang code to output formats such as SPIR-V, the binary shader format of Vulkan, and reflects the parameters of compiled code with their types, memory layouts, and bindings. |
 | `slango` | A high-level library that runs Slang code on the GPU through wgpu, a Rust graphics library. It loads a Slang module, runs a compute kernel with its parameters set by name, reads the results back, and draws with a vertex and a fragment entry point into a texture. |
 | `slango-macros` | The macro `shader!`, which compiles a Slang file while the calling crate builds and generates a typed Rust struct for each compute kernel and for each Slang structure that a kernel takes. A misspelled parameter or a value of the wrong type is then a compile error. |
 | `slango-codegen` | The generator behind `slango-macros`, as a library. |
 | `slang-slint` | A view for Slint, a Rust toolkit for graphical user interfaces. It shares Slint's GPU device with `slango` and shows what `slango` draws as an image in a Slint window. |
 
-The repository also holds the binding generator, which writes the raw bindings, and the examples. Neither is published.
+The repository also holds the examples, which are not published.
 
 ## Requirements
 
 Building the workspace needs these tools and libraries:
 
 - Rust 1.99 or later, as the `rust-version` field of the workspace manifest declares.
-- The LunarG Vulkan software development kit (SDK) 1.4.363.1, from <https://vulkan.lunarg.com>, with the environment variable `VULKAN_SDK` set to its directory. The SDK ships the Slang library that the crates link dynamically.
+- A LunarG Vulkan software development kit (SDK), from <https://vulkan.lunarg.com>, with the environment variable `VULKAN_SDK` set to its directory. The SDK ships the Slang library that the crates link dynamically. The crates are tested with the Slang of SDK 1.4.363.1, and the Slang of another SDK is best effort.
+- libclang, the C and C++ parser library of the LLVM project, because every build of `slang-compiler-sys` generates the raw bindings with it. On Linux, a package such as `libclang-dev` provides it. On macOS, the Xcode command line tools provide it, and on Windows, an installation of LLVM does. The environment variable `LIBCLANG_PATH` can name the directory that holds it.
 - On Linux, the development files of fontconfig, such as the package `libfontconfig-dev`, because Slint links fontconfig.
 
-The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or the SDK ships another Slang build.
+The build of `slang-compiler-sys` stops with a message that says what to install and set when `VULKAN_SDK` is missing or libclang cannot be loaded.
 
-A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then. On Windows, the compiler then also needs the SDK's `Bin` directory on `PATH`. The crate-level documentation of `slango-macros` says how the compiler finds the Slang library on each platform, and what the macro generates when the documentation builds without Slang, as on docs.rs.
+A crate that calls the macro `shader!` needs the same SDK when it builds, because the macro compiles its Slang file then. On Windows, the compiler then also needs the SDK's `Bin` directory on `PATH`. The crate-level documentation of `slango-macros` says how the compiler finds the Slang library on each platform.
 
 On Linux, `VULKAN_SDK` names the `x86_64` directory of the SDK. These commands set it and build the workspace, with a placeholder path:
 
@@ -37,14 +40,6 @@ On Linux, `VULKAN_SDK` names the `x86_64` directory of the SDK. These commands s
 export VULKAN_SDK=/tmp/vulkan-sdk/1.4.363.1/x86_64
 cargo build --workspace
 ```
-
-## Building Slang from Source
-
-As an alternative to the Vulkan SDK, the build can compile Slang from source and link it statically, so the program needs no Slang library at run time. There is no prebuilt download.
-
-To select this build, set the environment variable `SLANG_SOURCE_DIR` to the absolute path of a git clone of Slang at the pinned commit. The clone needs its submodules and no local changes to its tracked files, and the build refuses a source archive without git metadata.
-
-This build needs git, CMake 3.22 or later, Ninja, and a C++ compiler. It downloads nothing and leaves the clone unchanged, and the first build takes several minutes. Section 9.3 of the [design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md) gives the supported targets and what the build leaves out.
 
 ## Examples
 
@@ -86,9 +81,9 @@ just check
 
 [`AGENTS.md`](https://github.com/g-whiz/slang-rust/blob/main/AGENTS.md) holds the rules for working in the repository and the recipe to run for each kind of change. These documents are under `docs/`:
 
-- [Architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md): The crates, how Slang is obtained and pinned, and the roadmap.
+- [Architecture design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/architecture.md): The crates, how Slang is obtained and which Slang is recorded, and the roadmap.
 - [Tooling design](https://github.com/g-whiz/slang-rust/blob/main/docs/design/tooling.md): The tool configuration, the recipes, the hooks, the custom checkers, and the continuous integration.
-- [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator, the pin, and the build script.
+- [Design of `slang-compiler-sys`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler-sys.md): The raw bindings, the binding generator `slang-bindgen`, the build information, and the build script.
 - [Design of `slang-compiler`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-compiler.md): The safe compile and reflection API and the example `compile-and-reflect`.
 - [Design of `slango`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slango.md): Compute kernels and render pipelines on wgpu, and the examples `compute-kernel` and `windowed-renderer`.
 - [Design of `slang-slint`](https://github.com/g-whiz/slang-rust/blob/main/docs/design/slang-slint.md): The Slint view and the example `shader-playground`.
@@ -103,10 +98,10 @@ Each crate has its own licence, given here as an SPDX licence expression. Each c
 
 | Crate | Licence | Licence text |
 | --- | --- | --- |
-| `slang-compiler-sys` | `Apache-2.0 WITH LLVM-exception`, the licence of Slang | [`LICENSE-APACHE-LLVM`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE-LLVM) |
-| `slang-compiler`, `slango`, `slango-macros`, and `slango-codegen` | `MIT OR Apache-2.0`, at your option | [`LICENSE-MIT`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-MIT) and [`LICENSE-APACHE`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE) |
+| `slang-compiler-sys` and `slang-src` | `Apache-2.0 WITH LLVM-exception`, the licence of Slang | [`LICENSE-APACHE-LLVM`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE-LLVM) |
+| `slang-bindgen`, `slang-compiler`, `slango`, `slango-macros`, and `slango-codegen` | `MIT OR Apache-2.0`, at your option | [`LICENSE-MIT`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-MIT) and [`LICENSE-APACHE`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-APACHE) |
 | `slang-slint` | `GPL-3.0-or-later` | [`LICENSE-GPL`](https://github.com/g-whiz/slang-rust/blob/main/LICENSE-GPL) |
 
-The binding generator and the source of the examples are also under `MIT OR Apache-2.0`.
+The source of the examples is also under `MIT OR Apache-2.0`.
 
 `slang-slint` depends on Slint, which is available under several licences, and takes it under version 3 of the GNU General Public License only, with the SPDX identifier `GPL-3.0-only`. A program that uses `slang-slint` is therefore distributed under version 3 of the GNU General Public License only. The example `shader-playground` uses Slint too, so the program built from it is under version 3 of the GNU General Public License only. The other crates do not depend on Slint, so this does not apply to them.

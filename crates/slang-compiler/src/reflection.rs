@@ -28,7 +28,7 @@
 //! [`ErrorKind::InvalidArgument`]. A method
 //! returns `None` where Slang returns nothing, and an [`Error`]
 //! where the crate converts Slang's answer and it does not fit, such as a name
-//! that is not UTF-8 or a value of an enumeration that the pinned Slang
+//! that is not UTF-8 or a value of an enumeration that the recorded Slang
 //! header does not list.
 
 use slang_compiler_sys::{SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangInt};
@@ -184,7 +184,7 @@ fn signed(value: SlangInt, what: &str) -> Result<usize> {
 /// Converts a binding number or a binding space that Slang returned as
 /// `size_t`, or returns `None` for `SLANG_UNKNOWN_SIZE`, which Slang returns
 /// when the number is not known, and for `SLANG_UNBOUNDED_SIZE`, which the
-/// pinned Slang does not return for these numbers.
+/// recorded Slang does not return for these numbers.
 fn binding_number(raw: usize) -> Option<u64> {
     match raw {
         SLANG_UNBOUNDED_SIZE | SLANG_UNKNOWN_SIZE => None,

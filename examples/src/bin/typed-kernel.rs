@@ -26,7 +26,7 @@
 //! cargo run -p slang-rust-examples --bin typed-kernel
 //! ```
 //!
-//! Building the example needs the pinned Slang, as the crate `slango-macros`
+//! Building the example needs the recorded Slang, as the crate `slango-macros`
 //! describes. The program needs a GPU driver or a software driver, such as
 //! lavapipe on Linux. It loads the Slang shared library of the Vulkan SDK
 //! when it starts, so `$VULKAN_SDK/lib` has to be on `LD_LIBRARY_PATH` on

@@ -3,14 +3,14 @@ set -euo pipefail
 
 usage() {
     printf '%s\n' "usage: check-vulkan-sdk" "" \
-        "Checks that the Vulkan SDK at VULKAN_SDK provides Slang with the build tag of" \
-        "the pin, which it reads with just pin: slang.h and slang-tag-version.h under" \
-        "include/slang, a SLANG_TAG_VERSION equal to the tag, the Slang compiler library" \
-        "of the platform, and a slangc whose -version prints the tag. Lists the files" \
-        "that it finds." \
+        "Checks that the Vulkan SDK at VULKAN_SDK provides the Slang that slang-src" \
+        "records, whose build tag it reads with just recorded-slang: slang.h and" \
+        "slang-tag-version.h under include/slang, a SLANG_TAG_VERSION equal to the tag," \
+        "the Slang compiler library of the platform, and a slangc whose -version prints" \
+        "the tag. Lists the files that it finds." \
         "Exits 1 when a check fails, including when VULKAN_SDK names a path that is not" \
         "a directory, and 2 on a usage error, when VULKAN_SDK is unset or empty, when" \
-        "just pin fails, or when just pin prints no SLANG_BUILD_TAG."
+        "just recorded-slang fails, or when it prints no RECORDED_BUILD_TAG."
 }
 
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
@@ -23,18 +23,18 @@ if [[ $# -ne 0 ]]; then
 fi
 
 justfile="$(dirname -- "${BASH_SOURCE[0]}")/../justfile"
-if ! pin="$(just --justfile "${justfile}" pin)"; then
-    printf 'check-vulkan-sdk: just pin failed\n' >&2
+if ! recorded="$(just --justfile "${justfile}" recorded-slang)"; then
+    printf 'check-vulkan-sdk: just recorded-slang failed\n' >&2
     exit 2
 fi
 tag=""
 while IFS= read -r line; do
-    if [[ "${line}" == SLANG_BUILD_TAG=* ]]; then
-        tag="${line#SLANG_BUILD_TAG=}"
+    if [[ "${line}" == RECORDED_BUILD_TAG=* ]]; then
+        tag="${line#RECORDED_BUILD_TAG=}"
     fi
-done <<<"${pin}"
+done <<<"${recorded}"
 if [[ -z "${tag}" ]]; then
-    printf 'check-vulkan-sdk: just pin printed no SLANG_BUILD_TAG\n' >&2
+    printf 'check-vulkan-sdk: just recorded-slang printed no RECORDED_BUILD_TAG\n' >&2
     exit 2
 fi
 

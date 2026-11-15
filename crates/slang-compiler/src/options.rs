@@ -18,7 +18,7 @@ use crate::strings::c_string;
 /// Slang build that this crate was built for.
 ///
 /// Slang names each compiler option by a number. This type holds a number
-/// that names an option of the pinned Slang build, for the raw setters
+/// that names an option of the recorded Slang, for the raw setters
 /// [`CompilerOptions::set_int`] and [`CompilerOptions::set_string`], which
 /// reach the options that [`CompilerOptions`] has no typed setter for. Take
 /// the number from the constants of
@@ -41,7 +41,7 @@ use crate::strings::c_string;
 pub struct OptionName(CompilerOptionName);
 
 impl OptionName {
-    /// Checks that a number names a compiler option of the pinned Slang
+    /// Checks that a number names a compiler option of the recorded Slang
     /// build, and returns the name.
     ///
     /// Slang numbers its options from 0 up to a sentinel, `CountOf`, and
@@ -56,7 +56,7 @@ impl OptionName {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `value` is
-    /// negative, is not below the sentinel `CountOf` of the pinned Slang
+    /// negative, is not below the sentinel `CountOf` of the recorded Slang
     /// build, or is 79, 111, or 159.
     pub fn new(value: i32) -> Result<Self> {
         let name = CompilerOptionName(value);
@@ -74,7 +74,7 @@ impl OptionName {
                 Error::new(ErrorKind::InvalidArgument, Operation::CreateOptionName)
                     .with_subject(format!("`{value}`"))
                     .with_detail(
-                        "the number names no compiler option that the pinned Slang build stores"
+                        "the number names no compiler option that the recorded Slang stores"
                             .to_owned(),
                     ),
             )
@@ -130,7 +130,7 @@ pub struct CompilerOptions {
     entries: Vec<Entry>,
 }
 
-/// The options that the pinned Slang build never reads from the options of a
+/// The options that the recorded Slang never reads from the options of a
 /// target, with Slang's name of each. It reads `LanguageVersion` only from
 /// the session when it parses and checks source, and the three warning
 /// options only when it applies the options of the session or of a linked
@@ -158,7 +158,7 @@ impl CompilerOptions {
     /// Sets the version of the Slang language whose rules apply to the
     /// source, as Slang's option `LanguageVersion`.
     ///
-    /// The pinned Slang build never reads this option from the options of a
+    /// The recorded Slang never reads this option from the options of a
     /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
     /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
     /// options of the session.
@@ -183,7 +183,7 @@ impl CompilerOptions {
     /// name that it does not know in the diagnostics of the call that applies
     /// the option, such as the load of a module.
     ///
-    /// The pinned Slang build never reads this option from the options of a
+    /// The recorded Slang never reads this option from the options of a
     /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
     /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
     /// options of the session.
@@ -203,7 +203,7 @@ impl CompilerOptions {
     /// that it does not know in the diagnostics of the call that applies the
     /// option, such as the load of a module.
     ///
-    /// The pinned Slang build never reads this option from the options of a
+    /// The recorded Slang never reads this option from the options of a
     /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
     /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
     /// options of the session.
@@ -223,7 +223,7 @@ impl CompilerOptions {
     /// know in the diagnostics of the call that applies the option, such as
     /// the load of a module.
     ///
-    /// The pinned Slang build never reads this option from the options of a
+    /// The recorded Slang never reads this option from the options of a
     /// target, so [`SessionBuilder::build`](crate::SessionBuilder::build)
     /// rejects a [`Target`](crate::Target) whose options set it. Set it in the
     /// options of the session.
@@ -339,7 +339,7 @@ impl CompilerOptions {
     /// Sets whether Slang skips the validation of the SPIR-V that it
     /// generates, as Slang's option `SkipSPIRVValidation`.
     ///
-    /// SPIR-V is the binary shader format of Vulkan. The pinned Slang build
+    /// SPIR-V is the binary shader format of Vulkan. The recorded Slang
     /// validates the SPIR-V that it generates directly only when the
     /// environment variable `SLANG_RUN_SPIRV_VALIDATION` is `1`, and
     /// [`Toggle::On`] skips that validation even then.
@@ -360,7 +360,7 @@ impl CompilerOptions {
     /// which the session builder fills as it does for
     /// [`CompilerOptions::floating_point_mode`], so the setting applies in the
     /// options of the session and of a target, and the target's own value
-    /// wins. The pinned Slang build reads this option when it lays out types
+    /// wins. The recorded Slang reads this option when it lays out types
     /// and generates code for a target, from the options of that target.
     /// In the options of
     /// [`ComponentType::link_with_options`](crate::ComponentType::link_with_options),
@@ -377,7 +377,7 @@ impl CompilerOptions {
     /// Sets whether the fields of buffers follow the layout rules of
     /// DirectX, as Slang's option `ForceDXLayout`.
     ///
-    /// The pinned Slang build reads this option when it lays out types for a
+    /// The recorded Slang reads this option when it lays out types for a
     /// target, from the options of that target, which start from the options
     /// of the session.
     /// In the options of
@@ -395,7 +395,7 @@ impl CompilerOptions {
     /// Sets whether the fields of buffers follow the layout rules of C
     /// structures, as Slang's option `ForceCLayout`.
     ///
-    /// The pinned Slang build reads this option when it lays out types for a
+    /// The recorded Slang reads this option when it lays out types for a
     /// target, from the options of that target, which start from the options
     /// of the session.
     /// In the options of
@@ -415,7 +415,7 @@ impl CompilerOptions {
     /// `PreserveParameters`.
     ///
     /// A resource is an object that a shader reads or writes through a
-    /// binding, such as a buffer or a texture. The pinned Slang build reads
+    /// binding, such as a buffer or a texture. The recorded Slang reads
     /// this option from the options of the session when it links the code of
     /// a target, and from the options of the target when it generates the
     /// code, so set it on the session for it to apply to both steps. In the
@@ -441,7 +441,7 @@ impl CompilerOptions {
     ///
     /// This example turns on the uniformity analysis of Slang. Neither
     /// Slang's header nor its user guide states the kind of the value, and
-    /// the pinned Slang build reads the first integer of the entry, as a
+    /// the recorded Slang reads the first integer of the entry, as a
     /// Boolean that any value other than 0 turns on:
     ///
     /// ```
@@ -450,7 +450,7 @@ impl CompilerOptions {
     ///
     /// let mut options = CompilerOptions::default();
     /// let name = OptionName::new(CompilerOptionName::ValidateUniformity.0)?;
-    /// // SAFETY: the pinned Slang build reads this option as an integer, and
+    /// // SAFETY: the recorded Slang reads this option as an integer, and
     /// // accepts any value.
     /// unsafe { options.set_int(name, 1, 0) };
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -555,7 +555,7 @@ impl CompilerOptions {
     }
 
     /// Returns Slang's name of the first option in these options that the
-    /// pinned Slang build reads only from the options of a session, or `None`
+    /// recorded Slang reads only from the options of a session, or `None`
     /// when they set none.
     pub(crate) fn first_session_only(&self) -> Option<&'static str> {
         self.entries.iter().find_map(|entry| {
@@ -800,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn the_numbers_of_the_typed_options_match_the_pinned_header() {
+    fn the_numbers_of_the_typed_options_match_the_header() {
         let names = [
             (CompilerOptionName::LanguageVersion, 107),
             (CompilerOptionName::WarningsAsErrors, 19),
@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(
             OptionName::new(79).map_err(|error| error.to_string()),
             Err(
-                "cannot name compiler option `79`: the number names no compiler option that the pinned Slang build stores"
+                "cannot name compiler option `79`: the number names no compiler option that the recorded Slang stores"
                     .to_owned()
             )
         );

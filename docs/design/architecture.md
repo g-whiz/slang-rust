@@ -255,7 +255,7 @@ The vendored route of `slang-compiler-sys` links six static libraries, followed 
 
 Slang's build produces slang-glslang, which Slang uses to optimize SPIR-V, only as a module that it loads at run time, so a statically linked Slang alone emits SPIR-V that is not optimized. `slang-glslang-sys` builds slang-glslang as static libraries from the same tree, and `slang-compiler` with its feature `vendored` installs its in-process loader on every global session, so a vendored build of `slang-compiler` emits optimized SPIR-V (SGL-12 of `docs/design/slang-glslang-sys.md`).
 
-By default, the clone and the built libraries live in the shared folder, which every profile and every host and target unit of a project use, so a procedural macro that links Slang, such as `slango-macros`, and the program clone and build Slang once for each target directory. `cargo clean` removes the folder, and projects share it only by sharing a target directory. Where the build script finds no tag of Cargo above `OUT_DIR`, each unit builds in its own `OUT_DIR` instead (Sections 8 and 9 of `docs/design/slang-src.md`). The lookup was observed on x86_64 Linux only (Section 16, A-27).
+By default, the clone and the built libraries live in the shared folder, which every profile and every host and target unit of a project use, so a procedural macro that links Slang, such as `slango-macros`, and the program clone and build Slang once for each target directory. `cargo clean` removes the folder, and projects share it only by sharing a target directory. Where the build script finds no tag of Cargo above `OUT_DIR`, each unit builds in its own `OUT_DIR` instead (Sections 8 and 9 of `docs/design/slang-src.md`). The lookup works on x86_64 Linux, Windows, and macOS in a target directory that Cargo creates without `--target`, where the build script clones once. That the lookup holds under `--target` and with a separate build directory, and that every unit shares one native build, are assumptions (Section 16, A-28).
 
 The recipe `test-vendored` runs the tests of the native crates and `slang-compiler` with the feature, without the SDK (SCS-63 of `docs/design/slang-compiler-sys.md`).
 
@@ -918,7 +918,7 @@ The design document or milestone in the last column confirms or corrects it, and
 | A-24 | Slang offers no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source | Section 15.19 | The design of M16 |
 | A-25 | docs.rs builds crates without network access | Section 13 | The design of M8 |
 | A-26 | The recorded Slang holds the module `slang.neural` under `source/standard-modules/neural`, marks it experimental, and needs the experimental feature flag to use it | Section 15.20 | The design of M17 |
-| A-27 | On Windows and macOS, as on x86_64 Linux, the build script of `slang-src` finds the shared folder in the Cargo target directory through Cargo's file `CACHEDIR.TAG`, so that every profile and every host and target unit of a project share one clone and one native build | Section 4.3 | The vendored CI jobs on Windows and macOS (SRCA-7 of `docs/design/slang-src.md`) |
+| A-28 | On Windows and macOS, the build script of `slang-src` also finds the shared folder under `--target` and with a separate build directory, and every host and target unit of a project share one native build | Section 4.3 | A vendored build on Windows and macOS with `--target` and with a native build (SRCA-9 of `docs/design/slang-src.md`) |
 
 ## 17. Open Questions
 

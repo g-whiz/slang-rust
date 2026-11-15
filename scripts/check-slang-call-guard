@@ -17,10 +17,12 @@ Checks that in the crate slang-compiler, every call into Slang runs
 inside a closure passed to abort_on_exception, which is the innermost frame around exactly one such
 call. A call into Slang is a call of a C function or of a generated thunk
 of slang-compiler-sys. The checker learns both from the generated
-bindings crates/slang-compiler-sys/src/bindings.rs of the git repository
-that contains the current directory: the C functions are the functions of
-its unsafe extern "C-unwind" block, and the thunks are the unsafe fn
-methods of its inherent impl blocks, whose types are the interfaces.
+bindings target/slang-bindgen/bindings.rs of the git repository that
+contains the current directory, which the recipe check-slang-call-guard
+writes with the binary of slang-bindgen before it runs the checker. The
+C functions are the functions of its unsafe extern "C-unwind" block, and
+the thunks are the unsafe fn methods of its inherent impl blocks, whose
+types are the interfaces.
 
 A C function is recognized by its name, with or without a path. A thunk
 is recognized as a path Q::m or <Q>::m, where m is a thunk of interface
@@ -52,7 +54,7 @@ includes bindings that declare no C function or no thunk, after checking
 every readable file."""
 
 NAME = "check-slang-call-guard"
-BINDINGS = "crates/slang-compiler-sys/src/bindings.rs"
+BINDINGS = "target/slang-bindgen/bindings.rs"
 CRATE_SOURCES = "crates/slang-compiler/src/*.rs"
 EXCLUDED_FILE = "fake.rs"
 GUARD = "abort_on_exception"

@@ -3,8 +3,8 @@ use std::fmt;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
-    IGlobalSession, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
-    slang_createGlobalSession2, spGetBuildTagString,
+    BUILD_INFO, IGlobalSession, SlangGlobalSessionDesc, SlangResult, slang_createGlobalSession2,
+    spGetBuildTagString,
 };
 
 use crate::enums::{LanguageVersion, TargetFormat, Toggle};
@@ -108,9 +108,10 @@ impl GlobalSession {
     /// string of that Slang build, such as `2026.17-25-gc7954ebd1`.
     ///
     /// Use it to report which Slang a program runs with. Creating the global
-    /// session checked that the loaded library has the build tag that this
-    /// crate was built for, so the value is always that one, and reading it
-    /// makes no call into Slang.
+    /// session checked that the loaded library has the build tag that the
+    /// build information [`slang_compiler_sys::BUILD_INFO`] records for the
+    /// Slang that the build generated its bindings from, so the value is
+    /// always that one, and reading it makes no call into Slang.
     ///
     /// # Examples
     ///
@@ -118,10 +119,10 @@ impl GlobalSession {
     #[must_use]
     #[expect(
         clippy::unused_self,
-        reason = "creation checked the build tag against the pin, so every global session has the same tag, and the accessor stays a method so that the tag is read from a global session that passed that check"
+        reason = "creation checked the build tag against the build information, so every global session has the same tag, and the accessor stays a method so that the tag is read from a global session that passed that check"
     )]
     pub fn build_tag(&self) -> &str {
-        SLANG_BUILD_TAG
+        BUILD_INFO.slang_build_tag
     }
 
     /// Checks whether Slang reports that it can produce code in a target
@@ -201,7 +202,7 @@ impl GlobalSession {
     ///
     /// let raw = GlobalSession::new()?.into_raw();
     /// // SAFETY: `raw` carries the one reference that `into_raw` gave up, of
-    /// // a global session of the pinned Slang build, and this thread alone
+    /// // a global session of the recorded Slang, and this thread alone
     /// // uses it.
     /// let global = unsafe { GlobalSession::from_raw(raw) };
     /// println!("Slang {}", global.build_tag());
@@ -214,14 +215,14 @@ impl GlobalSession {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live global session that the Slang library of the
-    ///   build tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   build information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - The global session and every object created from it are not used on
     ///   another thread while the returned value or a clone of it exists.
     #[must_use]
     pub unsafe fn from_raw(raw: NonNull<IGlobalSession>) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live global
-        // session of the pinned build and transfers one reference to it.
+        // session of the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self { raw }
     }
@@ -317,7 +318,7 @@ impl GlobalSession {
     }
 
     /// Creates a global session with `create`, after the check of the build
-    /// tag against the pin has passed, so that nothing reaches a library of
+    /// tag against the build information has passed, so that nothing reaches a library of
     /// another build except the call that reads its build tag.
     ///
     /// # Safety
@@ -348,7 +349,7 @@ impl GlobalSession {
             })?;
             // SAFETY: `create` succeeded and wrote a non-null pointer, so the
             // caller of `create_with` guarantees that it is a live global
-            // session of the library whose build tag matched the pin, with one
+            // session of the library whose build tag matched the build information, with one
             // reference that this thread alone owns.
             let raw = unsafe { Owned::adopt(raw) };
             Ok(Self { raw })
@@ -364,10 +365,11 @@ impl fmt::Debug for GlobalSession {
     }
 }
 
-/// Compares the build tag that the loaded library reported with the pin of
-/// `slang-compiler-sys`.
+/// Compares the build tag that the loaded library reported with the build
+/// information of `slang-compiler-sys`.
 fn check_build_tag(tag: Option<&CStr>) -> Result<()> {
-    if tag.is_some_and(|tag| tag.to_bytes() == SLANG_BUILD_TAG.as_bytes()) {
+    let expected = BUILD_INFO.slang_build_tag;
+    if tag.is_some_and(|tag| tag.to_bytes() == expected.as_bytes()) {
         return Ok(());
     }
     let loaded = tag.map_or_else(
@@ -377,7 +379,7 @@ fn check_build_tag(tag: Option<&CStr>) -> Result<()> {
     Err(
         Error::new(ErrorKind::VersionMismatch, Operation::CreateGlobalSession).with_detail(
             format!(
-                "the Slang library that the program loaded reports {loaded}, but slang-compiler was built for build tag `{SLANG_BUILD_TAG}`"
+                "the Slang library that the program loaded reports {loaded}, but slang-compiler was built for build tag `{expected}`"
             ),
         ),
     )
@@ -420,14 +422,14 @@ impl GlobalSessionBuilder {
     /// Language (GLSL), the shader language of OpenGL, which is off by
     /// default.
     ///
-    /// The pinned Slang build parses GLSL in a module when the module is
+    /// The recorded Slang parses GLSL in a module when the module is
     /// loaded from a file whose extension names GLSL, such as `.glsl` or
     /// `.vert`, when its source has a `#version` directive with a GLSL
     /// version, or when the options of the session set Slang's compiler
     /// option `AllowGLSL`, which
     /// [`CompilerOptions::set_int`](crate::CompilerOptions::set_int) sets.
     /// Neither Slang's header nor its user guide states the kind of the value
-    /// of `AllowGLSL`, and the pinned build reads the first integer of the
+    /// of `AllowGLSL`, and the recorded Slang reads the first integer of the
     /// entry, as a Boolean that any value other than 0 turns on.
     ///
     /// # Examples
@@ -487,9 +489,7 @@ mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::ptr;
 
-    use slang_compiler_sys::{
-        IGlobalSession, SLANG_BUILD_TAG, SlangGlobalSessionDesc, SlangResult,
-    };
+    use slang_compiler_sys::{BUILD_INFO, IGlobalSession, SlangGlobalSessionDesc, SlangResult};
 
     use super::{GlobalSession, GlobalSessionBuilder, check_build_tag};
     use crate::fake::{Event, FakeGlobalSession, Log, panic_message};
@@ -497,13 +497,13 @@ mod tests {
 
     fn adopt(log: &Log, name: &'static str, target_support: SlangResult) -> GlobalSession {
         // SAFETY: the new fake global session carries one reference, it
-        // reports the pinned build tag, and the test uses it on this thread
+        // reports the build tag of the build information, and the test uses it on this thread
         // only.
         unsafe { GlobalSession::from_raw(FakeGlobalSession::create(log, name, target_support)) }
     }
 
-    fn pin() -> CString {
-        CString::new(SLANG_BUILD_TAG).expect("the pin has no NUL byte")
+    fn recorded() -> CString {
+        CString::new(BUILD_INFO.slang_build_tag).expect("the build tag has no NUL byte")
     }
 
     /// Runs `create_with` with a build tag of `tag` and a creator that returns
@@ -517,7 +517,7 @@ mod tests {
     ) -> (crate::Result<GlobalSession>, Vec<&'static str>) {
         let calls = RefCell::new(Vec::new());
         // SAFETY: every test passes as `created` either null or a new fake
-        // global session of the pinned build with one reference, which only
+        // global session of the Slang of the build with one reference, which only
         // this thread has and which `create_with` adopts on success.
         let global = unsafe {
             GlobalSession::create_with(
@@ -568,10 +568,10 @@ mod tests {
 
     #[test]
     fn create_with_a_failing_result_code_fails_with_the_mapped_kind() {
-        let pin = pin();
+        let recorded = recorded();
         let (result, calls) = create_with(
             &GlobalSessionBuilder::default(),
-            Some(&pin),
+            Some(&recorded),
             SlangResult::SLANG_E_INTERNAL_FAIL,
             ptr::null_mut(),
         );
@@ -583,10 +583,10 @@ mod tests {
 
     #[test]
     fn create_with_a_null_global_session_fails() {
-        let pin = pin();
+        let recorded = recorded();
         let (result, calls) = create_with(
             &GlobalSessionBuilder::default(),
-            Some(&pin),
+            Some(&recorded),
             SlangResult::SLANG_OK,
             ptr::null_mut(),
         );
@@ -597,20 +597,20 @@ mod tests {
     }
 
     #[test]
-    fn create_with_the_pinned_build_tag_adopts_the_created_global_session() {
+    fn create_with_the_recorded_build_tag_adopts_the_created_global_session() {
         let log = Log::new();
-        let pin = pin();
+        let recorded = recorded();
         let fake = FakeGlobalSession::create(&log, "global", SlangResult::SLANG_OK);
         let mut builder = GlobalSession::builder();
         builder.glsl(Toggle::On);
         let desc = RefCell::new(None);
-        // SAFETY: `fake` is a new fake global session of the pinned build with
+        // SAFETY: `fake` is a new fake global session of the Slang of the build with
         // one reference, which only this thread has and `create_with` adopts.
         let global = unsafe {
             GlobalSession::create_with(
                 &builder,
                 "Test::create",
-                || Some(pin.as_c_str()),
+                || Some(recorded.as_c_str()),
                 |passed, out| {
                     *desc.borrow_mut() = Some((passed.enableGLSL, passed.structureSize));
                     *out = fake.as_ptr();
@@ -633,8 +633,8 @@ mod tests {
     }
 
     #[test]
-    fn check_build_tag_accepts_the_pin() {
-        assert!(check_build_tag(Some(&pin())).is_ok());
+    fn check_build_tag_accepts_the_build_tag_of_the_build_information() {
+        assert!(check_build_tag(Some(&recorded())).is_ok());
     }
 
     #[test]
@@ -644,14 +644,20 @@ mod tests {
         assert_eq!(error.operation(), Operation::CreateGlobalSession);
         let text = error.to_string();
         assert!(text.contains("`2026.16`"), "{text}");
-        assert!(text.contains(&format!("`{SLANG_BUILD_TAG}`")), "{text}");
+        assert!(
+            text.contains(&format!("`{}`", BUILD_INFO.slang_build_tag)),
+            "{text}"
+        );
     }
 
     #[test]
-    fn check_build_tag_rejects_a_prefix_of_the_pin() {
-        let pin = SLANG_BUILD_TAG.as_bytes();
-        let prefix = CString::new(pin.get(..pin.len() - 1).expect("the pin is not empty"))
-            .expect("the pin has no NUL byte");
+    fn check_build_tag_rejects_a_prefix_of_the_recorded_build_tag() {
+        let tag = BUILD_INFO.slang_build_tag.as_bytes();
+        let prefix = CString::new(
+            tag.get(..tag.len() - 1)
+                .expect("the build tag is not empty"),
+        )
+        .expect("the build tag has no NUL byte");
         let prefix: &CStr = &prefix;
         assert_eq!(
             check_build_tag(Some(prefix)).map_err(|error| error.kind()),
@@ -754,7 +760,7 @@ mod tests {
         let global = adopt(&log, "global", SlangResult::SLANG_OK);
         let clone = global.clone();
         assert_eq!(global.as_raw(), clone.as_raw());
-        assert_eq!(global.build_tag(), SLANG_BUILD_TAG);
+        assert_eq!(global.build_tag(), BUILD_INFO.slang_build_tag);
         drop(global);
         drop(clone);
         assert_eq!(

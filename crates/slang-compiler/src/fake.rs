@@ -15,17 +15,17 @@ use std::rc::Rc;
 use std::slice;
 
 use slang_compiler_sys::{
-    BuiltinModuleName, CompileCoreModuleFlags, CompilerOptionEntry, CompilerOptionValueKind,
-    ContainerType, DeclReflection, FunctionReflection, ICompileRequest, IComponentType,
-    IComponentTypeVtbl, IEntryPoint, IEntryPointVtbl, IGlobalSession, IGlobalSessionVtbl,
-    IMetadata, IMetadataVtbl, IModule, IModuleVtbl, ISession, ISessionVtbl, ISlangBlob,
-    ISlangBlobVtbl, ISlangCastable, ISlangCastableVtbl, ISlangMutableFileSystem,
+    BUILD_INFO, BuiltinModuleName, CompileCoreModuleFlags, CompilerOptionEntry,
+    CompilerOptionValueKind, ContainerType, DeclReflection, FunctionReflection, ICompileRequest,
+    IComponentType, IComponentTypeVtbl, IEntryPoint, IEntryPointVtbl, IGlobalSession,
+    IGlobalSessionVtbl, IMetadata, IMetadataVtbl, IModule, IModuleVtbl, ISession, ISessionVtbl,
+    ISlangBlob, ISlangBlobVtbl, ISlangCastable, ISlangCastableVtbl, ISlangMutableFileSystem,
     ISlangSharedLibrary, ISlangSharedLibraryLoader, ISlangUnknown, ISlangUnknownVtbl,
-    ITypeConformance, Interface, LayoutRules, ProgramLayout, SLANG_BUILD_TAG, SessionDesc,
-    SlangArchiveType, SlangCapabilityID, SlangCompileRequest, SlangCompileTarget, SlangInt,
-    SlangInt32, SlangParameterCategory, SlangPassThrough, SlangProfileID, SlangResult,
-    SlangSourceLanguage, SlangStage, SlangUInt, SlangUUID, SourceLocation, SpecializationArg,
-    TargetDesc, TypeLayoutReflection, TypeReflection,
+    ITypeConformance, Interface, LayoutRules, ProgramLayout, SessionDesc, SlangArchiveType,
+    SlangCapabilityID, SlangCompileRequest, SlangCompileTarget, SlangInt, SlangInt32,
+    SlangParameterCategory, SlangPassThrough, SlangProfileID, SlangResult, SlangSourceLanguage,
+    SlangStage, SlangUInt, SlangUUID, SourceLocation, SpecializationArg, TargetDesc,
+    TypeLayoutReflection, TypeReflection,
 };
 
 use crate::owned::Owned;
@@ -634,7 +634,7 @@ impl FakeGlobalSession {
         target_support: SlangResult,
     ) -> NonNull<IGlobalSession> {
         let state = GlobalSessionState {
-            build_tag: CString::new(SLANG_BUILD_TAG).unwrap_or_default(),
+            build_tag: CString::new(BUILD_INFO.slang_build_tag).unwrap_or_default(),
             target_support,
             session_result: Cell::new(None),
             epoch: Cell::new(0),
@@ -2121,7 +2121,7 @@ unsafe extern "system-unwind" fn metadata_build_identifier(_: *mut IMetadata) ->
 /// only.
 pub(crate) fn global_session(log: &Log) -> GlobalSession {
     // SAFETY: the new fake global session carries one reference, it reports
-    // the pinned build tag, and the test uses it on this thread only.
+    // the build tag of the build information, and the test uses it on this thread only.
     unsafe {
         GlobalSession::from_raw(FakeGlobalSession::create(
             log,

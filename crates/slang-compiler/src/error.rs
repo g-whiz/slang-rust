@@ -211,7 +211,7 @@ pub enum ErrorKind {
     /// it.
     Internal,
     /// Slang returned a result code or a value that this crate does not know.
-    /// A value that the Slang headers of the pinned version do not list means
+    /// A value that the Slang headers of the build do not list means
     /// that the loaded library differs from that version. Report it with the
     /// input that caused it.
     Unrecognized,

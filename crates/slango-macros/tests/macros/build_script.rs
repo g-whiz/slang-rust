@@ -25,11 +25,7 @@ impl Environment for FakeEnvironment {
     }
 }
 
-const RERUN: [&str; 3] = [
-    "cargo::rerun-if-env-changed=VULKAN_SDK",
-    "cargo::rerun-if-env-changed=DOCS_RS",
-    "cargo::rustc-check-cfg=cfg(slango_docs_rs)",
-];
+const RERUN: [&str; 1] = ["cargo::rerun-if-env-changed=VULKAN_SDK"];
 
 fn expected(extra: &[&str]) -> Vec<String> {
     RERUN
@@ -67,15 +63,6 @@ fn an_unset_or_empty_sdk_gives_no_rpath() {
     );
     let environment = FakeEnvironment::new("macos").with(VULKAN_SDK, "");
     assert_eq!(instructions(&environment), Ok(expected(&[])));
-}
-
-#[test]
-fn docs_rs_sets_the_cfg_of_the_stub() {
-    let environment = FakeEnvironment::new("linux").with(DOCS_RS, "1");
-    assert_eq!(
-        instructions(&environment),
-        Ok(expected(&["cargo::rustc-cfg=slango_docs_rs"]))
-    );
 }
 
 #[test]

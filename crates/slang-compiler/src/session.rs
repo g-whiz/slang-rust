@@ -212,7 +212,7 @@ impl Session {
     /// undefined behaviour:
     ///
     /// - `raw` points to a live session that the Slang library of the build
-    ///   tag [`slang_compiler_sys::SLANG_BUILD_TAG`] created.
+    ///   information [`slang_compiler_sys::BUILD_INFO`] created.
     /// - The caller owns one reference to it and transfers that reference.
     /// - `global` is the global session that the session was created from.
     /// - `target_count` is the number of targets that the session was created
@@ -226,7 +226,7 @@ impl Session {
         target_count: usize,
     ) -> Self {
         // SAFETY: the caller guarantees that `raw` points to a live session of
-        // the pinned build and transfers one reference to it.
+        // the Slang of the build and transfers one reference to it.
         let raw = unsafe { Owned::adopt(raw) };
         Self {
             raw,
@@ -443,7 +443,7 @@ impl Target {
     /// Sets the compiler options of the target, which override the options of
     /// the session for this target, and replaces any options set earlier.
     ///
-    /// The pinned Slang build never reads the options `LanguageVersion`,
+    /// The recorded Slang never reads the options `LanguageVersion`,
     /// `WarningsAsErrors`, `EnableWarning`, and `DisableWarning` from the
     /// options of a target, so [`SessionBuilder::build`] rejects a target
     /// whose options hold an entry of any of them, also one that a raw setter
@@ -710,7 +710,7 @@ impl SessionBuilder {
     ///   options contains a NUL byte, when there are more compiler options
     ///   than Slang takes, or when the options of a target set
     ///   `LanguageVersion`, `WarningsAsErrors`, `EnableWarning`, or
-    ///   `DisableWarning`, which the pinned Slang build reads only from the
+    ///   `DisableWarning`, which the recorded Slang reads only from the
     ///   options of the session, as [`Target::options`] states.
     /// - [`ErrorKind::NotFound`] when Slang does not know the name of a
     ///   profile or a capability of a target.
@@ -747,9 +747,9 @@ impl SessionBuilder {
             if let Some(name) = target.options.first_session_only() {
                 return Err(
                     Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
-                        "the options of target {position} set `{name}`, which the pinned Slang \
-                     build reads only from the options of the session, so set it on the \
-                     session instead"
+                        "the options of target {position} set `{name}`, which the recorded Slang \
+                     reads only from the options of the session, so set it on the session \
+                     instead"
                     )),
                 );
             }
@@ -847,7 +847,7 @@ impl SessionBuilder {
         let raw =
             NonNull::new(raw).ok_or_else(|| mapping::null(operation, Diagnostics::default()))?;
         // SAFETY: `createSession` succeeded and wrote a non-null pointer, which
-        // is a new reference to a live session of the pinned build, and only
+        // is a new reference to a live session of the Slang of the build, and only
         // this thread has it.
         let raw = unsafe { Owned::adopt(raw) };
         Ok(Session {
@@ -1069,7 +1069,7 @@ mod tests {
 
     fn adopt(log: &Log) -> GlobalSession {
         // SAFETY: the new fake global session carries one reference, it
-        // reports the pinned build tag, and the test uses it on this thread
+        // reports the build tag of the build information, and the test uses it on this thread
         // only.
         unsafe {
             GlobalSession::from_raw(FakeGlobalSession::create(
@@ -1423,7 +1423,7 @@ mod tests {
         drop(global);
         assert_eq!(
             session.global_session().build_tag(),
-            slang_compiler_sys::SLANG_BUILD_TAG
+            slang_compiler_sys::BUILD_INFO.slang_build_tag
         );
         let before = log.events().len();
         drop(session);
@@ -1544,8 +1544,8 @@ mod tests {
                 error.to_string(),
                 format!(
                     "cannot create a session: the options of target 1 set `{name}`, which the \
-                     pinned Slang build reads only from the options of the session, so set it \
-                     on the session instead"
+                     recorded Slang reads only from the options of the session, so set it on \
+                     the session instead"
                 )
             );
             assert_eq!(calls(&log), []);

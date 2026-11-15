@@ -318,7 +318,7 @@ impl<'a> ProgramLayout<'a> {
     /// Slang parses and checks the name as source, so a name that is not a
     /// type, or that Slang cannot parse, is `None`.
     ///
-    /// Known upstream bug: the pinned Slang build crashes the process for
+    /// Known upstream bug: the recorded Slang crashes the process for
     /// some names, such as a name that contains `(` or a name nested
     /// thousands of levels deep. This is a defect of Slang, and this crate
     /// does not check for it.
@@ -861,7 +861,7 @@ impl<'a> EntryPointLayout<'a> {
     ///
     /// Returns an error of kind
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when Slang
-    /// reports a stage that the pinned Slang header does not list.
+    /// reports a stage that the Slang header does not list.
     ///
     /// # Panics
     ///

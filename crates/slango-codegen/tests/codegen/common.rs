@@ -14,7 +14,7 @@ pub(crate) fn shader(name: &str) -> PathBuf {
 
 /// Returns the generated bindings of a test shader, formatted, with the
 /// directory of the test shaders and the encoded snapshot, whose bytes
-/// depend on the machine and on the Slang of the pin, replaced by
+/// depend on the machine and on the Slang of the build, replaced by
 /// placeholders before the formatting.
 pub(crate) fn bindings(name: &str) -> String {
     let mut precompiled = precompile_file(&shader(name)).expect("the module compiles");
