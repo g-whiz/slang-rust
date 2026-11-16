@@ -3,6 +3,7 @@ name = "slang-compiler-sys"
 description = "Raw bindings to the Slang shader compiler, generated from the Slang headers in every build."
 keywords = ["slang", "shader", "ffi", "bindings", "gpu"]
 categories = ["external-ffi-bindings", "graphics"]
+documentation = "https://g-whiz.github.io/slang-rust/slang_compiler_sys/"
 links = "slang-compiler"
 version.workspace = true
 authors.workspace = true

@@ -1,0 +1,120 @@
+name: Documentation
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build the documentation site
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install just
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just
+          fallback: none
+      - name: Make libclang available, which the build script of slang-compiler-sys loads to generate the Slang bindings
+        run: |
+          case "${RUNNER_OS}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install --yes --no-install-recommends libclang-dev
+              exit 0
+              ;;
+            Windows)
+              directory='C:\Program Files\LLVM\bin'
+              found="$(cygpath --unix "${directory}")/libclang.dll"
+              ;;
+            macOS)
+              directory="$(xcode-select --print-path)/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+              if [[ ! -f "${directory}/libclang.dylib" ]]; then
+                directory=/Library/Developer/CommandLineTools/usr/lib
+              fi
+              found="${directory}/libclang.dylib"
+              ;;
+            *)
+              printf '::error::No libclang is known for the runner OS %s\n' "${RUNNER_OS}"
+              exit 1
+              ;;
+          esac
+          if [[ ! -f "${found}" ]]; then
+            printf '::error::The runner image provides no libclang at %s, which every build of slang-compiler-sys needs to generate the Slang bindings\n' "${found}"
+            exit 1
+          fi
+          printf 'libclang: %s\n' "${found}"
+          printf 'LIBCLANG_PATH=%s\n' "${directory}" >>"${GITHUB_ENV}"
+      - name: Install CMake, Ninja, a C++ compiler, Python 3, and the development files of fontconfig, which Slint links, where the runner image lacks them
+        if: runner.os == 'Linux'
+        run: |
+          missing=()
+          for tool in cmake:cmake ninja:ninja-build c++:g++ python3:python3 pkg-config:pkg-config; do
+            if ! command -v "${tool%%:*}" >/dev/null; then
+              missing+=("${tool#*:}")
+            fi
+          done
+          if ! pkg-config --exists fontconfig 2>/dev/null; then
+            missing+=(libfontconfig-dev)
+          fi
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends "${missing[@]}"
+          fi
+      - name: Show the versions of CMake and Ninja, and of the C++ compiler outside Windows, where the build script finds the Microsoft compiler itself
+        run: |
+          cmake --version
+          ninja --version
+          if [[ "${RUNNER_OS}" != Windows ]]; then
+            c++ --version
+          fi
+      - name: Show the Python 3 that the build of slang-glslang runs, and stop when the runner image has none
+        run: |
+          for program in python3 python; do
+            if command -v "${program}" >/dev/null && "${program}" -c 'import sys; sys.exit(sys.version_info[0] != 3)' 2>/dev/null; then
+              printf '%s: ' "$(command -v "${program}")"
+              "${program}" --version
+              exit 0
+            fi
+          done
+          printf '::error::The runner image provides no Python 3 as python3 or python on PATH, which the build of slang-glslang needs, because SPIRV-Tools generates some of its sources with a Python script\n'
+          exit 1
+      - name: Build the documentation site
+        run: just doc-site
+      - name: Upload the documentation site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: target/vendored/doc
+
+  deploy:
+    name: Deploy the documentation site
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the documentation site to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

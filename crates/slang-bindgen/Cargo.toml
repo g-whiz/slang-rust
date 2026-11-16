@@ -3,6 +3,7 @@ name = "slang-bindgen"
 description = "Generates the raw Rust bindings of slang-compiler-sys from the Slang headers with libclang."
 keywords = ["slang", "shader", "ffi", "bindings", "libclang"]
 categories = ["development-tools::ffi", "development-tools::build-utils"]
+documentation = "https://g-whiz.github.io/slang-rust/slang_bindgen/"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -16,13 +16,19 @@ vendored_features := "slang-compiler/vendored"
 # The environment of the vendored recipes: no Vulkan SDK and no loader path, so nothing can load the Slang of an SDK, and their own target directory, so the vendored build does not replace the build of target/
 vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny"
 
+# The packages of the next release, separated by spaces, in the order in which they depend on each other, which every recipe of the release reads. Every other member sets publish = false
+release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros"
+
+# The address of the hosted documentation, which holds the documentation of each released crate in a directory named after the crate with each hyphen replaced by an underscore
+documentation_site := "https://g-whiz.github.io/slang-rust"
+
 # List the available recipes
 default:
     @just --list --unsorted
 
-# Run every check: prose, shell, the self-tests of the checkers, spelling, TOML formatting, workflows, references to project documents, and the Rust checks
+# Run every check: prose, shell, the self-tests of the checkers and of the release scripts, spelling, TOML formatting, workflows, references to project documents, and the Rust checks
 [group('checks')]
-check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-doc-references-self-test check-typos check-toml check-workflows check-workflow-pins check-doc-references check-rust
+check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-doc-references-self-test release-scripts-self-test check-typos check-toml check-workflows check-workflow-pins check-doc-references check-rust
 
 # Check the prose of Markdown files and of Rust documentation comments in the given files, or in every Markdown and Rust file when none are given
 [group('checks')]
@@ -166,6 +172,11 @@ check-doc-references *paths:
 check-doc-references-self-test:
     @python3 -I scripts/self-test-checker check-doc-references
 
+# Check that the scripts of the release refuse, check, and call cargo, git, gh, and curl as expected, run against stubs of those programs so that nothing reaches crates.io or GitHub
+[group('checks')]
+release-scripts-self-test:
+    @scripts/self-test-release
+
 # Download the Vulkan SDK VERSION, verify it against SHA256, install it, and export it to later steps, run by CI only
 [group('ci')]
 install-vulkan-sdk VERSION SHA256:
@@ -262,6 +273,80 @@ check-vendored-shared-folder:
         exit 1
     fi
     printf 'No other directory named slang-src under %s holds a clone\n' "${target}"
+
+# Check that the members without publish = false are the release packages and that each sets its address on the hosted documentation, print the files of each package, and check each packaged .crate file: its size, no symbolic link, its README and licence files, no file under target or .git, and the same files as the version that crates.io already holds, if any. Cargo refuses uncommitted changes to a packaged file, and the recipe reaches crates.io
+[group('checks')]
+[unix]
+check-package:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r -a packages <<<"{{ release_packages }}"
+    scripts/check-package "{{ documentation_site }}" "${packages[@]}"
+
+# Check on crates.io that it holds the version of each release package, printing the answer for each, that its documentation field names the hosted documentation, and that this address answers
+[group('checks')]
+check-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r -a packages <<<"{{ release_packages }}"
+    scripts/check-release "{{ documentation_site }}" "${packages[@]}"
+
+# Build the hosted documentation of the release packages in target/vendored/doc on the vendored build, without VULKAN_SDK and without a loader path, failing on any warning, check that it holds the index page of each of them, write its own index page, and check that it holds no symbolic link and is at most 1 GB. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-glslang from source, which takes several minutes
+[group('release')]
+doc-site:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r -a names <<<"{{ release_packages }}"
+    packages=()
+    for name in "${names[@]}"; do
+        packages+=(-p "${name}")
+    done
+    {{ vendored_environment }} cargo doc --no-deps "${packages[@]}" --features slang-compiler/vendored,slango-macros/vendored
+    scripts/check-doc-site target/vendored/doc 976562 "${names[@]}"
+
+# Run cargo publish --dry-run for the given packages, or for every release package when none are given, which packages and compiles each against the packages of the others and uploads nothing, then record the commit and the packages in target/publish-dry-run.commit. Cargo refuses uncommitted changes to a packaged file, and the recipe needs VULKAN_SDK, libclang, network access, and the tools of the vendored build
+[group('release')]
+[unix]
+publish-dry-run *packages:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ $# -eq 0 ]]; then
+        read -r -a packages <<<"{{ release_packages }}"
+        set -- "${packages[@]}"
+    fi
+    scripts/publish-dry-run "$@"
+
+# Publish the given packages, or every release package when none are given, to crates.io without a verification build, only by the owner with CARGO_REGISTRY_TOKEN set for this one run, and only at the commit of origin/main whose dry run recorded the same packages
+[group('release')]
+[unix]
+publish *packages:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ $# -eq 0 ]]; then
+        read -r -a packages <<<"{{ release_packages }}"
+        set -- "${packages[@]}"
+    fi
+    scripts/publish "$@"
+
+# Create and push the tag v<version> on HEAD, which must equal origin/main, and create its GitHub release with the release notes in the file NOTES, which deploys the hosted documentation. Only with the owner's go-ahead
+[group('release')]
+[no-cd]
+tag-release NOTES:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    notes="$1"
+    if [[ "${notes}" != /* ]]; then
+        notes="${PWD}/${notes}"
+    fi
+    root={{ quote(justfile_directory()) }}
+    cd "${root}"
+    read -r -a packages <<<"{{ release_packages }}"
+    scripts/tag-release "${notes}" "${packages[@]}"
+
+# Yank the version VERSION of the crate PACKAGE on crates.io, only by the owner with CARGO_REGISTRY_TOKEN set for this one run
+[group('release')]
+yank PACKAGE VERSION:
+    @scripts/yank "$@"
 
 # Install the pre-commit, commit-msg, and post-merge git hooks
 [group('checks')]

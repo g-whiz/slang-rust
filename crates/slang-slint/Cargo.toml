@@ -3,6 +3,7 @@ name = "slang-slint"
 description = "Show what a Slang render pipeline of slango draws inside a Slint user interface."
 keywords = ["slang", "shader", "slint", "wgpu", "gui"]
 categories = ["graphics", "gui", "rendering"]
+publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: CARGO_REGISTRY_TOKEN=<token> publish <package>..." "" \
+        "Publishes the given packages to crates.io with cargo publish --no-verify, so" \
+        "that no build script runs while the token is in the environment. It refuses" \
+        "to run when GITHUB_ACTIONS is set, because no workflow publishes a crate, when" \
+        "CARGO_REGISTRY_TOKEN is unset or empty, when the working tree has an" \
+        "uncommitted change or an untracked file, when HEAD differs from origin/main" \
+        "after a fetch, and when HEAD and the given packages differ from the commit" \
+        "and the packages that the last successful publish-dry-run recorded in" \
+        "target/publish-dry-run.commit. Runs from the root of the workspace." \
+        "Exits 1 when it refuses, with the status of cargo when the publish fails, and" \
+        "2 on a usage error or when a tool is missing."
+}
+
+if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 ]] && exit 0
+    exit 2
+fi
+
+for tool in cargo git; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'publish: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+refuse() {
+    printf 'publish: %s\n' "$*" >&2
+    exit 1
+}
+
+record=target/publish-dry-run.commit
+
+if [[ -n "${GITHUB_ACTIONS+set}" ]]; then
+    refuse "GITHUB_ACTIONS is set, and no workflow publishes a crate, so only the owner runs this recipe in a terminal of their own"
+fi
+if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+    refuse "CARGO_REGISTRY_TOKEN is unset or empty, so pass the token of the release on the command line of this one run"
+fi
+if ! changes="$(git status --porcelain --untracked-files=normal)"; then
+    refuse "git status failed, so the working tree cannot be checked"
+fi
+if [[ -n "${changes}" ]]; then
+    refuse "the working tree has uncommitted changes or untracked files, so the packages would not be those of the commit"
+fi
+if ! git fetch --quiet origin main; then
+    refuse "git fetch of origin main failed, so HEAD cannot be compared with origin/main"
+fi
+if ! head="$(git rev-parse --verify HEAD)" || ! main="$(git rev-parse --verify refs/remotes/origin/main)"; then
+    refuse "cannot read the commits of HEAD and origin/main"
+fi
+if [[ "${head}" != "${main}" ]]; then
+    refuse "HEAD ${head} differs from origin/main ${main}, so publish from the main checkout at the commit of origin/main"
+fi
+if [[ ! -f "${record}" ]]; then
+    refuse "${record} does not exist, so run just publish-dry-run with the same packages first"
+fi
+recorded_commit=""
+recorded_packages=""
+while IFS= read -r line || [[ -n "${line}" ]]; do
+    case "${line}" in
+        commit=*) recorded_commit="${line#commit=}" ;;
+        packages=*) recorded_packages="${line#packages=}" ;;
+    esac
+done <"${record}"
+if [[ "${recorded_commit}" != "${head}" ]]; then
+    refuse "the dry run recorded the commit '${recorded_commit}', not HEAD ${head}, so run just publish-dry-run with the same packages first"
+fi
+if [[ "${recorded_packages}" != "$*" ]]; then
+    refuse "the dry run recorded the packages '${recorded_packages}', not '$*', so run just publish-dry-run with the same packages first"
+fi
+
+selection=()
+for name in "$@"; do
+    selection+=(-p "${name}")
+done
+cargo publish --no-verify "${selection[@]}"

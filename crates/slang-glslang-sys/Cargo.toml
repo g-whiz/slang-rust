@@ -3,6 +3,7 @@ name = "slang-glslang-sys"
 description = "glslang and SPIRV-Tools built statically for a vendored Slang, with the in-process loader through which it optimizes SPIR-V."
 keywords = ["slang", "glslang", "spirv", "shader", "ffi"]
 categories = ["external-ffi-bindings", "graphics"]
+documentation = "https://g-whiz.github.io/slang-rust/slang_glslang_sys/"
 links = "slang-glslang"
 version.workspace = true
 authors.workspace = true

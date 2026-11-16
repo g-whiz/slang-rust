@@ -1,0 +1,609 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: self-test-release" "" \
+        "Runs scripts/check-package, check-release, check-doc-site, publish-dry-run," \
+        "publish, tag-release, and yank against stubs of cargo, git, gh, curl, and" \
+        "sleep in a temporary directory, and runs the recipes publish-dry-run, publish," \
+        "and tag-release through just on a copy of the justfile and those scripts in" \
+        "that directory. It fails unless each case gives its expected exit status," \
+        "message, and calls of the stubs. It resolves just to its absolute path first" \
+        "and calls it by that path, because just can be installed in a directory that" \
+        "also holds the real cargo. PATH then holds only the stubs, /usr/bin, and /bin," \
+        "and the run stops before any case when just is not installed, when a program" \
+        "that the scripts run is not in /usr/bin or /bin, when cargo, git, gh, curl, or" \
+        "sleep does not resolve to its stub, or when any other program named cargo is" \
+        "on PATH, so no case can reach crates.io or GitHub." \
+        "Exits 1 when a case fails, and 2 when the setup is broken."
+}
+
+if [[ $# -gt 0 ]]; then
+    usage
+    [[ "$1" == "-h" || "$1" == "--help" ]] && exit 0
+    exit 2
+fi
+
+scripts="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work}"' EXIT
+stubs="${work}/stubs"
+mkdir -p "${stubs}"
+
+cat >"${stubs}/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'cargo %s\n' "$*" >>"${STUB_LOG}"
+case "$1" in
+    metadata) cat "${STUB_METADATA}" ;;
+    package)
+        if [[ "$2" == "--list" ]]; then
+            printf 'files of %s\n' "$4"
+        else
+            mkdir -p "${STUB_TARGET}/package"
+            cp "${STUB_CRATES}"/*.crate "${STUB_TARGET}/package/"
+        fi
+        ;;
+    publish | yank) exit "${STUB_CARGO_STATUS:-0}" ;;
+esac
+EOF
+
+cat >"${stubs}/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'git %s\n' "$*" >>"${STUB_LOG}"
+case "$1 ${3:-}" in
+    "status "*) printf '%s' "${STUB_GIT_STATUS:-}" ;;
+    "fetch "*) exit "${STUB_GIT_FETCH_STATUS:-0}" ;;
+    "rev-parse HEAD") printf '%s\n' "${STUB_HEAD}" ;;
+    "rev-parse refs/remotes/origin/main") printf '%s\n' "${STUB_MAIN}" ;;
+esac
+EOF
+
+cat >"${stubs}/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'gh %s\n' "$*" >>"${STUB_LOG}"
+EOF
+
+cat >"${stubs}/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+url=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --output) output="$2"; shift 2 ;;
+        --proto | --user-agent | --write-out | --retry) shift 2 ;;
+        -*) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+printf 'curl %s\n' "${url}" >>"${STUB_LOG}"
+key="$(printf '%s' "${url}" | tr '/:' '__')"
+status=404
+if [[ -f "${STUB_WEB}/${key}.status" ]]; then
+    status="$(cat "${STUB_WEB}/${key}.status")"
+fi
+if [[ -f "${STUB_WEB}/${key}" ]]; then
+    cp "${STUB_WEB}/${key}" "${output}"
+else
+    : >"${output}"
+fi
+printf '%s' "${status}"
+EOF
+
+cat >"${stubs}/sleep" <<'EOF'
+#!/usr/bin/env bash
+EOF
+
+chmod +x "${stubs}"/*
+if ! just_program="$(command -v just)" || [[ "${just_program}" != /* ]]; then
+    printf 'self-test-release: just is not installed, so the cases that run the recipes through just cannot run\n' >&2
+    exit 2
+fi
+export PATH="${stubs}:/usr/bin:/bin"
+for tool in bash env python3 awk cat cmp cp cut diff dirname du find grep gzip head ln mkdir mktemp rm sed sort tail tar tr wc; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'self-test-release: %s is not in /usr/bin or /bin, so the cases cannot run\n' "${tool}" >&2
+        exit 2
+    fi
+done
+for tool in cargo git gh curl sleep; do
+    if [[ "$(command -v "${tool}")" != "${stubs}/${tool}" ]]; then
+        printf 'self-test-release: %s does not resolve to its stub, so the cases do not run\n' "${tool}" >&2
+        exit 2
+    fi
+done
+if [[ "$(type -ap cargo)" != "${stubs}/cargo" ]]; then
+    printf 'self-test-release: a program named cargo other than the stub is on PATH, so the cases do not run\n' >&2
+    exit 2
+fi
+unset GITHUB_ACTIONS CARGO_REGISTRY_TOKEN CARGO_TARGET_DIR
+
+site="https://example.invalid/docs"
+head_commit=1111111111111111111111111111111111111111
+other_commit=2222222222222222222222222222222222222222
+
+failures=0
+cases=0
+case_dir=""
+
+new_case() {
+    cases=$((cases + 1))
+    case_dir="${work}/case-${cases}"
+    mkdir -p "${case_dir}/web" "${case_dir}/crates" "${case_dir}/target"
+    printf 'Apache text\n' >"${case_dir}/LICENSE-APACHE"
+    printf 'MIT text\n' >"${case_dir}/LICENSE-MIT"
+    printf 'LLVM text\n' >"${case_dir}/LICENSE-APACHE-LLVM"
+    printf 'GPL text\n' >"${case_dir}/LICENSE-GPL"
+    : >"${case_dir}/log"
+    export STUB_LOG="${case_dir}/log"
+    export STUB_METADATA="${case_dir}/metadata.json"
+    export STUB_TARGET="${case_dir}/target"
+    export STUB_CRATES="${case_dir}/crates"
+    export STUB_WEB="${case_dir}/web"
+    export STUB_HEAD="${head_commit}"
+    export STUB_MAIN="${head_commit}"
+    export STUB_GIT_STATUS=""
+    export STUB_GIT_FETCH_STATUS=0
+    export STUB_CARGO_STATUS=0
+}
+
+metadata() {
+    local entries=() entry
+    for entry in "$@"; do
+        local name version licence documentation publish
+        IFS='|' read -r name version licence documentation publish <<<"${entry}"
+        entries+=("{\"name\": \"${name}\", \"version\": \"${version}\", \"license\": \"${licence}\", \"documentation\": \"${documentation}\", \"publish\": ${publish}}")
+    done
+    local joined
+    joined="$(printf '%s,' "${entries[@]}")"
+    printf '{"target_directory": "%s", "packages": [%s]}\n' "${case_dir}/target" "${joined%,}" >"${STUB_METADATA}"
+}
+
+crate_tree() {
+    local tree="${case_dir}/src/$1-$2"
+    mkdir -p "${tree}/src"
+    printf 'fn main() {}\n' >"${tree}/src/lib.rs"
+    printf 'readme\n' >"${tree}/README.md"
+    cp "${case_dir}/LICENSE-APACHE" "${tree}/LICENSE-APACHE"
+    cp "${case_dir}/LICENSE-MIT" "${tree}/LICENSE-MIT"
+    printf '%s\n' "${tree}"
+}
+
+pack() {
+    tar -czf "$3" -C "${case_dir}/src" "$1-$2"
+}
+
+web() {
+    local key
+    key="$(printf '%s' "$1" | tr '/:' '__')"
+    printf '%s' "$2" >"${STUB_WEB}/${key}.status"
+    if [[ $# -ge 3 ]]; then
+        cp "$3" "${STUB_WEB}/${key}"
+    fi
+}
+
+expect() {
+    local name="$1" status="$2" message="$3" log="$4"
+    shift 4
+    local actual=0
+    (cd "${case_dir}" && "$@") >"${case_dir}/stdout" 2>"${case_dir}/stderr" || actual=$?
+    local problems=()
+    if [[ "${actual}" -ne "${status}" ]]; then
+        problems+=("exit status ${actual}, expected ${status}")
+    fi
+    if [[ -n "${message}" ]] && ! grep -qF -- "${message}" "${case_dir}/stdout" "${case_dir}/stderr"; then
+        problems+=("no output holds '${message}'")
+    fi
+    if [[ -n "${log}" ]] && ! grep -qxF -- "${log}" "${case_dir}/log"; then
+        problems+=("the stubs were not called with '${log}'")
+    fi
+    if [[ "${#problems[@]}" -ne 0 ]]; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n' "${name}"
+        printf '    %s\n' "${problems[@]}"
+        sed 's/^/    stdout: /' "${case_dir}/stdout"
+        sed 's/^/    stderr: /' "${case_dir}/stderr"
+        sed 's/^/    calls: /' "${case_dir}/log"
+    fi
+}
+
+check_output() {
+    if ! grep -qF -- "$2" "${case_dir}/stdout" "${case_dir}/stderr"; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    no output holds %s\n' "$1" "$2"
+    fi
+}
+
+check_call() {
+    if ! grep -qxF -- "$2" "${case_dir}/log"; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    the stubs were not called with %s\n' "$1" "$2"
+    fi
+}
+
+expect_no_call() {
+    if grep -qE -- "$2" "${case_dir}/log"; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    the stubs were called with %s\n' "$1" "$2"
+    fi
+}
+
+record() {
+    mkdir -p "${case_dir}/target"
+    printf 'commit=%s\npackages=%s\n' "$1" "$2" >"${case_dir}/target/publish-dry-run.commit"
+}
+
+new_case
+expect "publish without packages" 2 "usage: CARGO_REGISTRY_TOKEN" "" "${scripts}/publish"
+
+new_case
+GITHUB_ACTIONS=true CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish on a runner" 1 "GITHUB_ACTIONS is set" "" "${scripts}/publish" a
+expect_no_call "publish on a runner" '^(cargo|git) '
+
+new_case
+GITHUB_ACTIONS="" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish with an empty GITHUB_ACTIONS" 1 "GITHUB_ACTIONS is set" "" "${scripts}/publish" a
+
+new_case
+expect "publish without a token" 1 "CARGO_REGISTRY_TOKEN is unset or empty" "" "${scripts}/publish" a
+expect_no_call "publish without a token" '^cargo '
+
+new_case
+CARGO_REGISTRY_TOKEN="" expect "publish with an empty token" 1 "CARGO_REGISTRY_TOKEN is unset or empty" "" "${scripts}/publish" a
+
+new_case
+STUB_GIT_STATUS=" M Cargo.toml" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish with a change" 1 "uncommitted changes or untracked files" "" "${scripts}/publish" a
+expect_no_call "publish with a change" '^cargo '
+
+new_case
+STUB_GIT_FETCH_STATUS=1 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish when the fetch fails" 1 "git fetch of origin main failed" "" "${scripts}/publish" a
+
+new_case
+STUB_MAIN="${other_commit}" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish behind origin/main" 1 "differs from origin/main" "git fetch --quiet origin main" "${scripts}/publish" a
+expect_no_call "publish behind origin/main" '^cargo '
+
+new_case
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish without a dry run" 1 "does not exist, so run just publish-dry-run" "" "${scripts}/publish" a
+
+new_case
+record "${other_commit}" "a b"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish after a dry run of another commit" 1 "recorded the commit '${other_commit}'" "" "${scripts}/publish" a b
+expect_no_call "publish after a dry run of another commit" '^cargo '
+
+new_case
+record "${head_commit}" "a b"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish other packages than the dry run" 1 "recorded the packages 'a b', not 'b'" "" "${scripts}/publish" b
+expect_no_call "publish other packages than the dry run" '^cargo '
+
+new_case
+record "${head_commit}" "a b"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish after the dry run" 0 "" "cargo publish --no-verify -p a -p b" "${scripts}/publish" a b
+
+new_case
+record "${head_commit}" "a"
+STUB_CARGO_STATUS=101 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that cargo fails" 101 "" "cargo publish --no-verify -p a" "${scripts}/publish" a
+
+new_case
+expect "publish-dry-run without packages" 2 "usage: publish-dry-run" "" "${scripts}/publish-dry-run"
+
+new_case
+STUB_CARGO_STATUS=101 expect "publish-dry-run that cargo fails" 101 "" "cargo publish --dry-run -p a -p b" "${scripts}/publish-dry-run" a b
+if [[ -e "${case_dir}/target/publish-dry-run.commit" ]]; then
+    failures=$((failures + 1))
+    printf 'FAIL publish-dry-run that cargo fails\n    it wrote a record\n'
+fi
+
+new_case
+record "${other_commit}" "old"
+expect "publish-dry-run" 0 "recorded commit ${head_commit}" "cargo publish --dry-run -p a -p b" "${scripts}/publish-dry-run" a b
+if [[ ! -f "${case_dir}/target/publish-dry-run.commit" || "$(cat "${case_dir}/target/publish-dry-run.commit")" != "$(printf 'commit=%s\npackages=a b' "${head_commit}")" ]]; then
+    failures=$((failures + 1))
+    printf 'FAIL publish-dry-run\n    the record differs\n'
+fi
+
+new_case
+expect "yank with one argument" 2 "usage: CARGO_REGISTRY_TOKEN=<token> yank" "" "${scripts}/yank" a
+
+new_case
+GITHUB_ACTIONS=true CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "yank on a runner" 1 "GITHUB_ACTIONS is set" "" "${scripts}/yank" a 0.1.0
+expect_no_call "yank on a runner" '^cargo '
+
+new_case
+expect "yank without a token" 1 "CARGO_REGISTRY_TOKEN is unset or empty" "" "${scripts}/yank" a 0.1.0
+expect_no_call "yank without a token" '^cargo '
+
+new_case
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "yank" 0 "" "cargo yank --version 0.1.0 a" "${scripts}/yank" a 0.1.0
+
+shared_versions() {
+    metadata "a|$1|MIT OR Apache-2.0||null" "slang-src|0.1.0-slang.1|Apache-2.0 WITH LLVM-exception||null" "b|$2|MIT OR Apache-2.0||null"
+}
+
+new_case
+printf 'notes\n' >"${case_dir}/notes"
+expect "tag-release without packages" 2 "usage: tag-release" "" "${scripts}/tag-release" "${case_dir}/notes"
+
+new_case
+shared_versions 0.1.0 0.1.0
+expect "tag-release without a notes file" 1 "is not a readable, non-empty file" "" "${scripts}/tag-release" "${case_dir}/missing" a slang-src b
+expect_no_call "tag-release without a notes file" '^(git|gh) '
+
+new_case
+shared_versions 0.1.0 0.1.0
+: >"${case_dir}/notes"
+expect "tag-release with empty notes" 1 "is not a readable, non-empty file" "" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b
+
+new_case
+shared_versions 0.1.0 0.1.0
+printf 'notes\n' >"${case_dir}/notes"
+STUB_MAIN="${other_commit}" expect "tag-release behind origin/main" 1 "differs from origin/main" "" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b
+expect_no_call "tag-release behind origin/main" '^(git tag|git push|gh )'
+
+new_case
+shared_versions 0.1.0 0.2.0
+printf 'notes\n' >"${case_dir}/notes"
+expect "tag-release with two versions" 1 "do not share one version: 0.1.0 0.2.0" "" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b
+expect_no_call "tag-release with two versions" '^(git tag|git push|gh )'
+
+new_case
+shared_versions 0.1.0 0.1.0
+printf 'notes\n' >"${case_dir}/notes"
+expect "tag-release with a package that is not a member" 1 "not members of the workspace: c" "" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b c
+
+new_case
+shared_versions 0.3.1 0.3.1
+printf 'notes\n' >"${case_dir}/notes"
+expect "tag-release" 0 "" "git tag --annotate --message v0.3.1 v0.3.1 ${head_commit}" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b
+check_call "tag-release pushes" "git push origin refs/tags/v0.3.1"
+check_call "tag-release creates the release" "gh release create v0.3.1 --verify-tag --title v0.3.1 --notes-file ${case_dir}/notes"
+
+good_package() {
+    metadata "a|0.1.0|MIT OR Apache-2.0|${site}/a/|null" "ex|0.1.0|MIT OR Apache-2.0||[]"
+}
+
+new_case
+metadata "a|0.1.0|MIT OR Apache-2.0|${site}/a/|null" "ex|0.1.0|MIT OR Apache-2.0||null"
+expect "check-package with an extra publishable member" 1 "the members without publish = false differ from the release packages" "" "${scripts}/check-package" "${site}" a
+expect_no_call "check-package with an extra publishable member" '^cargo package'
+
+new_case
+metadata "a-b|0.1.0|MIT OR Apache-2.0|${site}/a-b/|null"
+expect "check-package with a wrong documentation field" 1 "expected '${site}/a_b/'" "" "${scripts}/check-package" "${site}" a-b
+
+new_case
+good_package
+crate_tree a 0.1.0 >/dev/null
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package" 0 "check-package: every package passed" "cargo package --no-verify -p a" "${scripts}/check-package" "${site}" a
+check_output "check-package lists the files" "files of a"
+check_call "check-package lists the files" "curl https://static.crates.io/crates/a/a-0.1.0.crate"
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+ln -s README.md "${tree}/link"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package with a symbolic link" 1 "holds symbolic links: ./a-0.1.0/link" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+rm "${tree}/README.md"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package without README.md" 1 "holds no README.md as a regular file" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+rm "${tree}/LICENSE-MIT"
+ln -s ../../LICENSE-MIT "${tree}/LICENSE-MIT"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package with a licence file as a link" 1 "holds no LICENSE-MIT as a regular file" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+printf 'other text\n' >"${tree}/LICENSE-APACHE"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package with another licence text" 1 "LICENSE-APACHE in" "" "${scripts}/check-package" "${site}" a
+
+new_case
+metadata "s|0.1.0-x|Apache-2.0 WITH LLVM-exception|${site}/s/|null"
+tree="$(crate_tree s 0.1.0-x)"
+rm "${tree}/LICENSE-APACHE" "${tree}/LICENSE-MIT"
+cp "${case_dir}/LICENSE-APACHE-LLVM" "${tree}/LICENSE"
+pack s 0.1.0-x "${case_dir}/crates/s-0.1.0-x.crate"
+expect "check-package with the licence of Slang" 0 "licence: LICENSE equals LICENSE-APACHE-LLVM" "" "${scripts}/check-package" "${site}" s
+
+new_case
+metadata "g|0.1.0|GPL-3.0-only|${site}/g/|null"
+crate_tree g 0.1.0 >/dev/null
+pack g 0.1.0 "${case_dir}/crates/g-0.1.0.crate"
+expect "check-package with an unknown licence" 1 "no licence file is known for the licence 'GPL-3.0-only'" "" "${scripts}/check-package" "${site}" g
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+mkdir -p "${tree}/target/debug" "${tree}/.git"
+printf 'x\n' >"${tree}/target/debug/out"
+printf 'x\n' >"${tree}/.git/HEAD"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package with a path under target" 1 "holds a-0.1.0/target/debug/out, which is under a directory named target or .git" "" "${scripts}/check-package" "${site}" a
+check_output "check-package with a path under .git" "holds a-0.1.0/.git/HEAD, which is under a directory named target or .git"
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+head -c 10000100 /dev/urandom >"${tree}/large"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+expect "check-package with a large package" 1 "larger than 10000000 bytes" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+pack a 0.1.0 "${case_dir}/published.crate"
+printf '{}\n' >"${tree}/.cargo_vcs_info.json"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+web "https://static.crates.io/crates/a/a-0.1.0.crate" 200 "${case_dir}/published.crate"
+expect "check-package of a published version" 0 "crates.io holds a 0.1.0, and the package has the same files" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+tree="$(crate_tree a 0.1.0)"
+pack a 0.1.0 "${case_dir}/published.crate"
+printf 'changed\n' >"${tree}/src/lib.rs"
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+web "https://static.crates.io/crates/a/a-0.1.0.crate" 200 "${case_dir}/published.crate"
+expect "check-package of a changed published version" 1 "the package differs from the published .crate file" "" "${scripts}/check-package" "${site}" a
+
+new_case
+good_package
+crate_tree a 0.1.0 >/dev/null
+pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
+web "https://static.crates.io/crates/a/a-0.1.0.crate" 503
+expect "check-package when crates.io fails" 1 "answered with HTTP status 503" "" "${scripts}/check-package" "${site}" a
+
+api="https://crates.io/api/v1/crates"
+
+release_metadata() {
+    metadata "a|0.1.0|MIT OR Apache-2.0|${site}/a/|null" "b-c|0.1.0|MIT OR Apache-2.0|${site}/b_c/|null"
+}
+
+json() {
+    printf '%s\n' "$2" >"${case_dir}/$1.json"
+    printf '%s\n' "${case_dir}/$1.json"
+}
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 200 "$(json a-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/a" 200 "$(json a-crate "{\"crate\": {\"documentation\": \"${site}/a/\"}}")"
+web "${site}/a/" 200
+web "${api}/b-c/0.1.0" 200 "$(json b-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/b-c" 200 "$(json b-crate "{\"crate\": {\"documentation\": \"${site}/b_c/\"}}")"
+web "${site}/b_c/" 200
+expect "check-release" 0 "crates.io holds every package" "curl ${site}/b_c/" "${scripts}/check-release" "${site}" a b-c
+check_output "check-release prints each package" "b-c 0.1.0: on crates.io"
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 200 "$(json a-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/a" 200 "$(json a-crate "{\"crate\": {\"documentation\": \"${site}/a/\"}}")"
+web "${site}/a/" 200
+expect "check-release of a partial publish" 1 "b-c 0.1.0: not on crates.io" "curl ${api}/b-c/0.1.0" "${scripts}/check-release" "${site}" a b-c
+check_output "check-release of a partial publish lists the published" "a 0.1.0: on crates.io"
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 200 "$(json a-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/a" 200 "$(json a-crate '{"crate": {"documentation": "https://docs.rs/a"}}')"
+expect "check-release with another documentation field" 1 "is 'https://docs.rs/a', expected '${site}/a/'" "" "${scripts}/check-release" "${site}" a
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 200 "$(json a-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/a" 200 "$(json a-crate '{"crate": {"documentation": null}}')"
+expect "check-release without a documentation field" 1 "is '', expected '${site}/a/'" "" "${scripts}/check-release" "${site}" a
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 200 "$(json a-version '{"version": {"num": "0.1.0"}}')"
+web "${api}/a" 200 "$(json a-crate "{\"crate\": {\"documentation\": \"${site}/a/\"}}")"
+expect "check-release when the site does not answer" 1 "${site}/a/ answered with HTTP status 404" "" "${scripts}/check-release" "${site}" a
+
+new_case
+release_metadata
+web "${api}/a/0.1.0" 500
+expect "check-release when crates.io fails" 1 "answered with HTTP status 500" "" "${scripts}/check-release" "${site}" a
+
+new_case
+release_metadata
+expect "check-release of a package that is not a member" 1 "c is not a member of the workspace" "" "${scripts}/check-release" "${site}" c
+
+site_tree() {
+    local name
+    mkdir -p "${case_dir}/site"
+    for name in "$@"; do
+        mkdir -p "${case_dir}/site/${name}"
+        printf '<html></html>\n' >"${case_dir}/site/${name}/index.html"
+    done
+}
+
+new_case
+site_tree a b_c d
+expect "check-doc-site" 0 "${case_dir}/site" "" "${scripts}/check-doc-site" "${case_dir}/site" 1000000 a b-c d
+expected_index="$(printf '%s\n' '<!DOCTYPE html>' '<html lang="en">' '<head>' '<meta charset="utf-8">' '<title>slang-rust</title>' '</head>' '<body>' '<ul>' '<li><a href="a/index.html">a</a></li>' '<li><a href="b_c/index.html">b-c</a></li>' '<li><a href="d/index.html">d</a></li>' '</ul>' '</body>' '</html>')"
+if [[ ! -f "${case_dir}/site/index.html" || "$(cat "${case_dir}/site/index.html")" != "${expected_index}" ]]; then
+    failures=$((failures + 1))
+    printf 'FAIL check-doc-site\n    the index page is missing or differs\n'
+fi
+
+new_case
+site_tree a d
+expect "check-doc-site with a missing page" 1 "cargo doc wrote no page ${case_dir}/site/b_c/index.html" "" "${scripts}/check-doc-site" "${case_dir}/site" 1000000 a b-c d
+if [[ -e "${case_dir}/site/index.html" ]]; then
+    failures=$((failures + 1))
+    printf 'FAIL check-doc-site with a missing page\n    it wrote the index page\n'
+fi
+
+new_case
+site_tree a b-c
+expect "check-doc-site with a page under the hyphenated name" 1 "cargo doc wrote no page ${case_dir}/site/b_c/index.html" "" "${scripts}/check-doc-site" "${case_dir}/site" 1000000 a b-c
+
+new_case
+site_tree a
+ln -s index.html "${case_dir}/site/a/link.html"
+expect "check-doc-site with a symbolic link" 1 "holds symbolic links" "" "${scripts}/check-doc-site" "${case_dir}/site" 1000000 a
+check_output "check-doc-site with a symbolic link" "${case_dir}/site/a/link.html"
+
+new_case
+site_tree a
+head -c 65536 /dev/urandom >"${case_dir}/site/a/large"
+expect "check-doc-site over the limit" 1 "more than the limit of 8 KiB" "" "${scripts}/check-doc-site" "${case_dir}/site" 8 a
+
+new_case
+site_tree a
+expect "check-doc-site with a limit that is not a number" 2 "is not a number of KiB" "" "${scripts}/check-doc-site" "${case_dir}/site" 1G a
+
+repo="${work}/repo"
+mkdir -p "${repo}/scripts"
+cp "${scripts}/../justfile" "${repo}/justfile"
+cp "${scripts}/publish" "${scripts}/publish-dry-run" "${scripts}/tag-release" "${repo}/scripts/"
+if ! release_packages="$("${just_program}" --justfile "${repo}/justfile" --evaluate release_packages)" || [[ -z "${release_packages}" ]]; then
+    printf 'self-test-release: just cannot evaluate release_packages\n' >&2
+    exit 2
+fi
+read -r -a release_names <<<"${release_packages}"
+release_selection=""
+release_entries=()
+for name in "${release_names[@]}"; do
+    release_selection="${release_selection} -p ${name}"
+    release_entries+=("${name}|0.4.2|MIT OR Apache-2.0||null")
+done
+
+new_case
+rm -rf "${repo}/target"
+expect "the recipe publish-dry-run without arguments" 0 "" "cargo publish --dry-run${release_selection}" "${just_program}" --justfile "${repo}/justfile" publish-dry-run
+if [[ ! -f "${repo}/target/publish-dry-run.commit" || "$(cat "${repo}/target/publish-dry-run.commit")" != "$(printf 'commit=%s\npackages=%s' "${head_commit}" "${release_packages}")" ]]; then
+    failures=$((failures + 1))
+    printf 'FAIL the recipe publish-dry-run without arguments\n    the record differs\n'
+fi
+
+new_case
+mkdir -p "${repo}/target"
+printf 'commit=%s\npackages=%s\n' "${head_commit}" "${release_packages}" >"${repo}/target/publish-dry-run.commit"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "the recipe publish without arguments" 0 "" "cargo publish --no-verify${release_selection}" "${just_program}" --justfile "${repo}/justfile" publish
+
+new_case
+metadata "${release_entries[@]}"
+printf 'notes\n' >"${case_dir}/notes.md"
+expect "the recipe tag-release with a relative notes path" 0 "" "gh release create v0.4.2 --verify-tag --title v0.4.2 --notes-file ${case_dir}/notes.md" "${just_program}" --justfile "${repo}/justfile" tag-release notes.md
+check_call "the recipe tag-release with a relative notes path" "git push origin refs/tags/v0.4.2"
+
+if [[ "${failures}" -ne 0 ]]; then
+    printf 'release self-test failed: %s failures in %s cases\n' "${failures}" "${cases}"
+    exit 1
+fi
+printf 'release self-test passed: %s cases\n' "${cases}"

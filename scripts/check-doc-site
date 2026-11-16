@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: check-doc-site <site-directory> <limit-in-KiB> <package>..." "" \
+        "Checks a documentation site that cargo doc wrote for the given packages, and" \
+        "writes its index page. It fails when the site lacks <name>/index.html for a" \
+        "package, with each hyphen of the name replaced by an underscore, and names" \
+        "each missing page. It then writes <site-directory>/index.html, a plain page" \
+        "with one link to the documentation of each package in the given order. It" \
+        "fails when the site holds a symbolic link, which a deployment to GitHub Pages" \
+        "refuses, and, after it prints the size with du -sh, when du -sk reports more" \
+        "than the limit." \
+        "Exits 1 when a check fails, and 2 on a usage error."
+}
+
+if [[ $# -lt 3 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 && ("$1" == "-h" || "$1" == "--help") ]] && exit 0
+    exit 2
+fi
+
+site="$1"
+limit="$2"
+shift 2
+
+if [[ ! "${limit}" =~ ^[0-9]+$ ]]; then
+    printf 'check-doc-site: the limit %s is not a number of KiB\n' "${limit}" >&2
+    exit 2
+fi
+if [[ ! -d "${site}" ]]; then
+    printf 'check-doc-site: %s is not a directory\n' "${site}" >&2
+    exit 1
+fi
+
+missing=()
+for name in "$@"; do
+    if [[ ! -f "${site}/${name//-/_}/index.html" ]]; then
+        missing+=("${site}/${name//-/_}/index.html")
+    fi
+done
+if [[ "${#missing[@]}" -ne 0 ]]; then
+    printf 'check-doc-site: cargo doc wrote no page %s\n' "${missing[@]}" >&2
+    exit 1
+fi
+
+{
+    printf '%s\n' '<!DOCTYPE html>' '<html lang="en">' '<head>' '<meta charset="utf-8">' '<title>slang-rust</title>' '</head>' '<body>' '<ul>'
+    for name in "$@"; do
+        printf '<li><a href="%s/index.html">%s</a></li>\n' "${name//-/_}" "${name}"
+    done
+    printf '%s\n' '</ul>' '</body>' '</html>'
+} >"${site}/index.html"
+
+links="$(find "${site}" -type l)"
+if [[ -n "${links}" ]]; then
+    printf 'check-doc-site: %s holds symbolic links, which a deployment to GitHub Pages refuses:\n%s\n' "${site}" "${links}" >&2
+    exit 1
+fi
+
+du -sh "${site}"
+kibibytes="$(du -sk "${site}" | cut -f 1)"
+if [[ "${kibibytes}" -gt "${limit}" ]]; then
+    printf 'check-doc-site: %s takes %s KiB, more than the limit of %s KiB\n' "${site}" "${kibibytes}" "${limit}" >&2
+    exit 1
+fi

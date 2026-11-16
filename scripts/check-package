@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: check-package <documentation-site> <package>..." "" \
+        "Checks that the packages of the next release, given in the order in which they" \
+        "depend on each other, are ready to publish. It fails when the members of the" \
+        "workspace that do not set publish = false differ from the given packages, or" \
+        "when the documentation field of a given package is not" \
+        "<documentation-site>/<name>/, with each hyphen of the name replaced by an" \
+        "underscore. It prints cargo package --list for each package, packages them all" \
+        "with cargo package --no-verify, and checks each .crate file: it is at most" \
+        "10000000 bytes, holds no symbolic link, holds README.md and the licence files" \
+        "of its licence as regular files equal to the root texts, and holds no path" \
+        "under a directory named target or .git. When crates.io already holds the" \
+        "version of a package, its files must equal those of the published .crate file," \
+        "except .cargo_vcs_info.json." \
+        "Runs from the root of the workspace. Exits 1 when a check fails, and 2 on a" \
+        "usage error or when a tool is missing."
+}
+
+if [[ $# -lt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 && ("$1" == "-h" || "$1" == "--help") ]] && exit 0
+    exit 2
+fi
+
+for tool in cargo python3 tar curl cmp diff; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'check-package: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+site="${1%/}"
+shift
+packages=("$@")
+user_agent="slang-rust-release-check"
+size_limit=10000000
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work}"' EXIT
+
+failures=0
+fail() {
+    printf 'check-package: %s\n' "$*" >&2
+    failures=$((failures + 1))
+}
+
+cargo metadata --no-deps --format-version 1 >"${work}/metadata.json"
+
+python3 -I -c '
+import json, sys
+metadata = json.load(open(sys.argv[1], encoding="utf-8"))
+print(metadata["target_directory"])
+for package in metadata["packages"]:
+    publishable = "no" if package.get("publish") == [] else "yes"
+    fields = [package["name"], package["version"], package.get("license") or "", package.get("documentation") or "", publishable]
+    print("\t".join(fields))
+' "${work}/metadata.json" >"${work}/members"
+
+target_directory="$(head -n 1 "${work}/members")"
+tail -n +2 "${work}/members" >"${work}/table"
+
+publishable="$(awk -F '\t' '$5 == "yes" { print $1 }' "${work}/table" | LC_ALL=C sort)"
+given="$(printf '%s\n' "${packages[@]}" | LC_ALL=C sort)"
+if [[ "${publishable}" != "${given}" ]]; then
+    fail "the members without publish = false differ from the release packages: members $(printf '%s' "${publishable}" | tr '\n' ' ')against release packages $(printf '%s' "${given}" | tr '\n' ' ')"
+fi
+
+field() {
+    awk -F '\t' -v name="$1" -v column="$2" '$1 == name { print $column }' "${work}/table"
+}
+
+for name in "${packages[@]}"; do
+    if [[ -z "$(field "${name}" 1)" ]]; then
+        fail "${name} is not a member of the workspace"
+        continue
+    fi
+    expected="${site}/${name//-/_}/"
+    actual="$(field "${name}" 4)"
+    if [[ "${actual}" != "${expected}" ]]; then
+        fail "${name}: the documentation field is '${actual}', expected '${expected}'"
+    fi
+done
+
+if [[ "${failures}" -ne 0 ]]; then
+    exit 1
+fi
+
+selection=()
+for name in "${packages[@]}"; do
+    printf '\n== cargo package --list -p %s\n' "${name}"
+    cargo package --list -p "${name}"
+    selection+=(-p "${name}")
+done
+
+printf '\n== cargo package --no-verify\n'
+cargo package --no-verify "${selection[@]}"
+
+licence_files() {
+    case "$1" in
+        "MIT OR Apache-2.0") printf '%s\n' "LICENSE-APACHE LICENSE-APACHE" "LICENSE-MIT LICENSE-MIT" ;;
+        "Apache-2.0 WITH LLVM-exception") printf '%s\n' "LICENSE LICENSE-APACHE-LLVM" ;;
+        "GPL-3.0-or-later") printf '%s\n' "LICENSE LICENSE-GPL" ;;
+        *) return 1 ;;
+    esac
+}
+
+download_published() {
+    curl --silent --show-error --proto '=https' --tlsv1.2 --retry 3 --user-agent "${user_agent}" \
+        --output "$2" --write-out '%{http_code}' "$1"
+}
+
+for name in "${packages[@]}"; do
+    version="$(field "${name}" 2)"
+    licence="$(field "${name}" 3)"
+    base="${name}-${version}"
+    crate="${target_directory}/package/${base}.crate"
+    printf '\n== %s\n' "${crate}"
+    if [[ ! -f "${crate}" ]]; then
+        fail "${name}: cargo package wrote no ${crate}"
+        continue
+    fi
+
+    size="$(wc -c <"${crate}" | tr -d ' ')"
+    printf 'size: %s bytes, limit %s bytes\n' "${size}" "${size_limit}"
+    if [[ "${size}" -gt "${size_limit}" ]]; then
+        fail "${name}: ${crate} is ${size} bytes, larger than ${size_limit} bytes"
+    fi
+
+    unpacked="${work}/${name}/new"
+    mkdir -p "${unpacked}"
+    tar -xzf "${crate}" -C "${unpacked}"
+
+    while IFS= read -r path; do
+        case "/${path%/}/" in
+            */target/* | */.git/*) fail "${name}: ${crate} holds ${path}, which is under a directory named target or .git" ;;
+        esac
+    done < <(tar -tzf "${crate}")
+
+    links="$(cd "${unpacked}" && find . -type l)"
+    if [[ -n "${links}" ]]; then
+        fail "${name}: ${crate} holds symbolic links: $(printf '%s' "${links}" | tr '\n' ' ')"
+    fi
+
+    root="${unpacked}/${base}"
+    if [[ ! -f "${root}/README.md" || -L "${root}/README.md" ]]; then
+        fail "${name}: ${crate} holds no README.md as a regular file"
+    fi
+
+    if ! expected_licences="$(licence_files "${licence}")"; then
+        fail "${name}: no licence file is known for the licence '${licence}'"
+    else
+        while read -r file text; do
+            if [[ ! -f "${root}/${file}" || -L "${root}/${file}" ]]; then
+                fail "${name}: ${crate} holds no ${file} as a regular file"
+            elif ! cmp -s "${root}/${file}" "${text}"; then
+                fail "${name}: ${file} in ${crate} differs from the root text ${text}"
+            else
+                printf 'licence: %s equals %s\n' "${file}" "${text}"
+            fi
+        done <<<"${expected_licences}"
+    fi
+
+    published="${work}/${name}/published.crate"
+    address="https://static.crates.io/crates/${name}/${base}.crate"
+    if ! status="$(download_published "${address}" "${published}")"; then
+        fail "${name}: cannot download ${address}"
+        continue
+    fi
+    case "${status}" in
+        200)
+            mkdir -p "${work}/${name}/old"
+            tar -xzf "${published}" -C "${work}/${name}/old"
+            if diff -r -x .cargo_vcs_info.json "${work}/${name}/old/${base}" "${root}" >"${work}/${name}/diff"; then
+                printf 'published: crates.io holds %s %s, and the package has the same files\n' "${name}" "${version}"
+            else
+                cat "${work}/${name}/diff" >&2
+                fail "${name}: crates.io holds ${version}, and the package differs from the published .crate file"
+            fi
+            ;;
+        404)
+            printf 'published: crates.io does not hold %s %s\n' "${name}" "${version}"
+            ;;
+        *)
+            fail "${name}: ${address} answered with HTTP status ${status}"
+            ;;
+    esac
+done
+
+if [[ "${failures}" -ne 0 ]]; then
+    printf 'check-package: %s check(s) failed\n' "${failures}" >&2
+    exit 1
+fi
+printf '\ncheck-package: every package passed\n'

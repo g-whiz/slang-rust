@@ -3,6 +3,7 @@ name = "slango-codegen"
 description = "The generator of slango-macros: typed Rust bindings to the compute kernels of a Slang file, for slango."
 keywords = ["slang", "shader", "gpu", "codegen", "compute"]
 categories = ["graphics", "development-tools::procedural-macro-helpers"]
+documentation = "https://g-whiz.github.io/slang-rust/slango_codegen/"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

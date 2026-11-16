@@ -3,6 +3,7 @@ name = "slang-compiler"
 description = "Safe Rust wrappers over the Slang shader compiler."
 keywords = ["slang", "shader", "compiler", "spirv", "gpu"]
 categories = ["api-bindings", "graphics", "compilers"]
+documentation = "https://g-whiz.github.io/slang-rust/slang_compiler/"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

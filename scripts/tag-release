@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: tag-release <notes-file> <package>..." "" \
+        "Tags a release and creates its GitHub release. The packages are those of the" \
+        "release, which share one version except slang-src, which has its own. It" \
+        "refuses to run when the notes file is not a readable, non-empty file, when" \
+        "HEAD differs from origin/main after a fetch, or when the packages other than" \
+        "slang-src do not share one version. It then creates the annotated tag" \
+        "v<version> on HEAD, pushes it to origin, and runs gh release create with" \
+        "--verify-tag and the notes file. Runs from the root of the workspace." \
+        "Exits 1 when it refuses, with the status of git or gh when one of them fails," \
+        "and 2 on a usage error or when a tool is missing."
+}
+
+if [[ $# -lt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 && ("$1" == "-h" || "$1" == "--help") ]] && exit 0
+    exit 2
+fi
+
+for tool in cargo git gh python3; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'tag-release: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+refuse() {
+    printf 'tag-release: %s\n' "$*" >&2
+    exit 1
+}
+
+notes="$1"
+shift
+
+if [[ ! -f "${notes}" || ! -r "${notes}" || ! -s "${notes}" ]]; then
+    refuse "the notes file '${notes}' is not a readable, non-empty file"
+fi
+if ! git fetch --quiet origin main; then
+    refuse "git fetch of origin main failed, so HEAD cannot be compared with origin/main"
+fi
+if ! head="$(git rev-parse --verify HEAD)" || ! main="$(git rev-parse --verify refs/remotes/origin/main)"; then
+    refuse "cannot read the commits of HEAD and origin/main"
+fi
+if [[ "${head}" != "${main}" ]]; then
+    refuse "HEAD ${head} differs from origin/main ${main}, so tag from the main checkout at the commit of origin/main"
+fi
+
+metadata="$(cargo metadata --no-deps --format-version 1)"
+if ! version="$(python3 -I -c '
+import json, sys
+names = set(sys.argv[1:]) - {"slang-src"}
+packages = json.load(sys.stdin)["packages"]
+versions = {package["version"] for package in packages if package["name"] in names}
+found = {package["name"] for package in packages}
+missing = sorted(names - found)
+if missing:
+    sys.exit("tag-release: not members of the workspace: " + " ".join(missing))
+if len(versions) != 1:
+    sys.exit("tag-release: the packages other than slang-src do not share one version: " + " ".join(sorted(versions)))
+print(versions.pop())
+' "$@" <<<"${metadata}")"; then
+    exit 1
+fi
+
+tag="v${version}"
+git tag --annotate --message "${tag}" "${tag}" "${head}"
+git push origin "refs/tags/${tag}"
+gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${notes}"

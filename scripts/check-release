@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: check-release <documentation-site> <package>..." "" \
+        "Checks a release on crates.io. For each given package, it reads the version" \
+        "of the manifest with cargo metadata and asks the crates.io API whether it holds" \
+        "that version, and prints the answer, so that the output lists every package" \
+        "that crates.io lacks. For a package that crates.io holds, it checks that the" \
+        "documentation field there is <documentation-site>/<name>/, with each hyphen" \
+        "of the name replaced by an underscore, and that this address answers with" \
+        "HTTP status 200. It sends a generic user agent and waits one second before" \
+        "each request to the crates.io API. Runs from the root of the workspace." \
+        "Exits 1 when a check fails, and 2 on a usage error or when a tool is missing."
+}
+
+if [[ $# -lt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 && ("$1" == "-h" || "$1" == "--help") ]] && exit 0
+    exit 2
+fi
+
+for tool in cargo python3 curl; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'check-release: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+site="${1%/}"
+shift
+packages=("$@")
+user_agent="slang-rust-release-check"
+api="https://crates.io/api/v1/crates"
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work}"' EXIT
+
+failures=0
+fail() {
+    printf 'check-release: %s\n' "$*" >&2
+    failures=$((failures + 1))
+}
+
+cargo metadata --no-deps --format-version 1 >"${work}/metadata.json"
+python3 -I -c '
+import json, sys
+for package in json.load(open(sys.argv[1], encoding="utf-8"))["packages"]:
+    print(package["name"] + "\t" + package["version"])
+' "${work}/metadata.json" >"${work}/versions"
+
+fetch() {
+    sleep 1
+    curl --silent --show-error --proto '=https' --tlsv1.2 --retry 3 --user-agent "${user_agent}" \
+        --output "$2" --write-out '%{http_code}' "$1"
+}
+
+read_json() {
+    python3 -I -c '
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+for key in sys.argv[2:]:
+    value = value[key]
+print("" if value is None else value)
+' "$@"
+}
+
+for name in "${packages[@]}"; do
+    version="$(awk -F '\t' -v name="${name}" '$1 == name { print $2 }' "${work}/versions")"
+    if [[ -z "${version}" ]]; then
+        fail "${name} is not a member of the workspace"
+        continue
+    fi
+
+    if ! status="$(fetch "${api}/${name}/${version}" "${work}/version.json")"; then
+        fail "${name}: cannot reach ${api}/${name}/${version}"
+        continue
+    fi
+    case "${status}" in
+        200) ;;
+        404)
+            printf '%s %s: not on crates.io\n' "${name}" "${version}"
+            fail "${name}: crates.io does not hold ${version}"
+            continue
+            ;;
+        *)
+            fail "${name}: ${api}/${name}/${version} answered with HTTP status ${status}"
+            continue
+            ;;
+    esac
+    if ! held="$(read_json "${work}/version.json" version num)" || [[ "${held}" != "${version}" ]]; then
+        fail "${name}: ${api}/${name}/${version} did not answer with the version ${version}"
+        continue
+    fi
+    printf '%s %s: on crates.io\n' "${name}" "${version}"
+
+    if ! status="$(fetch "${api}/${name}" "${work}/crate.json")"; then
+        fail "${name}: cannot reach ${api}/${name}"
+        continue
+    fi
+    if [[ "${status}" != 200 ]]; then
+        fail "${name}: ${api}/${name} answered with HTTP status ${status}"
+        continue
+    fi
+    expected="${site}/${name//-/_}/"
+    if ! documentation="$(read_json "${work}/crate.json" crate documentation)"; then
+        fail "${name}: ${api}/${name} holds no documentation field"
+        continue
+    fi
+    if [[ "${documentation}" != "${expected}" ]]; then
+        fail "${name}: the documentation field on crates.io is '${documentation}', expected '${expected}'"
+        continue
+    fi
+
+    if ! status="$(curl --silent --show-error --proto '=https' --tlsv1.2 --retry 3 --user-agent "${user_agent}" \
+        --output /dev/null --write-out '%{http_code}' "${expected}")"; then
+        fail "${name}: cannot reach ${expected}"
+        continue
+    fi
+    if [[ "${status}" != 200 ]]; then
+        fail "${name}: ${expected} answered with HTTP status ${status}"
+        continue
+    fi
+    printf '%s: %s answers\n' "${name}" "${expected}"
+done
+
+if [[ "${failures}" -ne 0 ]]; then
+    printf 'check-release: %s check(s) failed\n' "${failures}" >&2
+    exit 1
+fi
+printf 'check-release: crates.io holds every package, and each documentation address answers\n'

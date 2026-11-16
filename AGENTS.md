@@ -85,7 +85,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-15, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
+As of 2026-11-16, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
 
 - M0, tooling and skeleton, is complete.
 - M1, the binding generator and `slang-compiler-sys`, is complete. It delivered the pin file, the binding generator, the checked-in bindings, the build script with its dynamic and static routes, the installation of the pinned Vulkan SDK in every CI job, and the CI job `coverage`. What stays open after M1 is in the rows of Sections 15 and 16 of `docs/design/slang-compiler-sys.md`.
@@ -107,7 +107,7 @@ On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18
 M8, the forward-compatibility pass of `slango` and the first release (Section 15.11 of `docs/design/architecture.md`), is in progress. Its design exists:
 
 - `docs/design/slango.md`, Sections 4.3 to 4.5, 5.5, and 6, designs the forward-compatibility pass. It puts the wgpu backend behind the default Cargo feature `wgpu`, without which the crate stops compiling with one `compile_error!` (SLO-28 to SLO-30), and makes the three accessors of `slango::wgpu` return an `Option` (SLO-31). It also finds that the Clippy lints of the workspace already enforce `#[non_exhaustive]` on every public type that needs it (SLO-32).
-- `docs/design/tooling.md`, Sections 3.1, 5, 7.5, and 9, designs the publishing prerequisites and the release. It covers the crates and versions of a release, the check for breaking changes, the hosted documentation on GitHub Pages, the review of the public API, the release procedure with the steps reserved for the owner, and the change of `check-features` for the feature `wgpu` (TOOL-35 to TOOL-48).
+- `docs/design/tooling.md`, Sections 3.1, 5, 7.5, and 9, designs the publishing prerequisites and the release. It covers the crates and versions of a release, the check for breaking changes, the hosted documentation on GitHub Pages, the review of the public API, the release procedure with the steps reserved for the owner, and the change of `check-features` for the feature `wgpu` (TOOL-35 to TOOL-50).
 
 The first code step of M8, done on 2026-11-15, implemented the forward-compatibility pass and the change of `check-features`:
 
@@ -117,7 +117,41 @@ The first code step of M8, done on 2026-11-15, implemented the forward-compatibi
 
 On 2026-11-15 in the development container, every check passed with Rust 1.99.1 and with Rust 1.100.0. A code review then found that no test covered the mapping of `None` in `View::to_image`, and a unit test of `slang-slint` that Miri runs now checks it, which adds one test to the tiers. No test produces the `None` case of the three accessors themselves, and no automated check runs the build of `slango` without the feature. Section 3.10 of `docs/design/slango.md` records what a run by hand of that build reported.
 
-M8 still needs the publishing prerequisites, which What does not exist yet lists, and the review of the public API, and then the first release, which waits for the owner's go-ahead.
+The second code step of M8, done on 2026-11-16, added the tools of the release that Sections 7.5 and 9 of `docs/design/tooling.md` specify, and published, tagged, and deployed nothing:
+
+- The `justfile` variables `release_packages`, the eight crates of the first release, and `documentation_site`, the base address of the hosted documentation.
+- The recipes `check-package` and `check-release` in the group `checks`, `release-scripts-self-test` in the group `checks` and in `just check`, and `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank` in the new group `release`, with eight scripts under `scripts/`.
+- The `documentation` field of each of the eight crates, which names its page on the hosted site, and `publish = false` on `slang-slint`.
+- The workflow `.github/workflows/documentation.yml`, which builds the site and deploys it to GitHub Pages on a push of a tag that matches `v*`.
+
+An agent can now check the packages, run Cargo's dry run of the publish, build the site, and check a release on crates.io. The owner can publish, tag, and yank, each only through its recipe, and an agent runs `tag-release` only after the owner's go-ahead, as Validating Changes states.
+
+On 2026-11-15 and 2026-11-16 in the development container, before the first commit of the step, these runs gave its evidence:
+
+- `just check` passed, with the self-test of the release scripts, and the test counts did not change. `check-features`, `check-msrv`, `check-vendored`, and `test-vendored` passed, and so did the formatting, Clippy, documentation, and feature checks with Rust 1.100.0.
+- Cargo refused to package the uncommitted manifests, so the real `check-package` and `publish-dry-run` stopped. Copies of their scripts that pass `--allow-dirty` then passed: every one of the eight packages met the conditions of TOOL-45, the largest `.crate` file was that of `slang-compiler` with 194085 bytes, and the dry run packaged and verified the eight crates in the order of `release_packages` in 12 min 13 s and uploaded nothing. It cloned Slang twice, because Cargo had not tagged `target/` (Section 9.6 of `docs/design/tooling.md`).
+- `doc-site` built a site of 27 MB from an empty target directory in 7 min 46 s, with no warning and no symbolic link. The site names the absolute build path in its pages of `slang-compiler-sys`, which the design accepts for a site that the workflow builds (TOOL-49 of `docs/design/tooling.md`).
+- `check-release` reported that crates.io holds none of the eight crates.
+
+A code review of the first commit of the step found two gaps in the tests. The checks inside the recipe `doc-site` had none, and neither did the logic in the recipes themselves, which is the relative notes path of `tag-release` and the default list of `publish` and `publish-dry-run`.
+
+The step closed both. The checks of `doc-site` moved to `scripts/check-doc-site`, and the self-test now tests that script and runs the three recipes through `just` on a copy of the `justfile` (Section 9.9 of `docs/design/tooling.md`). On 2026-11-16, `just release-scripts-self-test` printed "release self-test passed: 57 cases", against 48 for the first commit, and `just check` passed.
+
+On 2026-11-16 in the development container, the real recipes ran for the first time, on the committed tree of the first commit of the step. `just check-package` exited with status 0 and printed "check-package: every package passed". `just publish-dry-run` exited with status 0, printed "Uploading" and "warning: aborting upload due to dry run" for each of the eight crates in the order of `release_packages`, and wrote a record with that commit and the eight names.
+
+The dry run took 4.7 s on a target directory that an earlier build had filled, which says nothing about a first run. Nothing was uploaded, and no token of crates.io exists on the machine.
+
+In run 43780389601, for the first commit of the second code step of M8, all nine jobs passed, so the run concluded `success`. Its `just check` on the Linux runner included the self-test with 48 cases. It did not include the fixes of the review or the documents of the step.
+
+Run 43783694243, for the single commit that held the whole step, its code, the fixes of the review, and the documents, concluded `failure`. Eight of the nine jobs passed. The job "Run every check on Linux" failed in `just check` at `release-scripts-self-test`, with "just: command not found". The self-test had narrowed `PATH` to its stubs, `/usr/bin`, and `/bin`, while the runner installs `just` outside `/usr/bin`, and the cases that run recipes through `just` came with the fixes of the review, after run 43780389601.
+
+The self-test now resolves `just` to its absolute path before it narrows `PATH`, calls it only by that path, and stops with status 2 when `just` is not installed or a program that it needs is not in `/usr/bin` or `/bin` (TOOL-50 of `docs/design/tooling.md`). On 2026-11-16 in the development container, in a private mount namespace in which `/usr/bin/just` failed loudly and a copy of `just` sat beside a decoy `cargo` at the front of `PATH`, the fixed self-test passed and ran neither, and the self-test of that commit failed as CI did. `just check` then passed with 57 cases.
+
+On 2026-11-16, GitHub Pages is not turned on for the repository, whose Pages endpoint answers with status 404, the remote holds no tag, and the push of the branch started only the workflow `CI`. The `target/` directory of the main checkout holds Cargo's tag.
+
+The packaged manifest of each of the eight crates carries the `authors` value of `[workspace.package]`, which Cargo copies into it. Whether to keep, remove, or replace the field is the owner's decision, which is not made and blocks the first publish (TQ-15 of `docs/design/tooling.md`).
+
+M8 still needs the review of the public API of Section 9.5 of `docs/design/tooling.md`, the owner's decision on the `authors` field, then the first release, which waits for the owner's go-ahead, and then the change that follows it, which adds `check-semver` and the CI job `semver`.
 
 Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
@@ -131,12 +165,17 @@ What exists and works:
   - `recorded-slang` prints the recorded commit and build tag of `slang-src`.
   - `test-vendored` and `check-vendored` test, lint, and document `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `slang-compiler/vendored` in `target/vendored`, so their first run there clones Slang and builds Slang and slang-glslang from source. `test-vendored` then runs the tests of the modules `bindings` and `structs` of `slango-macros` with only `slango-macros/vendored`, and `check-vendored` runs Clippy on `slang-slint` with only `slang-slint/vendored`, which check the forward of the feature by each of the two crates (TOOL-7 of `docs/design/tooling.md`).
   - `check-vendored-shared-folder` checks where the clone is, recognizing a clone by its work tree `src/<commit>/tree/.git`, and prints the size of the shared folder.
+  - The recipes of the release, which Section 9.6 of `docs/design/tooling.md` specifies. `check-package` checks the members without `publish = false`, the `documentation` fields, and each packaged `.crate` file. `check-release` checks a release on crates.io. `doc-site` builds the hosted documentation on the vendored route into `target/vendored/doc`. `publish-dry-run` runs Cargo's dry run and records the commit and the crates. `publish`, `tag-release`, and `yank` publish, tag, and yank. `check-package`, `publish-dry-run`, and `publish` exist on Linux and macOS only.
+  - `release-scripts-self-test` runs the scripts of the release, and three of its recipes, against stub programs of `cargo`, `git`, `gh`, `curl`, and `sleep`, so it reaches neither crates.io nor GitHub (Section 9.9 of `docs/design/tooling.md`).
+
+  The variables `release_packages` and `documentation_site` of the `justfile` hold the crates of the next release and the base address of the hosted documentation, which every recipe of the release reads (TOOL-35 and Section 9.4 of `docs/design/tooling.md`).
 
   The variables `vendored_packages` and `vendored_features` of the `justfile` hold the packages and the feature of the vendored recipes (TOOL-7). Every recipe that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`. `check-features` passes `--exclude-features vendored`, and checks `slango` in a second command with `--exclude-no-default-features` (TOOL-48 of `docs/design/tooling.md`).
 
   Its variable `slang_library_path` holds the assignment that puts `$VULKAN_SDK/lib` on the library path of Linux or macOS. The recipes that run compiled code which loads Slang put it at the start of their command line (SCS-32 of `docs/design/slang-compiler-sys.md`).
-- The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`. These are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-workflow-pins`, and `check-doc-references`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each.
+- The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`. These are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-workflow-pins`, and `check-doc-references`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each. They also include the scripts of the release, `check-package`, `check-release`, `check-doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`, and their self-test `self-test-release`.
 - The git hooks in `.pre-commit-config.yaml`.
+- The documentation workflow `.github/workflows/documentation.yml`, which runs only on a push of a tag that matches `v*`. Its job `build` runs `just doc-site` on a fresh checkout and uploads the site, and its job `deploy`, the only job with `pages: write` and `id-token: write`, deploys it to GitHub Pages (Section 7.5 of `docs/design/tooling.md`). It has never run, because no such tag exists.
 - The CI workflow `.github/workflows/ci.yml`, which runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request.
   - Every job makes libclang available, and every job except `vendored` installs the Vulkan SDK of the version that the workflow records, verified against a SHA-256 checksum that the workflow records, and checks it with `check-vulkan-sdk`, on Linux, Windows, and macOS. The job `coverage` measures test coverage on Linux and keeps the report as an artifact. Section 7 of `docs/design/tooling.md` specifies the jobs.
   - The job `vendored`, added on 2026-11-15, installs no Vulkan SDK and sets up no developer environment of the Microsoft toolchain.
@@ -183,6 +222,7 @@ What exists and works:
 - The root `.gitattributes`, which keeps LF line endings in every checkout on every platform.
 - `CLAUDE.md`, which imports this file.
 - The workspace manifest `Cargo.toml`, with `default-members`, which leaves out `slang-src` and `slang-glslang-sys`, the `[workspace.package]` fields that the members inherit, and the workspace lint tables of Section 4.2 of the coding standard.
+- The manifests of the eight crates of the first release, each with the `documentation` field of TOOL-40 of `docs/design/tooling.md`, which names its page on the hosted site.
 - The tool configuration: `clippy.toml`, `deny.toml`, `.config/nextest.toml`, `taplo.toml`, and `typos.toml`.
 - `crates/slang-compiler-sys`, with publication metadata and crate-level documentation that states the safety contract that every generated function shares and both routes. It also states that every crate between a program and it forwards the feature `vendored`, that the feature of `slang-compiler` installs the loader of `slang-glslang-sys`, and how a direct user installs that loader (SCS-37 of `docs/design/slang-compiler-sys.md`).
   - Its one Cargo feature, `vendored`, off by default, enables the optional dependency `slang-src` and the optional build dependency `find-msvc-tools`. `slang-bindgen` is its build dependency, and `slang-bindgen` and `find-msvc-tools` are its development dependencies (SCS-61 of `docs/design/slang-compiler-sys.md`). The crate root names `slang-src` with `use slang_src as _;`, because the build script needs only its `links` metadata (DEP-2 of the coding standard).
@@ -223,7 +263,7 @@ What exists and works:
   - Its public API covers `Device` with `DeviceOptions` and `AdapterSelection`, `Module`, `Kernel`, `Call`, `Buffer`, `Texture`, `Sampler`, the sealed traits `Element`, `VertexElement`, and `Value`, the error type `Error` with its `ErrorKind`, and the public module `wgpu`, whose accessors `device`, `queue`, and `texture` return an `Option` (SLO-31).
   - It also has the hidden module `__private` for the code that `slango-macros` generates, which is exempt from semantic versioning (SLM-6 of `docs/design/slango-macros.md`). The crate's API documentation is the detailed record.
   - Its pure unit tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slango/` passed in CI on lavapipe, WARP, and hosted Metal.
-- `crates/slang-slint`, the crate that shares Slint's wgpu device with `slango` and shows what `slango` draws in a Slint user interface, with publication metadata, `slango` and `slint` as its dependencies, and the feature `vendored`, which only forwards to `slango` (SLS-17 of `docs/design/slang-slint.md`).
+- `crates/slang-slint`, the crate that shares Slint's wgpu device with `slango` and shows what `slango` draws in a Slint user interface, with publication metadata, `publish = false`, because it belongs to the second release, `slango` and `slint` as its dependencies, and the feature `vendored`, which only forwards to `slango` (SLS-17 of `docs/design/slang-slint.md`).
   - Its public API covers these items:
     - `wgpu_configuration` returns the configuration with which Slint creates a device that suits `slango`.
     - `device` turns the wgpu 30 device and queue that Slint passes to a rendering notifier into a `slango::Device`.
@@ -258,7 +298,7 @@ What exists and works:
 - The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`, whose section "Building Slang From Source" is the user guide to the vendored build.
 - The writing guide, the coding standard, and the reference list under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and which Slang is recorded, and the roadmap of milestones M0 to M18.
-- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented, and the release procedure, the check for breaking changes, and the hosted documentation, which M8 designed.
+- The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented, and the release procedure, the check for breaking changes, and the hosted documentation, which M8 designed and whose recipes, scripts, and workflow, all but `check-semver` and the CI job `semver`, the second code step of M8 implemented.
 - The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-compiler-sys.md`, a draft for M7, whose dynamic route, generator, and build information the second code step of M7 implemented, whose vendored route the third implemented, and whose system libraries the fourth added.
 - The design of `slang-src`, `docs/design/slang-src.md`, a draft for M7 that the first code step implemented.
 - The design of `slang-glslang-sys`, `docs/design/slang-glslang-sys.md`, a draft for M7 that the fourth code step implemented.
@@ -288,7 +328,7 @@ What does not exist yet:
 - The custom file system of `slang-compiler`, which is deferred with no milestone assigned (Section 15.22 of `docs/design/architecture.md`). It is the trait `FileSystem` and the setter `SessionBuilder::file_system` of Section 8 of `docs/design/slang-compiler.md`, with the Rust-owned blob, the panic handling of SLC-18, and the Slang call guard raised around the user's code of every vtable function (SLC-28). A user who needs one reaches Slang's file system interface through `slang-compiler-sys`.
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
 - The recipe `check-semver` and the CI job `semver`, which the change that follows the first release adds (TOOL-39 of `docs/design/tooling.md`).
-- The publishing prerequisites of M8 that the tooling design specifies: the `justfile` variable `release_packages`, the `documentation` field of each crate of the release, `publish = false` on `slang-slint`, the recipes `check-package`, `check-release`, `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`, and the documentation workflow. The hosted documentation and the first release do not exist either, and no crate is published.
+- The first release: no crate is published, no tag `v<version>` and no GitHub release exist, and the hosted documentation does not exist, so the `documentation` field of each crate names a page that does not answer yet.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
 - A recipe that builds the examples package with its feature `vendored`, and a `gpu` test on the vendored route.
 
@@ -313,6 +353,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `Cargo.toml`: The workspace manifest. It holds these parts:
   - Resolver 3.
   - The `[workspace.package]` fields that the members inherit, such as edition 2024 and `rust-version`, and the licence `MIT OR Apache-2.0`, which every member except `slang-compiler-sys`, `slang-glslang-sys`, `slang-slint`, and `slang-src` inherits (TOOL-4 of `docs/design/tooling.md`).
+  - The `authors` field in `[workspace.package]`, which every member inherits and Cargo copies into every packaged manifest, and on which the owner decides before the first release, as Project Status states.
   - In `[workspace.dependencies]`, the dependencies `clang`, `clang-sys`, `find-msvc-tools`, `insta`, `pollster`, `prettyplease`, `proc-macro2`, `quote`, `slang-bindgen`, `slang-compiler`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-slint`, `slang-src`, `slango`, `slango-codegen`, `slango-macros`, `slint`, `syn`, `trybuild`, `wgpu`, and `winit`, with `slang-bindgen`, `slang-compiler`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-slint`, `slang-src`, `slango`, `slango-codegen`, and `slango-macros` by path and version, and `slang-bindgen`, `slang-src`, and `slango-codegen` with an exact version.
   - The workspace lint tables.
 
@@ -403,7 +444,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
     - Render pipelines and draws, in `gpu/render.rs` and `gpu/render/`.
   - The shaders that the tests load, under `tests/slango/shaders/`.
 - `crates/slang-slint/`: The crate `slang-slint` that Project Status describes. It has these parts:
-  - `Cargo.toml`, which declares the feature `vendored`, inherits `slango` with its feature `wgpu` named and `slint` from `[workspace.dependencies]`, and enables the Slint features of SLS-1 of `docs/design/slang-slint.md`.
+  - `Cargo.toml`, which sets `publish = false` (TOOL-35 of `docs/design/tooling.md`), declares the feature `vendored`, inherits `slango` with its feature `wgpu` named and `slint` from `[workspace.dependencies]`, and enables the Slint features of SLS-1 of `docs/design/slang-slint.md`.
   - `src/lib.rs` with the crate-level documentation and the re-exports.
   - The private modules:
     - `device` holds `wgpu_configuration` and `device`.
@@ -488,7 +529,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - The hidden module and the element type check of `slango`.
   - The macro and the generated code.
   - Errors, threading, and the tests.
-- `justfile`: The root `justfile`, with the groups `checks`, `ci`, `git`, and `rust`. The group `ci` holds `install-vulkan-sdk`, which only the CI workflow runs. Its variables `vendored_packages`, `vendored_features`, and `vendored_environment` hold the packages, the feature, and the environment of `test-vendored` and `check-vendored`, which are `slang-src slang-glslang-sys slang-compiler-sys slang-compiler` and `slang-compiler/vendored`.
+- `justfile`: The root `justfile`, with the groups `checks`, `ci`, `git`, `release`, and `rust`. The group `ci` holds `install-vulkan-sdk`, which only the CI workflow runs, and the group `release` holds `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`. Its variables `release_packages` and `documentation_site` hold the crates of the next release, in the order of their dependencies, and the base address of the hosted documentation. Its variables `vendored_packages`, `vendored_features`, and `vendored_environment` hold the packages, the feature, and the environment of `test-vendored` and `check-vendored`, which are `slang-src slang-glslang-sys slang-compiler-sys slang-compiler` and `slang-compiler/vendored`.
 - `.github/workflows/ci.yml`: The CI workflow, which Section 7 of `docs/design/tooling.md` specifies. It runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request.
   - It has the jobs `check`, `test`, `ci-only`, `coverage`, and `vendored`. Every job makes libclang available, and each job except `vendored` then installs the Vulkan SDK and checks it with `check-vulkan-sdk`.
   - Its job `vendored` is a matrix of Linux, Windows, and macOS that installs the stable toolchain, `just`, and cargo-nextest, prints the version of git, makes libclang available, installs the missing ones of CMake, Ninja, `g++`, `python3`, `pkg-config`, and `libfontconfig-dev` on Linux, prints the versions of the build tools, prints the Python 3 that it finds or fails, and runs the vendored recipes under `time` (Section 7.4 of `docs/design/tooling.md`).
@@ -496,6 +537,15 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - Its libclang step installs `libclang-dev` on Linux, and on Windows and macOS checks the libclang of the runner image and sets `LIBCLANG_PATH` to its directory (Section 7.1 of `docs/design/tooling.md`).
   - Its `check` and `coverage` jobs install lavapipe from `mesa-vulkan-drivers` for the tests of the `gpu` tier.
   - Its `check`, `ci-only`, and `coverage` jobs install `libfontconfig-dev`, and its job `vendored` installs it on Linux where it is missing, because a Linux build of Slint links fontconfig.
+- `.github/workflows/documentation.yml`: The workflow that builds the hosted documentation with `just doc-site` and deploys it to GitHub Pages on a push of a tag that matches `v*`, which Section 7.5 of `docs/design/tooling.md` specifies.
+- `scripts/check-package`: The script of `check-package`, which checks the members, the `documentation` fields, and each packaged `.crate` file.
+- `scripts/check-release`: The script of `check-release`, which checks the versions, the `documentation` fields, and the hosted pages of a release on crates.io.
+- `scripts/check-doc-site`: The script that `doc-site` runs after `cargo doc`, which checks the page of each crate, writes the index page, and checks the site for symbolic links and its size.
+- `scripts/publish-dry-run`: The script of `publish-dry-run`, which runs `cargo publish --dry-run` and writes the record `target/publish-dry-run.commit`.
+- `scripts/publish`: The script of `publish`, which refuses unless the checks of Section 9.6 of `docs/design/tooling.md` pass and then runs `cargo publish --no-verify`.
+- `scripts/tag-release`: The script of `tag-release`, which tags `HEAD`, pushes the tag, and creates the GitHub release.
+- `scripts/yank`: The script of `yank`, which runs `cargo yank` and refuses in CI and without a token.
+- `scripts/self-test-release`: The self-test of the release scripts, which `release-scripts-self-test` runs against stub programs (Section 9.9 of `docs/design/tooling.md`).
 - `scripts/install-vulkan-sdk`: The script that downloads the Vulkan SDK on a GitHub Actions runner, verifies it against a checksum, and installs it. It exports `VULKAN_SDK`, the library path on Linux and macOS, and the directory of the SDK's programs to the later steps of the job (Section 7.3 of `docs/design/tooling.md`).
 - `scripts/check-vulkan-sdk`: The script that checks that the SDK at `VULKAN_SDK` provides the Slang headers, library, and `slangc` of the build tag that `just recorded-slang` prints.
 - `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
@@ -515,17 +565,16 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `scripts/merge-branch`: The squash merge that `just merge` runs.
 - `scripts/worktree-prune`: The cleanup of squash-merged branches that `just worktree-prune` and the `post-merge` hook run.
 - `.pre-commit-config.yaml`: The `pre-commit`, `commit-msg`, and `post-merge` hooks.
-- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands and the hook that runs the prose checker after every edit of a Markdown file or a Rust file. The allowed commands include `just check`, every recipe that it runs except `check-slang-call-guard` and `check-slang-call-guard-self-test`, `check-vulkan-sdk`, `check-features`, `check-commit-message`, `recorded-slang`, and the three test recipes of the tiers. They exclude recipes such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, and `check-vendored-shared-folder` (Section 5 of `docs/design/tooling.md`).
+- `.claude/settings.json`: The Claude Code settings for this repository, with the allowed commands and the hook that runs the prose checker after every edit of a Markdown file or a Rust file. The allowed commands include `just check`, every recipe that it runs except `check-slang-call-guard` and `check-slang-call-guard-self-test`, `check-vulkan-sdk`, `check-features`, `check-commit-message`, `recorded-slang`, and the three test recipes of the tiers. They exclude recipes such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `release-scripts-self-test`, and every recipe of the release procedure (Section 5 of `docs/design/tooling.md`).
 - `.editorconfig`: The character set, line endings, final newline, and indentation for each file type.
 - `.gitattributes`: The single line `* text=auto eol=lf`, which keeps LF line endings in every checkout on every platform (Section 14.3 of `docs/design/tooling.md`).
 - `.gitignore`: The files that git ignores. Its last line keeps the directories `target/` of the cases of `check-slang-call-guard` under `scripts/fixtures/`, which the pattern `target` would otherwise ignore.
 
-`target/`, `.worktrees/`, `.code-review/`, and `.idea/` are local and ignored by git. `check-slang-call-guard` writes the generated bindings into `target/slang-bindgen/`, and the vendored recipes build in `target/vendored`. There the build script of `slang-src` keeps its clone in the shared folder `target/vendored/slang-src`, the build script of `slang-compiler-sys` keeps its built libraries and headers in the entries of `target/vendored/slang-src/slang-compiler-sys/`, and the build script of `slang-glslang-sys` keeps its built libraries in the entries of `target/vendored/slang-src/slang-glslang-sys/`.
+`target/`, `.worktrees/`, `.code-review/`, and `.idea/` are local and ignored by git. `check-slang-call-guard` writes the generated bindings into `target/slang-bindgen/`, and the vendored recipes build in `target/vendored`. There the build script of `slang-src` keeps its clone in the shared folder `target/vendored/slang-src`, the build script of `slang-compiler-sys` keeps its built libraries and headers in the entries of `target/vendored/slang-src/slang-compiler-sys/`, and the build script of `slang-glslang-sys` keeps its built libraries in the entries of `target/vendored/slang-src/slang-glslang-sys/`. `doc-site` writes the hosted documentation into `target/vendored/doc`. `check-package` writes the packages into `target/package`, and `publish-dry-run` writes its record `target/publish-dry-run.commit` and verifies the packages in `target/debug`.
 
 These locations are planned and do not exist yet:
 
 - `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, written as the first task of the crate's milestone.
-- `.github/workflows/documentation.yml`: The workflow that builds and deploys the hosted documentation on a push of a release tag (Section 7.5 of `docs/design/tooling.md`).
 ## Technology Decisions
 
 `docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and which Slang is recorded, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree.
@@ -614,7 +663,7 @@ Slang is obtained in exactly one of two ways (Section 4 of `docs/design/architec
 - By default, the dynamic route links the Slang of an installed Vulkan SDK at `VULKAN_SDK`.
 - The opt-in Cargo feature `vendored`, which `slang-compiler-sys` has and which the crates between a user and it forward, selects the vendored route. It builds Slang from the source tree that `slang-src` clones and links it statically. `slang-src` has no environment variable of its own, and the clone and the built libraries live in the shared folder in the Cargo target directory, which every profile and every host and target unit of a project share (Section 4.3 of `docs/design/architecture.md`).
 
-No environment variable selects the route, the build never falls back from one route to the other, and there is no prebuilt download. The recipes pass an explicit list of features and never `--all-features`, and only `test-vendored`, `check-vendored`, and the vendored CI jobs build the vendored route (Section 3 of `docs/design/tooling.md`).
+No environment variable selects the route, the build never falls back from one route to the other, and there is no prebuilt download. The recipes pass an explicit list of features and never `--all-features`. Only `test-vendored`, `check-vendored`, `doc-site`, the vendored CI jobs, and the documentation workflow build the vendored route, and `publish-dry-run` builds it for `slang-glslang-sys`, which always enables the feature on `slang-compiler-sys` (Section 3 of `docs/design/tooling.md`).
 
 Development uses the latest stable Rust toolchain. The workspace declares the minimum supported Rust version (MSRV) 1.99 in `rust-version`, and `check-msrv` verifies it with cargo-hack. The nightly toolchain serves only checkers such as Miri and never builds the crates.
 
@@ -626,7 +675,7 @@ Tests that need a GPU adapter sit in a module named `gpu`, which runs on any ada
 
 The published crates are planned for crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). Nothing is published without the owner's explicit go-ahead.
 
-docs.rs is not supported, because it builds without network access and the crates need libclang and either a Vulkan SDK or a clone of Slang. A workflow builds the documentation of each release from its tag and hosts it on GitHub Pages, and the `documentation` field of each crate points there. Section 9 of `docs/design/tooling.md` defines the release procedure, in which only the owner publishes, with a token that never enters the repository, CI, or an agent's environment.
+docs.rs is not supported, because it builds without network access and the crates need libclang and either a Vulkan SDK or a clone of Slang. The workflow `.github/workflows/documentation.yml` builds the documentation of each release from its tag on the vendored route and hosts it on GitHub Pages, and the `documentation` field of each crate points there. Only that workflow deploys the site, because a site built elsewhere names the absolute build path of its machine (TOOL-49 of `docs/design/tooling.md`). Section 9 of that design defines the release procedure, in which only the owner publishes, with a token that never enters the repository, CI, or an agent's environment.
 
 The development container provides this environment:
 
@@ -641,7 +690,7 @@ The development container provides this environment:
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. The recipe `check-semver`, which runs cargo-semver-checks, does not exist yet. The change that follows the first release adds it (TOOL-39 of `docs/design/tooling.md`).
+Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. The recipes of the release also run `cargo package`, `cargo publish`, git, `gh`, and curl through their scripts. The recipe `check-semver`, which runs cargo-semver-checks, does not exist yet. The change that follows the first release adds it (TOOL-39 of `docs/design/tooling.md`).
 
 CI installs the latest version of each tool on its runners, and the Vulkan SDK version that the CI configuration records. A tool version in CI can therefore differ from the one in the container, as Section 7.1 of `docs/design/tooling.md` states.
 
@@ -667,6 +716,8 @@ Before it writes Rust, the agent reads the sections of the coding standard that 
 After a merge, the hooks run `just worktree-prune`.
 
 CI runs the workflow `.github/workflows/ci.yml` on every push to `main`, every push to a branch that matches `feature/**`, and every pull request. A new push to the same feature branch or pull request cancels the earlier run, and no run on `main` is cancelled, so every commit on `main` keeps its own result. Run 43717303370 on 2026-11-15 showed the cancellation on a feature branch, so the agent reads the run of the last commit, never an earlier one.
+
+The second workflow, `.github/workflows/documentation.yml`, runs only on a push of a tag that matches `v*`, which only step 9 of the release procedure pushes (Section 9.6 of `docs/design/tooling.md`), so a push of a branch never starts it.
 
 The project opens no pull requests, so a push of a feature branch starts one run. Every job makes libclang available, every job except `vendored` installs and checks the Vulkan SDK before its own steps, and every check in every job is a `just` recipe, so a failure in CI has the same command to reproduce it in the container. Sections 7.1, 7.3, and 7.4 of `docs/design/tooling.md` specify the jobs, their steps, and the artifact of the job `coverage`.
 
@@ -712,7 +763,7 @@ To run every check:
 just check
 ```
 
-`just check` runs `check-prose`, `check-shell`, the self-test of each checker, `check-typos`, `check-toml`, `check-workflows`, `check-workflow-pins`, `check-doc-references`, and `check-rust`, in that order, and Section 3.3 of `docs/design/tooling.md` lists every recipe in it. It needs network access, because `check-deny` fetches the advisory database on every run, the nightly toolchain, because `check-miri` runs Miri on it, and a Vulkan SDK at `VULKAN_SDK` and libclang, because the build script of `slang-compiler-sys` generates the bindings from the SDK's headers with libclang and links its Slang. The development container provides the nightly toolchain, the SDK, and libclang.
+`just check` runs `check-prose`, `check-shell`, the self-test of each checker, the self-test of the release scripts, `check-typos`, `check-toml`, `check-workflows`, `check-workflow-pins`, `check-doc-references`, and `check-rust`, in that order, and Section 3.3 of `docs/design/tooling.md` lists every recipe in it. It needs network access, because `check-deny` fetches the advisory database on every run, the nightly toolchain, because `check-miri` runs Miri on it, and a Vulkan SDK at `VULKAN_SDK` and libclang, because the build script of `slang-compiler-sys` generates the bindings from the SDK's headers with libclang and links its Slang. The development container provides the nightly toolchain, the SDK, and libclang.
 
 To run only the Rust checks, which are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-fmt`, `check-unused-deps`, `check-deny`, `check-clippy`, `check-doc`, `check-doctest`, `test-gpu`, and `check-miri`, in that order:
 
@@ -864,6 +915,28 @@ To check `scripts/check-commit-message`:
 ```sh
 just check-commit-message-self-test
 ```
+
+To run the self-test of the release scripts after a change to a script of the release, to `scripts/self-test-release`, or to a recipe of the release, run this recipe. It runs against stub programs, needs no network access, and `just check` runs it. It needs `just` installed anywhere on `PATH`, and the programs that Section 9.9 of `docs/design/tooling.md` lists in `/usr/bin` or `/bin`:
+
+```sh
+just release-scripts-self-test
+```
+
+The recipes of the release procedure, which Section 9.6 of `docs/design/tooling.md` orders, are outside `just check`. An agent runs them in a release, and after a change that they check:
+
+- `check-package` after a change to a manifest, to `release_packages` or `documentation_site`, to a licence file, or to `README.md`. Cargo refuses a packaged file with an uncommitted change, so it runs only after the commit. It runs on Linux and macOS only and reaches `static.crates.io`.
+- `publish-dry-run` after the same changes, on a committed tree as well, on Linux and macOS only. It needs `VULKAN_SDK`, libclang, network access, and the tools of the vendored build, clones and builds Slang in `target/`, took about 12 minutes in the development container, and writes the record that `publish` checks.
+- `doc-site` after a change to the API documentation of a crate of the release, or to the recipe. It needs what `check-vendored` needs and builds in `target/vendored`. Its site is for reading only, and an agent never deploys it (TOOL-49 of `docs/design/tooling.md`).
+- `check-release` after a release, to check it. It reaches crates.io and the hosted site, and fails before the first release, because crates.io holds none of the crates.
+
+```sh
+just check-package
+just publish-dry-run
+just doc-site
+just check-release
+```
+
+An agent MUST NOT run `publish` or `yank`, which only the owner runs, with a token (TOOL-46 of `docs/design/tooling.md`), and MUST NOT run `tag-release` without the owner's explicit go-ahead in the current session (TOOL-44). Each of them acts in public, and a published version can never be overwritten or deleted.
 
 Three more recipes are not part of `just check`, because they are meant for CI. CI runs all three in every run of the workflow.
 

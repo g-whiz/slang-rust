@@ -3,6 +3,7 @@ name = "slango"
 description = "Run Slang compute kernels and draw with Slang render pipelines on the GPU from Rust, through wgpu."
 keywords = ["slang", "shader", "gpu", "wgpu", "compute"]
 categories = ["graphics", "rendering::graphics-api"]
+documentation = "https://g-whiz.github.io/slang-rust/slango/"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

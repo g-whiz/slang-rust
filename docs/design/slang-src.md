@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slang-src` |
 
 ## Abstract
@@ -110,6 +110,8 @@ These facts hold for Cargo 1.99.1 on x86_64 Linux. On Windows and macOS, the ven
 
 - Cargo writes a file named `CACHEDIR.TAG` into a target directory or build directory when it creates that directory. A build with `--target` also gets a tagged directory named after the target triple below it, which holds the units of the target, while the units of the host stay in the profile directories at the top.
 - Cargo writes no tag into a directory that existed before the first build, such as one created by `mkdir`, and it does not write the tag again after someone deleted it.
+- Cargo tags only the directory that it creates as the target directory. When `CARGO_TARGET_DIR` names a directory below one that does not exist yet, such as `target/vendored`, Cargo also creates the parent `target/` and leaves it without a tag, so a later build in `target/` finds no tag there.
+- `cargo publish --dry-run`, run first in a target directory that does not exist yet, creates it without a tag. `cargo check`, `cargo build`, and `cargo package --list` create it with the tag. `cargo metadata`, `cargo clean`, `cargo fetch`, and `cargo tree` do not create it.
 - `cargo install` from crates.io or from git builds in a temporary target directory without a tag. `cargo install --path`, `cargo package`, and `cargo publish` build in the target directory of the workspace.
 - With a separate build directory, set by `build-dir` in the Cargo configuration or by `CARGO_BUILD_BUILD_DIR`, `OUT_DIR` is inside the build directory, which has its own tag.
 - A newer directory layout of Cargo places `OUT_DIR` one level deeper below the profile directory. A rule that counts levels up from `OUT_DIR` breaks on such a change, while the nearest tagged ancestor stays the same directory, which is why SRC-23 searches for the tag and counts no levels.
@@ -339,7 +341,7 @@ An error while the build script looks for a tag counts as no tag, so the search 
 
 Step 3 keeps the build correct when Cargo wrote no tag, and only the sharing is lost: each unit then keeps its clone and its libraries below its own `OUT_DIR`, as a build script without the folder would. These cases have no tag, and the crate documentation lists them as known limits:
 
-- A target directory or build directory that existed before the first build, such as one created with `mkdir`, and by the same mechanism a directory restored from a cache of a CI service or mounted as a volume.
+- A target directory or build directory that existed before the first build, such as one created with `mkdir`, and by the same mechanism a directory restored from a cache of a CI service or mounted as a volume. This includes a directory that Cargo created only as the parent of another target directory, such as `target/` after a first build with `CARGO_TARGET_DIR=target/vendored`, and a target directory that `cargo publish --dry-run` created (Section 3.2). Section 9.6 of `docs/design/tooling.md` states what this costs the dry run of a release.
 - A tag that someone deleted.
 - The temporary target directory of `cargo install` from crates.io or from git.
 

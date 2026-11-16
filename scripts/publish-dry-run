@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' "usage: publish-dry-run <package>..." "" \
+        "Runs cargo publish --dry-run for the given packages, which packages and" \
+        "compiles each of them in the order of their dependencies, as if the others" \
+        "were published, and uploads nothing. On success, it writes the commit of HEAD" \
+        "and the given packages to target/publish-dry-run.commit, which the recipe" \
+        "publish compares before it publishes. Runs from the root of the workspace." \
+        "Exits with the status of cargo when the dry run fails, 1 when HEAD cannot be" \
+        "read, and 2 on a usage error or when a tool is missing."
+}
+
+if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    [[ $# -ge 1 ]] && exit 0
+    exit 2
+fi
+
+for tool in cargo git; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'publish-dry-run: %s not found on PATH\n' "${tool}" >&2
+        exit 2
+    fi
+done
+
+record=target/publish-dry-run.commit
+
+selection=()
+for name in "$@"; do
+    selection+=(-p "${name}")
+done
+
+rm -f -- "${record}"
+cargo publish --dry-run "${selection[@]}"
+
+if ! commit="$(git rev-parse --verify HEAD)"; then
+    printf 'publish-dry-run: cannot read the commit of HEAD\n' >&2
+    exit 1
+fi
+mkdir -p "$(dirname "${record}")"
+printf 'commit=%s\npackages=%s\n' "${commit}" "$*" >"${record}"
+printf 'publish-dry-run: recorded commit %s and packages %s in %s\n' "${commit}" "$*" "${record}"
