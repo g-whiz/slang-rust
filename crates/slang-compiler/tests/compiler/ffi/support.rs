@@ -123,7 +123,7 @@ pub(super) fn compile(
     target: usize,
 ) -> Result<Compiled<Blob>> {
     let module = session
-        .load_module_from_source(name, &format!("{name}.slang"), source)?
+        .load_module_from_source(name, format!("{name}.slang"), source)?
         .into_value();
     let entry_point = module.entry_point("main")?;
     let program = session

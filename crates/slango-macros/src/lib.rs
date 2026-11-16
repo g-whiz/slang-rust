@@ -2,10 +2,11 @@
 //! bindings to its compute kernels, for `slango`.
 //!
 //! [Slang](https://shader-slang.org) is a language for shaders, the programs
-//! that run on a graphics processing unit (GPU). `slango` runs the compute
-//! entry points of a Slang module, its kernels, and sets each parameter by
-//! name. A misspelled name or a value of the wrong type therefore fails only
-//! when the program runs.
+//! that run on a graphics processing unit (GPU). The crate
+//! [`slango`](../slango/index.html) runs the compute entry points of a Slang
+//! module, its kernels, which are functions that run a general computation on
+//! the GPU, and sets each parameter by name. A misspelled name or a value of
+//! the wrong type therefore fails only when the program runs.
 //!
 //! The macro [`shader!`] turns these mistakes into compile errors. It
 //! compiles a Slang file while the calling crate builds, and generates a
@@ -167,38 +168,48 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 ///
 /// Call the macro once in a module of its own, with one string literal, the
 /// path of the `.slang` file, relative to the directory of the Rust file
-/// that calls the macro, as for [`include_str!`]. It generates these items
-/// in the module:
+/// that calls the macro, as for [`include_str!`]. A compute entry point, or
+/// kernel, is a function of the file marked `[shader("compute")]`, which
+/// runs as a general computation on the graphics processing unit (GPU). The
+/// macro generates these items in the module:
 ///
 /// - `Shader`, with `Shader::load`, which loads the module on a
-///   `slango::Device` from the compiled code that the crate embeds, and
-///   `Shader::module`, which returns the `slango::Module`.
+///   [`slango::Device`](../slango/struct.Device.html) from the compiled code
+///   that the crate embeds, and `Shader::module`, which returns the
+///   [`slango::Module`](../slango/struct.Module.html).
 /// - For each compute entry point, a kernel struct whose name is the name of
 ///   the entry point in upper camel case, such as `Saxpy` for `saxpy`, and
 ///   a public field of `Shader` for it whose name is the name in snake case.
 ///   The kernel struct has `THREAD_GROUP_SIZE`, `dispatch`, which runs the
 ///   kernel on a number of threads, `dispatch_groups`, which runs it on a
 ///   number of thread groups, and `kernel`, which returns the
-///   `slango::Kernel`.
+///   [`slango::Kernel`](../slango/struct.Kernel.html). A thread group is a
+///   set of threads that run together on the GPU, whose size the attribute
+///   `[numthreads]` of the entry point sets.
 /// - For each kernel, an arguments struct, such as `SaxpyArgs`, with one
 ///   public field for each parameter, named after its path in snake case. A
 ///   plain value is a `bool`, `i32`, `u32`, or `f32`, or an array of them for
-///   a vector, a matrix, or an array. A structured buffer is a
-///   `&slango::Buffer` of `i32`, `u32`, `f32`, or an array of four of them.
-///   A texture is a `&slango::Texture`, and a sampler a `&slango::Sampler`.
-///   A structure among the values or the elements of a structured buffer has
-///   the generated struct of that structure as its type.
+///   a vector, a matrix, or an array. A structured buffer, a buffer in GPU
+///   memory that holds an array of elements of one type, is a
+///   [`&slango::Buffer`](../slango/struct.Buffer.html) of `i32`, `u32`,
+///   `f32`, or an array of four of them. A texture, an image in GPU memory,
+///   is a [`&slango::Texture`](../slango/struct.Texture.html), and a sampler,
+///   which describes how a shader reads a texture, is a
+///   [`&slango::Sampler`](../slango/struct.Sampler.html). A structure among
+///   the values or the elements of a structured buffer has the generated
+///   struct of that structure as its type.
 /// - For each Slang structure that a kernel takes, a struct of the same name
 ///   with one public field for each field of the structure and a `const fn
 ///   new` that takes them all. Each structure is generated once, however
 ///   many kernels take it.
 ///
 /// A structure that is the element of a structured buffer gets the layout
-/// that Slang gives it there. Its struct is `#[repr(C)]`, holds private
-/// padding wherever the layout has a gap, and asserts its size and the
+/// that Slang gives it there, the size of the structure and the offset in
+/// bytes of each field. Its struct is `#[repr(C)]`, holds private padding,
+/// unused bytes, wherever the layout has a gap, and asserts its size and the
 /// offset of each field at compile time. It binds as the element of a
-/// `slango::Buffer`, and code creates it with `new`, because the private
-/// padding rules out a struct literal.
+/// [`slango::Buffer`](../slango/struct.Buffer.html), and code creates it with
+/// `new`, because the private padding rules out a struct literal.
 ///
 /// A structure that is only a value has no padding, because a dispatch sets
 /// each of its fields by its path through the runtime API of `slango`, so

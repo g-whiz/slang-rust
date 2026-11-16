@@ -132,7 +132,10 @@ pub struct Generated {
 /// - [`ErrorKind::Io`] when the header directory, `slang.h` in it, or the
 ///   directory of the shim headers cannot be read.
 /// - [`ErrorKind::Libclang`] when libclang cannot be loaded, or when this
-///   process already holds a libclang instance.
+///   process already holds a libclang instance, such as during a call of the
+///   generator on another thread. Only one instance may exist at a time, so
+///   call the generator from one thread at a time: a later call works once
+///   the earlier one has returned.
 /// - [`ErrorKind::Target`] when libclang refuses to parse for `target`,
 ///   which it does for a target triple that it does not know.
 /// - [`ErrorKind::Diagnostic`] when the parse reports an error.
@@ -210,14 +213,12 @@ fn libclang_error(reason: &str) -> Error {
     if reason == CLANG_EXISTS {
         return Error::new(
             ErrorKind::Libclang,
-            "cannot use libclang, because this process already holds a libclang instance, such as during a call of the generator on another thread, and only one instance may exist at a time. Call the generator from one thread at a time, and a later call works once the earlier one has returned",
+            "cannot use libclang, because this process already holds a libclang instance",
         );
     }
     Error::new(
         ErrorKind::Libclang,
-        format!(
-            "cannot load libclang: {reason}. Install libclang or set LIBCLANG_PATH to the directory that holds it"
-        ),
+        format!("cannot load libclang: {reason}"),
     )
 }
 

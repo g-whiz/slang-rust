@@ -275,6 +275,31 @@ struct ILeaf : public IMiddle
     }
 
     #[test]
+    fn generate_derives_equality_and_hash_on_the_uuid_type_only() {
+        let text = generate(
+            "uuid_derives",
+            r"
+struct Plain
+{
+    int32_t value;
+};
+",
+        );
+        assert_contains(
+            &text,
+            "#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SlangUUID {",
+        );
+        assert_contains(
+            &text,
+            "#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Plain {",
+        );
+    }
+
+    #[test]
     fn generate_maps_types_by_typedef_name() {
         let text = generate(
             "type_mapping",
@@ -1936,19 +1961,9 @@ enum
             .expect_err("a second instance is refused");
         drop(clang);
         assert_eq!(error.kind(), ErrorKind::Libclang);
-        assert!(
-            error
-                .message()
-                .contains("this process already holds a libclang instance"),
-            "{error}"
+        assert_eq!(
+            error.message(),
+            "cannot use libclang, because this process already holds a libclang instance"
         );
-        assert!(
-            error
-                .message()
-                .contains("Call the generator from one thread at a time, and a later call works once the earlier one has returned"),
-            "{error}"
-        );
-        assert!(!error.message().contains("once per process"), "{error}");
-        assert!(!error.message().contains("LIBCLANG_PATH"), "{error}");
     }
 }

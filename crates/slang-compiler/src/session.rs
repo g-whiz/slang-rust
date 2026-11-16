@@ -16,7 +16,7 @@ use crate::guard;
 use crate::mapping;
 use crate::options::{CompilerOptions, PreparedOptions, RawOptions};
 use crate::owned::Owned;
-use crate::strings::c_string;
+use crate::strings::{c_string, path_c_string};
 
 /// A compilation context of Slang, with its targets, search paths, macros,
 /// and compiler options.
@@ -345,7 +345,7 @@ impl fmt::Debug for Session {
 /// # Examples
 ///
 /// See the example of [`Session`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TargetIndex {
     position: usize,
 }
@@ -358,6 +358,8 @@ pub struct TargetIndex {
 /// Vulkan. A session generates code for each of its targets. A target is plain
 /// data and does not check itself: [`SessionBuilder::build`] checks every
 /// target, because only Slang knows the names of profiles and capabilities.
+/// Two targets are equal when their formats, profiles, capabilities in order,
+/// and options are equal, as [`CompilerOptions`] describes.
 ///
 /// # Examples
 ///
@@ -374,7 +376,7 @@ pub struct TargetIndex {
 ///     .options(options);
 /// # let _ = target;
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Target {
     format: TargetFormat,
     profile: Option<String>,
@@ -586,7 +588,8 @@ impl SessionBuilder {
     /// elements of a matrix are stored in memory, which is
     /// [`MatrixLayout::RowMajor`] by default.
     ///
-    /// The session passes it to Slang as the field `defaultMatrixLayoutMode`
+    /// The session passes it to Slang as the field
+    /// [`defaultMatrixLayoutMode`](slang_compiler_sys::SessionDesc::defaultMatrixLayoutMode)
     /// of its descriptor. Slang uses it only when the session's options set
     /// no matrix layout of their own through a raw option.
     ///
@@ -1017,14 +1020,7 @@ fn unknown_name(what: &str, name: &CString) -> Error {
 }
 
 fn search_path(path: &Path) -> Result<CString> {
-    let operation = Operation::CreateSession;
-    let text = path.to_str().ok_or_else(|| {
-        Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
-            "the search path {} is not valid UTF-8, which Slang needs",
-            path.display()
-        ))
-    })?;
-    c_string(text, operation, "the search path")
+    path_c_string(path, Operation::CreateSession, "the search path")
 }
 
 /// Returns the pointer to the first element of `array`, or null when it is
@@ -1738,6 +1734,42 @@ mod tests {
         assert_eq!(
             session.target_index(2).map_err(|error| error.to_string()),
             Err("cannot select target `2`: the session has 2 targets, numbered from 0".to_owned())
+        );
+    }
+
+    #[test]
+    fn target_indexes_order_by_position() {
+        let log = Log::new();
+        let global = adopt(&log);
+        let session = Session::builder(&global)
+            .target(spirv())
+            .target(Target::new(TargetFormat::Hlsl))
+            .build()
+            .expect("the fake creates the session");
+        let first = session.target_index(0).expect("in range");
+        let second = session.target_index(1).expect("in range");
+        assert!(first < second);
+        assert_eq!(first.max(second), second);
+    }
+
+    #[test]
+    fn targets_are_equal_when_every_setting_is_equal() {
+        let mut options = CompilerOptions::default();
+        options.optimization(OptimizationLevel::High);
+        let target = Target::new(TargetFormat::Spirv)
+            .profile("spirv_1_5")
+            .capability("spvInt64Atomics")
+            .options(options.clone());
+        let same = Target::new(TargetFormat::Spirv)
+            .profile("spirv_1_5")
+            .capability("spvInt64Atomics")
+            .options(options);
+        assert_eq!(target, same);
+        assert_ne!(target, same.clone().profile("spirv_1_6"));
+        assert_ne!(target, Target::new(TargetFormat::Spirv));
+        assert_ne!(
+            Target::new(TargetFormat::Spirv),
+            Target::new(TargetFormat::Hlsl)
         );
     }
 

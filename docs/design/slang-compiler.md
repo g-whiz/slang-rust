@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -554,6 +554,8 @@ An agent that meets a new defect adds a row with the next identifier and investi
 | KB-3 | `findTypeByName` crashes the process for some names: `(`, `()`, `(1)`, `((int))`, `Box<volatile>`, `__func_as_type`, `__getAddress::Plain`, and `__packBranch::Plain`, and names nested thousands of levels deep, such as `Box<` 4096 times around `Leaf` on a thread with 512 KiB of stack | `spReflection_FindTypeByName` | A read through a null pointer: `SIGSEGV` on x86_64 Linux, the access violation `0xC0000005` on Windows, and `SIGSEGV`, `SIGBUS`, or `SIGTRAP` on arm64 macOS. The deep names overflow the stack. The outcomes on Windows and macOS were observed in CI | `parseTermFromSourceFile` never sets `parser.currentModule` (`slang/slang-parser.cpp:9958-9974`, default at `:129`), which the parser reads at `:8871`, `:8896`, and `:10306-10319`. `visitFuncAsTypeExpr` dereferences null at `slang/slang-check-expr.cpp:6181`. The faulting lines of `__getAddress` and `__packBranch` are unknown | Not reported |
 | KB-4 | `getEntryPointCode` with an entry point position past the end reads and writes out of bounds. On a program with one entry point, position 1000 | `IComponentType::getEntryPointCode` | A segmentation fault on Linux, and the access violation `0xc0000005` for position 1 on Windows. The crate checks the position first (Section 6.7), which is an index check that a safe interface needs regardless | `getOrCreateEntryPointResult` grows its array of results to the position before its `try` (`slang/slang-target-program.cpp:119-130`) | Not reported |
 | KB-5 | A statically linked Slang without `slang-glslang` reports the missing library only in the diagnostics of the first successful generation of SPIR-V in each global session | `getEntryPointCode`, `getTargetCode` | A success with error wording, on x86_64 Linux (Sections 3.6 and 3.11) | `slang/slang-check.cpp:91-178` | Not reported, because it is a behaviour |
+| KB-6 | The element count of an array declared without a length is 0, while the header documents `SLANG_UNBOUNDED_SIZE` for it (`slang.h`, `TypeReflection::getElementCount`). A module with `struct U { float b; float a[]; };`, whose field `a` is reached through `findTypeByName("U")`. `float a[0]` gives the same 0, and `float a[3]` gives 3 | `spReflectionType_GetElementCount` | 0, which the crate returns as `LayoutSize::Finite(0)`, so a zero-length array and an array without a length cannot be told apart. Observed on x86_64 Linux on the dynamic route | `return isUnsized ? 0 : ...` (`slang/slang-reflection-api.cpp:653-655`) | Not reported |
+| KB-7 | On SPIR-V, the binding of the global constant buffer that Slang reports was 0 in the program below, where the buffer is at binding 2, and was also 0 when the program has none. On the target SPIR-V: `[[vk::binding(0)]] RWStructuredBuffer<float> data : register(u0); [[vk::binding(1)]] RWStructuredBuffer<float> more : register(u1); uniform float k;` with a compute entry point `main` that reads `k` | `spReflection_getGlobalConstantBufferBinding` | 0, while the generated SPIR-V has `OpDecorate %globalParams Binding 2`. The one public call observed to give 2 is `global_params_var_layout()` and then `offset(ParameterCategory::DescriptorTableSlot)`. For a program without global uniform data, the binding is also 0, that offset is 0 as well, and only the kind of the scope's type layout, which is `TypeKind::ConstantBuffer` when the buffer exists, shows whether there is one. Observed on x86_64 Linux on the dynamic route | The function looks for the resource kind `ConstantBuffer` and returns 0 when it finds none (`slang/slang-reflection-api.cpp:5514-5523`), while the allocation for a Vulkan target records the kind `DescriptorTableSlot` (`slang/slang-parameter-binding.cpp:3271-3292`) | Not reported |
 
 ## 4. Crate Structure
 
@@ -789,7 +791,7 @@ SLC-34. With the feature `vendored`, creating a global session MUST install the 
 
 A global session that generated SPIR-V before the installation has already failed to load `slang-glslang` and keeps the failure for its life (Section 3.11), so the installation comes before any other use. A global session adopted through `from_raw` gets no loader, because the caller created it.
 
-The crate-private function that creates a global session takes the loader as an `Option<*mut ISlangSharedLibraryLoader>`. `GlobalSession::new` and `GlobalSessionBuilder::build` reach it through one function that passes the loader of `slang-glslang-sys` with the feature and `None` without it. The unit test on the fake therefore passes a loader of its own and runs under Miri, while the default build never reaches the call. The call of `slang_glslang_sys_loader` is not a call into Slang, so it runs outside `abort_on_exception`, with a safety comment.
+The crate-private function that creates a global session takes the loader as an `Option<*mut ISlangSharedLibraryLoader>`. `GlobalSession::new` and `GlobalSessionBuilder::build` reach it through one function that passes the loader of `slang-glslang-sys` with the feature and `None` without it. The unit test on the fake therefore passes a loader of its own and runs under Miri, while the default build never reaches the call. The call of `slang_glslang_sys_loader` is not a call into Slang, so it runs outside `abort_on_exception`, without unsafe code, because the function is a `safe fn` (SGL-13 of `docs/design/slang-glslang-sys.md`).
 
 Creation runs these steps in this order, and the first step that fails ends it:
 
@@ -813,7 +815,7 @@ The setters are `target(Target)`, `search_path(impl AsRef<Path>)`, `define(impl 
 
 `build(self)` consumes the builder, checks every setting as SLC-6 requires, and creates the session. Section 7.1 states where the builder places each setting in Slang's descriptor relative to the caller's options, and SLC-31 states how it fills the fields of each target.
 
-`Target::new(TargetFormat)` describes one target. Its setters take and return `self`: `profile(impl Into<String>)`, which replaces an earlier profile, `capability(impl Into<String>)`, which adds one capability at each call, and `options(CompilerOptions)`, which replaces earlier options. `Target` is `Clone` and `Debug`.
+`Target::new(TargetFormat)` describes one target. Its setters take and return `self`: `profile(impl Into<String>)`, which replaces an earlier profile, `capability(impl Into<String>)`, which adds one capability at each call, and `options(CompilerOptions)`, which replaces earlier options. `Target` is `Clone`, `Debug`, `PartialEq`, `Eq`, and `Hash`. Its equality is structural: two targets are equal when their formats, profiles, capabilities in order, and options are equal, so an unset profile differs from any set one. Whether its setters keep taking `self` is open (CQ-9 of Section 16).
 
 A `Target` is plain data and does not validate itself, because profile and capability names can be resolved only through a global session. So `SessionBuilder::build` is the one validating step for the session and its targets.
 
@@ -852,7 +854,7 @@ Their safety contract already makes the caller responsible for knowing how Slang
 
 The session records its target count when `build` creates it, or takes it from the caller of `from_raw` (Section 5.4), because the session interface cannot report it. `Session` is `Clone` and `Debug`, and is neither `Send` nor `Sync` (SLC-21).
 
-`TargetIndex` is a `Copy` newtype with `PartialEq`, `Eq`, and `Hash`, which every call that selects a target takes (TYPE-8). It holds the position in a private field and has no public constructor or accessor, so only `Session::target_index` creates one.
+`TargetIndex` is a `Copy` newtype with `PartialEq`, `Eq`, `Hash`, `PartialOrd`, and `Ord`, ordered by position, which every call that selects a target takes (TYPE-8). It holds the position in a private field and has no public constructor or accessor, so only `Session::target_index` creates one.
 
 Each call that takes a `TargetIndex` checks it against the target count of its session again. So a target index from another session that is past the end of this session's targets is reported as `InvalidArgument` and never reaches Slang.
 
@@ -861,8 +863,10 @@ Each call that takes a `TargetIndex` checks it against the target count of its s
 `Session` loads modules through these methods, each of which returns `Result<Compiled<Module>>`:
 
 - `load_module(&self, name: &str)`, which searches the search paths as Section 3.8 states.
-- `load_module_from_source(&self, name: &str, path: &str, source: &str)`.
-- `load_module_from_ir(&self, name: &str, path: &str, ir: &[u8])`.
+- `load_module_from_source(&self, name: &str, path: impl AsRef<Path>, source: &str)`.
+- `load_module_from_ir(&self, name: &str, path: impl AsRef<Path>, ir: &[u8])`.
+
+Each of the two is a thin wrapper over a private function that takes `&Path` (API-13). That function converts the path as `SessionBuilder::search_path` converts a search path, through one crate-private conversion, so a path that is not valid UTF-8 fails with kind `InvalidArgument` and the operation `LoadModule` before any call, with a detail that says that Slang needs UTF-8. A NUL byte in the path fails as for any other text (SLC-15).
 
 `loaded_modules(&self)` returns `Result<LoadedModules>`, a named iterator over the modules that the session holds (API-2), whose items are `Module`. The `Result` comes from the count, which Slang returns as a signed integer that the crate converts with `try_from` (SLC-12). A position at which `getLoadedModule` returns null yields no item (Section 9.2).
 
@@ -902,7 +906,9 @@ The iterators of a module behave as follows:
 
 `Session::compose(&self, &[Component<'_>]) -> Result<Compiled<ComponentType>>` composes component types. `Component` is a `#[non_exhaustive]` enum of borrows with the variants `Module`, `EntryPoint`, `ComponentType`, and `TypeConformance` (API-9). An enum of borrows is used and not a trait, because it is closed by construction and mirrors no interface hierarchy (COM-12, API-8, SIMP-1).
 
-`Session::type_conformance(&self, ty, interface, id_override: Option<i64>) -> Result<Compiled<TypeConformance>>` records that the reflection type `ty` implements the Slang interface type `interface`. `id_override` is `None`, which passes -1, or a value of 0 or more that fits `SlangInt`, and a negative value fails with kind `InvalidArgument`, because Slang uses -1 to mean no override.
+`Session::type_conformance(&self, ty, interface, id_override: Option<u32>) -> Result<Compiled<TypeConformance>>` records that the reflection type `ty` implements the Slang interface type `interface`. `id_override` is `None`, which passes -1, the value by which Slang means no override, or the identifier, which the crate passes unchanged and checks at no point at run time.
+
+The type is `u32`, because the recorded Slang holds the identifier as a 32-bit unsigned integer: it records the override as a sequential identifier that its lowering reads back as an unsigned 32-bit value, and it counts its own identifiers in `uint32_t` (`slang/slang-lower-to-ir.cpp:16301-16303`, `slang/slang-ir-lower-dynamic-dispatch-insts.cpp:2028`, `slang/slang-session.h:264`). Slang reserves `u32::MAX` for the witness of no conformance (`slang/slang-ir-lower-dynamic-dispatch-insts.cpp:1057`), and the crate does not exclude it, because that would need a run-time check again. The conversion to `SlangInt` cannot fail on the 64-bit targets of the bindings.
 
 A type that does not implement the interface fails with kind `Internal`, because Slang reports that case with `SLANG_FAIL` and no diagnostics (Section 3.6). A program obtains a `reflection::Type` from `ProgramLayout::find_type_by_name` or from a layout (Section 9.1).
 
@@ -987,7 +993,9 @@ The type is an opaque struct `Error`, with the alias `Result<T>`. Its accessors 
 - `diagnostics()`, which returns `&Diagnostics`.
 - `source()`, which is reserved for the `io::Error` of a custom file system (SLC-18). No error of the crate has a source while the custom file system is deferred (Section 8).
 
-`ErrorKind` has exactly these variants: `InvalidArgument`, `NotFound`, `Compile`, `Unsupported`, `Internal`, `Unrecognized`, `FileSystem`, `InvalidUtf8`, and `VersionMismatch`. The mapping of SLC-11 and the failures that the crate reports itself, both in this section, say when each is returned. No call returns `FileSystem` while the custom file system is deferred.
+`ErrorKind` has exactly these eight variants: `InvalidArgument`, `NotFound`, `Compile`, `Unsupported`, `Internal`, `Unrecognized`, `InvalidUtf8`, and `VersionMismatch`. The mapping of SLC-11 and the failures that the crate reports itself, both in this section, say when each is returned.
+
+The kind `FileSystem` of a failure in a custom file system is added together with the custom file system (Section 8), because no call could return it before, and `ErrorKind` is `#[non_exhaustive]`, so adding it then breaks no caller (SIMP-1). The sections of the deferred file system that name it describe the design that adds it.
 
 `Operation` has one variant for each public operation that can fail, named in upper camel case after what the operation does. One variant can cover several methods that perform the same operation: `CreateGlobalSession` covers `GlobalSession::new` and `GlobalSessionBuilder::build`. This table lists each variant with its phrase and its class in the mapping of SLC-11:
 
@@ -1042,7 +1050,6 @@ The crate MUST NOT compare raw result codes anywhere else, because a code compar
 
 | Operation | Failure signal | `ErrorKind` |
 | --- | --- | --- |
-| Any | A file system error or panic recorded during the call (Section 8.4) | `FileSystem` |
 | `check_target_support` | Any negative result code | `Unsupported` |
 | A module loader | A null return without diagnostics | `NotFound` |
 | Any | `SLANG_E_INVALID_ARG` | `InvalidArgument` |
@@ -1125,7 +1132,9 @@ Each enumeration that mirrors a Slang enumeration has one variant for each disti
 
 `TargetFormat` is the other exception and lists only the targets that need no downstream compiler that the SDK lacks. They are `Spirv`, `SpirvAssembly`, `Glsl`, `Hlsl`, `Wgsl`, `Metal`, `CppSource`, `CudaSource`, and `Dxil`, for `SLANG_SPIRV`, `SLANG_SPIRV_ASM`, `SLANG_GLSL`, `SLANG_HLSL`, `SLANG_WGSL`, `SLANG_METAL`, `SLANG_CPP_SOURCE`, `SLANG_CUDA_SOURCE`, and `SLANG_DXIL` (Section 3.11).
 
-`Toggle` has the variants `On` and `Off` and replaces every `bool` parameter (TYPE-2). `ParameterCategory` keeps Slang's name (API-3). `reflection::ResourceShape` is a newtype, not an enum, because Slang's value combines a base shape with flag bits (Section 3.9): its method `base()` converts the base shape fallibly, and one method for each flag bit of the header of the recorded Slang tests that bit.
+`LanguageVersion`, `OptimizationLevel`, and `DebugInfoLevel` also derive `PartialOrd` and `Ord`, because their values are ordered by meaning and Slang encodes them as increasing integers: `Legacy` < `V2025` < `V2026` < `V202C`, `None` < `Default` < `High` < `Maximal`, and `None` < `Minimal` < `Standard` < `Maximal` (header `slang.h:960-965`, `:989-993`, `:5852-5873`). The order of declaration is the order of the raw values, and the documentation of each type states the order and that a later variant takes its place in it (API-7).
+
+`Toggle` has the variants `On` and `Off` and replaces every `bool` parameter (TYPE-2). `ParameterCategory` keeps Slang's name (API-3). The names `MatrixLayout` and `TargetFormat` differ from Slang's names `SlangMatrixLayoutMode` and `SlangCompileTarget`, which API-3 asks the crate to keep, and the choice is open (CQ-8 of Section 16). `reflection::ResourceShape` is a newtype, not an enum, because Slang's value combines a base shape with flag bits (Section 3.9): its method `base()` converts the base shape fallibly, and one method for each flag bit of the header of the recorded Slang tests that bit.
 
 ### 6.11. Strings
 
@@ -1139,7 +1148,9 @@ Diagnostics are the exception: they are converted lossily, with each invalid seq
 
 ### 7.1. One Options Type
 
-`CompilerOptions` is one `Clone`, `Debug`, and `Default` type that holds a list of option entries with owned strings. It serves the session, each target, and `link_with_options`, because Slang uses one encoding in all three places (Section 3.7). Its setters take `&mut self` and return `&mut Self` (API-6).
+`CompilerOptions` is one `Clone`, `Debug`, `Default`, `PartialEq`, `Eq`, and `Hash` type that holds a list of option entries with owned strings. It serves the session, each target, and `link_with_options`, because Slang uses one encoding in all three places (Section 3.7). Its setters take `&mut self` and return `&mut Self` (API-6).
+
+Its equality is structural (API-7). Two option lists are equal only when they hold the same entries in the same order, because Slang applies the entries in order, and an option that is never set differs from one that is set to Slang's default value. `GlobalSessionBuilder` and `Target` derive the same three traits with the same structural meaning, and `GlobalSessionBuilder` treats each setting that is never set as different from one set to Slang's default.
 
 The crate converts the list into Slang's entries for the duration of the call that passes them, which is enough because Slang copies them (Section 3.2). Section 11.4 states how the crate owns that memory during the call. The setters cannot fail (API-6), so a NUL byte in a text value is reported by the call that takes the options, such as `SessionBuilder::build` (SLC-6).
 
@@ -1260,11 +1271,13 @@ A value outside what Slang expects, such as an out-of-range target number, can r
 
 Both raw setters return `&mut Self` and add their entry after the entries that the list holds (Section 7.1). `set_int` adds an entry of kind `Int`, whose two string fields point to a static empty C string.
 
-`set_string` adds an entry of kind `String`, with `value1` passed as empty text when it is `None`. A NUL byte in a value is reported by the call that takes the options.
+`set_string` adds an entry of kind `String`, with `value1` passed as empty text when it is `None`. A NUL byte in a value is reported by the call that takes the options. It takes `&str` for text that it stores, where API-13 asks for `impl Into<String>`, and the choice is open (CQ-10 of Section 16).
 
 The `# Safety` section of `set_int` requires that Slang reads the option as integers, and that of `set_string` that Slang reads it as strings, and both require that the values are ones that Slang accepts for that option. The example of `set_int` sets `ValidateUniformity`, whose value kind Section 3.7 establishes from the implementation. The caller is also responsible for where Slang reads a raw option (Section 6.4).
 
 `OptionName` is a `Copy` newtype with `PartialEq`, `Eq`, and `Hash`, whose constructor `OptionName::new(i32) -> Result<OptionName>` accepts a value from 0 to below the sentinel `CountOf` of the header of the recorded Slang, except 79, 111, and 159, and rejects any other with kind `InvalidArgument` and the operation `CreateOptionName`. An option name past the sentinel names no option of the recorded Slang, and the three excepted values name no option that an option set holds (Section 3.7).
+
+`OptionName` also implements `TryFrom<i32>` with the error type `Error`, which calls `OptionName::new`, as TYPE-1 requires of a validated newtype. It implements no `FromStr`, because an option name has no text form.
 
 A user takes the value from the generated `CompilerOptionName` constants of `slang-compiler-sys` or from Slang's documentation. The typed setters do not go through the raw setters' safety contract, because each of their values comes from an enumeration that the crate maps from the header of the recorded Slang.
 
@@ -1339,7 +1352,7 @@ A blob that answered `ISlangCastable` would receive `castAs` calls through an `I
 
 The Rust-owned blob holds the bytes that `load_file` returned without copying them. It represents an empty file, which `slang_createBlob` cannot (Section 3.8, CA-9).
 
-SLC-18. Every vtable function of a Rust-implemented COM object that calls user code MUST catch a panic, return `SLANG_FAIL`, and record the panic as text in state that the session shares, without keeping the panic payload. The session MUST then fail the call during which the panic happened, and every later call of the session and of the objects that hold it that returns a `Result`, with an error of kind `FileSystem`.
+SLC-18. Every vtable function of a Rust-implemented COM object that calls user code MUST catch a panic, return `SLANG_FAIL`, and record the panic as text in state that the session shares, without keeping the panic payload. The session MUST then fail the call during which the panic happened, and every later call of the session and of the objects that hold it that returns a `Result`, with an error of kind `FileSystem`. The change that adds the custom file system adds that kind to `ErrorKind`, and a first row to the mapping of SLC-11 that maps a file system error or panic recorded during the call to it (Section 6.9).
 
 A panic that unwinds into C++ is undefined behaviour or an abort (FFI-7), and Slang can leave its state inconsistent after a failure in the middle of a load.
 
@@ -1355,7 +1368,7 @@ The generated vtable structs declare their entries `extern "system-unwind"` (SCS
 
 The documentation of the type `fn` in [RUST-STD] states that this is ABI-compatible when the caller's ABI is `"system-unwind"` and the callee's is `"system"`. On every target that the bindings allow, which are all 64-bit (Section 6 of the sys design), `"system"`, `"C"`, and their unwinding forms are the same calling convention.
 
-Defining the functions `extern "system-unwind"` instead is rejected, because a panic, such as from the user's destructor that `release` runs, would then unwind into Slang. The fake of Section 13.4 defines its functions `extern "system-unwind"`, which is sound only because nothing but Rust calls the fake.
+Defining the functions `extern "system-unwind"` instead is rejected, because a panic, such as from the user's destructor that `release` runs, would then unwind into Slang. The fake of Section 13.4 follows the same rule.
 
 ### 8.5. Hot Reload
 
@@ -1401,6 +1414,7 @@ A pair of count and by-index functions becomes one method that reads the count a
 - The counts that most of them read are unsigned integers of at most 64 bits, which fit in `usize` on every target that the bindings allow, so creating them cannot fail. A pair whose count is signed, such as `getBindingRangeCount`, returns a `Result` of the iterator (SLC-12).
 - Each call of `next` passes a position below the count (SLC-20), and a position at which Slang returns null yields no item. So the iterator implements `FusedIterator` and `DoubleEndedIterator`, reports the count as the upper bound of `size_hint`, and does not implement `ExactSizeIterator`, which would not hold (API-2).
 - On a layout handle, the iterator over layouts carries the suffix `_layouts`, so that it differs from the iterator over the matching non-layout items. `ProgramLayout::entry_point_layouts` returns `EntryPointLayouts`, `ProgramLayout::parameter_layouts` and `EntryPointLayout::parameter_layouts` return `ParameterLayouts`, and `TypeLayout::field_layouts` returns `FieldLayouts`. `Type::fields` returns `Fields`, and `Function::parameters` returns `Parameters`.
+- A position that a method returns, such as `TypeLayout::find_field_index_by_name`, has an accessor that takes it. `TypeLayout::field_layout(self, position: usize) -> Result<Option<VariableLayout<'a>>>` returns the field at a position, because `FieldLayouts` skips a position at which Slang returns null, so its `nth` need not be the field at that position. It checks the position against the field count, and that it fits `u32`, before the call, with the error of kind `InvalidArgument` of `field_binding_range_offset`, and returns `None` when Slang returns null. The accessor and the iterator share one private `unsafe fn` that makes the call, whose `# Safety` section requires a position below Slang's count.
 
 `TypeLayout::binding_ranges`, `TypeLayout::descriptor_sets`, and `DescriptorSet::descriptor_ranges` return a `Result` of the iterators `BindingRanges`, `DescriptorSets`, and `DescriptorRanges`, whose items are the records of Section 9.1. A record never skips a position, so these three iterators also implement `ExactSizeIterator`.
 
@@ -1409,11 +1423,12 @@ A pair of count and by-index functions becomes one method that reads the count a
 The binding accessors return the types of SLC-12 and SLC-13:
 
 - `VariableLayout::binding_space` returns `Option<BindingSpace>`.
-- `ProgramLayout::global_constant_buffer_binding` returns `Option<BindingIndex>`.
+- `ProgramLayout::global_constant_buffer_binding` returns `Option<BindingIndex>`, which is `None` only for `SLANG_UNKNOWN_SIZE`. The recorded Slang returns 0 when the program has no global constant buffer, and, observed on SPIR-V, 0 for a buffer at binding 2 (KB-7 of Section 3.12). The documentation of the method states both observations, and the crate derives no `None` from the size or the kind of the global scope, because that would guard against the defect (Hard Rule 14). Whether the method stays before the first release is open (CQ-12 of Section 16).
 - `DescriptorSet::space_offset` returns `Result<BindingSpace>`.
 - `DescriptorRange::index_offset` returns `Result<Option<BindingIndex>>`.
+- `TypeLayout::explicit_counter_binding_range_offset` returns `Result<Option<usize>>`, with `None` for the 0 that Slang returns for a layout without a counter. A counter range never sits at position 0, because the range of the buffer itself comes first, so 0 never names a counter.
 
-A negative value that is not a sentinel is `Internal`. `VariableLayout::offset` returns `LayoutUnits`, as SLC-12 requires for every offset.
+A negative value that is not a sentinel is `Internal`. `VariableLayout::offset` returns `LayoutUnits`, as SLC-12 requires for every offset. For a binding category, that offset is a binding number, which the other accessors return as `BindingIndex`, so one quantity has two types, and the choice is open (CQ-11 of Section 16).
 
 ### 9.3. First-Version Subset
 
@@ -1459,7 +1474,9 @@ SLC-21. Every wrapper, `SessionBuilder`, every reflection handle, and every iter
 
 Slang documents the global session and the objects created from it as not thread-safe and the front end as not reentrant. Slang also gives no guarantee about adding or releasing references from unrelated threads, and it keeps state per thread (Section 3.5). A type that crosses threads would let two threads call one object graph, which corrupts it.
 
-SLC-22. The types `Error`, `ErrorKind`, `Operation`, `Diagnostics`, `CompilerOptions`, `Target`, `GlobalSessionBuilder`, every enumeration, and every value newtype and record MUST be `Send` and `Sync`, with a compile-time assertion test for each (CONC-1). The value newtypes and records are `OptionName`, `TargetIndex`, `reflection::ResourceShape`, and `reflection::LayoutUnits`.
+SLC-22. The types `Error`, `ErrorKind`, `Operation`, `Diagnostics`, `CompilerOptions`, `Target`, `GlobalSessionBuilder`, every enumeration of values, and every value newtype and record MUST be `Send` and `Sync`, with a compile-time assertion test for each (CONC-1). The value newtypes and records are `OptionName`, `TargetIndex`, `reflection::ResourceShape`, and `reflection::LayoutUnits`.
+
+The enumerations of borrows `Component` and `SpecializationArg` are neither, because each variant borrows a wrapper or holds a reflection handle (SLC-21). The documentation of each type and the crate documentation state it.
 
 These types hold no foreign handle, and a lost `Send` is a breaking change that no other test detects. `Compiled<T>` is `Send` and `Sync` when `T` is.
 
@@ -1734,7 +1751,10 @@ Unit tests that need no Slang cover these cases:
 - The mapping of SLC-11 for every row of its table, including the rows for one operation, the precedence of the first matching row, and a code that the header does not name.
 - Every conversion of SLC-14 in both directions, including an unknown value from Slang, the value of an alias, and the value of a sentinel.
 - The encoding of every typed option of Section 7.2 into Slang's entry.
-- `OptionName::new` at and around the sentinel and at 79, 111, and 159.
+- `OptionName::new` at and around the sentinel and at 79, 111, and 159, and `TryFrom<i32>`, which agrees with it at each of these values.
+- The order of `LanguageVersion`, `OptimizationLevel`, `DebugInfoLevel`, and `TargetIndex`, and the structural equality of `CompilerOptions`, `Target`, and `GlobalSessionBuilder`, including the order of option entries and the difference between an unset setting and one set to Slang's default.
+- A module path that is not UTF-8, on Unix, rejected before any call, and a module path given as a `PathBuf`.
+- An identifier of `type_conformance` passed unchanged, and `None` passed as -1.
 - The order of the entries of Section 7.1: a typed setter replaces an earlier typed or raw entry of its option, the warning setters add an entry at each call, and the raw setters add entries whose string fields are never null.
 - The descriptor that `SessionBuilder::build` passes to the fake's `createSession`, read back from the fake's log for every setting, and Slang's defaults for every setting that the builder leaves unset.
 - SLC-31: for each of the four settings that Slang takes from fields of `TargetDesc`, a setting on the session only, on the target only, on both with the target's value winning, and on neither. Raw entries read as Slang reads them, including `EmitSpirvViaGLSL` and `EmitSpirvMethod`.
@@ -1776,7 +1796,7 @@ The `ffi` tests cover these cases. A case is in the module `ffi::compile` unless
 - `link` that returns its input, and `link_with_options` on such an input, whose options then apply to the input (Section 6.6).
 - Metadata that reports a used and an unused binding, and `entry_point_metadata` for an entry point whose code generation fails, with kind `Compile`.
 - `specialize` that fills a generic parameter, and wrong arguments with `E38029` and `E38025`.
-- `type_conformance` that composes, a type that does not conform, with kind `Internal`, and a negative identifier, with kind `InvalidArgument`.
+- `type_conformance` that composes, and a type that does not conform, with kind `Internal`.
 - `entry_point_with_stage` on a function without a `[shader]` attribute, and on a name that the module does not define, with kind `Compile` and `E38000`.
 - Blobs and metadata that stay valid after every other object is released (Section 3.3).
 - In the module `ffi::session`: a session with four targets, which are SPIR-V with a profile, a capability, and the typed options that a target accepts, WGSL, HLSL with a profile, and Metal. Also a session with every setting of the builder, including every typed option and one raw option on the session, and sessions with the four settings of SLC-31 on the session, on a target, and on both. The documentation of these tests states that they show only that Slang accepts the descriptor, and no effect of any setting.
@@ -1788,7 +1808,7 @@ The `ffi` tests cover these cases. A case is in the module `ffi::compile` unless
   - `LanguageVersion` on a target, which the same options on the session then pass.
   - An unknown profile and capability.
 - In the module `ffi::session`: a session that keeps its global session alive after the user dropped every other handle to it, the hand-over through `into_raw` and `from_raw`, and a raw session released while the global session that `into_raw` returned keeps the global session alive.
-- In the module `ffi::reflection`: the checks of SLC-20, the parameter categories, binding ranges, binding spaces, and binding numbers that Slang computes for explicit bindings, and the snapshots described below.
+- In the module `ffi::reflection`: the checks of SLC-20, `TypeLayout::field_layout` at each position that `find_field_index_by_name` and the iterator `field_layouts` give, the counter range of `explicit_counter_binding_range_offset` as `Some` and `None`, the parameter categories, binding ranges, binding spaces, and binding numbers that Slang computes for explicit bindings, and the snapshots described below.
 - In the module `ffi::paths`: relative paths against the working directory (Section 3.8).
 - The checks of SLC-7, for `compose` with a component, `specialize` with a type, `type_conformance` with a type and with an interface, and `ProgramLayout::type_layout` with a type, each from another session, with kind `InvalidArgument`.
 - The check of a `TargetIndex` against the target count of the session at every call that takes one, with kind `InvalidArgument` and no result code.
@@ -1868,7 +1888,7 @@ A clean Miri run is not a proof of soundness (TEST-7).
 
 The fake is the test-only module `src/fake.rs` of the crate, not part of the integration-test binary, because the owning interface pointer and the guard that its tests exercise are crate-private. Each fake object is a `#[repr(C)]` struct whose first field is a reference to a `static` instance of the generated vtable struct of its interface, so a pointer to it is a valid pointer to that interface. The struct then holds a reference count, a name, a shared log of events, the identifiers that its `queryInterface` answers, and the state of the fake.
 
-Each counting call, each `queryInterface`, each other call that the crate makes, and each free is recorded in the log, which the test reads. When the count reaches zero, the object frees itself with `Box`, so Miri detects a use after free. The vtable functions of the fake are defined `extern "system-unwind"`, to match the generated field types, which is sound only because nothing but Rust calls them (Section 8.4).
+Each counting call, each `queryInterface`, each other call that the crate makes, and each free is recorded in the log, which the test reads. When the count reaches zero, the object frees itself with `Box`, so Miri detects a use after free. The vtable functions of the fake are defined `extern "system"` and stored in their `"system-unwind"` fields through a `const fn` for each number of arguments, which converts the function pointer with a fully annotated `std::mem::transmute`, as Section 8.4 describes (FFI-7). The conversion is a `const fn`, because the vtables of the fake are `static`s. So a panic in a function of the fake, such as a failed `expect` of a test invariant, aborts the test process instead of unwinding, and no test relies on a panic that unwinds out of the fake.
 
 The fake objects model these behaviours:
 
@@ -2026,13 +2046,20 @@ An identifier is never reused, and the next assumption takes CA-18.
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-8.
+Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-13.
+
+CQ-8 to CQ-12 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project and blocks the first release until the owner decides it.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | CQ-3 | Can the bound `Send + Sync` of `FileSystem` be relaxed while every wrapper stays on one thread, which CONC-6 would prefer (Section 8.3), given that tightening it again later would be a breaking change? | This document | Answered with the custom file system, before the trait is first released |
 | CQ-5 | Will Slang add a `try` to the calls of Section 3.6 that have none, which are `getLayout`, `getEntryPointCode`, `specialize`, `findAndCheckEntryPoint`, and the reflection functions, or state which `SLANG_NO_THROW` methods can let a C++ exception escape? KB-1 of Section 3.12 is reported as [SLANG-14448]. The other defects of Section 3.12 are not reported | This document, through an issue in the Slang repository | Before the first release, M8 |
 | CQ-7 | What does `check_target_support` return for SPIR-V and SPIR-V assembly on a statically linked Slang, with and without the loader of `slang-glslang-sys`? The crate documentation states that it is not established (Section 6.3) | This document, by a test under `test-vendored` | M7 |
+| CQ-8 | `MatrixLayout` and `TargetFormat` do not carry Slang's names `SlangMatrixLayoutMode` and `SlangCompileTarget`, which API-3 requires, while every other mirrored enumeration does (Section 6.10). The options are to rename them to `MatrixLayoutMode` and `CompileTarget` before the release, or to keep them and record the reason for each deviation here, such as that `format` is the name of Slang's field `TargetDesc::format` | The owner of the project, by a decision | Before the first release, M8 |
+| CQ-9 | The setters of `Target` take and return `self`, while API-6 asks for `&mut self` on a value that holds only settings, as `CompilerOptions` and `GlobalSessionBuilder` do (Section 6.4). The options are to make them `&mut self -> &mut Self` before the release, which breaks chained calls passed by value, or to keep them and record in Section 17 of the coding standard why a settings value that is not a builder may consume itself | The owner of the project, by a decision | Before the first release, M8 |
+| CQ-10 | `CompilerOptions::set_string` takes `&str` for text that it stores, while API-13 asks for `impl Into<String>`, as the typed text setters take (Section 7.3). The options are to change the parameters before the release, or to keep `&str` and record why | The owner of the project, by a decision | Before the first release, M8 |
+| CQ-11 | `VariableLayout::offset` returns `LayoutUnits` for a binding number, which `DescriptorRange::index_offset`, `global_constant_buffer_binding`, and `Metadata::is_parameter_location_used` treat as `BindingIndex`, against TYPE-8 and API-3 (Section 9.2). The options are to add an accessor `VariableLayout::binding_index(ParameterCategory) -> Option<BindingIndex>` and name one type for a binding number in SLC-12, or to keep the two forms and record why | The owner of the project, by a decision | Before the first release, M8 |
+| CQ-12 | `ProgramLayout::global_constant_buffer_binding` returns the number that Slang reports, which is 0 when the program has no global constant buffer and, observed on SPIR-V, 0 for a buffer at binding 2 (KB-7 of Section 3.12), so a caller cannot tell a buffer at binding 0 from no buffer. The options are to keep the method with its documented defect, or to remove it before the release and leave the binding to the call that KB-7 observed to give 2 on SPIR-V, `offset(ParameterCategory::DescriptorTableSlot)` of `global_params_var_layout()`, which Slang does not document as the binding | The owner of the project, by a decision | Before the first release, M8 |
 
 ## 17. Security Considerations
 
@@ -2188,11 +2215,11 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLC-15 | 6.11 | Strings go to Slang as `CString` values that outlive the call, and an interior NUL is `InvalidArgument`. |
 | SLC-16 | 7.3 | The raw option setters are `unsafe`, and every string field passed to Slang is non-null. |
 | SLC-17 | 8.4 | The file system and the Rust-owned blob are Rust-implemented COM objects, the blob answers only `ISlangUnknown` and `ISlangBlob`, and a missing file is exactly `SLANG_E_NOT_FOUND`. Deferred with the custom file system. |
-| SLC-18 | 8.4 | A panic in user code is caught, recorded as text, fails the call, and poisons the session with kind `FileSystem`. Deferred with the custom file system. |
+| SLC-18 | 8.4 | A panic in user code is caught, recorded as text, fails the call, and poisons the session with kind `FileSystem`, which the custom file system adds. Deferred with the custom file system. |
 | SLC-19 | 9.1 | Reflection handles are `Copy`, borrow their wrapper, are neither `Send` nor `Sync`, and know their session. |
 | SLC-20 | 9.4 | Reflection checks indexes and nulls before and after every call and never passes null. |
 | SLC-21 | 10 | No wrapper, builder holding a wrapper, reflection handle, or iterator is `Send` or `Sync`. |
-| SLC-22 | 10 | The error, diagnostics, option, target, index, enumeration, and value newtype and record types are `Send` and `Sync`, with assertion tests. |
+| SLC-22 | 10 | The error, diagnostics, option, target, index, value enumeration, and value newtype and record types are `Send` and `Sync`, with assertion tests, and the enumerations of borrows are neither. |
 | SLC-23 | 13.1 | Failure tests assert the documented kind, and every new operation gets failure-path tests in the same change. |
 | SLC-24 | 13.3 | No further `ffi` tests search for inputs that let an exception escape Slang, and the existing ones stay until the mechanism of Section 11.6 is removed. |
 | SLC-25 | 13.4 | A Miri fake models borrowed returns, `link` returning its input, failed `specialize`, and diagnostics. |

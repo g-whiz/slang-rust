@@ -35,6 +35,14 @@ fn main() -> ExitCode {
                 eprintln!("  caused by: {cause}");
                 source = cause.source();
             }
+            if error
+                .downcast_ref::<slang_bindgen::Error>()
+                .is_some_and(|error| error.kind() == slang_bindgen::ErrorKind::Libclang)
+            {
+                eprintln!(
+                    "slang-bindgen generates the bindings with libclang, so install libclang or set LIBCLANG_PATH to the directory that holds it"
+                );
+            }
             ExitCode::FAILURE
         }
     }

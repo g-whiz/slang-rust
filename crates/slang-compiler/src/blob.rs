@@ -321,10 +321,9 @@ impl Blob {
     ///
     /// # Examples
     ///
-    /// This example moves a blob out of the crate and back. It needs the
-    /// Slang shared library at run time, so it is compiled but not run:
+    /// This example moves a blob out of the crate and back:
     ///
-    /// ```no_run
+    /// ```
     /// use slang_compiler::Blob;
     ///
     /// fn round_trip(code: Blob) -> slang_compiler::Result<Blob> {

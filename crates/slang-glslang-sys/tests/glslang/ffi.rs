@@ -24,9 +24,7 @@ const FUNCTIONS: [&CStr; 9] = [
 fn load(name: &str) -> (SlangResult, *mut ISlangSharedLibrary) {
     let name = CString::new(name).unwrap_or_default();
     let mut library: *mut ISlangSharedLibrary = ptr::null_mut();
-    // SAFETY: the loader has no precondition, and the test uses it only with
-    // the Slang that this test binary links.
-    let loader = unsafe { slang_glslang_sys_loader() };
+    let loader = slang_glslang_sys_loader();
     assert!(!loader.is_null());
     // SAFETY: `loader` is the live static loader, `name` is a live string
     // terminated by a null byte, and `library` is a live out-pointer.
@@ -123,8 +121,7 @@ fn query<T>(
 
 #[test]
 fn the_loader_answers_queries_for_its_own_interfaces_only() {
-    // SAFETY: the loader has no precondition.
-    let loader = unsafe { slang_glslang_sys_loader() };
+    let loader = slang_glslang_sys_loader();
     for uuid in [ISlangUnknown::UUID, ISlangSharedLibraryLoader::UUID] {
         assert_eq!(
             query(loader, &uuid, ISlangSharedLibraryLoader::queryInterface),

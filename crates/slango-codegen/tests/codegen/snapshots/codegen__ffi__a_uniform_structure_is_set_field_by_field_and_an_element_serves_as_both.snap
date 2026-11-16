@@ -4,15 +4,16 @@ expression: "bindings(\"uniform.slang\")"
 ---
 const _: &[u8] = ::core::include_bytes!("<shaders>/uniform.slang");
 const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 1,
+    ::slango::__private::ENCODING_VERSION == 2,
     "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
 );
-/// The Slang structure `Light`, with the layout that Slang gives it in a structured buffer.
+/// The Slang structure `Light`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type.
 ///
 /// Each public field holds the field of the same name at the
 /// offset that Slang gives it, and private fields hold the
-/// padding, so a value is created with `new`. A `slango::Buffer`
-/// of the struct binds to a structured buffer of the structure.
+/// padding, so a value is created with [`Self::new`]. A
+/// [`slango::Buffer`] of the struct binds to a structured buffer
+/// of the structure.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Light {
@@ -128,8 +129,9 @@ pub struct Shade {
     kernel: ::slango::Kernel,
 }
 impl Shade {
-    /// The number of threads in each thread group, along x, y, and
-    /// z, which the `[numthreads]` attribute of the kernel sets.
+    /// The number of threads in each thread group, a set of threads
+    /// that run together on the GPU, along x, y, and z, which the
+    /// `[numthreads]` attribute of the kernel sets.
     pub const THREAD_GROUP_SIZE: [u32; 3] = [64, 1, 1];
     /// Runs the kernel with `args` on at least `elements` threads
     /// along x, y, and z, in as many thread groups as that needs.
@@ -158,8 +160,9 @@ impl Shade {
             .bind("output", args.output)
             .dispatch(elements)
     }
-    /// Runs the kernel with `args` on `groups` thread groups along x,
-    /// y, and z.
+    /// Runs the kernel with `args` on `groups` thread groups, sets of
+    /// [`Self::THREAD_GROUP_SIZE`] threads that run together, along
+    /// x, y, and z.
     ///
     /// # Errors
     ///

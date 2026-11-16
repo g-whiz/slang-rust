@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -325,7 +325,7 @@ SLO-28. The manifest of `slango` MUST declare `default = ["wgpu"]` and `wgpu = [
 
 The feature gates the whole crate and not only the module `slango::wgpu`, because every type that runs on a GPU holds wgpu objects (Section 3.10). The five functions of `slango::wgpu` are the only public items that name a wgpu type, and SLO-4 keeps it so.
 
-SLO-29. Under `#[cfg(not(feature = "wgpu"))]`, the crate root of `slango` MUST stop the compilation with `compile_error!` and exactly this message: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default". With SLO-28, it is then the only error of the build (Section 3.10). Otherwise a build with `default-features = false` fails with hundreds of unresolved names, which do not say what to enable.
+SLO-29. Under `#[cfg(not(feature = "wgpu"))]`, the crate root of `slango` MUST stop the compilation with `compile_error!` and exactly this message: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default". With SLO-28, it is then the only error of the build (Section 3.10). Otherwise a build with `default-features = false` fails with hundreds of unresolved names, which do not say what to enable. The second exception of DEP-1 of the coding standard permits this one stop.
 
 This is a choice of the design. The other option, a crate that compiles without a backend to its errors, options, and loading, was rejected for two reasons:
 
@@ -710,7 +710,9 @@ SLO-20. `Device::load_module` MUST also record the layout snapshot and the SPIR-
 
 The load compiles every entry point as Section 7.1 states, with one SPIR-V module for each (Section 3.9), and ignores the entry points of other stages. The record of a vertex or fragment entry point holds its name, its stage, and its bindings and plain values as Section 7.1 defines them, with the usage of each binding from that entry point's metadata. The record of a vertex entry point also holds its vertex attributes.
 
-A failure that belongs to one such entry point becomes the rejection on its record, and the load goes on (SLO-20). The rejection is `ErrorKind::UnsupportedParameter` for a parameter that the walk refuses. It is `ErrorKind::Compile` with Slang's text for a failure of Slang to reflect the entry point, report its metadata, or generate its SPIR-V.
+A failure that belongs to one such entry point becomes the rejection on its record, and the load goes on (SLO-20). The rejection is `ErrorKind::UnsupportedParameter` for a parameter that the walk refuses. It is `ErrorKind::Compile` for a failure of Slang to reflect the entry point, report its metadata, or generate its SPIR-V. A `Compile` rejection keeps the text of the error of `slang-compiler`, with Slang's diagnostics, apart from its detail. The detail is the detail of that error, or "Slang failed on the {role} `{name}`" when it has none, and the text becomes the source error when `render_pipeline` returns the rejection.
+
+The rejection keeps the text and not the error of `slang-compiler`, because the record is returned from every call of `render_pipeline` and is decoded from the bytes of a precompiled module, so its source is a crate-private error type that holds the text and implements `Display` and `std::error::Error`. The documentation promises no downcast of the source. The encoding of a rejection record holds a tag byte, 0 or 1, and the text of the source after the detail, which is why `ENCODING_VERSION` is 2 (Section 5.3 of `docs/design/slango-macros.md`).
 
 A rejected record keeps no SPIR-V, and `Module::render_pipeline` returns its rejection.
 
@@ -979,7 +981,7 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 
 | Kind | Meaning |
 | --- | --- |
-| `Compile` | Slang failed to compile or link the module. `source()` returns the error of `slang-compiler` with its diagnostics, except for the rejection of a vertex or fragment entry point, whose text holds that error's text and which has no source error (Section 7.4) |
+| `Compile` | Slang failed to compile or link the module. `source()` returns the error of `slang-compiler` with its diagnostics. For the rejection of a vertex or fragment entry point, `source()` returns an error whose text is the text of that error, and the `Display` text of the error does not hold it (Section 7.4) |
 | `NoAdapter` | wgpu found no adapter that matches the options |
 | `DeviceRequest` | The adapter refused the device that the options request |
 | `UnsupportedShader` | The backend rejected a kernel at load, or a render pipeline at its creation, as the text after this table states. The source error carries the backend's text |
@@ -1158,10 +1160,17 @@ Section 3.7 confirms A-10 in part, for the first three patterns of Section 8.3 o
 
 Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row.
 
+SOQ-5 to SOQ-9 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding that waits for the decision of the owner of the project and blocks the first release until the owner decides it.
+
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SOQ-3 | How large must a kernel be before naga's parsing at load or lavapipe's first dispatch takes long enough to matter? | This document | The milestone that first loads kernels larger than those of the example |
 | SOQ-4 | Can the backend `rhi` keep the public API of the pass of M8 without a breaking change, in particular `Send` and `Sync` of SLO-17, an infallible `from_device_and_queue`, and `Device::new` with both backends enabled? If not, the owner accepts version 0.2 of `slango` (Section 4.3) | This document | M10 |
+| SOQ-5 | `RenderPipelineOptions::colour_format` and `depth_format` take any `TextureFormat`, so a depth format as the colour format and a colour format as the depth format compile and fail only in `render_pipeline` with `InvalidArgument` (Section 7.5), against TYPE-3. The options are to add `#[non_exhaustive]` enumerations, such as `DepthFormat` with `Depth32Float` and `ColourFormat` with the four colour formats, each with a lossless conversion into `TextureFormat`, before the release, to narrow only `depth_format`, or to keep the run-time check and record why | The owner of the project, by a decision | Before the first release, M8 |
+| SOQ-6 | The setters `set`, `bind`, `texture`, and `sampler` of `Call`, and those and `vertex` of `Draw`, take `path: &'a str` and store it for the life of the builder, so a path built at run time must outlive the builder (Section 9.1), against API-13. The options are to take `impl Into<Cow<'a, str>>` before the release, which keeps every literal free, or to keep the borrow and record the zero-copy choice as an exception to API-13 | The owner of the project, by a decision | Before the first release, M8 |
+| SOQ-7 | `Buffer::zeroed` and `Texture::new` both create a resource whose bytes are zero, under two names, against API-3 (Section 8). The options are to rename `Texture::new` to `Texture::zeroed`, to rename `Buffer::zeroed` to `Buffer::new`, or to keep both names and record why | The owner of the project, by a decision | Before the first release, M8 |
+| SOQ-8 | `Device` has an identity that its clones share and that the crate compares for every check of another device, but implements no `PartialEq`, `Eq`, or `Hash`, which API-7 asks for (Section 9.3). The options are to implement them by hand through the identity before the release, documenting that two `Device` values built separately from one wgpu device are unequal, or to defer them, which is additive | The owner of the project, by a decision | Before the first release, M8 |
+| SOQ-9 | The documentation of the crate promises wgpu's conventions of a draw on every backend, which are y up in clip space, depth from 0 to 1, counter-clockwise front faces, and the texture coordinate (0, 0) at the top left. The documentation of `ErrorKind` and `AdapterSelection` names sources and adapters of wgpu, `Device::new` and `load_module` describe the immediates feature of wgpu, and the crate documentation promises SPIR-V validated by naga and that every type is `Send` and `Sync` (SOQ-4). A backend `rhi` would have to imitate each or change documented behaviour. The options are to restate each as a convention of `slango` that every backend keeps, to weaken it to a statement about the backend wgpu, or to keep it and accept the cost in M10 | The owner of the project, by a decision | Before the first release, M8 |
 
 Of the questions of the architecture design that name this document, these sections answer or defer each:
 

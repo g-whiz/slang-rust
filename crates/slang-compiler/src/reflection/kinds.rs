@@ -66,7 +66,9 @@ pub enum TypeKind {
     /// A type specialized with the types of its Slang interface parameters,
     /// as Slang's `SLANG_TYPE_KIND_SPECIALIZED`.
     Specialized,
-    /// A feedback texture, as Slang's `SLANG_TYPE_KIND_FEEDBACK`.
+    /// A feedback texture, a texture into which the GPU records which parts
+    /// of another texture a shader sampled, as Slang's
+    /// `SLANG_TYPE_KIND_FEEDBACK`.
     Feedback,
     /// A pointer, as Slang's `SLANG_TYPE_KIND_POINTER`.
     Pointer,
@@ -350,6 +352,10 @@ impl ResourceShape {
 
     /// Returns whether the resource is a feedback texture, Slang's flag
     /// `SLANG_TEXTURE_FEEDBACK_FLAG`.
+    ///
+    /// A feedback texture is a texture into which the GPU records which parts
+    /// of another texture a shader sampled, the sampler feedback of
+    /// Direct3D 12.
     ///
     /// # Examples
     ///

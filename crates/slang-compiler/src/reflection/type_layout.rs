@@ -354,6 +354,66 @@ impl<'a> TypeLayout<'a> {
         }
     }
 
+    /// Returns the variable layout of the field at `position` among
+    /// [`TypeLayout::field_layouts`], or `None` when Slang returns no layout
+    /// for it.
+    ///
+    /// Use it with a position that [`TypeLayout::find_field_index_by_name`]
+    /// returns, or with the positions below the number of fields, which
+    /// [`TypeLayout::field_binding_range_offset`] also takes.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`TypeLayout::find_field_index_by_name`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`ErrorKind::InvalidArgument`] when
+    /// `position` is not below the number of fields, which the crate checks
+    /// before it calls Slang, because Slang does not check it.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn field_layout(self, position: usize) -> Result<Option<VariableLayout<'a>>> {
+        let field_count = self.field_count();
+        let index = index(position)
+            .filter(|_| position < field_count)
+            .ok_or_else(|| out_of_range("field", position, field_count))?;
+        // SAFETY: `index` is below the field count that Slang reported, which
+        // the check above established.
+        Ok(unsafe { self.field_at(index, "TypeLayout::field_layout") })
+    }
+
+    /// Returns the variable layout of the field at `index`, for the public
+    /// `method` that the Slang call guard names.
+    ///
+    /// # Safety
+    ///
+    /// `index` is below the field count that Slang reports for this layout,
+    /// because Slang does not check it. Breaking this is undefined behaviour.
+    unsafe fn field_at(self, index: u32, method: &str) -> Option<VariableLayout<'a>> {
+        let raw = guard::call(method, || {
+            // SAFETY: as for `ty`, and the caller guarantees that `index` is
+            // below the count that Slang reported, which bounds the index
+            // that `spReflectionTypeLayout_GetFieldByIndex` does not check.
+            unsafe {
+                guard::abort_on_exception("spReflectionTypeLayout_GetFieldByIndex", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionTypeLayout_GetFieldByIndex(self.raw(), index)
+                })
+            }
+        });
+        // SAFETY: Slang returned a variable layout that the type layout
+        // holds.
+        unsafe { VariableLayout::from_output(raw, self.session) }
+    }
+
     fn field_count(self) -> usize {
         let raw = guard::call("TypeLayout::field_layouts", || {
             // SAFETY: as for `ty`.
@@ -371,8 +431,8 @@ impl<'a> TypeLayout<'a> {
     }
 
     /// Returns the position among [`TypeLayout::field_layouts`] of the field
-    /// named `name`, or `None` when the layout is not a structure or has no
-    /// field of that name.
+    /// named `name`, which [`TypeLayout::field_layout`] takes, or `None` when
+    /// the layout is not a structure or has no field of that name.
     ///
     /// The name can name the field through the declarations that contain it,
     /// with `.` or `::` between the parts, such as `Outer::field`.
@@ -390,8 +450,7 @@ impl<'a> TypeLayout<'a> {
     ///         return Ok(None);
     ///     };
     ///     Ok(layout
-    ///         .field_layouts()
-    ///         .nth(position)
+    ///         .field_layout(position)?
     ///         .map(|field| field.offset(ParameterCategory::Uniform).amount))
     /// }
     /// # let _ = color_offset;
@@ -438,6 +497,12 @@ impl<'a> TypeLayout<'a> {
     /// Returns the layout of the elements of an array, vector, matrix,
     /// constant buffer, parameter block, structured buffer, pointer, or
     /// output stream, or `None` for a layout of any other kind.
+    ///
+    /// A constant buffer is a buffer of uniform data, and a parameter block
+    /// is a group of parameters that a target binds as one unit, such as one
+    /// descriptor set of Vulkan. A structured buffer is a buffer that holds
+    /// an array of elements of one type, and an output stream is the stream
+    /// through which a geometry shader emits its primitives.
     ///
     /// For a constant buffer or a parameter block, the element layout has the
     /// offsets of the contents relative to the start of the buffer.
@@ -846,17 +911,27 @@ impl<'a> TypeLayout<'a> {
 
     /// Returns the position among [`TypeLayout::binding_ranges`] of the
     /// binding range of the counter of a structured buffer that has one,
-    /// such as an append buffer, or 0 for a layout of any other kind.
+    /// such as an append buffer, or `None` for a layout of any other kind.
+    ///
+    /// A structured buffer is a buffer that holds an array of elements of one
+    /// type. An append buffer is a structured buffer to which a shader adds
+    /// elements at the end, and its counter is the separate resource in which
+    /// the GPU counts the elements that the buffer holds. The range of the
+    /// buffer itself comes first, so a counter range is never at position 0,
+    /// and Slang returns 0 for a layout without one.
     ///
     /// Aborts the process, instead of returning an error, when this is the
     /// first call that needs the binding ranges of a layout that holds an
-    /// array whose length a generic value parameter gives, such as
+    /// array whose length a generic value parameter gives, a generic
+    /// parameter that stands for a value and not a type, such as
     /// `float values[M]` in the parameters of the generic entry point
-    /// `main<let M : int>` of a component type that is not yet specialized.
-    /// Slang computes the binding ranges of a layout once, lets a C++
-    /// exception escape for such an array, and the crate then writes one
-    /// line to standard error that names the call `spReflectionTypeLayout_getExplicitCounterBindingRangeOffset`, and aborts
-    /// before any destructor runs.
+    /// `main<let M : int>` of a component type that is not yet specialized,
+    /// which means that its generic parameters are not yet filled in. Slang
+    /// computes the binding ranges of a layout once, lets a C++ exception
+    /// escape for such an array, and the crate then writes one line to
+    /// standard error that names the call
+    /// `spReflectionTypeLayout_getExplicitCounterBindingRangeOffset`, and
+    /// aborts before any destructor runs.
     ///
     /// # Examples
     ///
@@ -865,7 +940,7 @@ impl<'a> TypeLayout<'a> {
     /// ```
     /// use slang_compiler::reflection::TypeLayout;
     ///
-    /// fn counter_range(layout: TypeLayout<'_>) -> slang_compiler::Result<usize> {
+    /// fn counter_range(layout: TypeLayout<'_>) -> slang_compiler::Result<Option<usize>> {
     ///     layout.explicit_counter_binding_range_offset()
     /// }
     /// # let _ = counter_range;
@@ -881,7 +956,7 @@ impl<'a> TypeLayout<'a> {
     /// Panics when it is called while another call of this crate into Slang
     /// is in progress on the same thread, because Slang is not reentrant. Only
     /// code that Slang calls back during such a call can do that.
-    pub fn explicit_counter_binding_range_offset(self) -> Result<usize> {
+    pub fn explicit_counter_binding_range_offset(self) -> Result<Option<usize>> {
         let raw = guard::call("TypeLayout::explicit_counter_binding_range_offset", || {
             // SAFETY: as for `ty`.
             unsafe {
@@ -897,7 +972,8 @@ impl<'a> TypeLayout<'a> {
                 )
             }
         });
-        signed(raw, "the binding range offset of a counter")
+        let position = signed(raw, "the binding range offset of a counter")?;
+        Ok((position != 0).then_some(position))
     }
 
     /// Returns an iterator over the descriptor sets that the type uses, the
@@ -1021,23 +1097,9 @@ pub struct FieldLayouts<'a> {
 impl<'a> FieldLayouts<'a> {
     fn at(&self, position: usize) -> Option<VariableLayout<'a>> {
         let index = index(position)?;
-        let raw = guard::call("FieldLayouts::next", || {
-            // SAFETY: as for `TypeLayout::ty`, and `index` is below the count
-            // that Slang reported, which bounds the index that
-            // `spReflectionTypeLayout_GetFieldByIndex` does not check.
-            unsafe {
-                guard::abort_on_exception("spReflectionTypeLayout_GetFieldByIndex", || {
-                    #[expect(
-                        ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
-                    )]
-                    spReflectionTypeLayout_GetFieldByIndex(self.layout.raw(), index)
-                })
-            }
-        });
-        // SAFETY: Slang returned a variable layout that the type layout
-        // holds.
-        unsafe { VariableLayout::from_output(raw, self.layout.session) }
+        // SAFETY: the iterator yields only positions below the field count
+        // that Slang reported.
+        unsafe { self.layout.field_at(index, "FieldLayouts::next") }
     }
 }
 

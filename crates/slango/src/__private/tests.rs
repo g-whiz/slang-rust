@@ -234,6 +234,7 @@ fn compilation() -> Compilation {
                 usable: Err(layout::Rejection {
                     kind: ErrorKind::Compile,
                     detail: "rejected".to_owned(),
+                    source: Some("Slang reports error 30019".to_owned()),
                 }),
             }],
         },

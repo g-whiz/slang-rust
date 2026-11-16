@@ -223,6 +223,9 @@ pub(crate) fn layout<'a, I: ComponentInterface>(
 /// one [`ComponentType`]. The enumeration is non-exhaustive, so a later
 /// version can add kinds of part, and a `match` on it needs a wildcard arm.
 ///
+/// It borrows an object that holds a Slang object, so it is neither [`Send`]
+/// nor [`Sync`].
+///
 /// # Examples
 ///
 /// See the example of [`Session::compose`].
@@ -397,7 +400,8 @@ impl Session {
     /// Compose type conformances with the code that calls the interface to
     /// choose which implementations dynamic dispatch, the choice of an
     /// implementation at run time, can reach. `id_override` sets the number
-    /// that the generated code uses for `ty`, and `None` lets Slang choose it.
+    /// that the generated code uses for `ty`, which it holds as a 32-bit
+    /// unsigned integer, and `None` lets Slang choose it.
     ///
     /// # Examples
     ///
@@ -432,9 +436,8 @@ impl Session {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `ty` or
-    /// `interface` belongs to another session, or `id_override` is negative
-    /// or does not fit Slang's integer type, which the crate checks before it
-    /// calls Slang. Returns the kind that Slang's result code maps to when
+    /// `interface` belongs to another session, which the crate checks before
+    /// it calls Slang. Returns the kind that Slang's result code maps to when
     /// Slang fails, which for a type that does not implement the interface is
     /// [`ErrorKind::Internal`], because Slang reports that case without a
     /// reason.
@@ -448,7 +451,7 @@ impl Session {
         &self,
         ty: Type<'_>,
         interface: Type<'_>,
-        id_override: Option<i64>,
+        id_override: Option<u32>,
     ) -> Result<Compiled<TypeConformance>> {
         let operation = Operation::CreateTypeConformance;
         if !ty.session().is_same(self) {
@@ -457,17 +460,7 @@ impl Session {
         if !interface.session().is_same(self) {
             return Err(other_session(operation, "the interface"));
         }
-        let id = match id_override {
-            None => -1,
-            Some(id) => {
-                let converted = SlangInt::try_from(id).ok().filter(|id| *id >= 0);
-                converted.ok_or_else(|| {
-                    Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
-                        "the identifier {id} is negative or does not fit Slang's integer type"
-                    ))
-                })?
-            }
-        };
+        let id = raw_conformance_id(id_override);
         guard::call("Session::type_conformance", || {
             let mut out: *mut ITypeConformance = ptr::null_mut();
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
@@ -506,6 +499,20 @@ impl Session {
     }
 }
 
+/// Converts the identifier of a type conformance to Slang's value, in which
+/// -1 lets Slang choose the identifier.
+#[expect(
+    clippy::expect_used,
+    reason = "the bindings exist for 64-bit targets only, where every u32 fits in Slang's integer"
+)]
+fn raw_conformance_id(id_override: Option<u32>) -> SlangInt {
+    id_override.map_or(-1, |id| {
+        SlangInt::try_from(id).expect(
+            "internal error: a u32 fits in Slang's integer on the 64-bit targets of the bindings",
+        )
+    })
+}
+
 /// The error of an argument of another session.
 pub(crate) fn other_session(operation: Operation, what: &str) -> Error {
     Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
@@ -517,6 +524,9 @@ pub(crate) fn other_session(operation: Operation, what: &str) -> Error {
 ///
 /// The enumeration is non-exhaustive, so a later version can add kinds of
 /// argument, and a `match` on it needs a wildcard arm.
+///
+/// It holds a reflection handle, which borrows a Slang object, so it is
+/// neither [`Send`] nor [`Sync`].
 ///
 /// # Examples
 ///
@@ -1687,6 +1697,14 @@ mod tests {
         Specialize,
     };
     use crate::guard;
+
+    #[test]
+    fn a_conformance_identifier_is_passed_unchanged_and_none_is_minus_one() {
+        assert_eq!(super::raw_conformance_id(None), -1);
+        assert_eq!(super::raw_conformance_id(Some(0)), 0);
+        assert_eq!(super::raw_conformance_id(Some(3)), 3);
+        assert_eq!(super::raw_conformance_id(Some(u32::MAX)), 4_294_967_295);
+    }
     use crate::{
         BindingIndex, BindingSpace, CompilerOptions, ErrorKind, GlobalSession, Module, Operation,
         OptimizationLevel, ParameterCategory, Session,

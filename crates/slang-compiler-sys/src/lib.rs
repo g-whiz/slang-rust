@@ -36,8 +36,8 @@
 //!   interface, is an associated function that takes the interface pointer
 //!   as its first argument and calls through the vtable, such as
 //!   [`IGlobalSession::getBuildTagString`]. The UUID of each interface, which
-//!   is its 128-bit identifier, is the constant `UUID` of the trait
-//!   [`Interface`].
+//!   is its 128-bit identifier, is the constant [`Interface::UUID`] of the
+//!   trait [`Interface`].
 //! - A C++ enumeration is a struct that wraps its integer type, with one
 //!   associated constant for each enumerator, such as
 //!   [`SlangCompileTarget::SLANG_SPIRV`], because Slang can return a value
@@ -311,7 +311,7 @@
 //! and provides that loader. slang-compiler with its feature `vendored`
 //! installs it on every global session that it creates, and a program that
 //! uses this crate directly depends on slang-glslang-sys and installs the
-//! loader through `IGlobalSession::setSharedLibraryLoader` on each global
+//! loader through [`IGlobalSession::setSharedLibraryLoader`] on each global
 //! session, before the global session generates any code, as the
 //! documentation of slang-glslang-sys shows. On either route, Slang validates
 //! the SPIR-V that it generates only when the environment variable
@@ -367,7 +367,8 @@
 //!   live, and was obtained from Slang or points to memory that the caller
 //!   owns for as long as Slang reads or writes it. An interface pointer points
 //!   to a live object that implements the interface of its type, which the
-//!   caller obtained from Slang, such as through `queryInterface` with the
+//!   caller obtained from Slang, such as through
+//!   [`queryInterface`](ISlangUnknown::queryInterface) with the
 //!   UUID of that interface. A pointer to a type that the header declares
 //!   without its contents is a handle that Slang returned and that is still
 //!   valid.
@@ -411,6 +412,32 @@
 //! value whose destructor aborts the process. The type of a callback that
 //! Slang calls keeps the ABI `"C"`, so a panic in a callback aborts the
 //! process instead of unwinding into Slang.
+//!
+//! A program that implements a Slang interface in Rust, such as a file
+//! system or a shared library loader that it passes to Slang, fills a vtable
+//! struct with its own functions. Each field of a vtable struct has the type
+//! `unsafe extern "system-unwind" fn`, so a function defined with that ABI
+//! fits the field without a conversion, and a panic in it would unwind into
+//! the C++ frames of Slang that called it. To keep a panic out of Slang,
+//! follow these rules:
+//!
+//! - Define each function of the vtable with the non-unwinding ABI, as
+//!   `unsafe extern "system" fn`, so that a panic in it aborts the process at
+//!   the boundary instead of unwinding.
+//! - Store the function in the field through a conversion of the function
+//!   pointer to the type of the field, such as [`std::mem::transmute`] with
+//!   both function pointer types written out. The documentation of the
+//!   [`fn`](primitive@fn) type in the standard library makes the conversion
+//!   well-defined in Rust, and Rust code may call the function through the
+//!   converted pointer. Slang's C++ code calls the function by the calling
+//!   convention of the platform, which is what the non-unwinding ABI
+//!   declares, and the function itself stays non-unwinding, so a panic in it
+//!   aborts at the boundary. A vtable in a `static` needs the conversion in a
+//!   `const fn`.
+//! - When the function reports failure through a result code, it may catch
+//!   a panic with [`std::panic::catch_unwind`] and return a failure code
+//!   instead. `catch_unwind` catches nothing when the program is built with
+//!   `panic = "abort"`, where the panic aborts the process.
 //!
 //! This crate promises nothing about threads. No interface struct implements
 //! [`Send`] or [`Sync`], and the safe crate `slang-compiler` decides what can
@@ -473,7 +500,7 @@ use slang_src as _;
 /// );
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct BuildInfo {
     /// The build tag of the Slang of the build, such as
@@ -516,7 +543,9 @@ pub struct BuildInfo {
 /// How a build of this crate links Slang.
 ///
 /// Use it to tell whether a program needs the Slang shared library at run
-/// time. [`BuildInfo::linkage`] holds the linkage of the current build.
+/// time. [`BuildInfo::linkage`] holds the linkage of the current build. Its
+/// text, which [`Display`](std::fmt::Display) writes, is `dynamic` or
+/// `static`, the value of `DEP_SLANG_COMPILER_LINKAGE`.
 ///
 /// # Examples
 ///
@@ -530,7 +559,7 @@ pub struct BuildInfo {
 /// }
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Linkage {
     /// The build links the Slang shared library of a Vulkan SDK, which the
@@ -540,6 +569,15 @@ pub enum Linkage {
     /// Slang library at run time. A build with the feature `vendored` builds
     /// Slang from source and links it in this way.
     Static,
+}
+
+impl std::fmt::Display for Linkage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Dynamic => "dynamic",
+            Self::Static => "static",
+        })
+    }
 }
 
 /// The record of the Slang that this build generated its bindings from and

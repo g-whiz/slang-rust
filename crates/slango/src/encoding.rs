@@ -169,10 +169,21 @@ impl Writer {
                 self.list(attributes, Self::attribute);
                 self.words(spirv);
             }
-            Err(Rejection { kind, detail }) => {
+            Err(Rejection {
+                kind,
+                detail,
+                source,
+            }) => {
                 self.u8(1);
                 self.u8(kind_tag(*kind));
                 self.str(detail);
+                match source {
+                    None => self.u8(0),
+                    Some(text) => {
+                        self.u8(1);
+                        self.str(text);
+                    }
+                }
             }
         }
     }
@@ -479,7 +490,16 @@ impl<'a> Reader<'a> {
             1 => {
                 let kind = kind_of_tag(self.u8()?)?;
                 let detail = self.string()?;
-                Err(Rejection { kind, detail })
+                let source = match self.u8()? {
+                    0 => None,
+                    1 => Some(self.string()?),
+                    _ => return None,
+                };
+                Err(Rejection {
+                    kind,
+                    detail,
+                    source,
+                })
             }
             _ => return None,
         };

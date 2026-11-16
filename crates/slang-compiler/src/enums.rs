@@ -112,12 +112,14 @@ impl Toggle {
 /// latest, and next versions are left out, because they name another version
 /// at each Slang release. The enumeration is non-exhaustive, so a later
 /// version can add language versions, and a `match` on it needs a wildcard
-/// arm.
+/// arm. Versions compare in the order of their release, so an older version
+/// is less than a newer one, and a later variant takes its place in that
+/// order.
 ///
 /// # Examples
 ///
 /// See the example of [`GlobalSessionBuilder`](crate::GlobalSessionBuilder).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum LanguageVersion {
     /// The rules of Slang before the language had versions, which Slang calls
@@ -309,12 +311,14 @@ impl Stage {
 ///
 /// Higher levels make faster code and take longer to compile. The
 /// enumeration is non-exhaustive, so a later version can add levels, and a
-/// `match` on it needs a wildcard arm.
+/// `match` on it needs a wildcard arm. Levels compare by how much Slang
+/// optimizes, so [`OptimizationLevel::None`] is the least, and a later
+/// variant takes its place in that order.
 ///
 /// # Examples
 ///
 /// See the example of [`CompilerOptions`](crate::CompilerOptions).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum OptimizationLevel {
     /// No optimization, as Slang's `SLANG_OPTIMIZATION_LEVEL_NONE`.
@@ -345,12 +349,14 @@ impl OptimizationLevel {
 /// Debug information lets a debugger or a profiler of the graphics API map
 /// the generated code back to the Slang source. The enumeration is
 /// non-exhaustive, so a later version can add levels, and a `match` on it
-/// needs a wildcard arm.
+/// needs a wildcard arm. Levels compare by how much debug information they
+/// add, so [`DebugInfoLevel::None`] is the least, and a later variant takes
+/// its place in that order.
 ///
 /// # Examples
 ///
 /// See the example of [`CompilerOptions`](crate::CompilerOptions).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum DebugInfoLevel {
     /// No debug information, as Slang's `SLANG_DEBUG_INFO_LEVEL_NONE`.
@@ -700,6 +706,40 @@ mod tests {
         ];
         for (version, value) in pairs {
             assert_eq!(version.to_raw(), SlangLanguageVersion(value), "{version:?}");
+        }
+    }
+
+    #[test]
+    fn the_ordered_enumerations_compare_as_their_slang_values() {
+        let versions = [
+            LanguageVersion::Legacy,
+            LanguageVersion::V2025,
+            LanguageVersion::V2026,
+            LanguageVersion::V202C,
+        ];
+        for pair in versions.windows(2) {
+            assert!(pair[0] < pair[1], "{pair:?}");
+            assert!(pair[0].to_raw().0 < pair[1].to_raw().0, "{pair:?}");
+        }
+        let optimization = [
+            OptimizationLevel::None,
+            OptimizationLevel::Default,
+            OptimizationLevel::High,
+            OptimizationLevel::Maximal,
+        ];
+        for pair in optimization.windows(2) {
+            assert!(pair[0] < pair[1], "{pair:?}");
+            assert!(pair[0].to_raw().0 < pair[1].to_raw().0, "{pair:?}");
+        }
+        let debug_info = [
+            DebugInfoLevel::None,
+            DebugInfoLevel::Minimal,
+            DebugInfoLevel::Standard,
+            DebugInfoLevel::Maximal,
+        ];
+        for pair in debug_info.windows(2) {
+            assert!(pair[0] < pair[1], "{pair:?}");
+            assert!(pair[0].to_raw().0 < pair[1].to_raw().0, "{pair:?}");
         }
     }
 

@@ -146,10 +146,6 @@ fn value_of(flag: &str, value: Option<OsString>) -> Result<String, String> {
 fn compile_and_reflect(options: &Options) -> Result<(), Box<dyn Error>> {
     let source = std::fs::read_to_string(&options.file)
         .map_err(|error| format!("cannot read {}: {error}", options.file.display()))?;
-    let path = options
-        .file
-        .to_str()
-        .ok_or("the file path is not valid UTF-8")?;
     let name = options
         .file
         .file_stem()
@@ -164,7 +160,7 @@ fn compile_and_reflect(options: &Options) -> Result<(), Box<dyn Error>> {
     let session = builder.build()?;
     let target = session.target_index(0)?;
 
-    let module = with_warnings(session.load_module_from_source(name, path, &source)?);
+    let module = with_warnings(session.load_module_from_source(name, &options.file, &source)?);
     let entry_points = match &options.entry {
         Some(entry) => vec![module.entry_point(entry)?],
         None => module.entry_points()?.collect::<Result<Vec<_>, _>>()?,

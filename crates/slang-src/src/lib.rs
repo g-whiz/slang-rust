@@ -122,6 +122,39 @@
 //! - The temporary target directory of `cargo install` from crates.io or from
 //!   git.
 //!
+//! # For build scripts that depend on this crate
+//!
+//! A build script of a crate that depends on this crate relies on these
+//! rules, which are part of what this crate promises:
+//!
+//! - `DEP_SLANG_SRC_ROOT` is the work tree of the clone, the directory
+//!   `src/<commit>/tree` of the shared folder, in which `<commit>` is the full
+//!   commit hash. Every build in the target directory reads the same tree, so
+//!   a dependent treats it as read-only. A build that writes into its source
+//!   tree, as the build of Slang does, runs on a copy of the tree, and any
+//!   other build runs outside the tree.
+//! - The tree holds the recorded commit with exactly these submodules checked
+//!   out: `external/cmark`, `external/fast_float`, `external/lua`,
+//!   `external/lz4`, `external/miniz`, `external/spirv-headers`,
+//!   `external/unordered_dense`, `external/vulkan`, `external/glslang`, and
+//!   `external/spirv-tools`. A build that needs another submodule fails.
+//! - In the shared folder, the directory `src` belongs to this crate. Each
+//!   dependent owns the directory named after its crate, such as
+//!   `slang-compiler-sys`, keeps its entries there, and writes nowhere else
+//!   in the folder.
+//! - A dependent creates each entry as this crate creates the clone. It
+//!   takes an exclusive lock on the file `<entry>.lock` with
+//!   [`std::fs::File::lock`] and keeps it until the build script exits. While
+//!   it holds the lock, it uses the entry when it exists, and otherwise it
+//!   removes every directory `<entry>.tmp-<number>`, builds into
+//!   `<entry>.tmp-<process id>`, writes the file `stamp` last with an old
+//!   modification time, and renames the temporary directory to the entry.
+//!   Nothing changes an entry after the rename, and an entry that has to be
+//!   built again is removed, never edited.
+//! - A build script that uses an entry emits `cargo::rerun-if-changed` for
+//!   its file `stamp`, which for the clone is `src/<commit>/stamp`, so that
+//!   Cargo runs the build script again when someone removed the entry.
+//!
 //! # What the crate fetches
 //!
 //! The build script clones the recorded commit, by its full hash, from

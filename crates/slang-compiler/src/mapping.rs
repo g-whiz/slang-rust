@@ -9,15 +9,6 @@ pub(crate) enum Failure {
     Code(SlangResult),
     /// A null return.
     Null,
-    /// A file system error or panic that the crate recorded during the call.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no custom file system records this failure, and the unit tests of the mapping use it"
-        )
-    )]
-    FileSystem,
 }
 
 /// The rows of the mapping that apply only to some operations.
@@ -96,7 +87,7 @@ pub(crate) fn error(operation: Operation, failure: Failure, diagnostics: Diagnos
     let error = Error::new(kind, operation).with_diagnostics(diagnostics);
     match failure {
         Failure::Code(code) => error.with_code(code.0),
-        Failure::Null | Failure::FileSystem => error,
+        Failure::Null => error,
     }
 }
 
@@ -109,7 +100,6 @@ pub(crate) fn error(operation: Operation, failure: Failure, diagnostics: Diagnos
 fn classify(class: Class, failure: Failure, diagnostics: &Diagnostics) -> ErrorKind {
     let explained = !diagnostics.is_empty();
     match failure {
-        Failure::FileSystem => ErrorKind::FileSystem,
         Failure::Code(_) if class == Class::TargetSupportCheck => ErrorKind::Unsupported,
         Failure::Null if class == Class::ModuleLoader && !explained => ErrorKind::NotFound,
         Failure::Code(SlangResult::SLANG_E_INVALID_ARG) => ErrorKind::InvalidArgument,
@@ -139,13 +129,6 @@ mod tests {
     use super::{Class, Failure, check, classify, null};
     use crate::error::{Diagnostics, ErrorKind, Operation};
 
-    const ALL_CLASSES: [Class; 4] = [
-        Class::TargetSupportCheck,
-        Class::ModuleLoader,
-        Class::LookupByName,
-        Class::Other,
-    ];
-
     fn none() -> Diagnostics {
         Diagnostics::default()
     }
@@ -156,18 +139,6 @@ mod tests {
 
     fn code(result: SlangResult) -> Failure {
         Failure::Code(result)
-    }
-
-    #[test]
-    fn a_recorded_file_system_failure_wins_over_every_other_row() {
-        for class in ALL_CLASSES {
-            for diagnostics in [none(), some()] {
-                assert_eq!(
-                    classify(class, Failure::FileSystem, &diagnostics),
-                    ErrorKind::FileSystem
-                );
-            }
-        }
     }
 
     #[test]

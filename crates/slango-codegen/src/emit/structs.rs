@@ -444,7 +444,7 @@ impl Definition<'_> {
         let slang_name = self.name;
         let size = Literal::u64_unsuffixed(layout.structure.size);
         let doc = format!(
-            " The Slang structure `{slang_name}`, with the layout that Slang gives it in a structured buffer."
+            " The Slang structure `{slang_name}`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type."
         );
         let size_message = format!(
             "the size of the struct `{slang_name}` differs from the stride that Slang gives the structure"
@@ -454,8 +454,9 @@ impl Definition<'_> {
             ///
             /// Each public field holds the field of the same name at the
             /// offset that Slang gives it, and private fields hold the
-            /// padding, so a value is created with `new`. A `slango::Buffer`
-            /// of the struct binds to a structured buffer of the structure.
+            /// padding, so a value is created with [`Self::new`]. A
+            /// [`slango::Buffer`] of the struct binds to a structured buffer
+            /// of the structure.
             #[repr(C)]
             #[derive(Clone, Copy, Debug, PartialEq)]
             pub struct #name {

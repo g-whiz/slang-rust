@@ -83,6 +83,26 @@ pub(crate) use sealed::ValueType;
 /// code that `slango-macros` generates implements it for its structs through
 /// a hidden trait that is not part of the API. It serves as a generic bound
 /// only, not as a trait object.
+///
+/// # Examples
+///
+/// This example passes a rotation as the parameter `rotation` of type
+/// `float3x3`, which a nested array of three rows of three `f32` values
+/// stands for:
+///
+/// ```
+/// use slango::{Kernel, Value};
+///
+/// fn dispatch_with<V: Value>(kernel: &Kernel, path: &str, value: V) -> slango::Result<()> {
+///     kernel.call().set(path, value).dispatch([1, 1, 1])
+/// }
+///
+/// fn rotate(kernel: &Kernel) -> slango::Result<()> {
+///     let rotation = [[0.0_f32, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+///     dispatch_with(kernel, "rotation", rotation)
+/// }
+/// # let _ = rotate;
+/// ```
 pub trait Value: sealed::SealedValue + Copy {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) holds as its element, whose
@@ -99,6 +119,11 @@ pub trait Value: sealed::SealedValue + Copy {}
 /// code that `slango-macros` generates implements it for its structs through
 /// a hidden trait that is not part of the API. It serves as a generic bound
 /// only, not as a trait object.
+///
+/// # Examples
+///
+/// See the example of [`RenderPipeline::draw`](crate::RenderPipeline::draw),
+/// which binds buffers of `[f32; 2]` to vertex attributes of type `float2`.
 pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'static {}
 
 /// A Rust type that a [`Buffer`](crate::Buffer) bound to a structured buffer
@@ -114,6 +139,10 @@ pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'sta
 /// code that `slango-macros` generates implements it for its structs through
 /// a hidden trait that is not part of the API. It serves as a generic bound
 /// only, not as a trait object.
+///
+/// # Examples
+///
+/// See the example of [`Buffer::from_slice`](crate::Buffer::from_slice).
 pub trait Element: VertexElement + sealed::SealedElement {}
 
 impl sealed::SealedValue for bool {

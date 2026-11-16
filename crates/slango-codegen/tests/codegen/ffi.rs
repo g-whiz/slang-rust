@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use slango::__private::{Access, ElementType, ParameterKind, Scalar, precompile_file};
 use slango_codegen::{ErrorKind, generate};
 
@@ -165,5 +167,57 @@ fn two_structures_of_one_name_in_two_namespaces_conflict() {
     assert_eq!(
         text,
         "cannot name an item of the bindings: the structure `Item` of the parameter `weights` of the kernel `tally` and the structure `Item` of the parameter `counts` of the kernel `tally` are different structures that both become the Rust name `Item`"
+    );
+}
+
+#[test]
+fn generate_resolves_a_relative_path_and_includes_each_file_by_an_absolute_path() {
+    let relative = Path::new("tests/codegen/shaders/imports.slang");
+    let absolute = shader("imports.slang");
+    assert!(
+        same_file(
+            &std::env::current_dir()
+                .expect("a working directory")
+                .join(relative),
+            &absolute
+        ),
+        "the test runs in the directory of the package"
+    );
+    let tokens = generate(relative)
+        .expect("the bindings of the shader")
+        .to_string();
+    let includes = tokens
+        .split("include_bytes ! (")
+        .skip(1)
+        .map(|rest| {
+            let literal = rest.split(')').next().expect("a closing parenthesis");
+            PathBuf::from(literal.trim().trim_matches('"'))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(includes.len(), 2, "{tokens}");
+    for include in &includes {
+        assert!(include.is_absolute(), "{include:?}");
+    }
+    assert!(
+        includes.iter().any(|include| same_file(include, &absolute)),
+        "{includes:?}"
+    );
+    assert_eq!(
+        tokens,
+        generate(&absolute)
+            .expect("the bindings of the shader")
+            .to_string()
+    );
+}
+
+#[test]
+fn generate_reports_a_path_that_cannot_be_resolved_as_a_compile_error() {
+    let error = generate("").expect_err("an empty path names no file");
+    assert_eq!(error.kind(), ErrorKind::Compile);
+    assert!(
+        error
+            .to_string()
+            .contains("cannot resolve `` against the working directory"),
+        "{error}"
     );
 }

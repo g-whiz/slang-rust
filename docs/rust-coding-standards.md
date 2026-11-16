@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -285,7 +285,7 @@ Nine kinds of lint exception are expected and follow fixed forms:
 - An example or the binary of `slang-bindgen` that prints to the terminal opts out of `clippy::print_stdout` or `clippy::print_stderr` at its crate root. A build script carries no exception for `clippy::print_stdout`, because Clippy does not apply that lint to build scripts, so the expectation would be unfulfilled and fail the check.
 - A crate-private item that only unit tests use, until a later change adds its caller, carries `#[cfg_attr(not(test), expect(dead_code, reason = "..."))]`, whose reason says why no caller exists outside the unit tests and that the unit tests use the item. A plain `#[expect(dead_code)]` would be unfulfilled in the build with `cfg(test)`, in which the tests use the item, so `cfg_attr` applies the exception only to the build without tests. When the later change adds the caller, the expectation becomes unfulfilled and fails the check, so the exception cannot outlive its reason.
 
-  In `slang-compiler`, one item carries this form: the variant `Failure::FileSystem` of the mapping of SLC-11 of `docs/design/slang-compiler.md`, whose caller, the custom file system of Section 8 of that document, is deferred. In `slango`, no item carries this form.
+  No item of the workspace carries this form.
 - A call of a foreign function with an unwinding ABI, which FFI-7 requires for every function of Slang, carries `#[expect(ffi_unwind_calls, reason = "...")]`. In `slang-compiler-sys`, it sits on `mod bindings;`, next to the exception of the generated code, and on the smoke test. In `slang-compiler`, it sits on each direct call of a C function, each inside the guard of FFI-7.
 
   Its reason says that Slang is C++ and that the call runs inside the abort of an escaping exception, and names no rule. In a test that calls C functions of Slang directly, it sits on the narrowest item that holds the calls, with a reason that says that an exception that escaped would unwind into the test, which is defined and fails it.
@@ -1316,6 +1316,15 @@ A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `un
 
 Reason: Cargo unifies the features that different dependents request, so a subtractive or exclusive feature breaks a build that combines them. [IR-8] [S-10] [S-4]
 
+A second exception covers a crate whose only backend sits behind a default feature, such as the feature `wgpu` of `slango` (SLO-28 and SLO-29 of `docs/design/slango.md`). Such a crate MAY stop its build without that feature with exactly one `compile_error!` whose message names the feature to enable. The exception holds only within these bounds:
+
+- The feature is on by default, and enabling it removes no item and no behaviour.
+- Its absence is the only combination of features that stops the build, and every combination that contains it compiles.
+- The stop is the one error of the build, so the crate gates every other item on the feature.
+- `check-features` leaves out exactly that combination, as TOOL-48 of `docs/design/tooling.md` states, and checks every other.
+
+Reason: without a backend, the crate has no API to offer, so no build without the feature can be useful. One error that names the feature tells the user what to enable, while the build would otherwise fail with hundreds of unresolved names that do not. Cargo's unification can only add the feature, never remove it, so the stop cannot break a build in which any dependent enables the default features. The sources of the reference list on features ([IR-8], [S-10], [S-4]) state the additive rule and do not address a crate without a backend, so the exception rests on this reasoning.
+
 **DEP-2.** Add a dependency only when it replaces code or risk that outweighs its own cost, prefer the standard library, such as `std::sync::LazyLock`, and widely used crates, and declare every version once in `[workspace.dependencies]`. Reason: each dependency adds build time, licence obligations, and supply-chain risk, and two versions of one crate in a build have incompatible types. [IR-5] [IR-1] [S-10] [IR-3]
 
 The one exception is a member that needs another version requirement on a workspace member than the one that `[workspace.dependencies]` gives the other members, such as an exact requirement. That member MUST declare the dependency in its own manifest, with a comment that says in plain words why it needs that requirement, because a workspace entry has one requirement for every member that inherits it. `slango-codegen` requires `slango` this way (SLM-2 of `docs/design/slango-macros.md`).
@@ -1564,7 +1573,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-8 | A test of every native symbol and a smoke test of the build tag cover the generated bindings on every route, and no test compares them with a file. |
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
-| DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs. |
+| DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs, and a default feature of the only backend, without which the crate stops with one `compile_error!` that names it. |
 | DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member, and a dependency used only for its `links` metadata is named with `use <crate> as _;`. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |

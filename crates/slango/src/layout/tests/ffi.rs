@@ -199,8 +199,16 @@ fn render_entry_points(records: &[CompiledRender]) -> String {
                     .expect("writing to a string");
                 }
             }
-            Err(Rejection { kind, detail }) => {
-                writeln!(out, "  rejected {kind:?}: {detail}").expect("writing to a string");
+            Err(Rejection {
+                kind,
+                detail,
+                source,
+            }) => {
+                write!(out, "  rejected {kind:?}: {detail}").expect("writing to a string");
+                if let Some(source) = source {
+                    write!(out, ": {source}").expect("writing to a string");
+                }
+                writeln!(out).expect("writing to a string");
             }
         }
     }

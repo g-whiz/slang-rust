@@ -261,6 +261,8 @@ fn rejected(name: &str, kind: ErrorKind) -> CompiledRender {
         usable: Err(Rejection {
             kind,
             detail: format!("the parameter `p` of `{name}` is rejected"),
+            source: (kind == ErrorKind::Compile)
+                .then(|| format!("Slang reports error 30019 for `{name}`")),
         }),
     }
 }
@@ -429,7 +431,7 @@ fn the_encoding_starts_with_the_magic_bytes_and_the_little_endian_version() {
 
 /// The encoding of [`small`] in hexadecimal, 32 bytes to a line.
 const SMALL_ENCODING: [&str; 11] = [
-    "736c616e676f00530100000001000000010000006b4000000001000000ffffff",
+    "736c616e676f00530200000001000000010000006b4000000001000000ffffff",
     "ff02000000090000007061727469636c65730000000000000000000001100000",
     "0000000000020100000050100000000000000001000000010000007000000000",
     "0000000000030302000000000000000800000000000000010200000000000000",
@@ -439,7 +441,7 @@ const SMALL_ENCODING: [&str; 11] = [
     "000000506172616d730c000000706172616d732e696e6e657205000000496e6e",
     "657204000000030223070006010000000000ffffffff01000000010000007201",
     "01042400000074686520706172616d6574657220607060206f66206072602069",
-    "732072656a6563746564",
+    "732072656a656374656400",
 ];
 
 #[test]

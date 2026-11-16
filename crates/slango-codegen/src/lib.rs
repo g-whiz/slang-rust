@@ -9,13 +9,10 @@
 //!
 //! [`generate`] compiles a Slang file with [`slango`], as
 //! [`slango::Device::load_module`] does, and returns the Rust code of its
-//! bindings. [`generate_precompiled`] returns the bindings of a module that
-//! is already compiled. The documentation of `shader!` describes the
-//! generated items.
+//! bindings. The documentation of `shader!` describes the generated items.
 //!
 //! The generated code embeds the compiled module and calls hidden items of
-//! `slango` that keep no stability between versions. The input of
-//! [`generate_precompiled`] is such an item too. This crate therefore
+//! `slango` that keep no stability between versions. This crate therefore
 //! requires `slango` of exactly its own version, and a crate that contains
 //! the generated code depends on the `slango` of that version.
 //!
@@ -54,8 +51,7 @@
 //! `slango` links the Slang library through `slang-compiler-sys`, as the
 //! [crate documentation of `slango`](slango) describes. With the Slang
 //! shared library of the Vulkan SDK, a program that uses this crate needs
-//! that library when it starts, even when it calls only
-//! [`generate_precompiled`], which makes no call into Slang.
+//! that library when it starts.
 
 mod emit;
 mod error;
@@ -76,8 +72,9 @@ const COMPILE: &str = "generate the bindings of the Slang file";
 /// Use this to generate the bindings of a file, as the macro `shader!` of
 /// `slango-macros` does. The code holds an item for each file that Slang
 /// read, which makes Cargo build the crate that contains the code again when
-/// one of them changes, and it names each such file by the absolute path
-/// that Slang gives it. So pass an absolute path.
+/// one of them changes, and it names each such file by an absolute path, so
+/// the code compiles in any Rust file. A relative `path` is resolved against
+/// the working directory of the process.
 ///
 /// # Examples
 ///
@@ -87,7 +84,9 @@ const COMPILE: &str = "generate the bindings of the Slang file";
 ///
 /// Returns an [`Error`] of these kinds:
 ///
-/// - [`ErrorKind::Compile`] when `slango` cannot read or compile the file.
+/// - [`ErrorKind::Compile`] when a relative `path` cannot be resolved
+///   against the working directory, or `slango` cannot read or compile the
+///   file.
 /// - [`ErrorKind::Unsupported`] when a kernel has a parameter for which the
 ///   generator has no Rust type, or the path of a file that Slang read is
 ///   not valid UTF-8.
@@ -98,7 +97,13 @@ pub fn generate(path: impl AsRef<Path>) -> Result<TokenStream> {
 }
 
 fn generate_file(path: &Path) -> Result<TokenStream> {
-    let precompiled = slango::__private::precompile_file(path).map_err(|error| {
+    let path = std::path::absolute(path).map_err(|error| {
+        Error::new(ErrorKind::Compile, COMPILE).with_detail(format!(
+            "cannot resolve `{}` against the working directory: {error}",
+            path.display()
+        ))
+    })?;
+    let precompiled = slango::__private::precompile_file(&path).map_err(|error| {
         let kind = match error.kind() {
             slango::ErrorKind::UnsupportedParameter => ErrorKind::Unsupported,
             _ => ErrorKind::Compile,
@@ -112,7 +117,9 @@ fn generate_file(path: &Path) -> Result<TokenStream> {
 /// `slango::__private::precompile_file` compiled.
 ///
 /// Use this when the module is already compiled. The function calls no
-/// Slang.
+/// Slang. It is hidden from the documentation and exempt from semantic
+/// versioning, like the type that it takes, which `slango` keeps in a module
+/// that is not part of its API, so it can change or go away in any version.
 ///
 /// # Examples
 ///
@@ -140,6 +147,7 @@ fn generate_file(path: &Path) -> Result<TokenStream> {
 ///   not valid UTF-8.
 /// - [`ErrorKind::NameConflict`] when two names of the module give the same
 ///   Rust name, or a name gives a Rust name that cannot be used.
+#[doc(hidden)]
 pub fn generate_precompiled(precompiled: &Precompiled) -> Result<TokenStream> {
     emit::bindings(precompiled)
 }

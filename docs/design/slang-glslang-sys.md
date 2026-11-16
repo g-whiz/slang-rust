@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slang-glslang-sys` |
 
 ## Abstract
@@ -228,13 +228,13 @@ The shim calls no function of Slang other than `getSingleton` and the methods of
 
 ## 6. The Exported Function and Its Installation
 
-SGL-11. The loader shim MUST export exactly one function, `extern "C" ISlangSharedLibraryLoader* slang_glslang_sys_loader(void)`, which returns the static loader of SGL-10 and does nothing else. The crate MUST declare it in Rust as `pub fn slang_glslang_sys_loader() -> *mut slang_compiler_sys::ISlangSharedLibraryLoader` in an `unsafe extern "C"` block, and MUST NOT declare any other foreign item.
+SGL-11. The loader shim MUST export exactly one function, `extern "C" ISlangSharedLibraryLoader* slang_glslang_sys_loader(void)`, which returns the static loader of SGL-10 and does nothing else. The crate MUST declare it in Rust as `pub safe fn slang_glslang_sys_loader() -> *mut slang_compiler_sys::ISlangSharedLibraryLoader` in an `unsafe extern "C"` block, and MUST NOT declare any other foreign item.
 
 One function that returns an object and calls nothing keeps the shim out of every call into Slang. The installation then is an ordinary call of a generated thunk, which the frozen abort guard of `slang-compiler` and its checker already cover, so neither changes.
 
 The declaration uses the interface type of the generated bindings, so a caller passes the result to `setSharedLibraryLoader` without a cast. The ABI is `"C"`, because the function cannot throw, and a non-unwinding ABI asserts that.
 
-The function is an `unsafe fn`, without the keyword `safe`, so every call states its contract in a safety comment. Calling it is not a call into Slang, so `slang-compiler` calls it outside its guard `abort_on_exception`.
+The function is marked `safe`, because it takes no argument and has no precondition: the shim only returns the address of a static object (`native/loader.cpp`), so every call is sound, as FFI-3 and UNS-3 of the coding standard require for a `safe fn`. A call therefore needs no `unsafe` block and no safety comment. The condition on the pointer, that it is passed only to `setSharedLibraryLoader` of the vendored Slang, is a condition of that later call, which is unsafe under the contract of `slang-compiler-sys`. Calling the function is not a call into Slang, so `slang-compiler` calls it outside its guard `abort_on_exception`.
 
 SGL-12. `slang-compiler`, with its feature `vendored`, MUST install the loader on every global session that it creates, through the generated thunk of `IGlobalSession::setSharedLibraryLoader`, inside its guard `abort_on_exception` like every other call into Slang, before it returns the global session to its caller. `docs/design/slang-compiler.md` specifies where (SLC-34). A global session that compiles before the installation has already reported the missing module and cached the failure for its life (Section 3.10 of the sys design). The installation cannot fail, because the method returns nothing (Section 3).
 
@@ -243,9 +243,7 @@ A user of `slang-compiler-sys` alone, with its feature `vendored`, gets SPIR-V t
 This illustration shows the installation by a direct user of the raw bindings:
 
 ```rust
-// SAFETY: the loader is passed only to a global session of the vendored
-// Slang that this program links.
-let loader = unsafe { slang_glslang_sys::slang_glslang_sys_loader() };
+let loader = slang_glslang_sys::slang_glslang_sys_loader();
 // SAFETY: `global_session` is a live global session of the vendored Slang
 // that this program links, only this thread uses it, and the loader is a
 // static object.
@@ -260,7 +258,7 @@ SGL-13. The crate root MUST carry the opt-out `#![expect(unsafe_code, reason = "
 
 The `unsafe_code` lint reports an `unsafe extern` block, so the expectation of the crate root is fulfilled by that block alone. This crate therefore joins `slang-compiler-sys` and `slang-compiler` in the list of crates that may hold unsafe code (Section 3.3 of the architecture design). The opt-out is a crate-level expectation, so a lint that does not fire fails the check and shows that the exception is no longer needed.
 
-The declaration carries a `# Safety` section, which says that the function has no precondition, that the returned pointer is never null and stays valid for the life of the process, and that a caller passes it only to `setSharedLibraryLoader` of a global session of the vendored Slang that the program links. A Slang that another copy of the library loaded has another default loader, so the shim would answer it from the wrong Slang.
+The declaration has no `# Safety` section, because the function is safe. The body of its documentation says that the returned pointer is never null and stays valid for the life of the process, and that a caller passes it only to `setSharedLibraryLoader` of a global session of the vendored Slang that the program links, a condition that the caller of that unsafe call upholds. A Slang that another copy of the library loaded has another default loader, so the shim would answer it from the wrong Slang.
 
 The integration-test binary carries its own `unsafe_code` expectation on the module `ffi`, whose tests call the loader and the libraries that it returns through the raw bindings.
 
@@ -298,7 +296,7 @@ The tests that show the effect, that a vendored global session with the loader i
 
 ## 10. Crate Documentation
 
-SGL-14. The crate-level documentation MUST state what the crate builds and why, the requirements of Section 8, the five libraries, the C++ standard library, and the system libraries that it links, that `slang-compiler` with its feature `vendored` installs the loader, how a direct user of `slang-compiler-sys` installs it, the `# Safety` contract of SGL-13, and the risk of Section 11 for a program that links another copy of glslang or SPIRV-Tools. It MUST also state the shared folder as SRC-20 of the `slang-src` design lists it, and name no environment variable of `slang-src`, because none exists. It MUST contain a `# Features` section that says the crate has no Cargo features and a `# Platform support` section with the rule of SGL-5. A user who links Slang statically without the loader gets SPIR-V that is not optimized and no build error, so the documentation is the only place that tells the user.
+SGL-14. The crate-level documentation MUST state what the crate builds and why, the requirements of Section 8, the five libraries, the C++ standard library, and the system libraries that it links, that `slang-compiler` with its feature `vendored` installs the loader, how a direct user of `slang-compiler-sys` installs it, the condition on the pointer of SGL-13, and the risk of Section 11 for a program that links another copy of glslang or SPIRV-Tools. It MUST also state the shared folder as SRC-20 of the `slang-src` design lists it, and name no environment variable of `slang-src`, because none exists. It MUST contain a `# Features` section that says the crate has no Cargo features and a `# Platform support` section with the rule of SGL-5. A user who links Slang statically without the loader gets SPIR-V that is not optimized and no build error, so the documentation is the only place that tells the user.
 
 ## 11. Security Considerations
 
@@ -428,5 +426,5 @@ This table lists every labelled requirement of this document with a one-line sum
 | SGL-10 | 5 | The loader and library are static, stateless objects whose reference counting frees nothing and whose queries answer only their own interfaces. |
 | SGL-11 | 6 | One exported `extern "C"` function returns the loader, declared in Rust with the generated interface type. |
 | SGL-12 | 6 | `slang-compiler` with `vendored` installs the loader on every global session through the guarded thunk before returning it. |
-| SGL-13 | 7 | The crate-level `unsafe_code` expectation covers the one `unsafe extern "C"` block, with a `# Safety` section. |
+| SGL-13 | 7 | The crate-level `unsafe_code` expectation covers the one `unsafe extern "C"` block, whose one function is a `safe fn` that states its condition on the pointer in its body. |
 | SGL-14 | 10 | The crate documentation states the build, the requirements, the linked libraries, the installation, the safety contract, and the risk of another glslang. |

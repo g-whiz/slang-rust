@@ -51,3 +51,17 @@ fn build_info_names_the_crate_version_the_slang_and_the_route_of_the_feature() {
     }
     const { assert!(BUILD_INFO.tested_target) };
 }
+
+#[test]
+fn linkage_displays_the_value_of_the_linkage_metadata() {
+    assert_eq!(Linkage::Dynamic.to_string(), "dynamic");
+    assert_eq!(Linkage::Static.to_string(), "static");
+}
+
+const fn assert_send_sync_static<T: Send + Sync + 'static>() {}
+
+#[test]
+fn build_info_and_linkage_are_send_sync_and_static() {
+    assert_send_sync_static::<slang_compiler_sys::BuildInfo>();
+    assert_send_sync_static::<Linkage>();
+}

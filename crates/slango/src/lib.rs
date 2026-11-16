@@ -56,21 +56,19 @@
 //! ```no_run
 //! use slango::{Buffer, Device, DeviceOptions};
 //!
-//! fn main() -> slango::Result<()> {
-//!     let device = Device::new(&DeviceOptions::default())?;
-//!     let module = device.load_module("/tmp/shaders/scale.slang")?;
-//!     let scale = module.kernel("scale")?;
-//!     let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0, 4.0])?;
-//!     scale
-//!         .call()
-//!         .set("factor", 2.0_f32)
-//!         .set("count", 4_u32)
-//!         .bind("data", &data)
-//!         .dispatch([4, 1, 1])?;
-//!     let result: Vec<f32> = data.read()?;
-//!     assert_eq!(result, [2.0, 4.0, 6.0, 8.0]);
-//!     Ok(())
-//! }
+//! let device = Device::new(&DeviceOptions::default())?;
+//! let module = device.load_module("/tmp/shaders/scale.slang")?;
+//! let scale = module.kernel("scale")?;
+//! let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0, 4.0])?;
+//! scale
+//!     .call()
+//!     .set("factor", 2.0_f32)
+//!     .set("count", 4_u32)
+//!     .bind("data", &data)
+//!     .dispatch([4, 1, 1])?;
+//! let result: Vec<f32> = data.read()?;
+//! assert_eq!(result, [2.0, 4.0, 6.0, 8.0]);
+//! # Ok::<(), slango::Error>(())
 //! ```
 //!
 //! This example draws a texture of two by two pixels onto a quad that
@@ -114,38 +112,36 @@
 //!     TextureFormat,
 //! };
 //!
-//! fn main() -> slango::Result<()> {
-//!     let device = Device::new(&DeviceOptions::default())?;
-//!     let module = device.load_module("/tmp/shaders/quad.slang")?;
-//!     let pipeline = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;
-//!     let corners = [[-1.0_f32, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
-//!     let positions = Buffer::from_slice(&device, &corners)?;
-//!     let uvs = Buffer::from_slice(&device, &[[0.0_f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]])?;
-//!     let indices = Buffer::from_slice(&device, &[0_u32, 1, 2, 0, 2, 3])?;
-//!     let red_and_blue = [[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255]];
-//!     let image = Texture::from_pixels(&device, [2, 2], &red_and_blue)?;
-//!     let sampler = Sampler::new(&device, &SamplerOptions::default())?;
-//!     let target = Texture::new(&device, [64, 64], TextureFormat::Rgba8Unorm)?;
-//!     let identity = [
-//!         [1.0_f32, 0.0, 0.0, 0.0],
-//!         [0.0, 1.0, 0.0, 0.0],
-//!         [0.0, 0.0, 1.0, 0.0],
-//!         [0.0, 0.0, 0.0, 1.0],
-//!     ];
-//!     pipeline
-//!         .draw()
-//!         .set("transform", identity)
-//!         .texture("image", &image)
-//!         .sampler("imageSampler", &sampler)
-//!         .vertex("input.position", &positions)
-//!         .vertex("input.uv", &uvs)
-//!         .target(&target)
-//!         .clear([0.0, 0.0, 0.0, 1.0])
-//!         .submit_indexed(&indices, 6, 1)?;
-//!     let pixels: Vec<[u8; 4]> = target.read()?;
-//!     assert_eq!(pixels[0], [255, 0, 0, 255]);
-//!     Ok(())
-//! }
+//! let device = Device::new(&DeviceOptions::default())?;
+//! let module = device.load_module("/tmp/shaders/quad.slang")?;
+//! let pipeline = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;
+//! let corners = [[-1.0_f32, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+//! let positions = Buffer::from_slice(&device, &corners)?;
+//! let uvs = Buffer::from_slice(&device, &[[0.0_f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]])?;
+//! let indices = Buffer::from_slice(&device, &[0_u32, 1, 2, 0, 2, 3])?;
+//! let red_and_blue = [[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255]];
+//! let image = Texture::from_pixels(&device, [2, 2], &red_and_blue)?;
+//! let sampler = Sampler::new(&device, &SamplerOptions::default())?;
+//! let target = Texture::new(&device, [64, 64], TextureFormat::Rgba8Unorm)?;
+//! let identity = [
+//!     [1.0_f32, 0.0, 0.0, 0.0],
+//!     [0.0, 1.0, 0.0, 0.0],
+//!     [0.0, 0.0, 1.0, 0.0],
+//!     [0.0, 0.0, 0.0, 1.0],
+//! ];
+//! pipeline
+//!     .draw()
+//!     .set("transform", identity)
+//!     .texture("image", &image)
+//!     .sampler("imageSampler", &sampler)
+//!     .vertex("input.position", &positions)
+//!     .vertex("input.uv", &uvs)
+//!     .target(&target)
+//!     .clear([0.0, 0.0, 0.0, 1.0])
+//!     .submit_indexed(&indices, 6, 1)?;
+//! let pixels: Vec<[u8; 4]> = target.read()?;
+//! assert_eq!(pixels[0], [255, 0, 0, 255]);
+//! # Ok::<(), slango::Error>(())
 //! ```
 //!
 //! The package `slang-rust-examples` in the repository of this crate holds

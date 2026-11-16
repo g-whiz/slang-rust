@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
@@ -184,8 +184,8 @@ The owner approved `slango-codegen` as a separate published crate, and Sections 
 
 `slango-codegen` has two public functions, and both return a `proc_macro2::TokenStream`:
 
-- `generate` takes the path of a Slang file, calls `precompile_file`, and so Slang, and generates from its result.
-- `generate_precompiled` takes the result of `precompile_file` and is pure.
+- `generate` takes the path of a Slang file, makes a relative path absolute against the working directory with `std::path::absolute`, calls `precompile_file`, and so Slang, and generates from its result. A path that cannot be made absolute, such as the empty path, fails with kind `Compile`. The generated `include_bytes!` then names every file by an absolute path whatever path the caller passed, without relying on Slang to return absolute paths, which the recorded Slang does but does not document.
+- `generate_precompiled` takes the result of `precompile_file` and is pure. It is `#[doc(hidden)]`, and its documentation states that it is exempt from semantic versioning like the hidden type that it takes, so that a change of `slango::__private` is not a breaking change of `slango-codegen` that no tool sees. It stays `pub`, because the integration test of the crate generates from a `Precompiled` whose paths and bytes it redacts, which keeps the snapshots independent of the machine. The crate documentation does not name it, because a link to a hidden item points to no page.
 
 Only the tests format the tokens with `prettyplease`.
 
@@ -291,7 +291,7 @@ The layout types stay crate-private. The generated code also asserts at compile 
 
 The encoding has these properties:
 
-- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 1, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change.
+- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 2, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change. Version 2 added to the rejection record of a vertex or fragment entry point a tag byte, 0 or 1, and, after the detail, the text of the source error of a `Compile` rejection (Section 7.4 of `docs/design/slango.md`).
 - `load_precompiled` also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic and bounds every count by the bytes left before it allocates.
 - The decoder accepts at most 256 levels of nested arrays or structures, and only bindings in descriptor sets up to 255, so that a load creates a bounded number of bind group layouts.
 - The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX` or a binding in a descriptor set above 255. So it never writes bytes that the decoder refuses.
@@ -427,6 +427,8 @@ These are compile errors of the kind `NameConflict`:
 - A Slang field named like a padding field, such as `_padding0`, because the padding fields take their names after the public fields.
 - Two different structures with one Slang name, such as `Item` in two namespaces.
 
+These rules break C-CASE and API-3 for some names. The conversion copies all but the first letter of each part and splits a word only after a lowercase letter or a digit, so `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives the field `httpserver`, and `gHDRScale` gives `g_hdrscale`, and a structure name is never converted. Whether to change the rules before the release is open (SLMQ-3 of Section 12).
+
 ### 7.5. Not Supported in M6
 
 The generator reports each of these as an error of the kind `Unsupported` (SLM-20), which the macro reports as a compile error:
@@ -509,6 +511,8 @@ Before formatting, the tests replace each path of a file read with `<shaders>/` 
 Further `ffi` tests of `slango-codegen` check:
 
 - The absolute paths and the embedded encoding that `generate` emits, and the files read for a shader with an `import`.
+- A relative path given to `generate`, which gives the same tokens as the absolute path and names every file read by an absolute path. The recorded Slang returns absolute paths itself, so this test passes without the resolution of `generate` as well.
+- The empty path, which cannot be resolved against the working directory and fails with kind `Compile`.
 - A Slang error with Slang's message among the causes, and a missing file.
 - A `float3` buffer and a `double` uniform.
 - A field of each unsupported kind that a shader can declare, `bool`, a matrix, `float3 a[2]`, `half`, and `double`, with each message.
@@ -582,6 +586,8 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
 | SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M8, at the first release |
+| SLMQ-3 | The rules of SLM-19 break C-CASE and API-3: `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives `httpserver`, `gHDRScale` gives `g_hdrscale`, and a structure name is never converted (Section 7.4). The options are to split words at `_`, `.`, a step from lowercase or a digit to uppercase, and before the last capital of an uppercase run that a lowercase letter follows, and to apply the rule of type names to structures too, before the release, because a later change renames generated items in every caller without a tool seeing it, or to keep the rules and record why. This review finding blocks the first release until the owner of the project decides it | The owner of the project, by a decision before the first release, M8 |
+| SLMQ-4 | `shader!` takes only one string literal and makes every generated item `pub`, so a caller cannot choose a visibility such as `pub(crate)`, add an attribute to a generated item, or name the module (SLM-9), against C-MACRO-VIS, C-MACRO-ATTR, and C-EVOCATIVE. The options are to add a form such as `shader!(pub mod saxpy = "saxpy.slang")` before the release, keeping or dropping the bare literal, or to keep the literal alone and add such a form later, which is additive but leaves two syntaxes. This review finding blocks the first release until the owner of the project decides it | The owner of the project, by a decision before the first release, M8 |
 
 An identifier is never reused.
 

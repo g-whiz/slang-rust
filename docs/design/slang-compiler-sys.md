@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -487,7 +487,7 @@ The interface struct `I` has the one field `vtable: *const IVtbl`, and the vtabl
 
 A vtable that Rust implements and passes to Slang, such as a custom file system, uses the same generated vtable struct, so its fields have the type `"system-unwind"`.
 
-Its functions are defined `extern "system"`, so that a Rust panic that reaches the boundary aborts the process instead of unwinding into Slang. Each is stored in its field through a conversion of the function pointer to the type of the field, which FFI-7 permits because the caller's ABI is the unwinding form of the callee's. Section 8.4 of `docs/design/slang-compiler.md` applies this rule to the safe crate.
+Its functions are defined `extern "system"`, so that a Rust panic that reaches the boundary aborts the process instead of unwinding into Slang. Each is stored in its field through a conversion of the function pointer to the type of the field, which FFI-7 permits because the caller's ABI is the unwinding form of the callee's. Section 8.4 of `docs/design/slang-compiler.md` applies this rule to the safe crate, and its fake of the Slang interfaces follows it too. The section `# Safety` of the crate documentation states the rule for every user who implements an interface in Rust (SCS-37).
 
 The generator emits no `Send` or `Sync` implementation, and the raw pointer field already makes every interface struct neither (FFI-9). An opaque type of SCS-4 that is an excluded interface is emitted without vtable and thunks.
 
@@ -615,7 +615,8 @@ The generated types derive these traits:
 | Item | Derives |
 | --- | --- |
 | Enumeration newtypes and `SlangResult` | `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, and `Hash` |
-| Structs | `Clone`, `Copy`, and `Debug` |
+| `SlangUUID`, the UUID type that the rule set names | `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, and `Hash`, because a UUID exists to be compared, such as in the `queryInterface` of an interface that Rust implements |
+| Every other struct | `Clone`, `Copy`, and `Debug` |
 | Unions | `Clone` and `Copy`, with an implementation of `Debug` that prints the type name only |
 | Interface structs, vtable structs, and opaque types | `Debug` |
 
@@ -815,12 +816,14 @@ The generator passes the Rust target triple to libclang unchanged and translates
 
 libclang refuses to parse a missing main header in the same way as a refused target. The generator therefore reads `slang.h` before it starts libclang and reports a missing or unreadable main header as an error of kind `Io`, so that a missing header is never reported as a refused target.
 
-When libclang cannot start, the message says which of two cases applies:
+When libclang cannot start, the `Display` text of the error is a phrase that says which of two cases applies, and holds no advice, as ERR-4 requires. Each layer above it states its advice once:
 
-- libclang cannot be loaded. The message gives the reason and advises to install libclang or set `LIBCLANG_PATH` to the directory that holds it.
-- The process already holds a libclang instance, such as during a call of the generator on another thread. The message says that only one instance may exist at a time and advises to call the generator from one thread at a time, because a later call works once the earlier one has returned (SCS-67).
+- libclang cannot be loaded. The text is "cannot load libclang:" and the reason that `clang-sys` gives. The binary adds the advice to install libclang or set `LIBCLANG_PATH` to the directory that holds it, and the build script of `slang-compiler-sys` adds its own sentence (Section 9.6).
+- The process already holds a libclang instance, such as during a call of the generator on another thread. The text is "cannot use libclang, because this process already holds a libclang instance". The section `# Errors` of `generate` states that only one instance may exist at a time and that a later call works once the earlier one has returned, so a caller calls the generator from one thread at a time (SCS-67). The binary loads libclang once on one thread, so it never meets this case.
 
-The binary prints the error and each source error, one per line, to standard error and exits with a failure status.
+The binary prints the error and each source error, one per line, to standard error and exits with a failure status. For an error of kind `Libclang`, it then prints one line of advice: "slang-bindgen generates the bindings with libclang, so install libclang or set LIBCLANG_PATH to the directory that holds it".
+
+Whether the two cases keep one kind is open (SQ-7 of Section 16).
 
 ## 8. Build Information
 
@@ -828,7 +831,7 @@ The binary prints the error and each source error, one per line, to standard err
 
 SCS-53. `slang-compiler-sys` MUST expose the constant `BUILD_INFO` of the type `BuildInfo`, whose values the build script writes into the file `build_info.rs` under `OUT_DIR` and the crate includes, and MUST NOT derive any of them from `cfg(feature = "vendored")` in the crate. The values describe the Slang that the build generated its bindings from and links, which only the build script knows, and the safe crate compares the Slang loaded at run time with them (Section 6.3 of `docs/design/slang-compiler.md`).
 
-`BuildInfo` is a `#[non_exhaustive]` struct with these public fields, and `Linkage` is a `#[non_exhaustive]` enumeration with the variants `Dynamic` and `Static`. Both derive `Clone`, `Copy`, `Debug`, `PartialEq`, and `Eq`.
+`BuildInfo` is a `#[non_exhaustive]` struct with these public fields, and `Linkage` is a `#[non_exhaustive]` enumeration with the variants `Dynamic` and `Static`. Both derive `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, and `Hash`, and `Linkage` implements `Display` as `dynamic` or `static`, the values of `DEP_SLANG_COMPILER_LINKAGE` (API-7). Both are `Send`, `Sync`, and `'static`, which a test asserts (CONC-1). The shape of the fields is open (SQ-6 of Section 16).
 
 | Field | Type | Value |
 | --- | --- | --- |
@@ -1364,6 +1367,7 @@ The crate `slang-compiler-sys` has one integration-test binary (TEST-10), `tests
 - `build_info`: Pure tests of the build information. They assert that `slang_build_tag` is not empty, and that `version` is the crate version, `+slang.`, the identifiers of Section 8.1, and the route, where the test derives the identifiers from `slang_build_tag` on its own. The derivation assumes the form of SRC-12 of the `slang-src` design, which `check-vulkan-sdk` guarantees for the Slang of every CI job and of the development container.
   - On the dynamic route, they assert `.dynamic`, `Linkage::Dynamic`, and no `slang_commit`. With the feature `vendored`, they assert `.vendored`, `Linkage::Static`, and a full commit of 40 lowercase hexadecimal digits that starts with the hash of the build tag instead, and fail when the build tag has no hash of at least nine digits, so the check cannot pass without comparing anything, and read the feature with `cfg!(feature = "vendored")`, which compares the build script's record with the feature that Cargo passed.
   - They assert `tested_target` in a constant assertion, `const { assert!(..) }`, which Clippy requires for a constant, so the test binary fails to compile on an untested target.
+  - They assert that `Linkage` displays as the value of `DEP_SLANG_COMPILER_LINKAGE`, and, through a `const fn` with the bounds `Send + Sync + 'static`, that `BuildInfo` and `Linkage` have the three.
 - `build_script`: The pure tests of the logic of the build script, and its module `ffi`, which tests the real host of `system.rs` and starts processes (Section 9.7).
 - `ffi`: The smoke test and the native-symbol test, which call Slang. The module carries `#[expect(unsafe_code, reason = "...")]`, whose reason says that the tests of the module call Slang through the raw bindings, which only unsafe code can do. This is the narrowest scope that needs the exception (LINT-1), and Section 4.4 of the coding standard lists it among the expected kinds of lint exception.
 - `symbols`: The generated list of C functions of Section 5.1, included from `OUT_DIR`, without a lint exception (Section 5.10).
@@ -1437,7 +1441,7 @@ The crate-level documentation has these parts:
 - `# Features`: the feature `vendored`, off by default, what it changes, that every crate between a program and this crate forwards it, naming `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, and `slang-slint`, that the feature of `slang-compiler` also installs the loader of `slang-glslang-sys`, and that `--all-features` enables it.
 - `# Platform support`: the four tested targets of Section 6, that every other 64-bit target is allowed, untested, and unsupported, with the warning and the field `tested_target` of SCS-65, and the stops of SCS-66 and SCS-43 with their reasons. It also says that the dynamic route runs with its tests in CI on x86_64 Linux, x86_64 Windows, and aarch64 macOS, the vendored route on the same three, and x86_64 macOS only as a type check (Section 6).
 - `# Linking Slang`: both routes, for a user, as the next list describes.
-- `# Safety`: the shared safety contract, the rules of Section 3.9 with reflection and component type defined, what happens when a C++ exception escapes a call, that no interface struct implements `Send` or `Sync`, and the promise that an implementation of the unsafe trait `Interface` makes.
+- `# Safety`: the shared safety contract, the rules of Section 3.9 with reflection and component type defined, what happens when a C++ exception escapes a call, the rule of Section 5.6 for a user who implements a Slang interface in Rust, which is to define each function of the vtable `extern "system"` and store it through a conversion of the function pointer, with the reason, that no interface struct implements `Send` or `Sync`, and the promise that an implementation of the unsafe trait `Interface` makes.
 
 The section `# Linking Slang` says these things:
 
@@ -1511,7 +1515,14 @@ Assumption A-6 of the architecture design, that a dependency's build script cann
 
 ## 16. Open Questions
 
-This document has no open question. A question that a later change raises gets a row in a table with the columns Identifier, Question, Owner, and Milestone, and the change that answers it removes the row. The next question takes SQ-6.
+Each row is a question that this document leaves open, and the change that answers it removes the row. The next question takes SQ-8.
+
+SQ-6 and SQ-7 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project and blocks the first release until the owner decides it.
+
+| Identifier | Question | Owner | Milestone |
+| --- | --- | --- | --- |
+| SQ-6 | `BuildInfo` encodes one fact, the route, in three fields: `linkage`, `slang_commit`, which is `Some` exactly for `Static`, and the suffix of `version`. `tested_target` is a `bool` that is `true` for `x86_64-apple-darwin`, which is only type-checked, so it merges two of three states (Section 8.1). Both break TYPE-3, and `tested_target` also TYPE-2, and the public field types lock in at the release. The options are to make the route one value, such as `Linkage::Static { commit }` and `Linkage::Dynamic`, drop or derive `slang_commit`, and replace `tested_target` with a `#[non_exhaustive]` enumeration such as `TargetSupport { Tested, TypeChecked, Untested }` before the release, or to keep the shape and record why | The owner of the project, by a decision | Before the first release, M8 |
+| SQ-7 | `slang_bindgen::ErrorKind::Libclang` covers a missing libclang, which the user fixes by installing it, and a libclang instance that the process already holds, which the caller fixes by calling from one thread at a time (Section 7.7). Callers match on the kind, so one kind for both breaks ERR-1, and moving the second case to its own kind later changes what an existing caller sees. The options are to add a kind such as `LibclangInUse` before the release, or to keep one kind and record why | The owner of the project, by a decision | Before the first release, M8 |
 
 ## 17. Security Considerations
 

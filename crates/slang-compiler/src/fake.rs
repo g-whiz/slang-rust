@@ -395,14 +395,37 @@ impl<V: 'static, S> FakeObject<V, S> {
     }
 }
 
-fn same_uuid(left: &SlangUUID, right: &SlangUUID) -> bool {
-    left.data1 == right.data1
-        && left.data2 == right.data2
-        && left.data3 == right.data3
-        && left.data4 == right.data4
+/// Defines a `const fn` that converts a function of the fake, which is
+/// defined with the non-unwinding ABI `"system"` so that a panic in it aborts
+/// instead of unwinding, to the unwinding type `"system-unwind"` of the
+/// vtable field that holds it.
+macro_rules! unwinding {
+    ($name:ident, $($argument:ident),+) => {
+        const fn $name<$($argument,)+ R>(
+            function: unsafe extern "system" fn($($argument),+) -> R,
+        ) -> unsafe extern "system-unwind" fn($($argument),+) -> R {
+            // SAFETY: the two types differ only in the unwinding form of one
+            // calling convention, and a caller through the unwinding form may
+            // call a function of the non-unwinding form, as the standard
+            // library documents for function pointers.
+            unsafe {
+                std::mem::transmute::<
+                    unsafe extern "system" fn($($argument),+) -> R,
+                    unsafe extern "system-unwind" fn($($argument),+) -> R,
+                >(function)
+            }
+        }
+    };
 }
 
-unsafe extern "system-unwind" fn query_interface<V: 'static, S>(
+unwinding!(unwinding1, A);
+unwinding!(unwinding2, A, B);
+unwinding!(unwinding3, A, B, C);
+unwinding!(unwinding4, A, B, C, D);
+unwinding!(unwinding5, A, B, C, D, E);
+unwinding!(unwinding6, A, B, C, D, E, F);
+
+unsafe extern "system" fn query_interface<V: 'static, S>(
     this: *mut ISlangUnknown,
     uuid: *const SlangUUID,
     out: *mut *mut c_void,
@@ -413,7 +436,7 @@ unsafe extern "system-unwind" fn query_interface<V: 'static, S>(
     let object = unsafe { FakeObject::<V, S>::from_this(this) };
     // SAFETY: the crate passes a live identifier, as `queryInterface` requires.
     let uuid = unsafe { &*uuid };
-    let found = object.interfaces.iter().any(|known| same_uuid(known, uuid));
+    let found = object.interfaces.contains(uuid);
     object.log.push(Event::query(object.name, found));
     if object.null_queries.get() {
         // SAFETY: the crate passes a live out-pointer, as `queryInterface`
@@ -439,7 +462,7 @@ unsafe extern "system-unwind" fn query_interface<V: 'static, S>(
     }
 }
 
-unsafe extern "system-unwind" fn add_ref<V: 'static, S>(this: *mut ISlangUnknown) -> u32 {
+unsafe extern "system" fn add_ref<V: 'static, S>(this: *mut ISlangUnknown) -> u32 {
     // SAFETY: as in `query_interface`, `this` is a live `FakeObject<V, S>`.
     let object = unsafe { FakeObject::<V, S>::from_this(this) };
     let count = object.count.get() + 1;
@@ -448,7 +471,7 @@ unsafe extern "system-unwind" fn add_ref<V: 'static, S>(this: *mut ISlangUnknown
     count
 }
 
-unsafe extern "system-unwind" fn release<V: 'static, S>(this: *mut ISlangUnknown) -> u32 {
+unsafe extern "system" fn release<V: 'static, S>(this: *mut ISlangUnknown) -> u32 {
     // SAFETY: as in `query_interface`, `this` is a live `FakeObject<V, S>`,
     // and the caller owns the reference that this releases.
     let object = unsafe { FakeObject::<V, S>::from_this(this) };
@@ -467,9 +490,9 @@ unsafe extern "system-unwind" fn release<V: 'static, S>(this: *mut ISlangUnknown
 
 const fn unknown_vtable<V: 'static, S>() -> ISlangUnknownVtbl {
     ISlangUnknownVtbl {
-        queryInterface: query_interface::<V, S>,
-        addRef: add_ref::<V, S>,
-        release: release::<V, S>,
+        queryInterface: unwinding3(query_interface::<V, S>),
+        addRef: unwinding1(add_ref::<V, S>),
+        release: unwinding1(release::<V, S>),
     }
 }
 
@@ -503,13 +526,13 @@ static BLOB_INTERFACES: [SlangUUID; 2] = [ISlangUnknown::UUID, ISlangBlob::UUID]
 
 static BLOB_VTABLE: ISlangBlobVtbl = ISlangBlobVtbl {
     base: unknown_vtable::<ISlangBlobVtbl, BlobState>(),
-    getBufferPointer: blob_buffer_pointer,
-    getBufferSize: blob_buffer_size,
+    getBufferPointer: unwinding1(blob_buffer_pointer),
+    getBufferSize: unwinding1(blob_buffer_size),
 };
 
 type BlobObject = FakeObject<ISlangBlobVtbl, BlobState>;
 
-unsafe extern "system-unwind" fn blob_buffer_pointer(this: *mut ISlangBlob) -> *const c_void {
+unsafe extern "system" fn blob_buffer_pointer(this: *mut ISlangBlob) -> *const c_void {
     // SAFETY: `BLOB_VTABLE` belongs to a live `BlobObject` only.
     let object = unsafe { BlobObject::from_this(this) };
     match object.state.reported.get() {
@@ -524,7 +547,7 @@ unsafe extern "system-unwind" fn blob_buffer_pointer(this: *mut ISlangBlob) -> *
     }
 }
 
-unsafe extern "system-unwind" fn blob_buffer_size(this: *mut ISlangBlob) -> usize {
+unsafe extern "system" fn blob_buffer_size(this: *mut ISlangBlob) -> usize {
     // SAFETY: `BLOB_VTABLE` belongs to a live `BlobObject` only.
     let object = unsafe { BlobObject::from_this(this) };
     match object.state.reported.get() {
@@ -673,14 +696,14 @@ impl FakeGlobalSession {
     }
 }
 
-unsafe extern "system-unwind" fn build_tag_string(this: *mut IGlobalSession) -> *const c_char {
+unsafe extern "system" fn build_tag_string(this: *mut IGlobalSession) -> *const c_char {
     // SAFETY: `GLOBAL_SESSION_VTABLE` belongs to a live `GlobalSessionObject`
     // only.
     let object = unsafe { GlobalSessionObject::from_this(this) };
     object.state.build_tag.as_ptr()
 }
 
-unsafe extern "system-unwind" fn check_compile_target_support(
+unsafe extern "system" fn check_compile_target_support(
     this: *mut IGlobalSession,
     target: SlangCompileTarget,
 ) -> SlangResult {
@@ -691,7 +714,7 @@ unsafe extern "system-unwind" fn check_compile_target_support(
     object.state.target_support
 }
 
-unsafe extern "system-unwind" fn create_session(
+unsafe extern "system" fn create_session(
     this: *mut IGlobalSession,
     desc: *const SessionDesc,
     out: *mut *mut ISession,
@@ -719,7 +742,7 @@ unsafe extern "system-unwind" fn create_session(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn find_profile(
+unsafe extern "system" fn find_profile(
     this: *mut IGlobalSession,
     name: *const c_char,
 ) -> SlangProfileID {
@@ -736,21 +759,21 @@ unsafe extern "system-unwind" fn find_profile(
     }
 }
 
-unsafe extern "system-unwind" fn set_pass_through_text(
+unsafe extern "system" fn set_pass_through_text(
     _: *mut IGlobalSession,
     _: SlangPassThrough,
     _: *const c_char,
 ) {
 }
 
-unsafe extern "system-unwind" fn get_pass_through_blob(
+unsafe extern "system" fn get_pass_through_blob(
     _: *mut IGlobalSession,
     _: SlangPassThrough,
     _: *mut *mut ISlangBlob,
 ) {
 }
 
-unsafe extern "system-unwind" fn set_default_downstream_compiler(
+unsafe extern "system" fn set_default_downstream_compiler(
     _: *mut IGlobalSession,
     _: SlangSourceLanguage,
     _: SlangPassThrough,
@@ -758,42 +781,38 @@ unsafe extern "system-unwind" fn set_default_downstream_compiler(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn get_default_downstream_compiler(
+unsafe extern "system" fn get_default_downstream_compiler(
     _: *mut IGlobalSession,
     _: SlangSourceLanguage,
 ) -> SlangPassThrough {
     SlangPassThrough(0)
 }
 
-unsafe extern "system-unwind" fn set_language_prelude(
+unsafe extern "system" fn set_language_prelude(
     _: *mut IGlobalSession,
     _: SlangSourceLanguage,
     _: *const c_char,
 ) {
 }
 
-unsafe extern "system-unwind" fn get_language_prelude(
+unsafe extern "system" fn get_language_prelude(
     _: *mut IGlobalSession,
     _: SlangSourceLanguage,
     _: *mut *mut ISlangBlob,
 ) {
 }
 
-unsafe extern "system-unwind" fn create_compile_request(
+unsafe extern "system" fn create_compile_request(
     _: *mut IGlobalSession,
     _: *mut *mut ICompileRequest,
 ) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn add_builtins(
-    _: *mut IGlobalSession,
-    _: *const c_char,
-    _: *const c_char,
-) {
+unsafe extern "system" fn add_builtins(_: *mut IGlobalSession, _: *const c_char, _: *const c_char) {
 }
 
-unsafe extern "system-unwind" fn set_shared_library_loader(
+unsafe extern "system" fn set_shared_library_loader(
     this: *mut IGlobalSession,
     loader: *mut ISlangSharedLibraryLoader,
 ) {
@@ -805,27 +824,27 @@ unsafe extern "system-unwind" fn set_shared_library_loader(
         .push(Event::set_shared_library_loader(object.name, loader));
 }
 
-unsafe extern "system-unwind" fn get_shared_library_loader(
+unsafe extern "system" fn get_shared_library_loader(
     _: *mut IGlobalSession,
 ) -> *mut ISlangSharedLibraryLoader {
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn check_pass_through_support(
+unsafe extern "system" fn check_pass_through_support(
     _: *mut IGlobalSession,
     _: SlangPassThrough,
 ) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn compile_core_module(
+unsafe extern "system" fn compile_core_module(
     _: *mut IGlobalSession,
     _: CompileCoreModuleFlags,
 ) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn load_core_module(
+unsafe extern "system" fn load_core_module(
     _: *mut IGlobalSession,
     _: *const c_void,
     _: usize,
@@ -833,7 +852,7 @@ unsafe extern "system-unwind" fn load_core_module(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn save_core_module(
+unsafe extern "system" fn save_core_module(
     _: *mut IGlobalSession,
     _: SlangArchiveType,
     _: *mut *mut ISlangBlob,
@@ -841,7 +860,7 @@ unsafe extern "system-unwind" fn save_core_module(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn find_capability(
+unsafe extern "system" fn find_capability(
     this: *mut IGlobalSession,
     name: *const c_char,
 ) -> SlangCapabilityID {
@@ -858,7 +877,7 @@ unsafe extern "system-unwind" fn find_capability(
     }
 }
 
-unsafe extern "system-unwind" fn set_downstream_compiler_for_transition(
+unsafe extern "system" fn set_downstream_compiler_for_transition(
     _: *mut IGlobalSession,
     _: SlangCompileTarget,
     _: SlangCompileTarget,
@@ -866,7 +885,7 @@ unsafe extern "system-unwind" fn set_downstream_compiler_for_transition(
 ) {
 }
 
-unsafe extern "system-unwind" fn get_downstream_compiler_for_transition(
+unsafe extern "system" fn get_downstream_compiler_for_transition(
     _: *mut IGlobalSession,
     _: SlangCompileTarget,
     _: SlangCompileTarget,
@@ -874,21 +893,21 @@ unsafe extern "system-unwind" fn get_downstream_compiler_for_transition(
     SlangPassThrough(0)
 }
 
-unsafe extern "system-unwind" fn get_compiler_elapsed_time(
+unsafe extern "system" fn get_compiler_elapsed_time(
     _: *mut IGlobalSession,
     _: *mut f64,
     _: *mut f64,
 ) {
 }
 
-unsafe extern "system-unwind" fn set_spirv_core_grammar(
+unsafe extern "system" fn set_spirv_core_grammar(
     _: *mut IGlobalSession,
     _: *const c_char,
 ) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn parse_command_line_arguments(
+unsafe extern "system" fn parse_command_line_arguments(
     _: *mut IGlobalSession,
     _: c_int,
     _: *const *const c_char,
@@ -898,7 +917,7 @@ unsafe extern "system-unwind" fn parse_command_line_arguments(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn get_session_desc_digest(
+unsafe extern "system" fn get_session_desc_digest(
     _: *mut IGlobalSession,
     _: *mut SessionDesc,
     _: *mut *mut ISlangBlob,
@@ -906,7 +925,7 @@ unsafe extern "system-unwind" fn get_session_desc_digest(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn compile_builtin_module(
+unsafe extern "system" fn compile_builtin_module(
     _: *mut IGlobalSession,
     _: BuiltinModuleName,
     _: CompileCoreModuleFlags,
@@ -914,7 +933,7 @@ unsafe extern "system-unwind" fn compile_builtin_module(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn load_builtin_module(
+unsafe extern "system" fn load_builtin_module(
     _: *mut IGlobalSession,
     _: BuiltinModuleName,
     _: *const c_void,
@@ -923,7 +942,7 @@ unsafe extern "system-unwind" fn load_builtin_module(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn save_builtin_module(
+unsafe extern "system" fn save_builtin_module(
     _: *mut IGlobalSession,
     _: BuiltinModuleName,
     _: SlangArchiveType,
@@ -932,7 +951,7 @@ unsafe extern "system-unwind" fn save_builtin_module(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn get_downstream_compiler_path(
+unsafe extern "system" fn get_downstream_compiler_path(
     _: *mut IGlobalSession,
     _: SlangPassThrough,
     _: *mut *mut ISlangBlob,
@@ -942,36 +961,36 @@ unsafe extern "system-unwind" fn get_downstream_compiler_path(
 
 static GLOBAL_SESSION_VTABLE: IGlobalSessionVtbl = IGlobalSessionVtbl {
     base: unknown_vtable::<IGlobalSessionVtbl, GlobalSessionState>(),
-    createSession: create_session,
-    findProfile: find_profile,
-    setDownstreamCompilerPath: set_pass_through_text,
-    setDownstreamCompilerPrelude: set_pass_through_text,
-    getDownstreamCompilerPrelude: get_pass_through_blob,
-    getBuildTagString: build_tag_string,
-    setDefaultDownstreamCompiler: set_default_downstream_compiler,
-    getDefaultDownstreamCompiler: get_default_downstream_compiler,
-    setLanguagePrelude: set_language_prelude,
-    getLanguagePrelude: get_language_prelude,
-    createCompileRequest: create_compile_request,
-    addBuiltins: add_builtins,
-    setSharedLibraryLoader: set_shared_library_loader,
-    getSharedLibraryLoader: get_shared_library_loader,
-    checkCompileTargetSupport: check_compile_target_support,
-    checkPassThroughSupport: check_pass_through_support,
-    compileCoreModule: compile_core_module,
-    loadCoreModule: load_core_module,
-    saveCoreModule: save_core_module,
-    findCapability: find_capability,
-    setDownstreamCompilerForTransition: set_downstream_compiler_for_transition,
-    getDownstreamCompilerForTransition: get_downstream_compiler_for_transition,
-    getCompilerElapsedTime: get_compiler_elapsed_time,
-    setSPIRVCoreGrammar: set_spirv_core_grammar,
-    parseCommandLineArguments: parse_command_line_arguments,
-    getSessionDescDigest: get_session_desc_digest,
-    compileBuiltinModule: compile_builtin_module,
-    loadBuiltinModule: load_builtin_module,
-    saveBuiltinModule: save_builtin_module,
-    getDownstreamCompilerPath: get_downstream_compiler_path,
+    createSession: unwinding3(create_session),
+    findProfile: unwinding2(find_profile),
+    setDownstreamCompilerPath: unwinding3(set_pass_through_text),
+    setDownstreamCompilerPrelude: unwinding3(set_pass_through_text),
+    getDownstreamCompilerPrelude: unwinding3(get_pass_through_blob),
+    getBuildTagString: unwinding1(build_tag_string),
+    setDefaultDownstreamCompiler: unwinding3(set_default_downstream_compiler),
+    getDefaultDownstreamCompiler: unwinding2(get_default_downstream_compiler),
+    setLanguagePrelude: unwinding3(set_language_prelude),
+    getLanguagePrelude: unwinding3(get_language_prelude),
+    createCompileRequest: unwinding2(create_compile_request),
+    addBuiltins: unwinding3(add_builtins),
+    setSharedLibraryLoader: unwinding2(set_shared_library_loader),
+    getSharedLibraryLoader: unwinding1(get_shared_library_loader),
+    checkCompileTargetSupport: unwinding2(check_compile_target_support),
+    checkPassThroughSupport: unwinding2(check_pass_through_support),
+    compileCoreModule: unwinding2(compile_core_module),
+    loadCoreModule: unwinding3(load_core_module),
+    saveCoreModule: unwinding3(save_core_module),
+    findCapability: unwinding2(find_capability),
+    setDownstreamCompilerForTransition: unwinding4(set_downstream_compiler_for_transition),
+    getDownstreamCompilerForTransition: unwinding3(get_downstream_compiler_for_transition),
+    getCompilerElapsedTime: unwinding3(get_compiler_elapsed_time),
+    setSPIRVCoreGrammar: unwinding2(set_spirv_core_grammar),
+    parseCommandLineArguments: unwinding5(parse_command_line_arguments),
+    getSessionDescDigest: unwinding3(get_session_desc_digest),
+    compileBuiltinModule: unwinding3(compile_builtin_module),
+    loadBuiltinModule: unwinding4(load_builtin_module),
+    saveBuiltinModule: unwinding4(save_builtin_module),
+    getDownstreamCompilerPath: unwinding3(get_downstream_compiler_path),
 };
 
 /// What the fake objects of a session do on the calls that a test scripts.
@@ -1194,9 +1213,7 @@ unsafe fn write_diagnostics(log: &Log, out: *mut *mut ISlangBlob) {
     }
 }
 
-unsafe extern "system-unwind" fn session_global_session(
-    this: *mut ISession,
-) -> *mut IGlobalSession {
+unsafe extern "system" fn session_global_session(this: *mut ISession) -> *mut IGlobalSession {
     // SAFETY: `SESSION_VTABLE` belongs to a live `SessionObject` only.
     let object = unsafe { SessionObject::from_this(this) };
     object.state.global.as_ptr()
@@ -1241,7 +1258,7 @@ unsafe fn load(
     module.as_ptr()
 }
 
-unsafe extern "system-unwind" fn session_load_module(
+unsafe extern "system" fn session_load_module(
     this: *mut ISession,
     name: *const c_char,
     diagnostics: *mut *mut ISlangBlob,
@@ -1250,7 +1267,7 @@ unsafe extern "system-unwind" fn session_load_module(
     unsafe { load(this, name, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn session_load_module_from_blob(
+unsafe extern "system" fn session_load_module_from_blob(
     this: *mut ISession,
     name: *const c_char,
     _: *const c_char,
@@ -1261,7 +1278,7 @@ unsafe extern "system-unwind" fn session_load_module_from_blob(
     unsafe { load(this, name, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn session_create_composite(
+unsafe extern "system" fn session_create_composite(
     this: *mut ISession,
     components: *const *mut IComponentType,
     count: SlangInt,
@@ -1299,7 +1316,7 @@ unsafe extern "system-unwind" fn session_create_composite(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn session_specialize_type(
+unsafe extern "system" fn session_specialize_type(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *const SpecializationArg,
@@ -1309,7 +1326,7 @@ unsafe extern "system-unwind" fn session_specialize_type(
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn session_type_layout(
+unsafe extern "system" fn session_type_layout(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: SlangInt,
@@ -1319,7 +1336,7 @@ unsafe extern "system-unwind" fn session_type_layout(
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn session_container_type(
+unsafe extern "system" fn session_container_type(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: ContainerType,
@@ -1328,11 +1345,11 @@ unsafe extern "system-unwind" fn session_container_type(
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn session_dynamic_type(_: *mut ISession) -> *mut TypeReflection {
+unsafe extern "system" fn session_dynamic_type(_: *mut ISession) -> *mut TypeReflection {
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn session_mangled_name(
+unsafe extern "system" fn session_mangled_name(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *mut *mut ISlangBlob,
@@ -1340,7 +1357,7 @@ unsafe extern "system-unwind" fn session_mangled_name(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_witness_mangled_name(
+unsafe extern "system" fn session_witness_mangled_name(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *mut TypeReflection,
@@ -1349,7 +1366,7 @@ unsafe extern "system-unwind" fn session_witness_mangled_name(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_witness_sequential_id(
+unsafe extern "system" fn session_witness_sequential_id(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *mut TypeReflection,
@@ -1358,14 +1375,14 @@ unsafe extern "system-unwind" fn session_witness_sequential_id(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_create_compile_request(
+unsafe extern "system" fn session_create_compile_request(
     _: *mut ISession,
     _: *mut *mut SlangCompileRequest,
 ) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_create_type_conformance(
+unsafe extern "system" fn session_create_type_conformance(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *mut TypeReflection,
@@ -1376,7 +1393,7 @@ unsafe extern "system-unwind" fn session_create_type_conformance(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_loaded_module_count(this: *mut ISession) -> SlangInt {
+unsafe extern "system" fn session_loaded_module_count(this: *mut ISession) -> SlangInt {
     // SAFETY: `SESSION_VTABLE` belongs to a live `SessionObject` only.
     let object = unsafe { SessionObject::from_this(this) };
     object.state.script.count.get().map_or_else(
@@ -1385,7 +1402,7 @@ unsafe extern "system-unwind" fn session_loaded_module_count(this: *mut ISession
     )
 }
 
-unsafe extern "system-unwind" fn session_loaded_module(
+unsafe extern "system" fn session_loaded_module(
     this: *mut ISession,
     index: SlangInt,
 ) -> *mut IModule {
@@ -1405,7 +1422,7 @@ unsafe extern "system-unwind" fn session_loaded_module(
         .unwrap_or(ptr::null_mut())
 }
 
-unsafe extern "system-unwind" fn session_is_binary_module_up_to_date(
+unsafe extern "system" fn session_is_binary_module_up_to_date(
     _: *mut ISession,
     _: *const c_char,
     _: *mut ISlangBlob,
@@ -1413,7 +1430,7 @@ unsafe extern "system-unwind" fn session_is_binary_module_up_to_date(
     false
 }
 
-unsafe extern "system-unwind" fn session_load_module_from_string(
+unsafe extern "system" fn session_load_module_from_string(
     this: *mut ISession,
     name: *const c_char,
     _: *const c_char,
@@ -1427,7 +1444,7 @@ unsafe extern "system-unwind" fn session_load_module_from_string(
     unsafe { load(this, name, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn session_rtti_bytes(
+unsafe extern "system" fn session_rtti_bytes(
     _: *mut ISession,
     _: *mut TypeReflection,
     _: *mut TypeReflection,
@@ -1437,7 +1454,7 @@ unsafe extern "system-unwind" fn session_rtti_bytes(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_module_info(
+unsafe extern "system" fn session_module_info(
     _: *mut ISession,
     _: *mut ISlangBlob,
     _: *mut SlangInt,
@@ -1447,7 +1464,7 @@ unsafe extern "system-unwind" fn session_module_info(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn session_decl_source_location(
+unsafe extern "system" fn session_decl_source_location(
     _: *mut ISession,
     _: *mut DeclReflection,
     _: *mut SourceLocation,
@@ -1457,27 +1474,27 @@ unsafe extern "system-unwind" fn session_decl_source_location(
 
 static SESSION_VTABLE: ISessionVtbl = ISessionVtbl {
     base: unknown_vtable::<ISessionVtbl, SessionState>(),
-    getGlobalSession: session_global_session,
-    loadModule: session_load_module,
-    loadModuleFromSource: session_load_module_from_blob,
-    createCompositeComponentType: session_create_composite,
-    specializeType: session_specialize_type,
-    getTypeLayout: session_type_layout,
-    getContainerType: session_container_type,
-    getDynamicType: session_dynamic_type,
-    getTypeRTTIMangledName: session_mangled_name,
-    getTypeConformanceWitnessMangledName: session_witness_mangled_name,
-    getTypeConformanceWitnessSequentialID: session_witness_sequential_id,
-    createCompileRequest: session_create_compile_request,
-    createTypeConformanceComponentType: session_create_type_conformance,
-    loadModuleFromIRBlob: session_load_module_from_blob,
-    getLoadedModuleCount: session_loaded_module_count,
-    getLoadedModule: session_loaded_module,
-    isBinaryModuleUpToDate: session_is_binary_module_up_to_date,
-    loadModuleFromSourceString: session_load_module_from_string,
-    getDynamicObjectRTTIBytes: session_rtti_bytes,
-    loadModuleInfoFromIRBlob: session_module_info,
-    getDeclSourceLocation: session_decl_source_location,
+    getGlobalSession: unwinding1(session_global_session),
+    loadModule: unwinding3(session_load_module),
+    loadModuleFromSource: unwinding5(session_load_module_from_blob),
+    createCompositeComponentType: unwinding5(session_create_composite),
+    specializeType: unwinding5(session_specialize_type),
+    getTypeLayout: unwinding5(session_type_layout),
+    getContainerType: unwinding4(session_container_type),
+    getDynamicType: unwinding1(session_dynamic_type),
+    getTypeRTTIMangledName: unwinding3(session_mangled_name),
+    getTypeConformanceWitnessMangledName: unwinding4(session_witness_mangled_name),
+    getTypeConformanceWitnessSequentialID: unwinding4(session_witness_sequential_id),
+    createCompileRequest: unwinding2(session_create_compile_request),
+    createTypeConformanceComponentType: unwinding6(session_create_type_conformance),
+    loadModuleFromIRBlob: unwinding5(session_load_module_from_blob),
+    getLoadedModuleCount: unwinding1(session_loaded_module_count),
+    getLoadedModule: unwinding2(session_loaded_module),
+    isBinaryModuleUpToDate: unwinding3(session_is_binary_module_up_to_date),
+    loadModuleFromSourceString: unwinding5(session_load_module_from_string),
+    getDynamicObjectRTTIBytes: unwinding5(session_rtti_bytes),
+    loadModuleInfoFromIRBlob: unwinding5(session_module_info),
+    getDeclSourceLocation: unwinding3(session_decl_source_location),
 };
 
 /// The state of a fake component type: the session that it points to
@@ -1584,13 +1601,13 @@ unsafe fn component<'a, I>(this: *mut I) -> &'a ComponentObject {
     unsafe { ComponentObject::from_this(this) }
 }
 
-unsafe extern "system-unwind" fn component_session(this: *mut IComponentType) -> *mut ISession {
+unsafe extern "system" fn component_session(this: *mut IComponentType) -> *mut ISession {
     // SAFETY: the vtable belongs to a live fake component type only.
     let object = unsafe { component(this) };
     object.state.session.as_ptr()
 }
 
-unsafe extern "system-unwind" fn component_layout(
+unsafe extern "system" fn component_layout(
     this: *mut IComponentType,
     target: SlangInt,
     diagnostics: *mut *mut ISlangBlob,
@@ -1615,7 +1632,7 @@ unsafe extern "system-unwind" fn component_layout(
     }
 }
 
-unsafe extern "system-unwind" fn component_specialization_param_count(
+unsafe extern "system" fn component_specialization_param_count(
     this: *mut IComponentType,
 ) -> SlangInt {
     // SAFETY: the vtable belongs to a live fake component type only.
@@ -1672,7 +1689,7 @@ unsafe fn write_code(log: &Log, out: *mut *mut ISlangBlob) {
     unsafe { out.write(blob.as_ptr()) };
 }
 
-unsafe extern "system-unwind" fn component_entry_point_code(
+unsafe extern "system" fn component_entry_point_code(
     this: *mut IComponentType,
     _: SlangInt,
     _: SlangInt,
@@ -1687,7 +1704,7 @@ unsafe extern "system-unwind" fn component_entry_point_code(
     unsafe { generate(this, "getEntryPointCode", write, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_target_code(
+unsafe extern "system" fn component_target_code(
     this: *mut IComponentType,
     _: SlangInt,
     out: *mut *mut ISlangBlob,
@@ -1701,7 +1718,7 @@ unsafe extern "system-unwind" fn component_target_code(
     unsafe { generate(this, "getTargetCode", write, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_entry_point_metadata(
+unsafe extern "system" fn component_entry_point_metadata(
     this: *mut IComponentType,
     _: SlangInt,
     _: SlangInt,
@@ -1716,7 +1733,7 @@ unsafe extern "system-unwind" fn component_entry_point_metadata(
     unsafe { generate(this, "getEntryPointMetadata", write, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_target_metadata(
+unsafe extern "system" fn component_target_metadata(
     this: *mut IComponentType,
     _: SlangInt,
     out: *mut *mut IMetadata,
@@ -1730,7 +1747,7 @@ unsafe extern "system-unwind" fn component_target_metadata(
     unsafe { generate(this, "getTargetMetadata", write, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_result_as_file_system(
+unsafe extern "system" fn component_result_as_file_system(
     _: *mut IComponentType,
     _: SlangInt,
     _: SlangInt,
@@ -1739,7 +1756,7 @@ unsafe extern "system-unwind" fn component_result_as_file_system(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn component_entry_point_hash(
+unsafe extern "system" fn component_entry_point_hash(
     _: *mut IComponentType,
     _: SlangInt,
     _: SlangInt,
@@ -1747,7 +1764,7 @@ unsafe extern "system-unwind" fn component_entry_point_hash(
 ) {
 }
 
-unsafe extern "system-unwind" fn component_specialize(
+unsafe extern "system" fn component_specialize(
     this: *mut IComponentType,
     _: *const SpecializationArg,
     _: SlangInt,
@@ -1817,7 +1834,7 @@ unsafe fn fake_link(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn component_link(
+unsafe extern "system" fn component_link(
     this: *mut IComponentType,
     out: *mut *mut IComponentType,
     diagnostics: *mut *mut ISlangBlob,
@@ -1829,7 +1846,7 @@ unsafe extern "system-unwind" fn component_link(
     unsafe { fake_link(this, out, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_link_with_options(
+unsafe extern "system" fn component_link_with_options(
     this: *mut IComponentType,
     out: *mut *mut IComponentType,
     count: u32,
@@ -1849,7 +1866,7 @@ unsafe extern "system-unwind" fn component_link_with_options(
     unsafe { fake_link(this, out, diagnostics) }
 }
 
-unsafe extern "system-unwind" fn component_host_callable(
+unsafe extern "system" fn component_host_callable(
     _: *mut IComponentType,
     _: c_int,
     _: c_int,
@@ -1859,7 +1876,7 @@ unsafe extern "system-unwind" fn component_host_callable(
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn component_rename(
+unsafe extern "system" fn component_rename(
     _: *mut IComponentType,
     _: *const c_char,
     _: *mut *mut IComponentType,
@@ -1870,20 +1887,20 @@ unsafe extern "system-unwind" fn component_rename(
 const fn component_vtable<V: 'static>() -> IComponentTypeVtbl {
     IComponentTypeVtbl {
         base: unknown_vtable::<V, ComponentState>(),
-        getSession: component_session,
-        getLayout: component_layout,
-        getSpecializationParamCount: component_specialization_param_count,
-        getEntryPointCode: component_entry_point_code,
-        getResultAsFileSystem: component_result_as_file_system,
-        getEntryPointHash: component_entry_point_hash,
-        specialize: component_specialize,
-        link: component_link,
-        getEntryPointHostCallable: component_host_callable,
-        renameEntryPoint: component_rename,
-        linkWithOptions: component_link_with_options,
-        getTargetCode: component_target_code,
-        getTargetMetadata: component_target_metadata,
-        getEntryPointMetadata: component_entry_point_metadata,
+        getSession: unwinding1(component_session),
+        getLayout: unwinding3(component_layout),
+        getSpecializationParamCount: unwinding1(component_specialization_param_count),
+        getEntryPointCode: unwinding5(component_entry_point_code),
+        getResultAsFileSystem: unwinding4(component_result_as_file_system),
+        getEntryPointHash: unwinding4(component_entry_point_hash),
+        specialize: unwinding5(component_specialize),
+        link: unwinding3(component_link),
+        getEntryPointHostCallable: unwinding5(component_host_callable),
+        renameEntryPoint: unwinding3(component_rename),
+        linkWithOptions: unwinding5(component_link_with_options),
+        getTargetCode: unwinding4(component_target_code),
+        getTargetMetadata: unwinding4(component_target_metadata),
+        getEntryPointMetadata: unwinding5(component_entry_point_metadata),
     }
 }
 
@@ -1891,12 +1908,10 @@ static COMPONENT_VTABLE: IComponentTypeVtbl = component_vtable::<IComponentTypeV
 
 static ENTRY_POINT_VTABLE: IEntryPointVtbl = IEntryPointVtbl {
     base: component_vtable::<IEntryPointVtbl>(),
-    getFunctionReflection: entry_point_function,
+    getFunctionReflection: unwinding1(entry_point_function),
 };
 
-unsafe extern "system-unwind" fn entry_point_function(
-    this: *mut IEntryPoint,
-) -> *mut FunctionReflection {
+unsafe extern "system" fn entry_point_function(this: *mut IEntryPoint) -> *mut FunctionReflection {
     // SAFETY: the vtable belongs to a live fake entry point only.
     let object = unsafe { component(this) };
     object
@@ -1938,7 +1953,7 @@ unsafe fn module_entry_point(this: *mut IModule) -> NonNull<IEntryPoint> {
     entry_point
 }
 
-unsafe extern "system-unwind" fn module_find_entry_point(
+unsafe extern "system" fn module_find_entry_point(
     this: *mut IModule,
     name: *const c_char,
     out: *mut *mut IEntryPoint,
@@ -1959,7 +1974,7 @@ unsafe extern "system-unwind" fn module_find_entry_point(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn module_entry_point_count(this: *mut IModule) -> SlangInt32 {
+unsafe extern "system" fn module_entry_point_count(this: *mut IModule) -> SlangInt32 {
     // SAFETY: the vtable belongs to a live fake module only.
     let object = unsafe { component(this) };
     // SAFETY: the crate keeps the session of a module alive.
@@ -1967,7 +1982,7 @@ unsafe extern "system-unwind" fn module_entry_point_count(this: *mut IModule) ->
     script.count.get().map_or(1, SlangInt32::from)
 }
 
-unsafe extern "system-unwind" fn module_defined_entry_point(
+unsafe extern "system" fn module_defined_entry_point(
     this: *mut IModule,
     index: SlangInt32,
     out: *mut *mut IEntryPoint,
@@ -1982,7 +1997,7 @@ unsafe extern "system-unwind" fn module_defined_entry_point(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn module_serialize(
+unsafe extern "system" fn module_serialize(
     this: *mut IModule,
     out: *mut *mut ISlangBlob,
 ) -> SlangResult {
@@ -1993,25 +2008,22 @@ unsafe extern "system-unwind" fn module_serialize(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn module_write_to_file(
-    _: *mut IModule,
-    _: *const c_char,
-) -> SlangResult {
+unsafe extern "system" fn module_write_to_file(_: *mut IModule, _: *const c_char) -> SlangResult {
     SlangResult::SLANG_E_NOT_IMPLEMENTED
 }
 
-unsafe extern "system-unwind" fn module_name(_: *mut IModule) -> *const c_char {
+unsafe extern "system" fn module_name(_: *mut IModule) -> *const c_char {
     c"fake_module".as_ptr()
 }
 
-unsafe extern "system-unwind" fn module_no_text(_: *mut IModule) -> *const c_char {
+unsafe extern "system" fn module_no_text(_: *mut IModule) -> *const c_char {
     ptr::null()
 }
 
 /// Finds the entry point as `findEntryPointByName` does, and accepts it only
 /// for the compute stage. Any other name or stage fails with diagnostics, as
 /// a failed validation does in Slang.
-unsafe extern "system-unwind" fn module_find_and_check(
+unsafe extern "system" fn module_find_and_check(
     this: *mut IModule,
     name: *const c_char,
     stage: SlangStage,
@@ -2036,7 +2048,7 @@ unsafe extern "system-unwind" fn module_find_and_check(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn module_dependency_count(this: *mut IModule) -> SlangInt32 {
+unsafe extern "system" fn module_dependency_count(this: *mut IModule) -> SlangInt32 {
     // SAFETY: the vtable belongs to a live fake module only.
     let object = unsafe { component(this) };
     // SAFETY: the crate keeps the session of a module alive.
@@ -2044,7 +2056,7 @@ unsafe extern "system-unwind" fn module_dependency_count(this: *mut IModule) -> 
     script.count.get().map_or(2, SlangInt32::from)
 }
 
-unsafe extern "system-unwind" fn module_dependency_path(
+unsafe extern "system" fn module_dependency_path(
     _: *mut IModule,
     index: SlangInt32,
 ) -> *const c_char {
@@ -2059,11 +2071,11 @@ unsafe extern "system-unwind" fn module_dependency_path(
     }
 }
 
-unsafe extern "system-unwind" fn module_reflection(_: *mut IModule) -> *mut DeclReflection {
+unsafe extern "system" fn module_reflection(_: *mut IModule) -> *mut DeclReflection {
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn module_disassemble(
+unsafe extern "system" fn module_disassemble(
     _: *mut IModule,
     _: *mut *mut ISlangBlob,
 ) -> SlangResult {
@@ -2072,19 +2084,19 @@ unsafe extern "system-unwind" fn module_disassemble(
 
 static MODULE_VTABLE: IModuleVtbl = IModuleVtbl {
     base: component_vtable::<IModuleVtbl>(),
-    findEntryPointByName: module_find_entry_point,
-    getDefinedEntryPointCount: module_entry_point_count,
-    getDefinedEntryPoint: module_defined_entry_point,
-    serialize: module_serialize,
-    writeToFile: module_write_to_file,
-    getName: module_name,
-    getFilePath: module_no_text,
-    getUniqueIdentity: module_no_text,
-    findAndCheckEntryPoint: module_find_and_check,
-    getDependencyFileCount: module_dependency_count,
-    getDependencyFilePath: module_dependency_path,
-    getModuleReflection: module_reflection,
-    disassemble: module_disassemble,
+    findEntryPointByName: unwinding3(module_find_entry_point),
+    getDefinedEntryPointCount: unwinding1(module_entry_point_count),
+    getDefinedEntryPoint: unwinding3(module_defined_entry_point),
+    serialize: unwinding2(module_serialize),
+    writeToFile: unwinding2(module_write_to_file),
+    getName: unwinding1(module_name),
+    getFilePath: unwinding1(module_no_text),
+    getUniqueIdentity: unwinding1(module_no_text),
+    findAndCheckEntryPoint: unwinding5(module_find_and_check),
+    getDependencyFileCount: unwinding1(module_dependency_count),
+    getDependencyFilePath: unwinding2(module_dependency_path),
+    getModuleReflection: unwinding1(module_reflection),
+    disassemble: unwinding2(module_disassemble),
 };
 
 /// A fake `IMetadata`, which reports the binding 0 of the binding space 0 as
@@ -2098,10 +2110,10 @@ static METADATA_INTERFACES: [SlangUUID; 2] = [ISlangUnknown::UUID, IMetadata::UU
 static METADATA_VTABLE: IMetadataVtbl = IMetadataVtbl {
     base: ISlangCastableVtbl {
         base: unknown_vtable::<IMetadataVtbl, ()>(),
-        castAs: metadata_cast_as,
+        castAs: unwinding2(metadata_cast_as),
     },
-    isParameterLocationUsed: metadata_location_used,
-    getDebugBuildIdentifier: metadata_build_identifier,
+    isParameterLocationUsed: unwinding5(metadata_location_used),
+    getDebugBuildIdentifier: unwinding1(metadata_build_identifier),
 };
 
 impl FakeMetadata {
@@ -2110,14 +2122,14 @@ impl FakeMetadata {
     }
 }
 
-unsafe extern "system-unwind" fn metadata_cast_as(
+unsafe extern "system" fn metadata_cast_as(
     _: *mut ISlangCastable,
     _: *const SlangUUID,
 ) -> *mut c_void {
     ptr::null_mut()
 }
 
-unsafe extern "system-unwind" fn metadata_location_used(
+unsafe extern "system" fn metadata_location_used(
     this: *mut IMetadata,
     _: SlangParameterCategory,
     space: SlangUInt,
@@ -2134,7 +2146,7 @@ unsafe extern "system-unwind" fn metadata_location_used(
     SlangResult::SLANG_OK
 }
 
-unsafe extern "system-unwind" fn metadata_build_identifier(_: *mut IMetadata) -> *const c_char {
+unsafe extern "system" fn metadata_build_identifier(_: *mut IMetadata) -> *const c_char {
     c"".as_ptr()
 }
 

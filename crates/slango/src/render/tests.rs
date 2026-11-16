@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+
 use wgpu::ShaderStages;
 
 use super::{
@@ -70,13 +72,20 @@ fn record(name: &str, stage: RenderStage, usable: UsableRender) -> CompiledRende
     }
 }
 
-fn rejected(name: &str, stage: RenderStage, kind: ErrorKind, detail: &str) -> CompiledRender {
+fn rejected(
+    name: &str,
+    stage: RenderStage,
+    kind: ErrorKind,
+    detail: &str,
+    source: Option<&str>,
+) -> CompiledRender {
     CompiledRender {
         name: name.to_owned(),
         stage,
         usable: Err(Rejection {
             kind,
             detail: detail.to_owned(),
+            source: source.map(str::to_owned),
         }),
     }
 }
@@ -112,12 +121,14 @@ fn records() -> Vec<CompiledRender> {
             RenderStage::Vertex,
             ErrorKind::UnsupportedParameter,
             "the vertex entry point `vsRejected` has the parameter `table` of an unsupported kind",
+            None,
         ),
         rejected(
             "fsBroken",
             RenderStage::Fragment,
             ErrorKind::Compile,
-            "Slang failed on the fragment entry point `fsBroken`: no code",
+            "Slang failed on the fragment entry point `fsBroken`",
+            Some("cannot generate code: no code"),
         ),
     ]
 }
@@ -175,11 +186,19 @@ fn a_rejected_entry_point_returns_its_rejection() {
         ErrorKind::UnsupportedParameter,
         "cannot create a render pipeline: for `vsRejected` and `fsMain`, the vertex entry point `vsRejected` has the parameter `table` of an unsupported kind",
     );
+    let broken = select_error("vsMain", "fsBroken");
     assert_error(
-        &select_error("vsMain", "fsBroken"),
+        &broken,
         ErrorKind::Compile,
-        "cannot create a render pipeline: for `vsMain` and `fsBroken`, Slang failed on the fragment entry point `fsBroken`: no code",
+        "cannot create a render pipeline: for `vsMain` and `fsBroken`, Slang failed on the fragment entry point `fsBroken`",
     );
+    assert_eq!(
+        StdError::source(&broken)
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("cannot generate code: no code")
+    );
+    assert!(StdError::source(&select_error("vsRejected", "fsMain")).is_none());
 }
 
 #[test]

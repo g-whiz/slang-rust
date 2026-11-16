@@ -2,6 +2,10 @@ use std::error::Error as StdError;
 use std::fmt;
 
 /// The result type of every fallible operation of this crate.
+///
+/// # Examples
+///
+/// See the example of [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The error of every fallible operation of this crate.
@@ -102,6 +106,19 @@ impl StdError for Error {
     }
 }
 
+/// The text of an error that a snapshot kept in place of the error itself,
+/// which an [`Error`] returns as its source.
+#[derive(Debug)]
+pub(crate) struct SourceText(pub(crate) String);
+
+impl fmt::Display for SourceText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl StdError for SourceText {}
+
 /// The kind of an [`Error`], which says what went wrong and how a caller can
 /// recover.
 ///
@@ -120,8 +137,8 @@ pub enum ErrorKind {
     ///
     /// An error of this kind for a vertex or fragment entry point that Slang
     /// failed on, which [`Module::render_pipeline`](crate::Module::render_pipeline)
-    /// returns, has no source error, and its text holds the text of the
-    /// error of `slang-compiler` instead.
+    /// returns, has as its source error an error whose text is the text of
+    /// the error of `slang-compiler`, with the messages that Slang printed.
     Compile,
     /// wgpu found no adapter, a GPU or a software implementation of one, that
     /// matches the options. Install a GPU driver or a software driver such as

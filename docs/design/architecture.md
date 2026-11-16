@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -110,7 +110,7 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 - shallow clone: A git clone that fetches only the named commit, without the history before it.
 - shared folder: The directory `slang-src` in the Cargo target directory, or in the build directory when Cargo uses a separate one, in which `slang-src` keeps its clone and the crates that build Slang keep their built libraries for every profile and every host and target unit of a project (Section 4.3).
 - Slint: A Rust toolkit for graphical user interfaces.
-- slang-glslang: The library of the Slang tree that wraps glslang and the SPIR-V optimizer. The Vulkan SDK's Slang ships it, and Slang uses it to optimize the SPIR-V it emits.
+- slang-glslang: The library of the Slang tree around glslang and SPIRV-Tools, which compiles GLSL to SPIR-V and optimizes, disassembles, validates, and links SPIR-V. The Vulkan SDK's Slang ships it, and Slang uses it to optimize the SPIR-V it emits.
 - slang-rhi: Slang's render hardware interface, a C++ library that gives one API over several graphics and compute APIs.
 - SlangPy: A Python library that calls Slang functions on the GPU from Python.
 - smoke test: A short test that shows that the basic path works, such as creating one object and reading one value.

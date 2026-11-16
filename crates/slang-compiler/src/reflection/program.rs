@@ -518,14 +518,29 @@ impl<'a> ProgramLayout<'a> {
         })
     }
 
-    /// Returns the binding number of the constant buffer that Slang creates
-    /// for the global uniform data of the program, `Some(0)` when it creates
-    /// none, and `None` when Slang does not know the number.
+    /// Returns the number that Slang reports as the binding of the constant
+    /// buffer, a buffer of uniform data, that it creates for the global
+    /// uniform data of the program, or `None` when Slang reports that it does
+    /// not know the number.
     ///
     /// Uniform data is the parameters of ordinary types, such as numbers and
-    /// structures of them, which a target places in buffer memory. The
-    /// binding is counted in the units of
-    /// [`ParameterCategory::ConstantBuffer`].
+    /// structures of them, which a target places in buffer memory. A binding
+    /// is the numbered slot through which a shader reaches a resource.
+    ///
+    /// For SPIR-V, this method was observed to return `Some(0)` for a program
+    /// with two buffers at bindings 0 and 1 and a global uniform, although the
+    /// generated SPIR-V places the global constant buffer at binding 2. It
+    /// also returned `Some(0)` for a program with no global constant buffer,
+    /// so `Some(0)` does not tell a buffer at binding 0 from no buffer. These
+    /// observations were made on `x86_64` Linux with the Slang of a Vulkan SDK.
+    ///
+    /// In the first program, the one public call that returned 2 was
+    /// [`VariableLayout::offset`] for
+    /// [`ParameterCategory::DescriptorTableSlot`] on the layout that
+    /// [`ProgramLayout::global_params_var_layout`] returns. That offset is 0
+    /// too without a global constant buffer. What shows that the buffer
+    /// exists is that [`TypeLayout::kind`] of the type layout of that layout
+    /// returns [`TypeKind::ConstantBuffer`](super::TypeKind::ConstantBuffer).
     ///
     /// # Examples
     ///

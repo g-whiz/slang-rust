@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::Device;
 use crate::device::scoped;
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, ErrorKind, Result, SourceText};
 use crate::kernel::{layout_entries, pipeline_error_kind};
 use crate::layout::{Attribute, Binding, CompiledRender, RenderStage, Scalar, UsableRender, Usage};
 use crate::texture::TextureFormat;
@@ -335,10 +335,13 @@ fn select<'a>(
     let vertex = find(names.vertex, RenderStage::Vertex)?;
     let fragment = find(names.fragment, RenderStage::Fragment)?;
     let usable = |record: &'a CompiledRender| {
-        record
-            .usable
-            .as_ref()
-            .map_err(|rejection| names.error(rejection.kind, &rejection.detail))
+        record.usable.as_ref().map_err(|rejection| {
+            let error = names.error(rejection.kind, &rejection.detail);
+            match &rejection.source {
+                Some(text) => error.with_source(SourceText(text.clone())),
+                None => error,
+            }
+        })
     };
     Ok((usable(vertex)?, usable(fragment)?))
 }

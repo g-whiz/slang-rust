@@ -44,7 +44,8 @@ impl OptionName {
     /// Checks that a number names a compiler option of the recorded Slang
     /// build, and returns the name.
     ///
-    /// Slang numbers its options from 0 up to a sentinel, `CountOf`, and
+    /// Slang numbers its options from 0 up to a sentinel,
+    /// [`CountOf`](slang_compiler_sys::CompilerOptionName::CountOf), and
     /// gives a later option a number above that sentinel. Three numbers below
     /// the sentinel name no option that Slang stores: 79, a removed option,
     /// 111, an old sentinel, and 159, an option of Slang's command line only.
@@ -56,8 +57,9 @@ impl OptionName {
     /// # Errors
     ///
     /// Returns an error of kind [`ErrorKind::InvalidArgument`] when `value` is
-    /// negative, is not below the sentinel `CountOf` of the recorded Slang
-    /// build, or is 79, 111, or 159.
+    /// negative, is not below the sentinel
+    /// [`CountOf`](slang_compiler_sys::CompilerOptionName::CountOf) of the
+    /// recorded Slang build, or is 79, 111, or 159.
     pub fn new(value: i32) -> Result<Self> {
         let name = CompilerOptionName(value);
         let stored = (0..CompilerOptionName::CountOf.0).contains(&value)
@@ -79,6 +81,34 @@ impl OptionName {
                     ),
             )
         }
+    }
+}
+
+impl TryFrom<i32> for OptionName {
+    type Error = Error;
+
+    /// Checks that a number names a compiler option of the recorded Slang
+    /// build, as [`OptionName::new`] does.
+    ///
+    /// # Examples
+    ///
+    /// This example converts the number of the option that turns on the
+    /// uniformity analysis of Slang:
+    ///
+    /// ```
+    /// use slang_compiler::OptionName;
+    /// use slang_compiler_sys::CompilerOptionName;
+    ///
+    /// let name: OptionName = CompilerOptionName::ValidateUniformity.0.try_into()?;
+    /// # let _ = name;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`OptionName::new`].
+    fn try_from(value: i32) -> Result<Self> {
+        Self::new(value)
     }
 }
 
@@ -110,6 +140,10 @@ impl OptionName {
 /// core module, Slang's module of built-in types and functions, and the
 /// options that write reproduction files.
 ///
+/// Two lists are equal when they hold the same entries in the same order,
+/// because Slang applies the entries in order. An option that is never set
+/// differs from one that is set to Slang's default value.
+///
 /// # Examples
 ///
 /// This example builds options for an optimized compile without debug
@@ -125,7 +159,7 @@ impl OptionName {
 ///     .warnings_as_errors("all");
 /// # let _ = options;
 /// ```
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CompilerOptions {
     entries: Vec<Entry>,
 }
@@ -142,13 +176,13 @@ const SESSION_ONLY: [(CompilerOptionName, &str); 4] = [
     (CompilerOptionName::DisableWarning, "DisableWarning"),
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Entry {
     name: CompilerOptionName,
     value: Value,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Value {
     Int(i32, i32),
     Text(String, String),
@@ -946,5 +980,34 @@ mod tests {
             .filter(|value| OptionName::new(*value).is_err())
             .collect::<Vec<_>>();
         assert_eq!(rejected, [79, 111, 159]);
+    }
+
+    #[test]
+    fn options_are_equal_when_they_hold_the_same_entries_in_the_same_order() {
+        use std::collections::HashSet;
+
+        let mut first = CompilerOptions::default();
+        first.enable_warning("a").disable_warning("b");
+        let mut same = CompilerOptions::default();
+        same.enable_warning("a").disable_warning("b");
+        let mut reordered = CompilerOptions::default();
+        reordered.disable_warning("b").enable_warning("a");
+        assert_eq!(first, same);
+        assert_ne!(first, reordered);
+        assert_ne!(first, CompilerOptions::default());
+        let set = HashSet::from([first.clone(), same, reordered]);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&first));
+    }
+
+    #[test]
+    fn option_name_try_from_agrees_with_new_on_every_boundary() {
+        for value in [i32::MIN, -1, 0, 78, 79, 80, 111, 158, 159, 160, i32::MAX] {
+            assert_eq!(
+                OptionName::try_from(value).ok(),
+                OptionName::new(value).ok(),
+                "{value}"
+            );
+        }
     }
 }

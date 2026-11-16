@@ -370,9 +370,11 @@ impl<'a> Type<'a> {
     /// scalar, and 0 for any other type.
     ///
     /// Aborts the process, instead of returning a number, when the matrix
-    /// has a number of rows that a generic value parameter gives, which Slang
-    /// does not know until specialization, such as `matrix<float, R, 4>` in
-    /// a generic function. Slang then lets a C++ exception escape, and the
+    /// has a number of rows that a generic value parameter gives, a generic
+    /// parameter that stands for a value and not a type. Slang does not know
+    /// that number until specialization, the step that fills in the generic
+    /// parameters with arguments, such as `R` in `matrix<float, R, 4>` in a
+    /// generic function. Slang then lets a C++ exception escape, and the
     /// crate writes one line to standard error that names the call
     /// `spReflectionType_GetRowCount`, and aborts before any destructor runs.
     ///
@@ -406,8 +408,10 @@ impl<'a> Type<'a> {
     /// elements of a vector type, 1 for a scalar, and 0 for any other type.
     ///
     /// Aborts the process, instead of returning a number, when the number
-    /// comes from a generic value parameter, which Slang does not know until
-    /// specialization, such as `vector<float, N>` in a generic function.
+    /// comes from a generic value parameter, a generic parameter that stands
+    /// for a value and not a type. Slang does not know that number until
+    /// specialization, the step that fills in the generic parameters with
+    /// arguments, such as `N` in `vector<float, N>` in a generic function.
     /// Slang then lets a C++ exception escape, and the crate writes one line
     /// to standard error that names the call `spReflectionType_GetColumnCount`,
     /// and aborts before any destructor runs.
@@ -491,6 +495,12 @@ impl<'a> Type<'a> {
     /// stream, the underlying integer type of an enumeration, or `None` for
     /// any other type.
     ///
+    /// A constant buffer is a buffer of uniform data, and a parameter block
+    /// is a group of parameters that a target binds as one unit, such as one
+    /// descriptor set of Vulkan. A structured buffer is a buffer that holds
+    /// an array of elements of one type, and an output stream is the stream
+    /// through which a geometry shader emits its primitives.
+    ///
     /// # Examples
     ///
     /// This example finds the innermost element type of nested arrays:
@@ -536,13 +546,21 @@ impl<'a> Type<'a> {
     /// Returns the number of elements of an array or vector type, or
     /// `Finite(0)` for any other type.
     ///
-    /// The count is `Finite(0)` also for an array whose length the source
-    /// does not declare, and [`LayoutSize::Unknown`] for an array whose
-    /// length linking fills in.
+    /// The count is [`LayoutSize::Unknown`] for an array whose length linking
+    /// fills in.
+    ///
+    /// Known upstream bug: Slang's header documents an unbounded count, which
+    /// is [`LayoutSize::Unbounded`], for an array whose length the source does
+    /// not declare, such as the field `float a[]`. The recorded Slang returns
+    /// `Finite(0)` for it, the same count as for an array declared with
+    /// length 0, so this method cannot tell the two apart. This is a defect of
+    /// Slang, and this crate does not check for it.
     ///
     /// Aborts the process, instead of returning a count, when the length
-    /// comes from a generic value parameter, which Slang does not know until
-    /// specialization, such as `float[N]` in a generic function. Slang then
+    /// comes from a generic value parameter, a generic parameter that stands
+    /// for a value and not a type. Slang does not know that length until
+    /// specialization, the step that fills in the generic parameters with
+    /// arguments, such as `N` in `float[N]` in a generic function. Slang then
     /// lets a C++ exception escape, and the crate writes one line to standard
     /// error that names the call `spReflectionType_GetElementCount`, and
     /// aborts before any destructor runs.

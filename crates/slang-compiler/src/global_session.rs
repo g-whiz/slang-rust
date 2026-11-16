@@ -311,9 +311,7 @@ impl GlobalSession {
             }
         };
         #[cfg(feature = "vendored")]
-        // SAFETY: the loader goes only to the global session that `create`
-        // makes, which belongs to the vendored Slang that this program links.
-        let loader = Some(unsafe { slang_glslang_sys::slang_glslang_sys_loader() });
+        let loader = Some(slang_glslang_sys::slang_glslang_sys_loader());
         #[cfg(not(feature = "vendored"))]
         let loader = None;
         // SAFETY: `create` calls the creation function of the linked Slang
@@ -414,7 +412,10 @@ fn check_build_tag(tag: Option<&CStr>) -> Result<()> {
 /// changes one setting and returns the builder, so calls can be chained, and
 /// [`GlobalSessionBuilder::build`] creates the global session. A setting that
 /// is never set keeps Slang's default. The builder holds only settings, so it
-/// can be kept, cloned, and sent to other threads.
+/// can be kept, cloned, compared, and sent to other threads. Two builders are
+/// equal when each setting is unset in both or set to the same value in both,
+/// so a setting that is never set differs from one that is set to Slang's
+/// default.
 ///
 /// # Examples
 ///
@@ -433,7 +434,7 @@ fn check_build_tag(tag: Option<&CStr>) -> Result<()> {
 /// # drop(global);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct GlobalSessionBuilder {
     glsl: Option<Toggle>,
     min_language_version: Option<LanguageVersion>,
@@ -448,10 +449,10 @@ impl GlobalSessionBuilder {
     /// loaded from a file whose extension names GLSL, such as `.glsl` or
     /// `.vert`, when its source has a `#version` directive with a GLSL
     /// version, or when the options of the session set Slang's compiler
-    /// option `AllowGLSL`, which
-    /// [`CompilerOptions::set_int`](crate::CompilerOptions::set_int) sets.
-    /// Neither Slang's header nor its user guide states the kind of the value
-    /// of `AllowGLSL`, and the recorded Slang reads the first integer of the
+    /// option [`AllowGLSL`](slang_compiler_sys::CompilerOptionName::AllowGLSL),
+    /// which [`CompilerOptions::set_int`](crate::CompilerOptions::set_int)
+    /// sets. Neither Slang's header nor its user guide states the kind of the
+    /// value of that option, and the recorded Slang reads the first integer of the
     /// entry, as a Boolean that any value other than 0 turns on.
     ///
     /// # Examples
@@ -753,6 +754,19 @@ mod tests {
             .desc();
         assert!(desc.enableGLSL);
         assert_eq!(desc.minLanguageVersion, 2026);
+    }
+
+    #[test]
+    fn builders_are_equal_when_each_setting_is_equal_or_unset_in_both() {
+        let mut builder = GlobalSession::builder();
+        builder.glsl(Toggle::On);
+        let mut same = GlobalSession::builder();
+        same.glsl(Toggle::On);
+        assert_eq!(builder, same);
+        assert_ne!(builder, GlobalSessionBuilder::default());
+        let mut off = GlobalSession::builder();
+        off.glsl(Toggle::Off);
+        assert_ne!(off, GlobalSessionBuilder::default());
     }
 
     #[test]

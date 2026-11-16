@@ -77,7 +77,7 @@ fn spirv_session(global: &GlobalSession) -> Session {
 
 fn link(session: &Session, name: &str, source: &str, entry_point: &str) -> LinkedProgram {
     let module = session
-        .load_module_from_source(name, &format!("{name}.slang"), source)
+        .load_module_from_source(name, format!("{name}.slang"), source)
         .expect("the source compiles")
         .into_value();
     let entry_point = module
@@ -455,6 +455,48 @@ fn types_report_their_kinds_and_shapes() {
     );
 }
 
+#[test]
+fn a_field_layout_is_found_by_its_position_as_the_iterator_yields_it() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let program = link(&session, "scene", SCENE, "process");
+    let layout = program
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the program")
+        .into_value();
+    let light = layout
+        .find_type_by_name("Light")
+        .expect("no NUL byte")
+        .expect("the module defines Light");
+    let light_layout = layout
+        .type_layout(light)
+        .expect("the type belongs to the session")
+        .expect("Slang lays out the type");
+    let position = light_layout
+        .find_field_index_by_name("intensity")
+        .expect("no NUL byte")
+        .expect("Light has the field");
+    let intensity = light_layout
+        .field_layout(position)
+        .expect("in range")
+        .expect("Slang lays out the field");
+    assert_eq!(name(intensity), Some("intensity"));
+    assert_eq!(
+        intensity.offset(ParameterCategory::Uniform).amount,
+        LayoutSize::Finite(12)
+    );
+    let by_position = (0..2)
+        .map(|position| {
+            light_layout
+                .field_layout(position)
+                .expect("in range")
+                .and_then(name)
+        })
+        .collect::<Vec<_>>();
+    let iterated = light_layout.field_layouts().map(name).collect::<Vec<_>>();
+    assert_eq!(by_position, iterated);
+}
+
 /// Returns the layout of the global parameter `name` of the program of
 /// [`SCENE`].
 fn scene_parameter<'a>(layout: ProgramLayout<'a>, name: &str) -> VariableLayout<'a> {
@@ -533,16 +575,19 @@ fn reflection_checks_every_position_and_returns_none_for_null() {
         .expect("the type belongs to the session")
         .expect("Slang lays out the type");
     for field in [2, 3, usize::MAX] {
-        let error = light_layout
-            .field_binding_range_offset(field)
-            .expect_err("a field past the end fails");
-        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
-        assert!(
-            error
-                .to_string()
-                .contains(&format!("field {field} is past the end of the 2")),
-            "{error}"
-        );
+        for result in [
+            light_layout.field_binding_range_offset(field).map(|_| ()),
+            light_layout.field_layout(field).map(|_| ()),
+        ] {
+            let error = result.expect_err("a field past the end fails");
+            assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("field {field} is past the end of the 2")),
+                "{error}"
+            );
+        }
     }
     let entry = layout.entry_point_layouts().next().expect("an entry point");
     assert!(entry.result_var_layout().is_none());
@@ -931,9 +976,9 @@ fn counters_and_leaves_of_binding_ranges_report_what_slang_computes() {
                 .explicit_counter_binding_range_offset()
                 .expect("an offset")
         };
-        assert_eq!(counter("appended"), 1);
+        assert_eq!(counter("appended"), Some(1));
         for name in ["plain", "masks", "pinned"] {
-            assert_eq!(counter(name), 0, "{name} has no counter");
+            assert_eq!(counter(name), None, "{name} has no counter");
         }
         let globals = layout
             .global_params_var_layout()

@@ -184,6 +184,7 @@ fn a_refused_parameter_of_a_render_entry_point_becomes_its_rejection() {
         &Rejection {
             kind: ErrorKind::UnsupportedParameter,
             detail: "the parameter `image` is a texture".to_owned(),
+            source: None,
         }
     );
 }
@@ -196,11 +197,13 @@ fn a_failure_of_slang_in_the_walk_of_a_render_entry_point_becomes_its_rejection(
         Err(slang_failure()),
         Ok(vec![0x0723_0203]),
     );
-    let rejection = rejection_of(&record);
-    assert_eq!(rejection.kind, ErrorKind::Compile);
     assert_eq!(
-        rejection.detail,
-        "Slang failed on the fragment entry point `fsMain`: Slang reports error 30019"
+        rejection_of(&record),
+        &Rejection {
+            kind: ErrorKind::Compile,
+            detail: "Slang failed on the fragment entry point `fsMain`".to_owned(),
+            source: Some("Slang reports error 30019".to_owned()),
+        }
     );
 }
 
@@ -209,11 +212,12 @@ fn a_failure_to_generate_the_spirv_of_a_render_entry_point_becomes_its_rejection
     let cases = [
         (
             slang_failure(),
-            "Slang failed on the vertex entry point `vsMain`: Slang reports error 30019",
+            "Slang failed on the vertex entry point `vsMain`",
+            Some("Slang reports error 30019"),
         ),
-        (not_spirv(), "not a sequence of SPIR-V words"),
+        (not_spirv(), "not a sequence of SPIR-V words", None),
     ];
-    for (error, detail) in cases {
+    for (error, detail, source) in cases {
         let record = render_record(
             "vsMain".to_owned(),
             Role::Vertex,
@@ -225,13 +229,14 @@ fn a_failure_to_generate_the_spirv_of_a_render_entry_point_becomes_its_rejection
             &Rejection {
                 kind: ErrorKind::Compile,
                 detail: detail.to_owned(),
+                source: source.map(str::to_owned),
             }
         );
     }
 }
 
 #[test]
-fn a_rejection_keeps_the_text_of_the_source_after_the_detail() {
+fn a_rejection_keeps_the_text_of_the_source_apart_from_the_detail() {
     let error = Error::new(ErrorKind::Compile, LOAD)
         .with_detail("Slang reports no layout for the entry point".to_owned())
         .with_source(std::io::Error::other("Slang reports error 30019"));
@@ -245,8 +250,8 @@ fn a_rejection_keeps_the_text_of_the_source_after_the_detail() {
         rejection_of(&record),
         &Rejection {
             kind: ErrorKind::Compile,
-            detail: "Slang reports no layout for the entry point: Slang reports error 30019"
-                .to_owned(),
+            detail: "Slang reports no layout for the entry point".to_owned(),
+            source: Some("Slang reports error 30019".to_owned()),
         }
     );
 }

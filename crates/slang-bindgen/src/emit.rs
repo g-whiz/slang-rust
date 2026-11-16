@@ -348,6 +348,8 @@ impl<'a> Emitter<'a> {
         let keyword = if record.union { "union" } else { "struct" };
         let derive = if record.union {
             "Clone, Copy"
+        } else if name == self.rules.uuid_type {
+            "Clone, Copy, Debug, PartialEq, Eq, Hash"
         } else {
             "Clone, Copy, Debug"
         };

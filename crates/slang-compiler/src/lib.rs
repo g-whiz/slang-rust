@@ -36,8 +36,10 @@
 //!
 //! - No object that holds a Slang object is [`Send`] or [`Sync`], because
 //!   Slang documents its objects as not safe to use from several threads at
-//!   once. Errors, diagnostics, enumerations, options, targets, and builders
-//!   that hold only settings are both.
+//!   once. Errors, diagnostics, the enumerations of settings, options,
+//!   targets, and builders that hold only settings are both. [`Component`]
+//!   and [`SpecializationArg`] borrow objects that hold Slang objects, so
+//!   they are neither.
 //! - Each object holds the object that Slang created it from, so a
 //!   [`Session`] keeps its [`GlobalSession`] alive, and a [`Module`], an
 //!   [`EntryPoint`], a [`ComponentType`], a [`LinkedProgram`], a [`Blob`],

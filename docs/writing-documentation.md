@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-15 |
+| Date | 2026-11-16 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -373,7 +373,7 @@ A code block that is not Rust names its language, such as `toml`, `slang`, or `t
 
 Checked by: `cargo test --doc`, which compiles every doctest and runs every doctest not marked `no_run`. `cargo nextest run` does not run doctests, so `cargo test --doc` runs separately.
 
-Also checked by: `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main`.
+Also checked by: `rustdoc::invalid_rust_codeblocks` and `rustdoc::invalid_codeblock_attributes` report malformed blocks and misspelled attributes. `clippy::needless_doctest_main` rejects a visible `fn main` without a return type. It does not report a `fn main` that returns a type, such as `fn main() -> slango::Result<()>`, so for such a `fn main` the rule is a judgement rule.
 
 Whether each public item has an example is a judgement rule, because the lint `rustdoc::missing_doc_code_examples` is available only on the nightly toolchain. No tool lints the code inside a doctest: `cargo test --doc` does not report warnings in doctest bodies, and Clippy does not lint doctests. The use of `?` instead of `unwrap`, and the style of example code in general, are therefore judgement rules.
 
@@ -516,7 +516,7 @@ This table summarizes how each rule in this section is checked.
 | Every public item has an example | 7.5 | Judgement |
 | Examples compile and run | 7.5 | `cargo test --doc` |
 | Well-formed code blocks | 7.5 | `rustdoc::invalid_rust_codeblocks`, `rustdoc::invalid_codeblock_attributes` |
-| No visible `fn main` in examples | 7.5 | `clippy::needless_doctest_main` |
+| No visible `fn main` in examples | 7.5 | `clippy::needless_doctest_main`, except a `fn main` with a return type, which is judgement |
 | `?` instead of `unwrap`, and the style of example code | 7.5 | Judgement |
 | No code block marked `ignore` or `ignore-` | 7.5 | `check-doctest-attributes` |
 | The lead-in states why an example is `no_run` or a `text` block | 7.5 | Judgement |

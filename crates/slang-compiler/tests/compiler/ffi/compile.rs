@@ -400,7 +400,7 @@ fn link_returns_its_input_and_link_with_options_changes_that_input() {
     "#;
     let compose = |name: &str| {
         let module = session
-            .load_module_from_source(name, &format!("{name}.slang"), source)
+            .load_module_from_source(name, format!("{name}.slang"), source)
             .expect("the source compiles")
             .into_value();
         let entry_point = module.entry_point("main").expect("the entry point exists");
@@ -587,10 +587,6 @@ fn a_type_conformance_composes_and_a_non_conforming_type_fails() {
     println!("{error}");
     assert_eq!(error.operation(), Operation::CreateTypeConformance);
     assert_eq!(error.kind(), ErrorKind::Internal, "{error}");
-    let error = session
-        .type_conformance(find("One"), find("IValue"), Some(-1))
-        .expect_err("a negative identifier is rejected");
-    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
 }
 
 #[test]

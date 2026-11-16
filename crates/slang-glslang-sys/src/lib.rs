@@ -3,21 +3,20 @@
 //!
 //! [Slang](https://shader-slang.org) is a shader compiler. It optimizes the
 //! SPIR-V that it generates, SPIR-V being the binary shader format of Vulkan,
-//! through slang-glslang, a part of Slang made of glslang, the reference
-//! compiler of the OpenGL Shading Language, the optimizer and linker of
-//! SPIRV-Tools, and a little glue code of Slang. Slang's own build produces
-//! slang-glslang only as a shared library that Slang loads by name at run
-//! time. A Slang that the crate `slang-compiler-sys` builds from source with
+//! through slang-glslang, Slang's library around glslang and SPIRV-Tools,
+//! which compiles GLSL to SPIR-V and optimizes, disassembles, validates, and
+//! links SPIR-V. Slang's own build produces slang-glslang only as a shared
+//! library that Slang loads by name at run time. A Slang that the crate `slang-compiler-sys` builds from source with
 //! its Cargo feature `vendored` and links statically finds no such library,
 //! so it returns SPIR-V that is not optimized, and the first generation of
 //! SPIR-V in each global session returns diagnostics that begin with
 //! `failed to load downstream compiler 'spirv-opt'` while it succeeds.
 //!
-//! This crate builds glslang, SPIRV-Tools, the glue code, and a small C++
-//! loader shim from the same Slang source tree as static libraries, and links
-//! them into the program. The loader implements Slang's interface
-//! `ISlangSharedLibraryLoader`, through which a global session loads every
-//! library that it needs. It answers each request for a library whose file
+//! This crate builds slang-glslang and a small C++ loader shim from the same
+//! Slang source tree as static libraries, and links them into the program. The loader implements Slang's interface
+//! [`ISlangSharedLibraryLoader`], through which a global session, the root
+//! object of Slang from which every compilation starts, loads every library
+//! that it needs. It answers each request for a library whose file
 //! name, after any directory and an optional `lib` prefix, starts with
 //! `slang-glslang` with the functions that the program links, and passes
 //! every other request, such as for the DirectX Shader Compiler, to Slang's
@@ -39,7 +38,9 @@
 //! A program that uses the raw bindings of `slang-compiler-sys` directly,
 //! with its feature `vendored`, gets SPIR-V that is not optimized unless it
 //! depends on this crate and installs the loader on each global session
-//! through `IGlobalSession::setSharedLibraryLoader`, before the global
+//! through
+//! [`IGlobalSession::setSharedLibraryLoader`](slang_compiler_sys::IGlobalSession::setSharedLibraryLoader),
+//! before the global
 //! session generates any code. A global session that generated SPIR-V
 //! without the loader has already failed to load slang-glslang and does not
 //! try again.
@@ -67,9 +68,7 @@
 //!     return Err(format!("cannot create a global session: {result:?}").into());
 //! }
 //!
-//! // SAFETY: the loader is passed only to a global session of the vendored
-//! // Slang that this program links.
-//! let loader = unsafe { slang_glslang_sys::slang_glslang_sys_loader() };
+//! let loader = slang_glslang_sys::slang_glslang_sys_loader();
 //! // SAFETY: `global` is a live global session of the vendored Slang that
 //! // this program links, only this thread uses it, and the loader is a static
 //! // object.
@@ -105,8 +104,8 @@
 //! # Building
 //!
 //! The build script builds a small project of this crate for the build
-//! system `cmake` with `ninja`, outside the source tree, in its `OUT_DIR`. The project reads
-//! glslang, SPIRV-Tools, the SPIR-V headers, and the glue code from the Slang
+//! system `cmake` with `ninja`, outside the source tree, in its `OUT_DIR`.
+//! The project reads glslang, SPIRV-Tools, the SPIR-V headers, and the glue code from the Slang
 //! source tree that the crate `slang-src` clones, and writes nothing into
 //! that tree. The build needs these programs on the build machine:
 //!
@@ -177,24 +176,31 @@ unsafe extern "C" {
     /// Returns the loader through which a statically linked Slang finds
     /// slang-glslang in the program.
     ///
-    /// Pass the result to `IGlobalSession::setSharedLibraryLoader` of each
-    /// global session, before the global session generates any code, as the
+    /// Slang-glslang is Slang's library around glslang and SPIRV-Tools, which
+    /// compiles GLSL to SPIR-V and optimizes, disassembles, validates, and
+    /// links SPIR-V, and through which Slang optimizes the SPIR-V that it
+    /// generates. A global session is the root object of Slang from
+    /// which every compilation starts. Pass the result to
+    /// [`IGlobalSession::setSharedLibraryLoader`](slang_compiler_sys::IGlobalSession::setSharedLibraryLoader)
+    /// of each global session, before the global session generates any code,
+    /// as the
     /// [crate documentation](crate) shows. The function only returns a
-    /// pointer, so calling it more than once returns the same pointer.
+    /// pointer, so calling it more than once returns the same pointer, and it
+    /// is safe to call. The pointer is never null and stays valid for the life
+    /// of the process, to a loader whose reference counting changes and frees
+    /// nothing, and which any thread may use at any time.
+    ///
+    /// Pass the pointer only to
+    /// [`setSharedLibraryLoader`](slang_compiler_sys::IGlobalSession::setSharedLibraryLoader)
+    /// of a global session
+    /// of the Slang that `slang-compiler-sys` builds from source and this
+    /// program links. A Slang that another copy of the Slang library loaded
+    /// has another default loader, so the loader would answer it from the
+    /// wrong Slang. That call is unsafe, and its caller upholds this
+    /// condition.
     ///
     /// # Examples
     ///
     /// See the example of the [crate documentation](crate).
-    ///
-    /// # Safety
-    ///
-    /// The function has no precondition. It returns a pointer that is never
-    /// null and stays valid for the life of the process, to a loader whose
-    /// reference counting changes and frees nothing, and which any thread may
-    /// use at any time. A caller passes the pointer only to
-    /// `setSharedLibraryLoader` of a global session of the Slang that
-    /// `slang-compiler-sys` builds from source and this program links. A Slang
-    /// that another copy of the Slang library loaded has another default
-    /// loader, so the loader would answer it from the wrong Slang.
-    pub fn slang_glslang_sys_loader() -> *mut ISlangSharedLibraryLoader;
+    pub safe fn slang_glslang_sys_loader() -> *mut ISlangSharedLibraryLoader;
 }

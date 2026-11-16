@@ -485,6 +485,7 @@ The crate-level documentation also states:
 - The recorded commit, its build tag, and the version of the crate, and that the version of a release names the commit (Section 7.2). The tests of SRC-11 keep them equal to `recorded.rs` and the manifest.
 - How to build another commit through `[patch]`, and that it is best effort (SRC-22).
 - What the crate fetches and from where, the git settings of SRC-8, that it honours `CARGO_NET_OFFLINE`, and that it runs nothing from the tree (Section 14).
+- What a dependent build script relies on, in a section of its own: that the tree at `root` is shared and read-only, the list of required submodules of SRC-4, that `src/` of the shared folder belongs to `slang-src` and each dependent owns the directory named after its crate (Section 9.2), the entry protocol of SRC-16 in short, and the rerun instruction on the stamp file. A third-party crate that depends on a published `slang-src` sees only the crate documentation, and a change of any of these is a breaking change that no signature shows.
 - `# Features`: the crate has no Cargo features.
 - `# Platform support`: the crate runs wherever git runs, and the vendored builds that use it are tested on the platforms of the vendored CI jobs (Section 15.3).
 

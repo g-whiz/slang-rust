@@ -1,4 +1,5 @@
 use std::ffi::{CStr, CString, c_char};
+use std::path::Path;
 use std::str::Utf8Error;
 
 use crate::error::{Error, ErrorKind, Operation, Result};
@@ -16,6 +17,22 @@ pub(crate) fn c_string(text: &str, operation: Operation, what: &str) -> Result<C
             error.nul_position()
         ))
     })
+}
+
+/// Converts a path that the crate passes to Slang into a C string, and
+/// reports a path that is not valid UTF-8, or that contains a NUL byte, as
+/// an error of kind `InvalidArgument`.
+///
+/// Slang takes every path as UTF-8 text. `what` names the path in the
+/// error, such as `the search path`.
+pub(crate) fn path_c_string(path: &Path, operation: Operation, what: &str) -> Result<CString> {
+    let text = path.to_str().ok_or_else(|| {
+        Error::new(ErrorKind::InvalidArgument, operation).with_detail(format!(
+            "{what} {} is not valid UTF-8, which Slang needs",
+            path.display()
+        ))
+    })?;
+    c_string(text, operation, what)
 }
 
 /// Reads a string that Slang returned, as text borrowed for `'a`.

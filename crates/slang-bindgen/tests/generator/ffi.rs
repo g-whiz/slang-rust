@@ -103,8 +103,11 @@ fn binary_without_libclang_advises_to_install_it_or_set_libclang_path() {
         errors.starts_with("slang-bindgen: cannot load libclang: "),
         "{errors}"
     );
-    assert!(
-        errors.contains("Install libclang or set LIBCLANG_PATH to the directory that holds it"),
+    assert_eq!(
+        errors
+            .matches("install libclang or set LIBCLANG_PATH to the directory that holds it")
+            .count(),
+        1,
         "{errors}"
     );
     assert!(!output.exists(), "{}", output.display());

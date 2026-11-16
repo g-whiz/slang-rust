@@ -27,7 +27,7 @@ pub use interface::{
 /// any of them, change. Generated code asserts at compile time that it
 /// equals the version for which the code was generated, so a mismatch fails
 /// to compile instead of failing at [`load_precompiled`].
-pub const ENCODING_VERSION: u32 = 1;
+pub const ENCODING_VERSION: u32 = 2;
 
 /// A Rust struct that `slango-macros` generates for a Slang structure that is
 /// the element of a structured buffer, which makes it an

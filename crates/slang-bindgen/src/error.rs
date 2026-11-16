@@ -159,10 +159,11 @@ mod tests {
     const fn assert_send_sync_static<T: Send + Sync + 'static>() {}
 
     #[test]
-    fn error_and_location_are_send_sync_and_static() {
+    fn error_location_and_generated_are_send_sync_and_static() {
         assert_send_sync_static::<Error>();
         assert_send_sync_static::<Location>();
         assert_send_sync_static::<ErrorKind>();
+        assert_send_sync_static::<crate::Generated>();
     }
 
     #[test]

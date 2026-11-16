@@ -4,7 +4,7 @@ expression: "bindings(\"resources.slang\")"
 ---
 const _: &[u8] = ::core::include_bytes!("<shaders>/resources.slang");
 const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 1,
+    ::slango::__private::ENCODING_VERSION == 2,
     "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
 );
 /// The arguments of the kernel `shadeImage`, one field for each parameter.
@@ -43,8 +43,9 @@ pub struct ShadeImage {
     kernel: ::slango::Kernel,
 }
 impl ShadeImage {
-    /// The number of threads in each thread group, along x, y, and
-    /// z, which the `[numthreads]` attribute of the kernel sets.
+    /// The number of threads in each thread group, a set of threads
+    /// that run together on the GPU, along x, y, and z, which the
+    /// `[numthreads]` attribute of the kernel sets.
     pub const THREAD_GROUP_SIZE: [u32; 3] = [8, 8, 1];
     /// Runs the kernel with `args` on at least `elements` threads
     /// along x, y, and z, in as many thread groups as that needs.
@@ -72,8 +73,9 @@ impl ShadeImage {
             .bind("output", args.output)
             .dispatch(elements)
     }
-    /// Runs the kernel with `args` on `groups` thread groups along x,
-    /// y, and z.
+    /// Runs the kernel with `args` on `groups` thread groups, sets of
+    /// [`Self::THREAD_GROUP_SIZE`] threads that run together, along
+    /// x, y, and z.
     ///
     /// # Errors
     ///
@@ -141,8 +143,9 @@ pub struct ClearOutput {
     kernel: ::slango::Kernel,
 }
 impl ClearOutput {
-    /// The number of threads in each thread group, along x, y, and
-    /// z, which the `[numthreads]` attribute of the kernel sets.
+    /// The number of threads in each thread group, a set of threads
+    /// that run together on the GPU, along x, y, and z, which the
+    /// `[numthreads]` attribute of the kernel sets.
     pub const THREAD_GROUP_SIZE: [u32; 3] = [64, 1, 1];
     /// Runs the kernel with `args` on at least `elements` threads
     /// along x, y, and z, in as many thread groups as that needs.
@@ -170,8 +173,9 @@ impl ClearOutput {
             .bind("output", args.output)
             .dispatch(elements)
     }
-    /// Runs the kernel with `args` on `groups` thread groups along x,
-    /// y, and z.
+    /// Runs the kernel with `args` on `groups` thread groups, sets of
+    /// [`Self::THREAD_GROUP_SIZE`] threads that run together, along
+    /// x, y, and z.
     ///
     /// # Errors
     ///

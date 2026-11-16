@@ -131,7 +131,9 @@ pub enum ErrorKind {
     Compile,
     /// A kernel has a parameter for which the generator has no Rust type,
     /// such as a structured buffer of `float3`, a 64-bit scalar, or a
-    /// structure in a structured buffer with a `bool` field. The detail names
+    /// structure in a structured buffer with a `bool` field. A structured
+    /// buffer is a buffer in GPU memory that holds an array of elements of
+    /// one type. The detail names
     /// the kernel, the parameter, the field when there is one, and the
     /// reason. Change the shader, or use the runtime API of `slango` for the
     /// kernel.

@@ -267,8 +267,9 @@ fn kernel_items(
         }
 
         impl #type_name {
-            /// The number of threads in each thread group, along x, y, and
-            /// z, which the `[numthreads]` attribute of the kernel sets.
+            /// The number of threads in each thread group, a set of threads
+            /// that run together on the GPU, along x, y, and z, which the
+            /// `[numthreads]` attribute of the kernel sets.
             pub const THREAD_GROUP_SIZE: [u32; 3] = [#x, #y, #z];
 
             /// Runs the kernel with `args` on at least `elements` threads
@@ -284,8 +285,9 @@ fn kernel_items(
                 self.kernel.call() #calls .dispatch(elements)
             }
 
-            /// Runs the kernel with `args` on `groups` thread groups along x,
-            /// y, and z.
+            /// Runs the kernel with `args` on `groups` thread groups, sets of
+            /// [`Self::THREAD_GROUP_SIZE`] threads that run together, along
+            /// x, y, and z.
             ///
             /// # Errors
             ///

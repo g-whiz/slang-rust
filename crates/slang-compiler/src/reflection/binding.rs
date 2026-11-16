@@ -222,7 +222,8 @@ impl<'a> BindingRange<'a> {
 
     /// Returns whether the range holds a value or a parameter block of a
     /// Slang interface type, whose bindings depend on the concrete type that
-    /// specialization supplies.
+    /// specialization supplies, the step that fills in the generic and
+    /// interface parameters of a program with concrete types.
     ///
     /// # Examples
     ///

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::iter::FusedIterator;
+use std::path::Path;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
@@ -17,7 +18,7 @@ use crate::options::CompilerOptions;
 use crate::owned::Owned;
 use crate::reflection::{Function, ProgramLayout};
 use crate::session::{Session, TargetIndex};
-use crate::strings::{borrowed_str, c_string};
+use crate::strings::{borrowed_str, c_string, path_c_string};
 
 impl Session {
     /// Loads the module `name` from the search paths of the session.
@@ -109,8 +110,8 @@ impl Session {
     ///
     /// Returns an error of kind:
     ///
-    /// - [`ErrorKind::InvalidArgument`] when `name`, `path`, or `source`
-    ///   contains a NUL byte.
+    /// - [`ErrorKind::InvalidArgument`] when `path` is not valid UTF-8, which
+    ///   Slang needs, or `name`, `path`, or `source` contains a NUL byte.
     /// - [`ErrorKind::Compile`], with the diagnostics, when the source does
     ///   not compile, or when the session already loaded the name with
     ///   different source.
@@ -127,12 +128,18 @@ impl Session {
     pub fn load_module_from_source(
         &self,
         name: &str,
-        path: &str,
+        path: impl AsRef<Path>,
         source: &str,
     ) -> Result<Compiled<Module>> {
+        self.load_source_at(name, path.as_ref(), source)
+    }
+
+    /// Compiles the module `name` from `source` as
+    /// [`Session::load_module_from_source`] describes.
+    fn load_source_at(&self, name: &str, path: &Path, source: &str) -> Result<Compiled<Module>> {
         let operation = Operation::LoadModule;
         let c_name = c_string(name, operation, "the module name")?;
-        let c_path = c_string(path, operation, "the path")?;
+        let c_path = path_c_string(path, operation, "the path")?;
         let c_source = c_string(source, operation, "the source")?;
         guard::call("Session::load_module_from_source", || {
             let mut diagnostics: *mut ISlangBlob = ptr::null_mut();
@@ -192,8 +199,9 @@ impl Session {
     ///
     /// Returns an error of kind:
     ///
-    /// - [`ErrorKind::InvalidArgument`] when `ir` is empty, or `name` or
-    ///   `path` contains a NUL byte.
+    /// - [`ErrorKind::InvalidArgument`] when `ir` is empty, `path` is not
+    ///   valid UTF-8, which Slang needs, or `name` or `path` contains a NUL
+    ///   byte.
     /// - [`ErrorKind::Compile`], with the diagnostics, when Slang reports why
     ///   it cannot load the bytes as a module.
     /// - [`ErrorKind::NotFound`], with empty diagnostics, when Slang returns
@@ -211,9 +219,15 @@ impl Session {
     pub fn load_module_from_ir(
         &self,
         name: &str,
-        path: &str,
+        path: impl AsRef<Path>,
         ir: &[u8],
     ) -> Result<Compiled<Module>> {
+        self.load_ir_at(name, path.as_ref(), ir)
+    }
+
+    /// Loads the module `name` from `ir` as
+    /// [`Session::load_module_from_ir`] describes.
+    fn load_ir_at(&self, name: &str, path: &Path, ir: &[u8]) -> Result<Compiled<Module>> {
         let create_blob = |ir: &[u8]| {
             // SAFETY: `ir` points to `ir.len()` initialized bytes, which
             // `slang_createBlob` copies into a blob of its own during the call,
@@ -244,7 +258,7 @@ impl Session {
     unsafe fn load_module_from_ir_with(
         &self,
         name: &str,
-        path: &str,
+        path: &Path,
         ir: &[u8],
         create_blob: impl FnOnce(&[u8]) -> *mut ISlangBlob,
     ) -> Result<Compiled<Module>> {
@@ -255,7 +269,7 @@ impl Session {
                 .with_detail("the intermediate representation is empty".to_owned()));
         }
         let c_name = c_string(name, operation, "the module name")?;
-        let c_path = c_string(path, operation, "the path")?;
+        let c_path = path_c_string(path, operation, "the path")?;
         guard::call("Session::load_module_from_ir", || {
             let raw_blob = create_blob(ir);
             // SAFETY: the caller guarantees that `create_blob` returns a new
@@ -595,7 +609,8 @@ impl Module {
     /// # Examples
     ///
     /// This example finds a compute kernel that has no `[shader(...)]`
-    /// attribute and links it.
+    /// attribute and links it. It needs the Slang shared library at run time,
+    /// so it is compiled but not run:
     ///
     /// ```no_run
     /// use slang_compiler::{GlobalSession, Session, Stage, Target, TargetFormat};
@@ -1635,6 +1650,7 @@ impl FusedIterator for DependencyFilePaths<'_> {}
 #[cfg(test)]
 mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::path::Path;
 
     use super::Module;
     use crate::fake::{
@@ -1841,9 +1857,12 @@ mod tests {
         let before = fake::calls(&log);
         // SAFETY: the blob creation returns null, which the seam allows.
         let error = unsafe {
-            session.load_module_from_ir_with("kernel", "kernel.slang-module", b"ir", |_| {
-                std::ptr::null_mut()
-            })
+            session.load_module_from_ir_with(
+                "kernel",
+                Path::new("kernel.slang-module"),
+                b"ir",
+                |_| std::ptr::null_mut(),
+            )
         }
         .expect_err("a null blob fails the load");
         assert_eq!(error.kind(), ErrorKind::Internal);
@@ -1864,9 +1883,12 @@ mod tests {
         // SAFETY: the blob creation returns a new fake blob with one
         // reference, which holds a copy of the bytes.
         let module = unsafe {
-            session.load_module_from_ir_with("kernel", "kernel.slang-module", b"ir", |ir| {
-                FakeBlob::create(&log, "ir", ir).as_ptr()
-            })
+            session.load_module_from_ir_with(
+                "kernel",
+                Path::new("kernel.slang-module"),
+                b"ir",
+                |ir| FakeBlob::create(&log, "ir", ir).as_ptr(),
+            )
         }
         .expect("the fake loads the module")
         .into_value();
@@ -1904,6 +1926,46 @@ mod tests {
             .expect_err("an empty IR slice is rejected");
         assert_eq!(error.kind(), ErrorKind::InvalidArgument);
         assert_eq!(fake::calls(&log), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_load_path_that_is_not_utf8_fails_before_any_call() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let log = Log::new();
+        let global = fake::global_session(&log);
+        let session = fake::session(&global, 1);
+        let before = fake::calls(&log);
+        let path = Path::new(OsStr::from_bytes(b"shaders\xff.slang"));
+        for result in [
+            session.load_module_from_source("a", path, SOURCE),
+            session.load_module_from_ir("a", path, b"ir"),
+        ] {
+            let error = result.expect_err("a path that is not UTF-8 is rejected");
+            assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+            assert_eq!(error.operation(), Operation::LoadModule);
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("is not valid UTF-8, which Slang needs"),
+                "{error}"
+            );
+        }
+        assert_eq!(fake::calls(&log), before);
+    }
+
+    #[test]
+    fn a_load_takes_the_path_as_a_path() {
+        let log = Log::new();
+        let global = fake::global_session(&log);
+        let session = fake::session(&global, 1);
+        let path = std::path::PathBuf::from("kernel.slang");
+        let module = session
+            .load_module_from_source("kernel", &path, SOURCE)
+            .expect("the fake loads the module");
+        drop(module);
     }
 
     #[test]

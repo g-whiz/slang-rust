@@ -311,17 +311,19 @@ pub(crate) struct UsableRender {
 
 /// Why a vertex or fragment entry point cannot be used: the kind of the
 /// failure, [`ErrorKind::UnsupportedParameter`] when the walk refused one of
-/// its parameters and [`ErrorKind::Compile`] when Slang failed on it, and the
-/// text that describes it, which includes the text of the source error.
+/// its parameters and [`ErrorKind::Compile`] when Slang failed on it, the
+/// text that describes it, and the text of the source error, if any.
 ///
-/// It keeps no source error, because a module returns the rejection from
-/// every call of [`Module::render_pipeline`](crate::Module::render_pipeline)
-/// that names the entry point, and a precompiled module decodes it from
-/// bytes.
+/// It keeps the text of the source error rather than the error itself,
+/// because a module returns the rejection from every call of
+/// [`Module::render_pipeline`](crate::Module::render_pipeline) that names
+/// the entry point, and a precompiled module decodes it from bytes. That
+/// call returns the text as the source of its error.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Rejection {
     pub(crate) kind: ErrorKind,
     pub(crate) detail: String,
+    pub(crate) source: Option<String>,
 }
 
 /// What one compilation of a module yields for its compute, vertex, and
@@ -562,18 +564,19 @@ fn render_record(
 }
 
 /// Returns the rejection of a vertex or fragment entry point from the error
-/// that made it unusable, with the detail of the error followed by the text
-/// of its source, because a rejection keeps no source error.
+/// that made it unusable, with the detail of the error and the text of its
+/// source.
 fn rejection(error: &Error, role: Role, name: &str) -> Rejection {
-    let detail = match (error.detail(), StdError::source(error)) {
-        (Some(detail), Some(source)) => format!("{detail}: {source}"),
-        (Some(detail), None) => detail.to_owned(),
-        (None, Some(source)) => format!("Slang failed on the {} `{name}`: {source}", role.noun()),
+    let source = StdError::source(error).map(ToString::to_string);
+    let detail = match (error.detail(), &source) {
+        (Some(detail), _) => detail.to_owned(),
+        (None, Some(_)) => format!("Slang failed on the {} `{name}`", role.noun()),
         (None, None) => format!("{error}, for the {} `{name}`", role.noun()),
     };
     Rejection {
         kind: error.kind(),
         detail,
+        source,
     }
 }
 

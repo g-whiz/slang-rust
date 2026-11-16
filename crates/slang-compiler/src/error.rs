@@ -41,7 +41,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// match GlobalSession::new() {
 ///     Ok(global) => println!("Slang {}", global.build_tag()),
 ///     Err(error) if error.kind() == ErrorKind::VersionMismatch => {
-///         eprintln!("install the Vulkan SDK that slang-compiler-sys names: {error}");
+///         eprintln!("load the Slang library that the program was built with: {error}");
 ///     }
 ///     Err(error) => return Err(error.into()),
 /// }
@@ -215,15 +215,16 @@ pub enum ErrorKind {
     /// that the loaded library differs from that version. Report it with the
     /// input that caused it.
     Unrecognized,
-    /// A file system that the program gave Slang failed or panicked during the
-    /// call. No operation returns this kind, because a session cannot take a
-    /// custom file system.
-    FileSystem,
     /// Text that Slang returned is not valid UTF-8.
     InvalidUtf8,
     /// The Slang library that the program loaded is not the build that this
-    /// crate was built for. Make the dynamic loader find the library of the
-    /// Vulkan SDK that `slang-compiler-sys` names.
+    /// crate was built for. The error names the build tag of both, the
+    /// version string of a Slang build. When the program links the Slang of a
+    /// Vulkan SDK, make the dynamic loader find the shared library of the SDK
+    /// that the program was built with, whose build tag
+    /// [`BUILD_INFO`](slang_compiler_sys::BUILD_INFO) records. A build with the
+    /// feature `vendored` links Slang statically, so it loads no other
+    /// library.
     VersionMismatch,
 }
 
