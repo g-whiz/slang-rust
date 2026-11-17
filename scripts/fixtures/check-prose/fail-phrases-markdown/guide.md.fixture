@@ -1,0 +1,29 @@
+# Guide
+
+The crate serves as the record.
+
+The two snapshots are byte-identical, and the merge is Gated
+on CI.
+
+The build script runs once, highlighting its focus on safety.
+
+It runs once. In short, the folder keeps builds fast.
+
+Overall, the build is fast.
+
+The route is not only fast but also small.
+
+It is not a fallback, it is a separate build.
+
+Of course! The loader is installed.
+
+- **Fast:** clones Slang once.
+  * **Small** stays small.
+
+## References
+
+- [ONE] Smith, "A Robust Seamless Tapestry", 2024.
+
+## After the References
+
+- A robust item outside the references.

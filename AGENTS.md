@@ -28,7 +28,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
    `AGENTS.md`, the architecture design, the tooling design, and `README.md` change only for such a statement, or when the change alters a rule, the repository layout, or what a user can do.
 
    The agent MUST NOT mirror a fact into several documents, because every copy can diverge. It states the fact once and cites that place. Documentation Maintenance lists what the agent re-reads.
-2. **Documentation follows the writing guide.** The agent MUST write every document, and all application programming interface (API) documentation written with rustdoc, in accordance with `docs/writing-documentation.md`, because the agents and users that read a document depend on its conventions to interpret it. This includes the metadata rules for design documents and the API documentation rules of Section 7 of the writing guide. This file is an instruction file under Section 3.4 of that guide, so it has no metadata table or abstract, and its unnumbered headings are cited by name.
+2. **Documentation follows the writing guide.** The agent MUST write every document, and all application programming interface (API) documentation written with rustdoc, in accordance with `docs/writing-documentation.md`, because the agents and users that read a document depend on its conventions to interpret it. This includes the metadata rules for design documents and the API documentation rules of Section 7 of the writing guide. This file is an instruction file under Section 3.4 of that guide, so it has no metadata table or abstract, and its unnumbered headings are cited by name. Every document and all API documentation also follow `docs/avoiding-claudelish.md`, and every README also follows `docs/writing-readmes.md`.
 3. **Rust code follows the coding standard.** The agent MUST write all Rust code in accordance with `docs/rust-coding-standards.md`, because a reviewer checks every change against it and rejects code that breaks it. The standard has two kinds of rules.
 
    An agent learns the rules that a lint or tool enforces from the failing check, by reading the lint's row in Section 4.5 and following Section 4.4. The judgement rules, listed in Appendix A, are what an agent reads before it writes Rust.
@@ -54,7 +54,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
    Every recipe has a help comment, and every shell script starts with `#!/usr/bin/env bash` and `set -euo pipefail`. Every shell script and every recipe that contains shell is `shellcheck`-clean. Section 3.2 of `docs/design/tooling.md` lists every recipe, and Validating Changes names the recipes to run for each kind of change.
 9. **No attribution.** No output contains a generated-by line, a `Co-Authored-By` trailer, or a link to an agent session, because such a line says nothing about the change and a session link can expose a private session. This covers commits, pull requests, issues, and files. The `commit-msg` hook rejects such lines, and `just merge` strips them.
-10. **No extra documentation.** The agent writes no document beyond `README.md`, `AGENTS.md`, `CLAUDE.md`, and the `docs/` tree, with design documents in `docs/design/`, because every extra document is one more place that can diverge from the code.
+10. **No extra documentation.** The agent writes no document beyond the root `README.md`, the `README.md` of each library crate, `AGENTS.md`, `CLAUDE.md`, and the `docs/` tree, with design documents in `docs/design/`, because every extra document is one more place that can diverge from the code.
 11. **Work in a worktree.** Files change only in a git worktree under `.worktrees/`, never in the main checkout, because the main checkout is where `just merge` runs. Branches are named `feature/<short-description>`, lowercase and hyphenated, because the repository has no ticket keys.
 
    The agent commits without asking and pushes its branch to run CI, because the project opens no pull requests and a push to a branch that matches `feature/**` is what runs CI on a branch.
@@ -96,7 +96,7 @@ As of 2026-11-17, the repository is at a very early stage. The agent updates thi
 - M4, the rendering of `slango` and the windowed renderer example, is complete on 2026-11-11. Its design is also in `docs/design/slango.md`. A user can also draw with a vertex and a fragment entry point into a texture or a window, and run the example `windowed-renderer`.
 - M5, `slang-slint` and the Slint example, is complete on 2026-11-11. A Slint program can make Slint create a wgpu device that suits `slango`, turn that device into a `slango::Device`, and show what a `slango` render pipeline draws as a Slint image. A user can run the Slint example `shader-playground`.
 - M6, `slango-macros` and its generator `slango-codegen`, is complete on 2026-11-13. `slango` checks the element type of a bound buffer (Section 9.3 of `docs/design/slango.md`). A crate can call `slango_macros::shader!` on a Slang file to get a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take, and a user can run the example `typed-kernel`.
-- M7, the rework of the native crates, is complete on 2026-11-15. Every build generates the Slang bindings with libclang and records the Slang that it links in `BUILD_INFO`. A program can enable the Cargo feature `vendored` on `slang-compiler`, `slango`, or `slang-slint`, and on `slango-macros` when it calls the macro, to build Slang and its SPIR-V optimizer from source and link them statically without a Vulkan SDK, as the section "Building Slang From Source" of `README.md` describes.
+- M7, the rework of the native crates, is complete on 2026-11-15. Every build generates the Slang bindings with libclang and records the Slang that it links in `BUILD_INFO`. A program can enable the Cargo feature `vendored` on `slang-compiler`, `slango`, or `slang-slint`, and on `slango-macros` when it calls the macro, to build Slang and its SPIR-V optimizer from source and link them statically without a Vulkan SDK, as the crate-level documentation of `slang-compiler-sys` describes.
 - M8, the forward-compatibility pass of `slango` and the first release, is complete on 2026-11-17. The wgpu backend of `slango` sits behind the default Cargo feature `wgpu`, and the eight crates of the first release are on crates.io at `0.1.0-alpha.1`, with their documentation on GitHub Pages. The recipe `check-semver` and the CI job `semver` check the crates against that release.
 
 On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. The design of M7 is in `docs/design/slang-compiler-sys.md`, `docs/design/slang-src.md`, `docs/design/slang-glslang-sys.md`, and the documents that they changed. Five steps delivered M7, all on 2026-11-15, and What exists and works describes what they delivered:
@@ -105,7 +105,7 @@ On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18
 - The second moved the binding generator to the publishable crate `slang-bindgen` and made the build script of `slang-compiler-sys` generate the bindings and the list of C functions into `OUT_DIR` in every build and record the build tag of the Slang that it links in `BUILD_INFO`. It removed the pin file, the checked-in generated files, the static route with `SLANG_SOURCE_DIR`, every `DOCS_RS` code path, every `[package.metadata.docs.rs]` table, the recipes `pin`, `generate-bindings`, `check-bindings`, `test-static`, and `check-doc-without-slang`, and `--all-features` from the recipes.
 - The third added the Cargo feature `vendored` of `slang-compiler-sys`, with the vendored route of its build script, which builds a minimal static Slang from the tree of `slang-src`, keeps the built libraries in the shared folder, finds the Microsoft C++ compiler itself on Windows, and records the static link in `BUILD_INFO`. It also made the vendored recipes and the CI job `vendored` build and test that route.
 - The fourth added the crate `slang-glslang-sys`, which builds slang-glslang as static libraries from the tree of `slang-src` and holds the in-process loader, and the feature `vendored` of `slang-compiler`, which installs that loader on every global session that the crate creates. It made `slango`, `slango-codegen`, `slango-macros`, `slang-slint`, and the examples package forward the feature. It moved the vendored recipes to `slang-compiler/vendored` with two extra commands that check the forwards, added the Python 3 step to the CI job `vendored`, and made the vendored route of both native crates link the system libraries that Slang's archives and slang-glslang need.
-- The fifth completed the user guide to the vendored build in `README.md` and the crate-level documentation. It covers which crate takes the feature and why `slango-macros` needs it as well, what the build needs and costs, the shared folder, which Slang a build gets and how `BUILD_INFO` shows it, the platforms, and the common failures. It closed the milestone.
+- The fifth completed the user guide to the vendored build, which the root `README.md` held until 2026-11-17, and the crate-level documentation. It covers which crate takes the feature and why `slango-macros` needs it as well, what the build needs and costs, the shared folder, which Slang a build gets and how `BUILD_INFO` shows it, the platforms, and the common failures. It closed the milestone.
 
 The design of M8, the forward-compatibility pass of `slango` and the first release (Section 15.11 of `docs/design/architecture.md`), is in these documents:
 
@@ -167,9 +167,9 @@ On 2026-11-16 in the development container, `just check`, `check-vendored`, `tes
 The fourth code step of M8, done on 2026-11-17, carried out the owner's decisions of that day on the versions of the release:
 
 - The owner decided that the public API ships as it is on `main`, and that every published release is an alpha until the owner decides otherwise. The open questions of the review stay open and are decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
-- Every member has the version `0.1.0-alpha.1`, and `slang-src` has `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`, whose test now requires its pre-release to end with the Slang identifiers (SRC-13 of `docs/design/slang-src.md`). Every requirement between members is exact.
+- Every member got the version `0.1.0-alpha.1`, and `slang-src` got `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`, whose test now requires its pre-release to end with the Slang identifiers (SRC-13 of `docs/design/slang-src.md`). Every requirement between members is exact.
 - `tag-release` passes `--prerelease` to `gh release create` when the version holds a hyphen, so the tag of the first release is `v0.1.0-alpha.1` and its GitHub release is a pre-release.
-- `README.md` states that the API is unstable and that a dependent names the full pre-release version.
+- The section `Status` of the root `README.md` states that the API is unstable and that a dependent names the full pre-release version.
 
 On 2026-11-17, the owner set the source of GitHub Pages to "GitHub Actions" and added the tag rule `v*` to the environment `github-pages`, which is step 6 of Section 9.6 of `docs/design/tooling.md`. The GitHub API then reported the build type `workflow`, the address `https://g-whiz.github.io/slang-rust/`, and two deployment policies, the branch `main` and the tag `v*`. At that point, nothing was deployed, published, or tagged.
 
@@ -218,9 +218,9 @@ With the owner's go-ahead, `just tag-release` then tagged the published commit o
 
 The sixth code step of M8, done on 2026-11-17, is the change that follows the release (step 11 of Section 9.6 of `docs/design/tooling.md`). It closed the milestone:
 
-- Every member except `slang-src` has the version `0.1.0-alpha.2`, and `slang-src` has `0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1`. Every requirement between members is exact at the new version, and each example of the API documentation of `slang-src`, `slang-compiler-sys`, and `slango-macros` that named `0.1.0-alpha.1` now names the new version (TOOL-37). The published version stays `0.1.0-alpha.1`, which `README.md` keeps naming until a change before the next release raises it (Section 9.6 of `docs/design/tooling.md`).
+- Every member except `slang-src` has the version `0.1.0-alpha.2`, and `slang-src` has `0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1`. Every requirement between members is exact at the new version, and each example of the API documentation of `slang-src`, `slang-compiler-sys`, and `slango-macros` that named `0.1.0-alpha.1` now names the new version (TOOL-37). The published version stays `0.1.0-alpha.1`, which the root `README.md` keeps naming until the next release is published (Section 9.6 of `docs/design/tooling.md`).
 - The recipe `check-semver` in the group `checks`, outside `just check`, and the CI job `semver`, which runs it on Linux in every run of the workflow (TOOL-38 and TOOL-39 of `docs/design/tooling.md`).
-- A precondition of the release procedure, that `README.md` and the API documentation name the version of the release, and TQ-18 of `docs/design/tooling.md`, which asks whether `check-package` should check it.
+- A precondition of the release procedure on the version that each example of the crates names (Section 9.6 of `docs/design/tooling.md`), and TQ-18 of that design, which asks whether `check-package` should check it.
 
 The step answered TQ-16 of `docs/design/tooling.md` by experiment, in Section 9.3 of that design. cargo-semver-checks 0.51.0 takes the step from one alpha to the next as a major change and runs none of its checks, so `check-semver` reports no change of the API while every release is an alpha. It also skips every crate without a library target, so it does not check `slango-macros`.
 
@@ -238,6 +238,10 @@ The help comment of `check-semver` changed after `just check` ran, and `check-sh
 When this was written, the CI job `semver` had not run on GitHub, so its installation of cargo-semver-checks rests on the manifest of the installer action alone (TA-20 of `docs/design/tooling.md`). Hard Rule 11 lets the step reach `main` only after its CI run succeeds.
 
 Four open questions stay open after M8 with no milestone assigned: TQ-17 and TQ-18 of `docs/design/tooling.md`, SLMQ-2 of `docs/design/slango-macros.md`, which the first release did not decide, and CQ-5 of `docs/design/slang-compiler.md`, which waits for an answer from Slang. The questions of the review of the public API wait for the first release that is not an alpha, as the third code step states.
+
+On 2026-11-17, after the sixth code step of M8 and before the publication of `0.1.0-alpha.2`, the owner set aside the earlier rules on READMEs. A change of that day added the guides `docs/writing-readmes.md` and `docs/avoiding-claudelish.md`, a README for each library crate, and the phrase check of `check-prose` with its list `scripts/prose-phrases.txt`. It also rewrote the root `README.md` and moved the user guide to the vendored build into the crate-level documentation of `slang-src` and `slang-compiler-sys`.
+
+The change alters the packaged files of every crate of the release. At `0.1.0-alpha.1`, `check-package` failed on all eight with "crates.io holds 0.1.0-alpha.1, and the package differs from the published .crate file". The version `0.1.0-alpha.2` of the sixth code step carries the change. Each crate README names the version of its package, `0.1.0-alpha.2`, and the root `README.md` names the latest published version, `0.1.0-alpha.1`, as RDM-33 of `docs/writing-readmes.md` states. The change restated the precondition of the release procedure and TQ-18 of `docs/design/tooling.md` for this layout.
 
 Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
@@ -312,7 +316,7 @@ What exists and works:
 - The workspace manifest `Cargo.toml`, with `default-members`, which leaves out `slang-src` and `slang-glslang-sys`, the `[workspace.package]` fields that the members inherit, and the workspace lint tables of Section 4.2 of the coding standard.
 - The manifests of the eight crates of the first release, each with the `documentation` field of TOOL-40 of `docs/design/tooling.md`, which names its page on the hosted site.
 - The tool configuration: `clippy.toml`, `deny.toml`, `.config/nextest.toml`, `taplo.toml`, and `typos.toml`.
-- `crates/slang-compiler-sys`, with publication metadata and crate-level documentation that states the safety contract that every generated function shares and both routes. It also states that every crate between a program and it forwards the feature `vendored`, that the feature of `slang-compiler` installs the loader of `slang-glslang-sys`, and how a direct user installs that loader (SCS-37 of `docs/design/slang-compiler-sys.md`).
+- `crates/slang-compiler-sys`, with publication metadata and crate-level documentation that states the safety contract that every generated function shares, both routes, the need for libclang, and the common build errors. It also states that every crate between a program and it forwards the feature `vendored`, that the feature of `slang-compiler` installs the loader of `slang-glslang-sys`, and how a direct user installs that loader (SCS-37 of `docs/design/slang-compiler-sys.md`).
   - Its one Cargo feature, `vendored`, off by default, enables the optional dependency `slang-src` and the optional build dependency `find-msvc-tools`. `slang-bindgen` is its build dependency, and `slang-bindgen` and `find-msvc-tools` are its development dependencies (SCS-61 of `docs/design/slang-compiler-sys.md`). The crate root names `slang-src` with `use slang_src as _;`, because the build script needs only its `links` metadata (DEP-2 of the coding standard).
   - Its root includes the raw bindings that the build script generated into `OUT_DIR` and re-exports them. It also holds the hand-written `BuildInfo`, `Linkage`, and the constant `BUILD_INFO`, whose values the build script writes into `OUT_DIR/build_info.rs`.
   - Its build script `build.rs`, with its logic in `route.rs` and its real environment in `system.rs`, takes the vendored route with the feature and the dynamic route without it.
@@ -324,7 +328,7 @@ What exists and works:
   - Its crate-level section `# Safety` states, besides the shared contract, the rule for a program that implements a Slang interface in Rust: each function of the vtable is defined `extern "system"` and stored in its `"system-unwind"` field through a conversion of the function pointer, so that a panic aborts at the boundary instead of unwinding into Slang.
   - On the dynamic route, the smoke and symbol tests have passed with generated bindings on Linux, Windows, and macOS, the last two in run 43719234533.
   - On the vendored route, the crate's tests and doctests have passed through `test-vendored` on x86_64 Linux in the development container and, in run 43727977282, before it linked system libraries, on the Linux, Windows, and macOS runners. A program outside the workspace built with the feature in the development container on 2026-11-15 ran without `VULKAN_SDK` and without a library path, and its release binary linked only the C++ and C runtime libraries of the system.
-- `crates/slang-src`, the crate that obtains the Slang source tree for a vendored build, with publication metadata, its own licence `Apache-2.0 WITH LLVM-exception`, no dependencies, and crate-level documentation and no API.
+- `crates/slang-src`, the crate that obtains the Slang source tree for a vendored build, with publication metadata, its own licence `Apache-2.0 WITH LLVM-exception`, no dependencies, no API, and crate-level documentation that states what a vendored build needs and costs and where the shared folder is.
   - Its build script `build.rs`, with its logic in `source.rs` and its real host in `system.rs`, shallow-clones the recorded commit of `recorded.rs` with its ten required submodules into the shared folder `slang-src` of the Cargo target directory, once for each target directory. It exports the path of the tree, the commit, the build tag, and the shared folder as `links` metadata (SRC-1 of `docs/design/slang-src.md`).
   - `slang-compiler-sys` depends on it with the feature `vendored`, and `slang-glslang-sys` depends on it always. An agent can build, lint, and test the crate through the vendored recipes and print the recorded Slang with `recorded-slang`, as Validating Changes states.
   - Its integration-test binary `tests/slang_src/` holds pure tests against a fake host and `ffi` tests of the real host, one of which checks the clone entry that the build script of the same build wrote (Section 12 of `docs/design/slang-src.md`).
@@ -384,8 +388,8 @@ What exists and works:
   - Its binary `slang-bindgen` takes a header directory, a target triple, and an output directory, and writes `bindings.rs` and `symbols.rs` there. Only the recipe `check-slang-call-guard` runs it.
   - Its unit tests in `src/tests.rs` parse synthetic headers and compile for Linux only. Its integration-test binary `tests/generator/` runs the binary on the headers at `VULKAN_SDK` and on failing inputs, and compiles for Linux only as well (Section 7.5 of `docs/design/slang-compiler-sys.md`).
   - The binary's output for the headers of the Vulkan SDK in the development container was the same text for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, and `aarch64-unknown-linux-gnu` on 2026-11-15. In run 43717303370, the build script generated the bindings on Windows and macOS as well, and the tests of `slang-bindgen`, which compile for Linux only, ran on Linux only.
-- The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`, whose section "Building Slang From Source" is the user guide to the vendored build.
-- The writing guide, the coding standard, the reference list, and the list of upstream reports under `docs/`.
+- The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, the root `README.md`, which is the project page on GitHub, and the `README.md` of each library crate, which crates.io shows as the page of the crate once it is published.
+- The writing guide, the guide to READMEs `docs/writing-readmes.md`, the guide against the prose habits of generated text `docs/avoiding-claudelish.md`, the coding standard, the reference list, and the list of upstream reports under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and which Slang is recorded, and the roadmap of milestones M0 to M18.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented, and the release procedure, the check for breaking changes, and the hosted documentation, which M8 designed and implemented, the recipes, scripts, and documentation workflow in its second code step and `check-semver` with the CI job `semver` in its sixth.
 - The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-compiler-sys.md`, a draft for M7, whose dynamic route, generator, and build information the second code step of M7 implemented, whose vendored route the third implemented, and whose system libraries the fourth added.
@@ -425,6 +429,7 @@ The custom checkers enforce these rules:
 
 - The rules of the writing guide on comments in Rust source, on the headings of item documentation, on `ignore` in doctests, and on the `# Features` section.
 - The rules of the writing guide on ASCII punctuation, semicolons, and listed spellings in API documentation.
+- The phrase check of Section 6 of `docs/avoiding-claudelish.md`, in Markdown files and in API documentation.
 - The part of rule SLC-32 of `docs/design/slang-compiler.md` that places every call of `slang-compiler` into Slang alone inside the closure of `abort_on_exception`.
 - The rules of Section 7.2 of `docs/design/tooling.md` on pinned actions, the `pull_request_target` event, and top-level workflow permissions.
 - The part of Hard Rule 15 that forbids citations of project documents, sections, and rule identifiers in code and configuration.
@@ -449,7 +454,8 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `Cargo.lock`: The lock file of the workspace.
 - `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, `LICENSE-GPL`: The texts of the Apache License 2.0, the MIT licence, the Apache License 2.0 with the LLVM exception, and version 3 of the GNU General Public License, each held once (TOOL-33 of `docs/design/tooling.md`).
 - `LICENSE`, `LICENSE-APACHE`, and `LICENSE-MIT` in a package directory: Relative symbolic links to the root texts of the package's own licence, under the conventional name, which is `LICENSE` in `crates/slang-compiler-sys/`, `crates/slang-glslang-sys/`, `crates/slang-slint/`, and `crates/slang-src/`, and `LICENSE-APACHE` with `LICENSE-MIT` in every other package directory, including `crates/slang-bindgen/` and `examples/`. `cargo package` follows the links, but a checkout without symbolic link support holds only the target path, so a release is packaged on Linux or macOS (TOOL-33 of `docs/design/tooling.md`).
-- `README.md`: The README, which is also the readme of every member through the inherited `readme` field.
+- `README.md`: The root README, which is the project page on GitHub. No member inherits it (TOOL-4 of `docs/design/tooling.md`).
+- `README.md` in the package directory of each library crate: The crate README, which the crate's `readme` field names and crates.io shows as the page of the crate. The examples package has none (Section 6 of `docs/writing-readmes.md`).
 - `crates/slang-bindgen/`: The binding generator that Project Status describes. It has these parts:
   - `Cargo.toml`, which inherits `clang` and `clang-sys` from `[workspace.dependencies]`.
   - The library under `src/` with the private modules `parse`, `rules`, `check`, `emit`, `model`, and `error`. The module `emit` writes the unwinding ABIs of SCS-10 and SCS-11 of `docs/design/slang-compiler-sys.md`.
@@ -492,7 +498,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - `build_script/ffi.rs` includes `system.rs` and tests the real host, so Miri skips it.
   - `ffi.rs` tests the loader that the crate links.
 - `crates/slang-compiler/`: The safe crate that Project Status describes, with `Cargo.toml`, which declares the feature `vendored` and inherits `slang-compiler-sys`, the optional `slang-glslang-sys`, and the development dependency `insta` from `[workspace.dependencies]` (Section 4.1 of `docs/design/slang-compiler.md`).
-- `crates/slang-compiler/src/lib.rs`: The crate-level documentation of the current scope, the opt-out of `unsafe_code`, the declarations of the private modules, and the re-exports of the public items at the crate root.
+- `crates/slang-compiler/src/lib.rs`: The crate-level documentation of the current scope, the opt-out of `unsafe_code`, the declarations of the private modules, the re-exports of the public items at the crate root, and the item `ReadmeDoctests` that compiles the crate README as doctests.
 - `crates/slang-compiler/src/owned.rs`: The owning interface pointer `Owned`, the only code that adds or releases a reference, with the checked cast through `queryInterface`, and the crate-private unsafe trait through which it calls the generated thunks of `addRef`, `release`, and `queryInterface` (SLC-2, Section 5.4 of `docs/design/slang-compiler.md`).
 - `crates/slang-compiler/src/guard.rs`: The Slang call guard and its queue of deferred releases, each in a `thread_local!` (SLC-28), and `abort_on_exception`, which aborts the process when a C++ exception escapes the one call into Slang that it wraps (SLC-32).
 - `crates/slang-compiler/src/error.rs`: The public types `Error`, `Result`, `ErrorKind`, `Operation`, `Diagnostics`, and `Compiled` (Sections 6.8 and 6.9 of `docs/design/slang-compiler.md`).
@@ -533,7 +539,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - The shaders that the tests load, under `tests/slango/shaders/`.
 - `crates/slang-slint/`: The crate `slang-slint` that Project Status describes. It has these parts:
   - `Cargo.toml`, which sets `publish = false` (TOOL-35 of `docs/design/tooling.md`), declares the feature `vendored`, inherits `slango` with its feature `wgpu` named and `slint` from `[workspace.dependencies]`, and enables the Slint features of SLS-1 of `docs/design/slang-slint.md`.
-  - `src/lib.rs` with the crate-level documentation and the re-exports.
+  - `src/lib.rs` with the crate-level documentation, the re-exports, and `ReadmeDoctests`.
   - The private modules:
     - `device` holds `wgpu_configuration` and `device`.
     - `error` holds the error type and its unit tests.
@@ -544,7 +550,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
     - `common` holds their helpers.
 - `crates/slango-codegen/`: The generator crate that Project Status describes. It has these parts:
   - `Cargo.toml`, which declares the feature `vendored`, inherits `proc-macro2`, `quote`, and the development dependencies `insta`, `prettyplease`, and `syn` from `[workspace.dependencies]` and declares `slango` with an exact version and its feature `wgpu` itself (SLM-2 of `docs/design/slango-macros.md`).
-  - `src/lib.rs` with the crate-level documentation, `generate`, and `generate_precompiled`.
+  - `src/lib.rs` with the crate-level documentation, `generate`, `generate_precompiled`, and `ReadmeDoctests`.
   - The private modules:
     - `emit` writes the tokens and has its unit tests in `src/emit/tests.rs`.
     - `emit::structs` in `src/emit/structs.rs` writes the structs for Slang structures and has its unit tests in `src/emit/structs/tests.rs`.
@@ -591,6 +597,8 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `taplo.toml`: The taplo configuration, with four-space indentation and the exclusion of `target/` and `.worktrees/`.
 - `typos.toml`: The typos configuration, which ignores two correct patterns that typos would otherwise report, and accepts three whole identifiers that the Slang headers misspell and that the design documents name (Section 5.10 of `docs/design/slang-compiler-sys.md`).
 - `docs/writing-documentation.md`: The normative writing guide.
+- `docs/writing-readmes.md`: The normative guide to the root README and the crate READMEs, which says where each fact for users lives.
+- `docs/avoiding-claudelish.md`: The normative guide against the prose habits of text written by large language models, with the specification of the phrase check of `check-prose`.
 - `docs/rust-coding-standards.md`: The normative Rust coding standard, with the specification of the lint and tool configuration.
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
 - `docs/upstream-reports.md`: The one to-do list of bug reports to make to upstream projects, with an entry for each defect that should be reported and the drafts written so far (Hard Rule 14).
@@ -637,7 +645,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `scripts/self-test-release`: The self-test of the release scripts, which `release-scripts-self-test` runs against stub programs (Section 9.9 of `docs/design/tooling.md`).
 - `scripts/install-vulkan-sdk`: The script that downloads the Vulkan SDK on a GitHub Actions runner, verifies it against a checksum, and installs it. It exports `VULKAN_SDK`, the library path on Linux and macOS, and the directory of the SDK's programs to the later steps of the job (Section 7.3 of `docs/design/tooling.md`).
 - `scripts/check-vulkan-sdk`: The script that checks that the SDK at `VULKAN_SDK` provides the Slang headers, library, and `slangc` of the build tag that `just recorded-slang` prints.
-- `scripts/check-prose`, `scripts/prose-wordlist.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, and its list of non-Canadian spellings.
+- `scripts/check-prose`, `scripts/prose-wordlist.txt`, `scripts/prose-phrases.txt`: The prose checker for Markdown files and for the documentation comments of Rust files, its list of non-Canadian spellings, and its list of the phrases of the phrase check, grouped under the hint that it prints for each.
 - `scripts/check-rust-comments`: The checker that Rust source holds only API documentation and safety comments.
 - `scripts/check-doc-headings`: The checker of the headings in item documentation.
 - `scripts/check-doctest-attributes`: The checker that no documentation code block is marked `ignore`.
@@ -683,7 +691,7 @@ This section summarizes the target design, which includes the rework of the nati
 - The forwarding of the feature `vendored` by every crate between a user and `slang-compiler-sys`.
 - The vendored recipes and the vendored CI job, which build `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature of `slang-compiler` and check the forwards of `slango-macros` and `slang-slint`.
 - Recipes that pass no `--all-features`, and the removal of the pin, the checked-in generated files, the static route, and every `DOCS_RS` code path.
-- The user guide to the vendored build in `README.md` and the crate-level documentation, which documents the shared folder.
+- The user guide to the vendored build in the crate-level documentation of `slang-compiler-sys` and `slang-src`, which documents the shared folder.
 
 Project Status says what exists, and Validating Changes names the recipes that exist today.
 
@@ -951,7 +959,7 @@ just check-typos
 just check-toml
 ```
 
-To check the prose of a Markdown file, or of the documentation comments of a Rust file, run this command. The Claude Code hook also runs it after every edit of a Markdown file or a Rust file:
+To check the prose of a Markdown file, or of the documentation comments of a Rust file, against Section 8 of the writing guide and the phrase check of Section 6 of `docs/avoiding-claudelish.md`, run this command. The Claude Code hook also runs it after every edit of a Markdown file or a Rust file:
 
 ```sh
 just check-prose docs/rust-coding-standards.md
@@ -1013,7 +1021,7 @@ just release-scripts-self-test
 
 The recipes of the release procedure, which Section 9.6 of `docs/design/tooling.md` orders, are outside `just check`. An agent runs them in a release, and after a change that they check:
 
-- `check-package` after a change to a manifest, to `release_packages` or `documentation_site`, to a licence file, or to `README.md`. Cargo refuses a packaged file with an uncommitted change, so it runs only after the commit. It runs on Linux and macOS only and reaches `static.crates.io`.
+- `check-package` after a change to a manifest, to `release_packages` or `documentation_site`, to a licence file, or to the README of a crate. Cargo refuses a packaged file with an uncommitted change, so it runs only after the commit. It runs on Linux and macOS only and reaches `static.crates.io`.
 - `publish-dry-run` after the same changes, on a committed tree as well, on Linux and macOS only. It needs `VULKAN_SDK`, libclang, network access, and the tools of the vendored build, clones and builds Slang in `target/`, took about 12 minutes in the development container, and writes the record that `publish` checks.
 - `doc-site` after a change to the API documentation of a crate of the release, or to the recipe. It needs what `check-vendored` needs and builds in `target/vendored`. Its site is for reading only, and an agent never deploys it (TOOL-49 of `docs/design/tooling.md`).
 - `check-release` after a release, to check it. It reaches crates.io and the hosted site, and fails when crates.io lacks a version of the release, when a `documentation` field differs, or when a documentation address does not answer.
@@ -1048,8 +1056,8 @@ just coverage
 Hard Rule 1 is the rule an agent is most likely to skip, because the code works without it. After every change, and before it reports the change complete, the agent MUST re-read and correct these documents, once each, because a stale document misleads the next agent:
 
 1. The design document of each crate or tool that the change alters, including its design content, its assumptions and open questions, and, for `slang-compiler`, its list of known upstream bugs, together with the entry in `docs/upstream-reports.md` of each defect in it that should be reported. Progress and status are recorded only in Project Status of this file, never in a design document (Section 3.6 of the writing guide).
-2. Every statement in another document that the change makes false, which the agent finds by searching for the names that the change touches. `README.md`, the architecture design, the tooling design, and this file change only as Hard Rule 1 states. `README.md` is also the crates.io readme of every published member.
-3. `docs/rust-coding-standards.md` with its Appendix A, `docs/rust-references.md`, or `docs/writing-documentation.md`, only when the change alters a rule, a lint, a tool, a source, or a documentation convention.
+2. Every statement in another document that the change makes false, which the agent finds by searching for the names that the change touches. `README.md`, the architecture design, the tooling design, and this file change only as Hard Rule 1 states. This includes the README of each crate that the change alters, which is the crate's page on crates.io, and every pointer in a README that the change makes false, as RDM-33 of `docs/writing-readmes.md` requires.
+3. `docs/rust-coding-standards.md` with its Appendix A, `docs/rust-references.md`, `docs/writing-documentation.md`, `docs/writing-readmes.md`, or `docs/avoiding-claudelish.md`, only when the change alters a rule, a lint, a tool, a source, or a documentation convention.
 4. The Date field of the metadata table of each document the change touched.
 
 ## Contribution Policy

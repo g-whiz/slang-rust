@@ -1,0 +1,7 @@
+/// Runs the kernel.
+///
+/// ```
+/// // It is not slow, it is fast. The landscape is robust.
+/// let crucial = 1;
+/// ```
+pub fn run() {}

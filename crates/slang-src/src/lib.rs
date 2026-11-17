@@ -8,7 +8,12 @@
 //! selects and that `slang-glslang-sys` exists for. This crate is their
 //! dependency in that build. Its build script obtains the source
 //! tree that they build from, and the crate builds nothing itself and has no
-//! API. A program does not depend on it directly.
+//! API. A program does not depend on it directly. To build Slang from source,
+//! a program enables the feature `vendored` of the crate of this project that
+//! it uses, and the
+//! [documentation of slang-compiler-sys](https://g-whiz.github.io/slang-rust/slang_compiler_sys/#linking-slang)
+//! compares that build with the default build, which links the Slang of an
+//! installed Vulkan SDK.
 //!
 //! The build script exports four values as `links` metadata, which Cargo
 //! passes to the build script of each crate that depends on this crate
@@ -20,7 +25,7 @@
 //! - `DEP_SLANG_SRC_BUILD_TAG`: its build tag, the version string of that
 //!   Slang build, such as `2026.17-25-gc7954ebd1`.
 //! - `DEP_SLANG_SRC_SHARED_DIR`: the absolute path of the shared folder,
-//!   which the next sections describe.
+//!   which [The shared folder](#the-shared-folder) describes.
 //!
 //! # The recorded commit
 //!
@@ -36,9 +41,9 @@
 //! written as `0`, followed by `g` and the first nine digits of the commit
 //! hash. The version `0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1` therefore
 //! belongs to the release `0.1.0-alpha.2` and names the build tag
-//! `2026.17-25-gc7954ebd1`. The identifiers from `slang` on do not mark a
-//! pre-release, and they are numeric so that versions of Slang order as
-//! numbers.
+//! `2026.17-25-gc7954ebd1`. The identifiers from `slang` on name the Slang
+//! and do not change the release, and their numbers are numeric identifiers
+//! so that versions order by the numbers of the build tag.
 //!
 //! Every crate that depends on this crate requires its exact version, with
 //! `=`, because a caret requirement on a pre-release would let
@@ -82,13 +87,23 @@
 //! - Python 3 on `PATH`, as `python3` or `python`, which the build of
 //!   slang-glslang needs.
 //! - libclang, which every build of `slang-compiler-sys` needs, with or
-//!   without the feature `vendored`.
+//!   without the feature `vendored`, as the
+//!   [documentation of slang-compiler-sys](https://g-whiz.github.io/slang-rust/slang_compiler_sys/#libclang)
+//!   describes.
 //! - Network access for its first build in a Cargo target directory.
 //!
 //! It needs no Vulkan SDK and no `VULKAN_SDK`, and the program that it
-//! builds needs no Slang library at run time. A build without the Cargo
-//! feature `vendored` links the Slang of an installed Vulkan SDK and needs
-//! none of these except libclang, and no network access.
+//! builds needs no Slang library at run time.
+//!
+//! # What a vendored build costs
+//!
+//! - The first vendored build in a Cargo target directory clones Slang and
+//!   builds Slang and slang-glslang from source, which takes minutes. Later
+//!   builds in that target directory use the clone and the built libraries
+//!   and need no network access, as [The shared folder](#the-shared-folder)
+//!   describes.
+//! - The shared folder takes several hundred megabytes for one Slang commit
+//!   and target, and more on Windows than on Linux and macOS.
 //!
 //! # The shared folder
 //!
@@ -99,9 +114,6 @@
 //! - Every profile of a project, and both its host and its target units, use
 //!   the one shared folder, so a procedural macro that links Slang and the
 //!   program clone Slang once and build it once.
-//! - A first build clones and builds, which takes minutes, while later builds
-//!   use what the folder holds and need no network access. The folder of one
-//!   commit and target takes several hundred megabytes.
 //! - `cargo clean` removes the folder with the rest of the target directory,
 //!   and the next vendored build clones and builds again. Removing the folder,
 //!   or any directory in it, is safe whenever no build runs.
@@ -113,7 +125,10 @@
 //! The build script finds the folder through the file `CACHEDIR.TAG` that
 //! Cargo writes into a target directory or build directory that it creates.
 //! It takes the nearest directory above its output directory `OUT_DIR` that
-//! holds that file, and uses `OUT_DIR` itself when it finds none. In these
+//! holds that file. When that directory is named after the target triple,
+//! such as for a build with `--target`, and its parent directory holds the
+//! file too, it takes the parent directory instead. It uses `OUT_DIR` itself
+//! when it finds no such directory. In these
 //! cases Cargo wrote no such file, so each unit clones and builds in its own
 //! output directory instead, which is correct but takes the time and the disk
 //! space once for each unit:
@@ -185,12 +200,20 @@
 //! an error, and it never falls back to an installed Slang. It runs git and
 //! nothing else, and it runs no code of the tree.
 //!
+//! When git cannot start, the build stops with an error that starts with
+//! "cannot start" and says that a vendored build needs git on `PATH`. When a
+//! git command that reaches the network fails, the error names the command,
+//! says that it ended while cloning Slang at the recorded commit, and holds
+//! what git wrote to its standard error. The next build with network access
+//! clones the tree, and a build without the feature `vendored` needs no
+//! network access.
+//!
 //! # Features
 //!
 //! This crate has no Cargo features.
 //!
 //! # Platform support
 //!
-//! The crate builds on every platform that Rust supports, and its build
-//! script runs wherever git runs. The vendored builds that use it are tested
-//! on `x86_64` Linux, `x86_64` Windows, and aarch64 macOS.
+//! The build needs git on `PATH` and network access for the first build in a
+//! target directory. The vendored builds that use it are tested on `x86_64`
+//! Linux, `x86_64` Windows, and aarch64 macOS.

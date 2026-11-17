@@ -1,4 +1,5 @@
 #!/usr/bin/env -S python3 -I
+import bisect
 import re
 import sys
 from pathlib import Path
@@ -15,9 +16,22 @@ except ImportError as error:
 USAGE = """usage: check-prose [file.md | file.rs ...]
 
 Checks Markdown prose for non-ASCII characters, a UTF-8 byte order mark,
-semicolons, and the non-Canadian spellings listed in
-scripts/prose-wordlist.txt. Fenced code blocks and inline code spans are
+semicolons, the non-Canadian spellings listed in
+scripts/prose-wordlist.txt, and the phrases listed in
+scripts/prose-phrases.txt. Fenced code blocks and inline code spans are
 ignored, and a code fence left open at the end of a file is a finding.
+The phrases match without regard to case, only where no letter, digit,
+or underscore touches either end, so a hyphen separates words. Each
+paragraph is read as one line with every run of whitespace replaced by
+one space, so a phrase that wraps is found. A paragraph ends at a blank
+line, a heading, a code fence, and the start of each list item. Six
+patterns also apply: a participle of commentary after a comma, a summary
+phrase that opens a sentence, "not only ... but also", "it is not ...,
+it is", a chat interjection with an exclamation mark, and, on each line,
+an unordered list item that opens with a bold label. The list items under
+a heading named References, and under its subheadings, are not checked
+for phrases or patterns. In the phrase list, a line in square brackets
+is the hint that the checker prints for each phrase below it.
 A file whose name ends in .rs is Rust: the checks apply to the Markdown
 text of its /// and //! documentation comments, with each run of comments
 that documents one item read as one Markdown document, and every line
@@ -33,6 +47,41 @@ or the setup is broken, after checking every readable file."""
 FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 BACKTICK_RUN = re.compile(r"`+")
 BOM = "\ufeff"
+CODE = "\x00"
+LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])(?:\s|$)")
+HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+REFERENCES = re.compile(r"(?:\d+(?:\.\d+)*\.?\s+)?references", re.IGNORECASE)
+PARAGRAPH_PATTERNS = [
+    (
+        re.compile(r",\s+(highlighting|underscoring|emphasizing|fostering|reinforcing|solidifying|cementing)\b", re.IGNORECASE),
+        1,
+        "a participle phrase that comments on the sentence, state the consequence or the reason as a clause with so or because",
+    ),
+    (
+        re.compile(r"(^|[.!?]\s+)(in conclusion|in summary|in short|to summarize|to sum up|overall),", re.IGNORECASE),
+        2,
+        "a summary phrase that opens a sentence, delete the restatement",
+    ),
+    (
+        re.compile(r"\bnot only\b[^.!?]*\bbut also\b", re.IGNORECASE),
+        0,
+        "a denial of a claim that nobody made, state the fact directly",
+    ),
+    (
+        re.compile(r"\bit(?:'s| is) not\b[^.!?]*,\s*it(?:'s| is)\b", re.IGNORECASE),
+        0,
+        "a denial of a claim that nobody made, state the fact in two sentences",
+    ),
+    (
+        re.compile(r"\b(certainly|of course|absolutely|sure)!", re.IGNORECASE),
+        0,
+        "a chat interjection, address the reader of the document in a neutral register",
+    ),
+]
+LINE_PATTERN = (
+    re.compile(r"^\s*[-*+]\s+\*\*[^*]+\*\*", re.IGNORECASE),
+    "an unordered list item that opens with a bold label, write a complete sentence or a term: definition entry",
+)
 
 
 def load_words():
@@ -47,6 +96,30 @@ def load_words():
         return None
     alternatives = "|".join(re.escape(w) for w in sorted(set(words), key=len, reverse=True))
     return re.compile(r"(?<![^\W_])(" + alternatives + r")(?![^\W_])", re.IGNORECASE)
+
+
+def load_phrases():
+    phrases_file = Path(__file__).resolve().parent / "prose-phrases.txt"
+    try:
+        text = phrases_file.read_text(encoding="utf-8")
+    except OSError as error:
+        raise rust_lexer.SetupError(f"cannot read phrase list {phrases_file}: {rust_lexer.os_error(error)}") from None
+    hints = {}
+    hint = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            hint = line[1:-1].strip()
+            continue
+        if hint is None:
+            raise rust_lexer.SetupError(f"phrase list {phrases_file}:{number}: phrase before the first hint")
+        hints[" ".join(line.lower().split())] = hint
+    if not hints:
+        return None
+    alternatives = "|".join(re.escape(p) for p in sorted(hints, key=len, reverse=True))
+    return re.compile(r"(?<!\w)(" + alternatives + r")(?!\w)", re.IGNORECASE), hints
 
 
 def escaped(text, start):
@@ -93,6 +166,7 @@ def prose_segments(lines):
             kept.append(line[position:start])
             if closes_later(lines, number - 1, end, length):
                 span = length
+                kept.append(CODE)
             else:
                 kept.append(line[start:end])
             position = end
@@ -124,7 +198,7 @@ def rust_documents(text):
             yield [number for number, _ in group], [line for _, line in group]
 
 
-def check_file(path, words):
+def check_file(path, words, phrases):
     findings = []
     shown = rust_lexer.display(path)
     if path.endswith(".rs"):
@@ -136,17 +210,18 @@ def check_file(path, words):
         text = text[len(BOM):]
     if path.endswith(".rs"):
         for numbers, lines in rust_documents(text):
-            check_document(shown, words, numbers, lines, findings)
+            check_document(shown, words, phrases, numbers, lines, findings)
     else:
         lines = text.splitlines()
-        check_document(shown, words, list(range(1, len(lines) + 1)), lines, findings)
+        check_document(shown, words, phrases, list(range(1, len(lines) + 1)), lines, findings)
     return [finding for _, finding in sorted(findings, key=lambda f: f[0])]
 
 
-def check_document(shown, words, numbers, lines, findings):
+def check_document(shown, words, phrases, numbers, lines, findings):
     segments, unclosed = prose_segments(lines)
     for index, prose in segments:
         number = numbers[index - 1]
+        prose = prose.replace(CODE, "")
         for char in prose:
             code = ord(char)
             if 0xDC80 <= code <= 0xDCFF:
@@ -158,9 +233,97 @@ def check_document(shown, words, numbers, lines, findings):
         if words is not None:
             for match in words.finditer(prose):
                 findings.append((number, f"{shown}:{number}: non-Canadian spelling '{match.group(0)}'"))
+    check_phrases(shown, phrases, numbers, segments, findings)
     if unclosed is not None:
         unclosed = numbers[unclosed - 1]
         findings.append((unclosed, f"{shown}:{unclosed}: unclosed code fence opened at line {unclosed}"))
+
+
+def paragraphs(numbers, segments):
+    result = []
+    current = []
+    references = None
+    in_reference_item = False
+    previous = None
+
+    def close():
+        nonlocal current
+        if current:
+            result.append(current)
+        current = []
+
+    for index, text in segments:
+        if previous is not None and index != previous + 1:
+            close()
+            in_reference_item = False
+        previous = index
+        if not text.strip():
+            close()
+            in_reference_item = False
+            continue
+        heading = HEADING.match(text.replace(CODE, ""))
+        if heading:
+            close()
+            level = len(heading.group(1))
+            title = (heading.group(2) or "").strip()
+            if references is not None and level <= references:
+                references = None
+            if references is None and REFERENCES.fullmatch(title):
+                references = level
+            in_reference_item = False
+            result.append([(numbers[index - 1], text)])
+            continue
+        if LIST_ITEM.match(text):
+            close()
+            in_reference_item = references is not None
+        if in_reference_item:
+            continue
+        current.append((numbers[index - 1], text))
+    close()
+    return result
+
+
+def phrase_finding(shown, number, text, hint):
+    shown_text = " ".join(text.replace(CODE, " ").split())
+    return f"{shown}:{number}: phrase '{shown_text}': {hint}"
+
+
+def check_phrases(shown, phrases, numbers, segments, findings):
+    hits = []
+    for paragraph in paragraphs(numbers, segments):
+        starts = []
+        pieces = []
+        offset = 0
+        for number, text in paragraph:
+            piece = " ".join(text.split())
+            if not piece:
+                continue
+            starts.append((offset, number))
+            pieces.append(piece)
+            offset += len(piece) + 1
+        joined = " ".join(pieces)
+        offsets = [start for start, _ in starts]
+
+        def line_at(position):
+            return starts[bisect.bisect_right(offsets, position) - 1][1]
+
+        if phrases is not None:
+            pattern, hints = phrases
+            for match in pattern.finditer(joined):
+                hint = hints[match.group(0).lower()]
+                hits.append((line_at(match.start()), match.start(), phrase_finding(shown, line_at(match.start()), match.group(0), hint)))
+        for pattern, group, hint in PARAGRAPH_PATTERNS:
+            for match in pattern.finditer(joined):
+                start = match.start(group)
+                number = line_at(start)
+                hits.append((number, start, phrase_finding(shown, number, joined[start:match.end()], hint)))
+        line_pattern, line_hint = LINE_PATTERN
+        for number, text in paragraph:
+            match = line_pattern.match(text)
+            if match:
+                hits.append((number, -1, phrase_finding(shown, number, match.group(0), line_hint)))
+    for number, _, finding in sorted(hits, key=lambda hit: (hit[0], hit[1])):
+        findings.append((number, finding))
 
 
 def main(argv):
@@ -169,6 +332,7 @@ def main(argv):
         return 0
     try:
         words = load_words()
+        phrases = load_phrases()
         paths = argv or rust_lexer.repository_files("*.md", "*.rs")
     except rust_lexer.SetupError as error:
         rust_lexer.emit(f"check-prose: {error}", sys.stderr)
@@ -177,7 +341,7 @@ def main(argv):
     unreadable = False
     for path in paths:
         try:
-            findings.extend(check_file(path, words))
+            findings.extend(check_file(path, words, phrases))
         except OSError as error:
             rust_lexer.emit(f"check-prose: cannot read {rust_lexer.display(path)}: {rust_lexer.os_error(error)}", sys.stderr)
             unreadable = True

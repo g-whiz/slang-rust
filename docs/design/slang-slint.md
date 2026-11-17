@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-15 |
+| Date | 2026-11-17 |
 | Applies to | `crates/slang-slint` and the Slint example |
 
 ## Abstract
@@ -185,7 +185,7 @@ SLS-17. `slang-slint` MUST have exactly one Cargo feature, `vendored = ["slango/
 
 The example `shader-playground` links Slint under the same option, so the program built from it is under version 3 of the GNU General Public License only, whatever the licence of the source of the examples package. The library crates under permissive licences depend on neither `slang-slint` nor Slint, so the consequence does not reach them. TOOL-34 of `docs/design/tooling.md` requires that they never do, and a reviewer checks it, because cargo-deny accepts `GPL-3.0-only` for every crate.
 
-SLS-5. The crate-level documentation of `slang-slint` and `README.md` MUST state this consequence, because a user who distributes a program built with the crate must know the licence of the result first.
+SLS-5. The section `Licence` of `crates/slang-slint/README.md` MUST state this consequence, and the crate-level documentation of `slang-slint` and the section `Licence` of the root `README.md` MUST point to it, because a user who distributes a program built with the crate must know the licence of the result first. The crate README is the home of the consequence, so that the fact is stated once (Table 1 of `docs/writing-readmes.md`).
 
 `deny.toml` accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It admits `GPL-3.0-only`, which the Slint crates of `slang-slint` and the examples package need, with the evidence of compatibility with `GPL-3.0-or-later` that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26.
 
@@ -475,7 +475,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLS-2 | 4.1 | A new minor version of Slint is admitted only after all tests run again and ARCH-19 is checked. |
 | SLS-3 | 4.1 | The library enables no windowing backend or renderer of Slint. |
 | SLS-4 | 4.1 | No unsafe code and no logs. |
-| SLS-5 | 4.2 | The crate documentation and `README.md` state that a program with Slint is under GPL-3.0-only. |
+| SLS-5 | 4.2 | The section `Licence` of the crate README states that a program with Slint is under GPL-3.0-only, and the crate documentation and the root README point to it. |
 | SLS-6 | 5.1 | `wgpu_configuration` returns `Automatic` with immediates of 128 bytes and wgpu's default limits. |
 | SLS-7 | 5.2 | `device` wraps the wgpu 30 device and queue of a `GraphicsAPI`, and rejects every other variant. |
 | SLS-8 | 5.2 | The library installs no rendering notifier. |

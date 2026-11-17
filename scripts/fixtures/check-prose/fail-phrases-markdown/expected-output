@@ -1,0 +1,12 @@
+guide.md:3: phrase 'serves as': a substitute for "is" or "has", write the plain verb instead
+guide.md:5: phrase 'byte-identical': agent shorthand, write out the relation and name both sides of it
+guide.md:5: phrase 'Gated on': agent shorthand, write out the relation and name both sides of it
+guide.md:8: phrase 'highlighting': a participle phrase that comments on the sentence, state the consequence or the reason as a clause with so or because
+guide.md:10: phrase 'In short,': a summary phrase that opens a sentence, delete the restatement
+guide.md:12: phrase 'Overall,': a summary phrase that opens a sentence, delete the restatement
+guide.md:14: phrase 'not only fast but also': a denial of a claim that nobody made, state the fact directly
+guide.md:16: phrase 'It is not a fallback, it is': a denial of a claim that nobody made, state the fact in two sentences
+guide.md:18: phrase 'Of course!': a chat interjection, address the reader of the document in a neutral register
+guide.md:20: phrase '- **Fast:**': an unordered list item that opens with a bold label, write a complete sentence or a term: definition entry
+guide.md:21: phrase '* **Small**': an unordered list item that opens with a bold label, write a complete sentence or a term: definition entry
+guide.md:29: phrase 'robust': a promotional adjective, state the measurable property instead

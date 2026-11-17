@@ -254,3 +254,7 @@ pub use global_session::{GlobalSession, GlobalSessionBuilder};
 pub use module::{DependencyFilePaths, EntryPoint, EntryPoints, LoadedModules, Module};
 pub use options::{CompilerOptions, OptionName};
 pub use session::{Session, SessionBuilder, Target, TargetIndex};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

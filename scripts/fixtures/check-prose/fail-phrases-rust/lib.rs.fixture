@@ -1,0 +1,12 @@
+//! A crate that is
+//! load-bearing for the workspace.
+
+/// Returns the colour.
+///
+/// It's worth
+///     noting that the value is
+/// simply red, and `seamless` is code.
+pub fn colour() -> &'static str {
+    // A robust ordinary comment is not documentation.
+    "red"
+}

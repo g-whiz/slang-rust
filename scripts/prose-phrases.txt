@@ -1,0 +1,93 @@
+[a marker word that carries no fact, name the concrete thing instead]
+delve
+delves
+delved
+delving
+tapestry
+testament
+pivotal
+crucial
+crucially
+showcase
+showcases
+showcased
+showcasing
+meticulous
+meticulously
+commendable
+intricate
+intricacies
+realm
+landscape
+[a promotional adjective, state the measurable property instead]
+seamless
+seamlessly
+robust
+robustly
+robustness
+powerful
+groundbreaking
+vibrant
+breathtaking
+nestled
+blazing fast
+blazingly fast
+[a substitute for "is" or "has", write the plain verb instead]
+serves as
+stands as
+boasts
+boast
+[agent shorthand, write out the relation and name both sides of it]
+load-bearing
+byte-identical
+gated on
+gated behind
+[filler that carries no fact, delete it and state the fact]
+it's worth noting
+it is worth noting
+worth mentioning
+it's important to note
+it is important to note
+needless to say
+simply
+[a hedge, state what is known with its source, or say plainly what is untested or unknown]
+based on available information
+while specific details are limited
+as of my last update
+as of my knowledge cutoff
+could potentially
+may potentially
+might potentially
+[a signpost that announces what follows, open with the content instead]
+let's
+let us
+dive into
+deep dive
+here's
+[a formulaic closing, record limits and open questions where the document type puts them]
+despite these challenges
+future outlook
+[a leftover of the chat in which the text was written, address the reader of the document instead]
+great question
+you're absolutely right
+you are absolutely right
+i hope this helps
+let me know
+would you like
+feel free to
+happy to help
+apologies for
+[vague attribution, name a source that the reader can check]
+experts agree
+experts argue
+experts say
+experts believe
+industry reports
+observers have cited
+it is widely known
+it is widely believed
+studies show
+[a leftover of a chat interface, delete it and cite the source by its plain address]
+oaicite
+contentreference
+utm_source=chatgpt.com

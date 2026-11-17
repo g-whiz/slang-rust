@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -23,6 +23,8 @@ Documents must therefore be unambiguous, complete, and consistent in their termi
 The conventions here adapt to Markdown the documents that govern how Requests for Comments (RFCs) are written: [RFC2119], [RFC8174], [RFC7322], and [RFC2360]. They add practices from RFCs that are widely regarded as readable. Section 7 adds the conventions of the Rust ecosystem for API documentation [RUSTDOC] [RUST-API].
 
 This guide governs the content of API documentation. It does not cover code style, commit messages, or the content of any particular design. The instruction file `AGENTS.md` and the standards document `docs/rust-coding-standards.md` govern code style.
+
+Two guides apply together with this one. `docs/writing-readmes.md` governs the content, structure, and examples of every README. `docs/avoiding-claudelish.md` sets the rules against the prose habits of text written by large language models, for every document and all API documentation.
 
 ## 2. Requirements Language
 
@@ -46,7 +48,7 @@ Each term in this section keeps exactly this meaning in every document in the re
 - guide: A document that sets conventions for the repository. This document is a guide.
 - standards document: A document that sets the rules that code in the repository follows, such as `docs/rust-coding-standards.md`.
 - reference list: A document that lists external sources for later consultation, with a topic index, such as `docs/rust-references.md`.
-- README: The file `README.md` at the root of the repository, which is the landing page of the project on GitHub.
+- README: The file `README.md` at the root of the repository or in the package directory of a library crate, as Section 2.2 of `docs/writing-readmes.md` defines.
 - instruction file: The file `AGENTS.md`, which every agent reads before it works in the repository. The file `CLAUDE.md` contains only the line `@AGENTS.md`, which imports the instruction file.
 - API documentation: The documentation comments, written with `///` for an item and `//!` for a crate or module, that rustdoc renders into the reference documentation of a crate.
 - public item: An item that code outside its crate can name. The rustc lint `missing_docs` checks these items.
@@ -125,21 +127,21 @@ An author MUST state the default of every option, including every Cargo feature 
 
 Other document types use a subset of the skeleton in Section 3.1, in the same order. This table shows which sections each type requires.
 
-| Section | Design document | Guide | Standards document | Reference list | README | Instruction file |
-| --- | --- | --- | --- | --- | --- | --- |
-| Title | Required | Required | Required | Required | Required | Required |
-| Metadata | Required | Required | Required | Required | Omitted | Omitted |
-| Abstract | Required | Required | Required | Optional | Omitted | Omitted |
-| Introduction | Required | Required | Required | Required | Optional | Optional |
-| Requirements Language | If key words | If key words | If key words | If key words | If key words | If key words |
-| Terminology | Required | Required | Required | Optional | Optional | Optional |
-| Body | Required | Required | Required | Required | Required | Required |
-| Security Considerations | Required | Required | Required | Optional | Optional | Optional |
-| Operational Considerations | Required | Optional | Optional | Optional | Optional | Optional |
-| References | If citing | If citing | If citing | If citing | If citing | If citing |
-| Appendices | Optional | Optional | Optional | Optional | Optional | Optional |
+| Section | Design document | Guide | Standards document | Reference list | Instruction file |
+| --- | --- | --- | --- | --- | --- |
+| Title | Required | Required | Required | Required | Required |
+| Metadata | Required | Required | Required | Required | Omitted |
+| Abstract | Required | Required | Required | Optional | Omitted |
+| Introduction | Required | Required | Required | Required | Optional |
+| Requirements Language | If key words | If key words | If key words | If key words | If key words |
+| Terminology | Required | Required | Required | Optional | Optional |
+| Body | Required | Required | Required | Required | Required |
+| Security Considerations | Required | Required | Required | Optional | Optional |
+| Operational Considerations | Required | Optional | Optional | Optional | Optional |
+| References | If citing | If citing | If citing | If citing | If citing |
+| Appendices | Optional | Optional | Optional | Optional | Optional |
 
-An author omits an optional section that would be empty, because a section that says only "not applicable" adds length and no information. The README has no metadata table because it is the first page a visitor sees on GitHub, and it opens with what the project is.
+An author omits an optional section that would be empty, because a section that says only "not applicable" adds length and no information. A README follows the sections that `docs/writing-readmes.md` sets instead of this table.
 
 ### 3.5. Enforced and Judgement Rules
 
@@ -149,7 +151,7 @@ When a tool could check a rule but no tool in the repository does yet, the docum
 
 ### 3.6. Design, Not Progress
 
-A design document describes the design and architecture of a system, and the boundaries and interactions between systems. An author MUST NOT put progress records in a design document or in the README, because such records bury the design that the reader needs and go stale with the next change, while the history of the repository already holds them.
+A design document describes the design and architecture of a system, and the boundaries and interactions between systems. An author MUST NOT put progress records in a design document, because such records bury the design that the reader needs and go stale with the next change, while the history of the repository already holds them. RDM-31 of `docs/writing-readmes.md` keeps them out of every README.
 
 Progress records include what works and what does not as a status, what was tried, what each step or milestone added, completion dates, dated measurements, identifiers of continuous integration runs, and counts of tests.
 
@@ -219,7 +221,7 @@ An author MUST NOT restate a schema field by field in prose, because the restate
 
 Sections are numbered so that an agent can cite them, as in "Section 4.5". Each section covers one concept. A document refers to other content by section number, never by phrases such as "see above" or "as mentioned".
 
-The instruction file and the README are the exceptions, because their headings are unnumbered and agents cite them by heading.
+The instruction file and the READMEs are the exceptions, because their headings are unnumbered and agents cite them by heading.
 
 An author SHOULD NOT renumber or rename an existing section, because other documents cite it, and each citation then points to the wrong place. A change that renumbers a section updates every citation to it.
 
@@ -474,25 +476,15 @@ Checked by: `clippy::allow_attributes` and `clippy::allow_attributes_without_rea
 
 ### 7.10. README and Crate Documentation
 
-The README describes the project as a whole: what it is, the list of crates with one sentence and a documentation link for each, how to obtain the native Slang library, the build requirements, and the licence. Crate-level documentation is the API reference of one crate.
+`docs/writing-readmes.md` governs every README. Section 4 of that guide says which facts a README holds and which live in the crate-level documentation, and Section 7.2 says how a crate compiles the Rust code of its README as doctests. Crate-level documentation is the API reference of one crate, as Section 7.4 defines.
 
-Each fact lives in one of the two places, and the other links to it (Section 4.5). An author MUST NOT copy API reference material into the README, because rustdoc does not check the copy, so it diverges from the code.
-
-Rust code in the README is compiled as a doctest by including the README in a crate. This illustration shows the form, with a path that depends on where the crate lives:
-
-```rust
-#[cfg(doctest)]
-#[doc = include_str!("../../../README.md")]
-pub struct ReadmeDoctests;
-```
-
-Checked by: `cargo test --doc` for Rust code in the README. `scripts/check-prose` for the language of the README, as Section 8 describes. The division of content is a judgement rule.
+Checked by: the tools and judgement rules that `docs/writing-readmes.md` names for each rule.
 
 ### 7.11. Language in API Documentation
 
 The rules of Section 8 apply to the prose of API documentation. Code spans and code examples are exempt. The section headings in Sections 7.3 and 7.4 keep their standard names and are exempt from the title-case rule in Section 8.
 
-Checked by: `check-prose`, which reads the `///` and `//!` comments of every Rust file, for the rules of Section 8 that it checks: ASCII punctuation, which excludes em dashes, en dashes, and smart quotes, the absence of semicolons, and the spellings in `scripts/prose-wordlist.txt`. It skips code spans and fenced code blocks. The other rules of Section 8, such as spelling outside the word list, the serial comma, and title case, are judgement rules in API documentation, as they are in Markdown.
+Checked by: `check-prose`, which reads the `///` and `//!` comments of every Rust file, for the rules of Section 8 that it checks: ASCII punctuation, which excludes em dashes, en dashes, and smart quotes, the absence of semicolons, and the spellings in `scripts/prose-wordlist.txt`. It also runs the phrase check of Section 6 of `docs/avoiding-claudelish.md`. It skips code spans and fenced code blocks. The other rules of Section 8, such as spelling outside the word list, the serial comma, and title case, are judgement rules in API documentation, as they are in Markdown.
 
 ### 7.12. Summary of Checks
 
@@ -535,10 +527,8 @@ This table summarizes how each rule in this section is checked.
 | Exemption for generated bindings is an `#[expect]` with a reason | 7.9 | `clippy::allow_attributes`, `clippy::allow_attributes_without_reason` |
 | Exemption applies to generated items only | 7.9 | Judgement |
 | A shared safety contract in the crate documentation covers generated unsafe code that has no `# Safety` section or safety comment | 7.9 | Judgement |
-| Rust code in the README compiles | 7.10 | `cargo test --doc` |
-| Language of the README | 7.10 | `check-prose` |
-| Division of content between README and crate documentation | 7.10 | Judgement |
-| ASCII punctuation, no semicolons, and the listed spellings in API documentation | 7.11 | `check-prose` |
+| The rules of every README | 7.10 | As `docs/writing-readmes.md` states |
+| ASCII punctuation, no semicolons, the listed spellings, and the listed phrases and patterns in API documentation | 7.11 | `check-prose` |
 | Other language rules in API documentation | 7.11 | Judgement |
 
 The names in backticks that start with `check-` are `just` recipes. Each runs a script of the same name under `scripts/`, and `just check` runs every one of them, as Section 6 of `docs/design/tooling.md` specifies.
@@ -599,6 +589,7 @@ The script `scripts/check-prose` checks every Markdown file, and the `///` and `
 - A UTF-8 byte order mark.
 - Semicolons.
 - The non-Canadian spellings listed in `scripts/prose-wordlist.txt`.
+- The phrases listed in `scripts/prose-phrases.txt` and six patterns, which make up the phrase check of Section 6 of `docs/avoiding-claudelish.md`.
 
 It skips fenced code blocks and code spans, and it reports a code fence left open at the end of a file. The pre-commit hook runs it on every changed Markdown file and every changed Rust file, and the Claude Code hook runs it after every edit of a Markdown file or a Rust file.
 

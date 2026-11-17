@@ -225,8 +225,8 @@ This illustration shows the dependencies of such a program:
 
 ```toml
 [dependencies]
-slango = { version = "0.1.0-alpha.1", features = ["vendored"] }
-slango-macros = { version = "0.1.0-alpha.1", features = ["vendored"] }
+slango = { version = "0.1.0-alpha.2", features = ["vendored"] }
+slango-macros = { version = "0.1.0-alpha.2", features = ["vendored"] }
 ```
 
 The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.
@@ -504,7 +504,7 @@ The module `ffi` of its integration-test binary `tests/codegen/` (TEST-10) compi
 - A shader with a named constant buffer, a texture, a sampler, a uniform array, a `bool`, `int4` and `float4` buffers, a matrix, and two kernels.
 - A structure element with padding.
 - A nested structure that two kernels use.
-- A uniform structure beside an element that also serves as a uniform value.
+- A uniform structure beside an element that is also used as a uniform value.
 
 Before formatting, the tests replace each path of a file read with `<shaders>/` and the file name, and the encoded snapshot with `b"<encoded snapshot>"`. So the snapshots do not depend on the machine, the checkout, or the SPIR-V of the Slang of the build.
 

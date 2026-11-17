@@ -6,24 +6,25 @@
 //! through slang-glslang, Slang's library around glslang and SPIRV-Tools,
 //! which compiles GLSL to SPIR-V and optimizes, disassembles, validates, and
 //! links SPIR-V. Slang's own build produces slang-glslang only as a shared
-//! library that Slang loads by name at run time. A Slang that the crate `slang-compiler-sys` builds from source with
-//! its Cargo feature `vendored` and links statically finds no such library,
-//! so it returns SPIR-V that is not optimized, and the first generation of
-//! SPIR-V in each global session returns diagnostics that begin with
+//! library that Slang loads by name at run time. A Slang that the crate
+//! `slang-compiler-sys` builds from source with its Cargo feature `vendored`
+//! and links statically finds no such library, so it returns SPIR-V that is
+//! not optimized, and the first generation of SPIR-V in each global session
+//! returns diagnostics that begin with
 //! `failed to load downstream compiler 'spirv-opt'` while it succeeds.
 //!
 //! This crate builds slang-glslang and a small C++ loader shim from the same
-//! Slang source tree as static libraries, and links them into the program. The loader implements Slang's interface
-//! [`ISlangSharedLibraryLoader`], through which a global session, the root
-//! object of Slang from which every compilation starts, loads every library
-//! that it needs. It answers each request for a library whose file
-//! name, after any directory and an optional `lib` prefix, starts with
-//! `slang-glslang` with the functions that the program links, and passes
-//! every other request, such as for the DirectX Shader Compiler, to Slang's
-//! default loader unchanged. Once it is installed on a global session, that
-//! global session optimizes SPIR-V without any library file at run time, and
-//! its output does not depend on the libraries that the program's
-//! environment happens to provide.
+//! Slang source tree as static libraries, and links them into the program. The
+//! loader implements Slang's interface [`ISlangSharedLibraryLoader`], through
+//! which a global session, the root object of Slang from which every
+//! compilation starts, loads every library that it needs. It answers each
+//! request for a library whose file name, after any directory and an optional
+//! `lib` prefix, starts with `slang-glslang` with the functions that the
+//! program links, and passes every other request, such as for the DirectX
+//! Shader Compiler, to Slang's default loader unchanged. Once it is installed
+//! on a global session, that global session optimizes SPIR-V without any
+//! library file at run time, and its output does not depend on the libraries
+//! that the program's environment provides.
 //!
 //! The crate exports one function, [`slang_glslang_sys_loader`], which
 //! returns the loader. It installs nothing itself.
@@ -105,21 +106,19 @@
 //!
 //! The build script builds a small project of this crate for the build
 //! system `cmake` with `ninja`, outside the source tree, in its `OUT_DIR`.
-//! The project reads glslang, SPIRV-Tools, the SPIR-V headers, and the glue code from the Slang
-//! source tree that the crate `slang-src` clones, and writes nothing into
-//! that tree. The build needs these programs on the build machine:
+//! The project reads glslang, SPIRV-Tools, the SPIR-V headers, and the glue
+//! code from the Slang source tree that the crate `slang-src` clones, and
+//! writes nothing into that tree. The
+//! [documentation of slang-src](https://g-whiz.github.io/slang-rust/slang_src/#what-a-vendored-build-needs)
+//! lists the programs that the build needs, including Python 3, with which
+//! SPIRV-Tools generates some of its sources, and says what the build costs.
 //!
-//! - The programs `cmake` 3.22 or later and `ninja` on `PATH`.
-//! - A C++20 compiler. With the Microsoft toolchain, that is an installation
-//!   of Visual Studio or its Build Tools with the C++ tools. The build script
-//!   finds `cl.exe` of the newest installation, or of the developer command
-//!   prompt that the build runs in, and gives its environment to `cmake`, so the
-//!   build needs no developer command prompt. The environment variable
-//!   `VCToolsVersion` selects another installed version of the toolset.
-//! - Python 3 on `PATH`, because SPIRV-Tools generates some of its sources
-//!   with a Python script.
-//! - git and network access for the first build in a target directory, in
-//!   which `slang-src` clones the source tree.
+//! With the Microsoft toolchain, the build script finds `cl.exe` of the
+//! developer command prompt that the build runs in, or otherwise of the
+//! newest installation of Visual Studio, and gives its environment to
+//! `cmake`, so the build needs no developer command prompt. The environment
+//! variable `VCToolsVersion` selects another installed version of the
+//! toolset.
 //!
 //! The build writes the output of `cmake` and `ninja` to `build.log` under
 //! `OUT_DIR`, and a failed step stops the build with an error that names the
@@ -137,19 +136,11 @@
 //! libraries into the library of this crate, so a program that links it
 //! needs no file of slang-glslang at run time.
 //!
-//! A build takes a few minutes, so the build script keeps the libraries that
-//! it built in the shared folder of the Cargo target directory, next to the
-//! source tree of `slang-src`. The shared folder is the directory
-//! `slang-src` in the target directory, or in the build directory when Cargo
-//! uses a separate one. Every profile, and both the host and the target
-//! units, of a project use it, so a procedural macro and the program build
-//! slang-glslang once, and a build whose compiler, flags, or options differ
-//! builds again. `cargo clean` removes the folder, and removing it when no
-//! build runs is safe. Projects share it only by sharing a target directory,
-//! such as through `CARGO_TARGET_DIR`. When Cargo did not tag the target
-//! directory, such as for a directory that existed before the first build,
-//! each unit builds in its own `OUT_DIR` instead, as the documentation of
-//! `slang-src` describes.
+//! The build script keeps the libraries that it built as an entry in the
+//! directory `slang-glslang-sys` of the shared folder, which the
+//! [documentation of slang-src](https://g-whiz.github.io/slang-rust/slang_src/#the-shared-folder)
+//! describes, and a later build uses that entry. A build whose compiler,
+//! flags, or options differ builds slang-glslang again.
 //!
 //! # Linking another glslang
 //!

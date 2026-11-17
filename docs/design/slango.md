@@ -823,7 +823,7 @@ These rules settle textures:
 
 - `Texture::from_pixels` takes a device, a size `[width, height]`, and a slice of `[u8; 4]` pixels in rows from the top, and creates an `Rgba8Unorm` texture. It takes no format. `Texture::new` takes a device, a size, and a `TextureFormat`, and creates a texture whose bytes are zero.
 - `TextureFormat` has the colour formats `Rgba8Unorm`, `Rgba8UnormSrgb`, `Bgra8Unorm`, and `Bgra8UnormSrgb`, and the depth format `Depth32Float`.
-- A texture of a colour format has the usages `TEXTURE_BINDING`, `RENDER_ATTACHMENT`, `COPY_SRC`, and `COPY_DST`. A `Depth32Float` texture has `RENDER_ATTACHMENT` only, so it serves as a depth target and is neither sampled nor read.
+- A texture of a colour format has the usages `TEXTURE_BINDING`, `RENDER_ATTACHMENT`, `COPY_SRC`, and `COPY_DST`. A `Depth32Float` texture has `RENDER_ATTACHMENT` only, so it is used as a depth target and is neither sampled nor read.
 - A width or height of zero, a size over the device's limit, or a number of pixels other than the width times the height gives `ErrorKind::InvalidArgument`.
 - Every texture has one mip level and one sample.
 - `Texture::size` and `Texture::format` return the size and the format.

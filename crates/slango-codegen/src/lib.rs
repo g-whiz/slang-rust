@@ -64,6 +64,10 @@ use slango::__private::Precompiled;
 
 pub use error::{Error, ErrorKind, Result};
 
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 const COMPILE: &str = "generate the bindings of the Slang file";
 
 /// Compiles the Slang file at `path` and returns the Rust code of its

@@ -84,6 +84,10 @@ use clang::{Clang, Index};
 
 pub use error::{Error, ErrorKind, Location, Result};
 
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 
 /// The two texts that one call of [`generate`] returns.

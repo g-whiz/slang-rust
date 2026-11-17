@@ -715,7 +715,7 @@ Several milestones replace requirements of this document that the code satisfies
   - The new crate `slang-glslang-sys`, which builds slang-glslang and holds the in-process loader that hands it to Slang.
   - The opt-in Cargo feature `vendored` of `slang-compiler-sys`, off by default, which every crate between a user and `slang-compiler-sys` forwards. With it, the build script builds Slang from the tree of `slang-src` and links it statically, and `slang-compiler` installs the loader of `slang-glslang-sys` when it creates a global session. Without it, the build script links the Slang of an installed Vulkan SDK dynamically.
   - The constant of `slang-compiler-sys` with the build information, and the run-time check that the loaded Slang is the Slang of the build's own record.
-  - The shared folder in the Cargo target directory, which keeps the clone and the built libraries for every profile and every host and target unit of a project, and its documentation in `README.md` and in the crate-level documentation.
+  - The shared folder in the Cargo target directory, which keeps the clone and the built libraries for every profile and every host and target unit of a project, and its documentation in the crate-level documentation of `slang-src`.
   - A warning and a field of the build information on a target that is not tested, instead of a refusal.
   - Recipes that pass an explicit list of Cargo features instead of `--all-features`, which would force a vendored build.
   - One CI job per operating system that builds and tests `vendored`.
@@ -734,7 +734,7 @@ Several milestones replace requirements of this document that the code satisfies
   - The Slang loaded at run time must be the Slang that the bindings were generated from, and the check compares it with the build's own record.
   - The dynamic CI jobs install a pinned Vulkan SDK version, recorded in the CI configuration. The commit of `slang-src` is the commit of the Slang in that SDK, and a check fails when the two differ, so that the crates are tested against one Slang.
   - A user who wants another Slang commit uses Cargo's `[patch]` table with a fork of `slang-src` that records it. The crates offer no other mechanism, and another commit is best effort.
-  - By default, `slang-src` keeps the clone, and the native crates keep their built libraries, in one shared folder inside the Cargo target directory of the build, so that the host and target units, such as a procedural macro and the program, and every profile of one project clone once and build Slang once. `cargo clean` removes it. `README.md` and the crate-level documentation MUST document it.
+  - By default, `slang-src` keeps the clone, and the native crates keep their built libraries, in one shared folder inside the Cargo target directory of the build, so that the host and target units, such as a procedural macro and the program, and every profile of one project clone once and build Slang once. `cargo clean` removes it. The crate-level documentation of `slang-src` MUST document it (SRC-20 of `docs/design/slang-src.md`).
   - Untested and unsupported platforms are allowed. The build states that the platform is untested and unsupported and does not stop for it.
   - The recipes of this repository and most CI jobs build the default, which links dynamically. One dedicated CI job per operating system builds and tests `vendored`.
 - Choices of the design within these decisions:
@@ -747,7 +747,7 @@ Several milestones replace requirements of this document that the code satisfies
 - Replaces: the requirements on the binding generator, the static route, the pin, `DOCS_RS`, and the supported targets with ARCH-26 to ARCH-35 and ARCH-37, together with Sections 4, 5, 6, 12, 14.2, 14.6, 18, 19.1, and 19.2 of this document, and ARCH-1 with the diagram of Section 3.2, which gains `slang-bindgen`, `slang-src`, and `slang-glslang-sys`. The design also rewrites ARCH-4 and ARCH-5 where the feature changes how Slang is obtained. Outside this document, it replaces SYS-5, SYS-6, SYS-7, TEST-8, and COM-9 of the coding standard, SCS-5, SCS-14, SCS-16 to SCS-18, SCS-20, SCS-22 to SCS-25, SCS-27, SCS-29, SCS-36, SCS-38, SCS-42, and SCS-49 of `docs/design/slang-compiler-sys.md`, and Hard Rule 7 of `AGENTS.md`.
 - Depends on: M6.
 - Design document, which exists before any code of the milestone: `docs/design/slang-compiler-sys.md`, revised, which also covers `slang-bindgen`, and `docs/design/slang-src.md` and `docs/design/slang-glslang-sys.md`, new (ARCH-3). The CI job is specified in `docs/design/tooling.md`.
-- Exit criteria: every check passes, including the vendored CI job on Linux, Windows, and macOS. Git tracks no generated bindings, the recipes still link the Slang of the Vulkan SDK, and `README.md` and the crate-level documentation document the shared folder. `AGENTS.md`, `README.md`, the coding standard, `docs/design/tooling.md`, and this document are updated.
+- Exit criteria: every check passes, including the vendored CI job on Linux, Windows, and macOS. Git tracks no generated bindings, the recipes still link the Slang of the Vulkan SDK, and the crate-level documentation of `slang-src` documents the shared folder. `AGENTS.md`, `README.md`, the coding standard, `docs/design/tooling.md`, and this document are updated.
 
 ### 15.11. M8: Forward Compatibility of `slango` and the First Release
 

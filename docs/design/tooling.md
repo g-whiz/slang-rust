@@ -510,7 +510,7 @@ This table summarizes the doctest attribute checker.
 | --- | --- |
 | Script and recipe | `scripts/check-doctest-attributes`, `check-doctest-attributes` |
 | Rule | Section 7.5 of the writing guide |
-| Reads | The fenced code blocks in the `///` and `//!` comments of every `.rs` file, and in every file named `README.md`, which a crate includes as doctests (Section 7.10 of the writing guide). A path given on the command line that is not named `README.md` is read as Rust |
+| Reads | The fenced code blocks in the `///` and `//!` comments of every `.rs` file, and in every file named `README.md`, which a crate includes as doctests (Section 7.2 of `docs/writing-readmes.md`). A path given on the command line that is not named `README.md` is read as Rust |
 | Reports | A code block whose attributes include `ignore` or an attribute that starts with `ignore-`, such as `ignore-windows` |
 
 The checker reports the attributes that start with `ignore-` as well, because Section 7.5 of the writing guide forbids `ignore` and these are variants of it that ignore the example on some targets.
@@ -543,6 +543,8 @@ Whether the section says that each feature is on or off by default, and what it 
 It reads each run of comments that documents one item as one Markdown document, and it reports each finding at its line in the Rust file. Code spans and fenced code blocks inside the comments stay exempt, as they are in Markdown.
 
 It does not read documentation written as a `#[doc = ...]` attribute or a `/** */` block comment. A Rust file that is not valid UTF-8 cannot be read (Section 6.1). With no paths, `check-prose` checks every Markdown file and every Rust file, and its self-test is `check-prose-self-test`.
+
+`scripts/check-prose` reads two data files beside it. `scripts/prose-wordlist.txt` holds the non-Canadian spellings that Section 8 of the writing guide bans. `scripts/prose-phrases.txt` holds the fixed phrases of the phrase check, each group under a line in square brackets that holds the hint printed with each hit. The script itself holds the six patterns of the phrase check, which Section 6 of `docs/avoiding-claudelish.md` specifies, and runs the check on Markdown files and API documentation alike. A data file that cannot be read, or a phrase above the first hint, is a broken setup, so the script exits with status 2.
 
 ### 6.7. Moving a Rule to Enforced
 
@@ -669,7 +671,7 @@ A document that adds a new prefix is therefore checked without a change to the c
 
 With no paths, the checker checks every `.rs`, `.toml`, `.yml`, `.yaml`, and `.json` file, the `justfile` at the root, and every file under `scripts/`, tracked or not ignored, and prints paths relative to the root of the repository. It skips its own self-test cases under `scripts/fixtures/check-doc-references/`. It reads the cases of the other checkers under `scripts/fixtures/`, which carry the suffix `.fixture`, as files under `scripts/`.
 
-With no paths, the checker selects no Markdown file outside `scripts/`, so the documents and `README.md` may cite each other. A path given on the command line is checked whatever its name, and is printed as given.
+With no paths, the checker selects no Markdown file outside `scripts/`, so the documents may cite each other. It reads no README either, so RDM-31 of `docs/writing-readmes.md`, which keeps citations of documents out of every README, stays a judgement rule. A path given on the command line is checked whatever its name, and is printed as given.
 
 It prints each finding in one of these forms, at the line where the citation starts. A section citation that spans two lines is reported with its whitespace joined into one space:
 
@@ -1115,11 +1117,13 @@ The architecture design owns the publishing policy in its Section 13 and the go-
 
 ### 9.1. Metadata and Licence Files
 
-TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence expression `MIT OR Apache-2.0`, the `rust-version` field as `1.99`, the `repository` field as the address of the repository on GitHub, and the `readme` field as the root `README.md`. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that ARCH-36 of the architecture design assigns and with the minimum supported Rust version (MSRV) that Clippy reads.
+TOOL-4. The `[workspace.package]` table MUST declare the `license` field as the SPDX licence expression `MIT OR Apache-2.0`, the `rust-version` field as `1.99`, and the `repository` field as the address of the repository on GitHub. Every member MUST inherit these fields from the workspace instead of setting its own, because a member with its own value can disagree with the licence that ARCH-36 of the architecture design assigns and with the minimum supported Rust version (MSRV) that Clippy reads.
+
+No member inherits a `readme` field. Each library crate sets `readme = "README.md"` to its own crate README, as RDM-15 of `docs/writing-readmes.md` requires, because crates.io shows that file as the page of the crate. The examples package has no README.
 
 The one exception is the `license` field of a member that ARCH-36 assigns another licence. `slang-compiler-sys` and every later `-sys` or `-src` crate MUST set it to `Apache-2.0 WITH LLVM-exception`, and `slang-slint` MUST set it to `GPL-3.0-or-later`.
 
-TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 14.3 and `README.md`. The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
+TOOL-5. An agent MUST NOT change `rust-version` except in a change whose stated purpose is to raise it, and that change updates Section 14.3 and the section `Requirements` of the root `README.md`, which is the home of the MSRV for users (Section 4.1 of `docs/writing-readmes.md`). The MSRV is a promise to users (DEP-4 of the coding standard), and a raise hidden in another change breaks their builds without notice.
 
 TOOL-27. Every published crate MUST carry the metadata fields that the row of `clippy::cargo_common_metadata` in Section 4.5 of the coding standard lists, inheriting those that TOOL-4 places in `[workspace.package]` and setting `description`, `keywords`, `categories`, and the `documentation` field of TOOL-40 itself. Every member that the next release does not publish MUST set `publish = false`, as TOOL-35 states. Clippy reports a missing field on every member that does not set `publish = false`, so the check fails until the metadata is complete.
 
@@ -1127,7 +1131,7 @@ TOOL-3. An agent MUST create the examples as one workspace member, the package `
 
 Building one example builds the dependencies of every example, which the examples accept, because ARCH-14 of the architecture design limits the dependencies of `slang-compiler` and no rule limits those of the examples.
 
-Cargo supports this layout. A `readme` that a member inherits from the workspace as `readme = "README.md"` resolves to the root file, and Cargo copies that file into the package.
+Cargo resolves the `readme` field of a member against its package directory, so `readme = "README.md"` names the crate README, and Cargo packages that file.
 
 Cargo refuses to package a crate whose path dependency has no version (TOOL-25). Packaging one crate that depends on a member that is not published yet fails, while `cargo package --workspace` succeeds.
 
@@ -1172,11 +1176,11 @@ A crate that requires another exactly cannot move to a new version of it without
 
 Every crate stays below version 1.0 (Section 13 of the architecture design). Below 1.0, Cargo treats a change of the minor number as breaking and a change of the patch number as compatible [CARGO-SEMVER].
 
-TOOL-37. Every release MUST be an alpha release, with the version `0.1.0-alpha.<N>`, until the owner decides otherwise. `<N>` starts at 1 and rises by one with each release of the whole set of crates. The public API of an alpha is unstable and may change in any release, so a later version can break a dependent, as `README.md` tells users.
+TOOL-37. Every release MUST be an alpha release, with the version `0.1.0-alpha.<N>`, until the owner decides otherwise. `<N>` starts at 1 and rises by one with each release of the whole set of crates. The public API of an alpha is unstable and may change in any release, so a later version can break a dependent, as the section `Status` of the root `README.md` tells users.
 
 These rules carry out the policy:
 
-- The change that follows a release MUST raise `<N>` by one in the version of `[workspace.package]`, in every requirement between members, and in the version of `slang-src`, whose release identifiers come first and whose Slang identifiers stay last (SRC-13 of `docs/design/slang-src.md`). It also raises each example of the API documentation that names a version of the crates, because that documentation ships with the version of its crate, and leaves `README.md` to the release (Section 9.6).
+- The change that follows a release MUST raise `<N>` by one in the version of `[workspace.package]`, in every requirement between members, and in the version of `slang-src`, whose release identifiers come first and whose Slang identifiers stay last (SRC-13 of `docs/design/slang-src.md`). It also raises each version that the API documentation and each crate README name, as step 1 of Section 9.6 requires. The root README is raised by the change that follows a publication (RDM-33 of `docs/writing-readmes.md`).
 - Every requirement of one member on another MUST be exact, written with `=`, such as `"=0.1.0-alpha.1"`. An alpha makes no promise of compatibility, and a caret requirement on a pre-release also accepts every later pre-release of the same version (Section 3.1 of `docs/design/slang-src.md`), which could pair a crate with an incompatible alpha of another.
 - A release that fails or turns out wrong is followed by the next alpha. No version is published twice, as Sections 9.7 and 9.8 apply.
 
@@ -1371,16 +1375,16 @@ The steps are these, and the third column says who performs each:
 The preconditions of step 1 are these:
 
 - `main` holds the change that prepares the release: the versions of TOOL-36, the `documentation` fields of TOOL-40, `release_packages`, and `publish = false` on every other member (TOOL-35).
-- `README.md` and the API documentation of the crates name the version of the release in each example that names a version of the crates, such as a dependency or the version in `BUILD_INFO`. `README.md` is the packaged readme of every crate, so it would otherwise name the previous release. No tool checks this, which TQ-18 asks about.
+- The API documentation of the crates names the version of the release in each example that names a version of the crates, such as a dependency or the version in `BUILD_INFO`, and each README names the version that RDM-33 of `docs/writing-readmes.md` requires. No tool checks this, which TQ-18 asks about.
 - The review of the public API of Section 9.5 is complete, and every finding that blocks the release is fixed.
 - The CI run of the last commit of `main` concluded `success` with every job, as the commands of Section 14.7 show.
 - The release steps run in the main checkout at that commit, with no uncommitted change, on Linux or macOS (TOOL-33). The development container meets this.
 
-The raise of TOOL-37 already raises the examples of the API documentation. `README.md` keeps the published version until a change on `main` raises it before step 1, because a reader of the README on GitHub depends on the published crates.
+The raise of TOOL-37 already sets these versions for the next release.
 
 Cargo refuses to package a crate whose packaged files hold an uncommitted change, and no recipe passes `--allow-dirty` (TOOL-45). `check-package` and `publish-dry-run` therefore run only on a committed tree, and fail on a branch before the commit of a change to a manifest or another packaged file. A change that prepares a release, or a fix of path 2 of Section 9.7, is committed before an agent runs them on it, and steps 3 to 5 run on the commit of `main` that the owner publishes.
 
-The release notes of step 2 go into the body of the GitHub release of step 9, from a file outside the repository, and summarize the changes since the previous tag, or the crates and their purpose for the first release. The project keeps no changelog file, because Hard Rule 10 of `AGENTS.md` admits no document outside `README.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/`, and the GitHub release of each tag holds its notes.
+The release notes of step 2 go into the body of the GitHub release of step 9, from a file outside the repository, and summarize the changes since the previous tag, or the crates and their purpose for the first release. The project keeps no changelog file, because Hard Rule 10 of `AGENTS.md` admits no document outside the root `README.md`, the `README.md` of each library crate, `AGENTS.md`, `CLAUDE.md`, and `docs/`, and the GitHub release of each tag holds its notes.
 
 The manifests already carry the metadata that crates.io shows: `description`, `license`, `repository`, `keywords`, `categories`, `readme`, and `rust-version`, and the change that prepares the first release adds `documentation`. No crate sets `homepage`, because crates.io shows the repository, and the hosted site is the `documentation` link.
 
@@ -1410,14 +1414,14 @@ For a published crate, a version that crates.io does not hold also answers with 
 
 `check-package` has not run since the first release, so it has not yet compared a published `.crate` file of this project.
 
-Every packaged crate holds `Cargo.toml`, the original manifest as `Cargo.toml.orig`, `Cargo.lock`, `.cargo_vcs_info.json`, and `README.md`, besides the files of its package directory. The normalized `Cargo.toml` carries the values that the crate inherits from `[workspace.package]`, including `authors`, where crates.io keeps them for good. The owner keeps the `authors` field as it is, which answers TQ-15.
+Every packaged crate holds `Cargo.toml`, the original manifest as `Cargo.toml.orig`, `Cargo.lock`, and `.cargo_vcs_info.json`, besides the files of its package directory, which include its crate README `README.md`. The normalized `Cargo.toml` carries the values that the crate inherits from `[workspace.package]`, including `authors`, where crates.io keeps them for good. The owner keeps the `authors` field as it is, which answers TQ-15.
 
 TOOL-45. A release MUST be packaged on Linux or macOS (TOOL-33), and `check-package` MUST fail on a `.crate` file that breaks one of these conditions:
 
 - It is no larger than 10,000,000 bytes, below the limit of 10 MB that crates.io sets on a `.crate` file [CARGO-PUBLISHING].
 - It holds no symbolic link.
 - It holds each licence file of the crate under its conventional name (TOOL-33), as a regular file whose content equals the root text.
-- It holds `README.md`.
+- It holds `README.md` as a regular file.
 - It holds no path under a directory named `target` or `.git`.
 - When crates.io already holds the version of the crate, its files equal those of the published `.crate` file, which the recipe downloads, except `.cargo_vcs_info.json`, which names the commit.
 
@@ -1545,7 +1549,7 @@ Publishing several crates is not atomic [RUST-1.90], and a published version can
 The recovery starts the same way in every case. An agent runs `just check-release`, whose output lists which crates of `release_packages` crates.io holds, because a crate whose upload succeeded can still fail while Cargo waits for the index. The remaining crates are the others, in the order of `release_packages`, and the report of `publish` names them as well. The owner then continues in one of three ways.
 
 1. A transient failure needs no change. Such failures include a lost connection, a timeout while Cargo waits for the index, an interrupt, and a refusal for the rate limit on which `publish` stopped. On the same commit, an agent runs `just publish-dry-run`, and the owner runs `just publish` with the same list, after the time that crates.io named when it refused for the rate limit. When `main` has moved since the failed publish, such as for a change to the release scripts that changes no packaged file, the recovery runs on the new commit of `main` as path 2 does.
-2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, `README.md`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5, step 7, and step 8 then run on the new commit, at the versions of the release, with steps 5 and 8 given the same list. The tag of step 9 names the new commit.
+2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5, step 7, and step 8 then run on the new commit, at the versions of the release, with steps 5 and 8 given the same list. The tag of step 9 names the new commit.
 3. A failure that needs a change to a published crate cannot reuse that version, so the release starts again from step 1 with the next alpha for every crate, as TOOL-37 requires. The versions already published stay, and the owner yanks one of them only under Section 9.8.
 
 Path 2 keeps the versions of the release, because every requirement of a remaining crate on a published one names the published version. For example, when `slang-glslang-sys`, the fourth crate of the first release, fails:
@@ -1676,7 +1680,7 @@ Each row is a question that this document leaves open. The design document in th
 | TQ-13 | Is there a stable way to keep the absolute build path out of the hosted site, such as an option of rustdoc or Cargo, a short path for the generated bindings, or a pass over the site in `doc-site` (Section 9.4)? A stable option of a later toolchain answers it when a `doc-site` run with it leaves no file of the site naming the build directory, and the source pages and "Source" links of the hand-written crates stay | This document | M11 |
 | TQ-14 | Should `publish-dry-run` build with `CARGO_TARGET_DIR=target/vendored`, without the rest of `vendored_environment`, so that it always finds a tagged target directory and reuses the clone and, when the compiler, the variables of CMake, and the commit match, the native builds of the vendored recipes (Section 9.6)? The cost: `target/vendored` would also hold builds on the dynamic route and the packages under `target/vendored/package`, so `check-package` would have to read the same directory, and TOOL-7 and Section 9.6 would gain a departure with its reason. The reuse of the native builds is not measured | This document | M11 |
 | TQ-17 | While every release is an alpha (TOOL-37), should `check-semver` pass `--release-type minor`, so that cargo-semver-checks runs its checks between two alphas, together with a rule that a reported breaking change, exit status 100, does not fail the job? Without the option, the check reports no change of the API until the first release that is not an alpha. An alpha may break its API, so a report that failed the job would block an intended change (Section 9.3) | This document, by a decision of the owner of the project | Not assigned |
-| TQ-18 | Should `check-package` check that each example of `README.md` and of the API documentation that names a version of the crates names the version of the release, which step 1 of Section 9.6 requires and no tool checks? | This document | Not assigned |
+| TQ-18 | Should `check-package` check that each example of a README and of the API documentation that names a version of the crates names the version that step 1 of Section 9.6 and RDM-33 of `docs/writing-readmes.md` require, which no tool checks? | This document | Not assigned |
 
 TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.9. TQ-15, whether the owner keeps the `authors` field of `[workspace.package]`, is answered in Section 9.6. TQ-16, whether cargo-semver-checks fails a breaking change between two alphas, is answered in Section 9.3, and it does not.
 
@@ -1874,7 +1878,7 @@ This section gives the procedure for verifying a branch in CI and merging it. Th
 
 3. It runs `just merge <branch>` only when the run's `headSha` is the last commit of the branch, its conclusion is `success`, and every job succeeded.
 
-The agent reads the run itself and never the exit status of a command whose output is piped into another program. The exit status of a pipeline is the status of its last program, so it says nothing about the run, and a merge gated on it can put a failing commit on `main`. A job cancelled for lack of a runner is rerun, as Section 14.4 states, and the merge waits for the rerun.
+The agent reads the run itself and never the exit status of a command whose output is piped into another program. The exit status of a pipeline is the status of its last program, so it says nothing about the run, and a merge that relies on it can put a failing commit on `main`. A job cancelled for lack of a runner is rerun, as Section 14.4 states, and the merge waits for the rerun.
 
 `just merge` builds the message of the squashed commit from every commit of the branch (Section 3.2). A branch with several work-in-progress commits is therefore merged through a fresh branch.
 
@@ -1923,7 +1927,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | Label | Section | Summary |
 | --- | --- | --- |
 | TOOL-3 | 9.1 | The examples are one member, `slang-rust-examples`, with one binary target per example. |
-| TOOL-4 | 9.1 | Licence `MIT OR Apache-2.0`, `rust-version` 1.99, repository, and readme are workspace fields that every member inherits, except the `license` field of the `-sys` and `-src` crates and `slang-slint`. |
+| TOOL-4 | 9.1 | Licence `MIT OR Apache-2.0`, `rust-version` 1.99, and repository are workspace fields that every member inherits, except the `license` field of the `-sys` and `-src` crates and `slang-slint`. |
 | TOOL-5 | 9.1 | `rust-version` changes only in a change whose purpose is to raise it. |
 | TOOL-6 | 3.1 | Recipes have the name, group, and `check` membership of Section 3.2. |
 | TOOL-7 | 3.1 | Recipes run the commands of Section 4.8 of the coding standard as written there, including the file list of the formatting command, adding only a nextest profile, the arguments that Section 4.8 names for `coverage`, or, when they run code that loads Slang, the library path assignment of SCS-32, except that `test-vendored`, with the nextest and doctest commands, and `check-vendored`, with the Clippy and documentation commands, select the packages of `vendored_packages` with `-p`, enable the feature of `vendored_features`, remove `VULKAN_SDK` and the loader path variables, and set `CARGO_TARGET_DIR=target/vendored`, and `test-vendored` passes `--no-tests=fail`. `doc-site` departs in the same way for the crates of `release_packages` (TOOL-41). |

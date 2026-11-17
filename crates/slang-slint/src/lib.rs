@@ -213,3 +213,7 @@ mod view;
 pub use device::{device, wgpu_configuration};
 pub use error::{Error, ErrorKind, Result};
 pub use view::View;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

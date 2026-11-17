@@ -117,7 +117,7 @@ The SDK directory `$VULKAN_SDK/include/slang` holds 15 headers. Only `slang.h` d
 
 `slang-gfx.h` declares a separate, deprecated library. The prelude headers serve generated shader code, not the host API.
 
-The SDK's `slang.h`, `slang-deprecated.h`, and `slang-image-format-defs.h` are byte-identical to those of the source tree. The SDK also has `slang-tag-version.h`, which the source tree has only as the template `slang-tag-version.h.in`, and which a build of the source tree generates in its build tree.
+The SDK's `slang.h`, `slang-deprecated.h`, and `slang-image-format-defs.h` hold the same bytes as those of the source tree. The SDK also has `slang-tag-version.h`, which the source tree has only as the template `slang-tag-version.h.in`, and which a build of the source tree generates in its build tree.
 
 `slang.h` is C++ only, and a parse in C mode fails. It parses with clang at `-std=c++17` without a diagnostic. It includes no header of the C++ standard library, only `stdint.h`, `stddef.h`, `inttypes.h`, and `features.h`.
 
@@ -226,7 +226,7 @@ The SDKs for macOS and Windows have this layout:
 
 libclang returns a translation unit even after a fatal diagnostic, such as a missing system header. The model is then wrong without any other sign: methods are missing and types degrade to `int`.
 
-The generator therefore parses with `-nostdinc` and shim headers for `stdint.h`, `stddef.h`, `inttypes.h`, `features.h`, and `TargetConditionals.h`, built on the compiler's predefined macros. With them, the parse for Linux is byte-identical to the parse with the system headers. The parses for `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `i686-pc-windows-msvc` report no diagnostic.
+The generator therefore parses with `-nostdinc` and shim headers for `stdint.h`, `stddef.h`, `inttypes.h`, `features.h`, and `TargetConditionals.h`, built on the compiler's predefined macros. With them, the parse for Linux produces the same bytes as the parse with the system headers. The parses for `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `i686-pc-windows-msvc` report no diagnostic.
 
 On all four targets, the interface names, the bases, and the method order are identical. These differences remain:
 
@@ -843,13 +843,13 @@ SCS-53. `slang-compiler-sys` MUST expose the constant `BUILD_INFO` of the type `
 
 `version` is a Semantic Versioning 2.0.0 version made of the version of `slang-compiler-sys`, a plus sign, and build metadata that names the Slang and the route: `slang`, the Slang identifiers of the build tag, and `dynamic` or `vendored`. The Slang identifiers are the numbers that SRC-13 of the `slang-src` design derives from a build tag, with a missing patch or count written as `0`, followed by `g` and the hash that the build tag carries.
 
-A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.1.0-alpha.1+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
+A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.1.0-alpha.2+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
 
-These are the values for the recorded Slang on each route, with `0.1.0-alpha.1` as the crate version:
+These are the values for the recorded Slang on each route, with `0.1.0-alpha.2` as the crate version:
 
 ```text
-0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.dynamic
-0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.vendored
+0.1.0-alpha.2+slang.2026.17.0.25.gc7954ebd1.dynamic
+0.1.0-alpha.2+slang.2026.17.0.25.gc7954ebd1.vendored
 ```
 
 A build tag of an installed SDK that does not have the form of SRC-12 of the `slang-src` design, including one whose hash has fewer than nine digits, such as `2026.17-25-gc7954eb`, gives the build metadata `slang`, the build tag with every character other than an ASCII letter, a digit, or a hyphen replaced by a hyphen, and the route. The build tag itself is in `slang_build_tag` unchanged.
@@ -888,7 +888,7 @@ This illustration shows a dependency of a user's crate on `slang-compiler` with 
 
 ```toml
 [dependencies]
-slang-compiler = { version = "0.1.0-alpha.1", features = ["vendored"] }
+slang-compiler = { version = "0.1.0-alpha.2", features = ["vendored"] }
 ```
 
 ### 9.2. Dynamic Route

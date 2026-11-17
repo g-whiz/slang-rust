@@ -349,3 +349,7 @@ pub use render::{Blend, CullMode, RenderPipeline, RenderPipelineOptions};
 pub use sampler::{AddressMode, FilterMode, Sampler, SamplerOptions};
 #[cfg(feature = "wgpu")]
 pub use texture::{Texture, TextureFormat};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

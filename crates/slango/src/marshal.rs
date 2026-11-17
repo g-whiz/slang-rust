@@ -81,8 +81,8 @@ pub(crate) use sealed::ValueType;
 ///
 /// This trait is sealed, so code outside this crate cannot implement it. The
 /// code that `slango-macros` generates implements it for its structs through
-/// a hidden trait that is not part of the API. It serves as a generic bound
-/// only, not as a trait object.
+/// a hidden trait that is not part of the API. It is used only as a generic
+/// bound, not as a trait object.
 ///
 /// # Examples
 ///
@@ -117,8 +117,8 @@ pub trait Value: sealed::SealedValue + Copy {}
 ///
 /// This trait is sealed, so code outside this crate cannot implement it. The
 /// code that `slango-macros` generates implements it for its structs through
-/// a hidden trait that is not part of the API. It serves as a generic bound
-/// only, not as a trait object.
+/// a hidden trait that is not part of the API. It is used only as a generic
+/// bound, not as a trait object.
 ///
 /// # Examples
 ///
@@ -137,8 +137,8 @@ pub trait VertexElement: sealed::SealedVertexElement + Copy + Send + Sync + 'sta
 ///
 /// This trait is sealed, so code outside this crate cannot implement it. The
 /// code that `slango-macros` generates implements it for its structs through
-/// a hidden trait that is not part of the API. It serves as a generic bound
-/// only, not as a trait object.
+/// a hidden trait that is not part of the API. It is used only as a generic
+/// bound, not as a trait object.
 ///
 /// # Examples
 ///

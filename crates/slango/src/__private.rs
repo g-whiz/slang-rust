@@ -47,7 +47,7 @@ pub const ENCODING_VERSION: u32 = 2;
 /// An implementation that does not hold to this contract cannot cause
 /// undefined behaviour, because this crate has no unsafe code, but its
 /// buffers hold wrong bytes, and a creation or a read of them can fail. The
-/// trait serves as a generic bound only, not as a trait object.
+/// trait is used only as a generic bound, not as a trait object.
 pub trait StructElement: Copy + Send + Sync + 'static {
     /// The name of the structure in the Slang source.
     const SLANG_NAME: &'static str;
