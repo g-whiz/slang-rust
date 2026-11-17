@@ -8,6 +8,7 @@ ignore = [
     { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.3 is unmaintained as a standalone crate with no upgrade available, and only zbus 5.19 and its zbus_macros need it, which i-slint-backend-winit 1.18 of Slint requires unconditionally on Linux and the other targets that are neither Windows, Apple, Android, nor wasm, in the unpublished examples package only, with no vulnerability reported" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.15 is unmaintained as a standalone crate with no upgrade available, and only zvariant 5.15 of zbus 5.19 needs it, at build time in a procedural macro, which i-slint-backend-winit 1.18 of Slint requires unconditionally on Linux and the other targets that are neither Windows, Apple, Android, nor wasm, in the unpublished examples package only, with no vulnerability reported" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25 is unmaintained with no upgrade available, and only owned_ttf_parser of ab_glyph of sctk-adwaita 0.10 needs it, the Wayland window decorations of winit 0.30 that the feature wayland of i-slint-backend-winit 1.18 of Slint turns on, in the unpublished examples package only, with no vulnerability reported" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono 0.4 is unmaintained in every version with no upgrade available, and only i-slint-core 1.18 of Slint needs it, which slint 1.18 requires in slang-slint and the unpublished examples package, with no vulnerability reported" },
 ]
 unused-ignored-advisory = "deny"
 

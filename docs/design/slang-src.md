@@ -153,9 +153,12 @@ These are the required submodules of the recorded Slang:
 | `external/miniz` | `slang-compiler-sys` |
 | `external/spirv-headers` | `slang-compiler-sys` and `slang-glslang-sys` |
 | `external/unordered_dense` | `slang-compiler-sys` and `slang-glslang-sys` |
-| `external/vulkan` | `slang-compiler-sys` |
+| `external/vulkan` | `slang-compiler-sys` and `slang-rhi-sys` |
 | `external/glslang` | `slang-glslang-sys` |
 | `external/spirv-tools` | `slang-glslang-sys` |
+| `external/slang-rhi` | `slang-rhi-sys` |
+
+`external/slang-rhi` joins the list for milestone M9, and `slang-rhi-sys` also reads `external/vulkan` for the Vulkan headers that its build takes from the tree (RSYS-4 of `docs/design/slang-rhi-sys.md`). The submodule holds no submodules of its own and occupies about 8 MB, so it adds little to a clone. The builds of `slang-compiler-sys` and `slang-glslang-sys` do not read it, and the vendored route of `slang-compiler-sys` copies only its own list of submodules (Section 9.3 of the sys design), so the submodule changes neither build. Its addition changes what a clone entry holds, which SRC-25 handles.
 
 `external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). The vendored CI jobs on macOS and Windows show that the build of Slang of `slang-compiler-sys` needs no other submodule there. Section 16, SRCA-3, records that the build of slang-glslang needs no other submodule on Windows and macOS.
 
@@ -217,7 +220,13 @@ SRC-7. The build script MUST clone with these commands, in this order, in an emp
 
 It MUST then check the `.git` entry of each required submodule (SRC-4), write the recorded build tag into the file `build-tag` and then the stamp file, and rename the temporary directory to the clone entry only after every step succeeded, with the entry protocol of SRC-16. A clone entry that exists is therefore complete, and an interrupted clone leaves only a temporary directory, which the next run removes before it clones again.
 
-The clone entry is `src/<commit>` in the shared folder and has this layout:
+SRC-25. The clone entry MUST be `src/<commit>-<submodules>` in the shared folder, where `<submodules>` is the 16 lowercase hexadecimal digits of the 64-bit FNV-1a hash of the paths of the required submodules of Section 3.4, each followed by a NUL byte, in the order of the constant of `source.rs`. Its lock is `src/<commit>-<submodules>.lock`, and its temporary directories are `src/<commit>-<submodules>.tmp-<process id>`.
+
+A clone entry is never changed after it is complete, and the reuse of an entry checks only its `tree` and its commit. Without the second component, a target directory that holds the clone entry of an earlier version of the crate, made without `external/slang-rhi`, would give a later version a tree without the submodule that it requires, and the build of `slang-rhi-sys` would then fail inside CMake with an error that names no cause. With it, a change of the list makes a new clone entry next to the old one, which costs one clone and keeps every rule of SRC-16. The old entry stays in the shared folder until `cargo clean` or a removal by hand, which Section 9.3 permits when no build runs. The hash is that of SRC-17, so the crate needs no second hash function.
+
+Entries named `src/<commit>` without the second component are entries of earlier versions of the crate, which this version neither reads nor removes. The recipe `check-vendored-shared-folder` recognizes a clone by the path of its entry, so the change that implements SRC-25 changes that recipe as well (Section 3.2 of `docs/design/tooling.md`).
+
+The clone entry has this layout:
 
 | Path in the clone entry | Content |
 | --- | --- |
@@ -357,14 +366,16 @@ The shared folder has this layout. Each dependent build script owns the director
 
 | Path | Content | Written by |
 | --- | --- | --- |
-| `src/<commit>/` | The clone entry of one commit, with `tree`, `build-tag`, and `stamp` (Section 6.1) | `slang-src` |
-| `src/<commit>.lock` | The lock of that clone entry | `slang-src` |
+| `src/<commit>-<submodules>/` | The clone entry of one commit and one list of required submodules, with `tree`, `build-tag`, and `stamp` (Section 6.1) | `slang-src` |
+| `src/<commit>-<submodules>.lock` | The lock of that clone entry | `slang-src` |
 | `slang-compiler-sys/<key>/` | The libraries and headers of one build of Slang | `slang-compiler-sys` |
 | `slang-compiler-sys/<key>.lock` | The lock of that entry | `slang-compiler-sys` |
 | `slang-glslang-sys/<key>/` | The libraries of one build of slang-glslang | `slang-glslang-sys` |
 | `slang-glslang-sys/<key>.lock` | The lock of that entry | `slang-glslang-sys` |
+| `slang-rhi-sys/<key>/` | The libraries and the configured header of one build of slang-rhi | `slang-rhi-sys` |
+| `slang-rhi-sys/<key>.lock` | The lock of that entry | `slang-rhi-sys` |
 
-`<commit>` is the full commit hash, and `<key>` is the entry key of Section 9.4.
+`<commit>` is the full commit hash, `<submodules>` is the hash of SRC-25, and `<key>` is the entry key of Section 9.4.
 
 SRC-16. Every build script that writes an entry, which is the build script of `slang-src` for a clone entry and each dependent build script for an entry of libraries, MUST follow these steps:
 
@@ -579,7 +590,7 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 | --- | --- | --- | --- |
 | SRCA-1 | Cargo runs a dependent build script again whenever the build script of `slang-src` runs again and its metadata changes | Section 10 | A build in the M7 code steps that changes `RECORDED_COMMIT` between two builds in one target directory |
 | SRCA-2 | The low-speed settings of SRC-8 stop a transfer that stalls after it connected, and the operating system stops a connection attempt to an unreachable address after about two minutes | SRC-8, Section 14 | A run of the clone against an unroutable proxy, on Linux, Windows, and macOS |
-| SRCA-3 | The ten required submodules of Section 3.4 are all that the build of slang-glslang reads on Windows and macOS, with mimalloc turned off | Section 3.4 | The vendored CI jobs on Windows and macOS |
+| SRCA-3 | The required submodules of Section 3.4 are all that the build of slang-glslang reads on Windows and macOS, with mimalloc turned off | Section 3.4 | The vendored CI jobs on Windows and macOS |
 | SRCA-4 | The counts of Section 8, and the single clone and native build for each target directory, which come from stub crates in the shape of the workspace on x86_64 Linux, hold for the real crates | Section 8 | A vendored build of the example that calls `slango-macros`, with each command of the table |
 | SRCA-5 | On Windows and macOS, as on x86_64 Linux, Cargo runs a build script again when the stamp file that it names is missing, and not for a stamp file whose modification time is 2000-01-01 | SRC-16, Section 9.3 | The vendored CI jobs on Windows and macOS, with a test that removes the shared folder between two builds |
 | SRCA-8 | A `[patch]` entry that names a fork of `slang-src` with the same manifest version and another recorded commit replaces `slang-src` for every dependent, and the build exports the commit of the fork | SRC-22 | A build in the M7 code steps of a scratch project that patches `slang-src` with a local copy that records another commit |
@@ -611,13 +622,13 @@ The next question takes SRCQ-4.
 
 ## Appendix A. Requirement Summary
 
-This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-25.
+This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-26.
 
 | Label | Section | Summary |
 | --- | --- | --- |
 | SRC-1 | 4 | `links = "slang-src"`, the metadata keys `root`, `commit`, `build_tag`, and `shared_dir`, and direct dependents only. |
 | SRC-2 | 4 | No unsafe code, no dependencies, and the logic behind a host trait in an included file. |
-| SRC-4 | 5 | The ten required submodules have gitlinks, checked after the checkout, and `.git` entries, checked after the update, or the build stops with the message of Section 11. |
+| SRC-4 | 5 | The required submodules have gitlinks, checked after the checkout, and `.git` entries, checked after the update, or the build stops with the message of Section 11. |
 | SRC-7 | 6.1 | The clone is an init, a depth-1 fetch of the recorded commit, a checkout, a local check of the gitlinks, and a depth-1 update of the required submodules, renamed into place in the shared folder when complete. |
 | SRC-8 | 6.1 | git runs with HTTPS only, no prompt, no `GIT_ALLOW_PROTOCOL`, a low-speed limit, no optional locks, and no repository variables, which a constant lists and a test checks against the installed git. |
 | SRC-9 | 6.2 | No network access with `CARGO_NET_OFFLINE=true`, and a failed or impossible clone stops the build with the offline advice and never falls back. |
@@ -634,3 +645,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | SRC-22 | 7.3 | Another commit only through `[patch]` with a fork that keeps the manifest version, best effort. |
 | SRC-23 | 9.1 | The shared folder is `slang-src` in the nearest tagged ancestor of `OUT_DIR`, its parent when that ancestor is the directory of `TARGET` under another tag, or `OUT_DIR` without a tag. |
 | SRC-24 | 7.1 | A recorded commit that is not 40 lowercase hexadecimal digits stops the build before anything else. |
+| SRC-25 | 6.1 | The clone entry is named by the commit and the hash of the list of required submodules, so a change of the list makes a new entry. |

@@ -16,7 +16,7 @@ The list exists so that a defect that should be reported is not lost between the
 
 An agent that records a defect of an upstream project that should be reported adds its entry to Section 3 in the same change, as Hard Rule 14 of `AGENTS.md` requires. An agent that cannot tell whether a defect should be reported adds the entry with the status "Owner to decide" and says why in one sentence, so that the owner decides instead of the agent.
 
-An entry cites the record of the defect by its identifier and does not repeat its input, outcome, or source location, because a second copy diverges from the first (Hard Rule 1 of `AGENTS.md`). The record of a defect of Slang is its row in Section 3.12 of `docs/design/slang-compiler.md`, so the identifiers in Section 3 are the identifiers of those rows.
+An entry cites the record of the defect by its identifier and does not repeat its input, outcome, or source location, because a second copy diverges from the first (Hard Rule 1 of `AGENTS.md`). The record of a defect is its row in the list of known upstream bugs for its project, which is Section 3.12 of `docs/design/slang-compiler.md` for Slang and Section 3.1 of `docs/design/slang-rhi.md` for slang-rhi. The identifiers in Section 3 are the identifiers of those rows.
 
 A draft is the one exception, because an issue has to state the facts itself. A draft states what the row and the API documentation of the affected call record as observed, and flags anything that it reconstructs in a note for the owner. A change to the row updates the draft in the same change.
 
@@ -28,7 +28,7 @@ An entry stays in the list after its report is posted, and its identifier is nev
 
 ## 3. Entries
 
-Every entry in this table is a defect of Slang, whose repository is `shader-slang/slang` on GitHub. Each identifier is a row of Section 3.12 of `docs/design/slang-compiler.md`.
+Each identifier is a row of the list that Section 2 names for the entry's upstream project, and the column "Upstream project" names the project's repository on GitHub.
 
 | Identifier | Upstream project | Title | Status |
 | --- | --- | --- | --- |
@@ -39,6 +39,7 @@ Every entry in this table is a defect of Slang, whose repository is `shader-slan
 | KB-5 | Slang, `shader-slang/slang` | A static Slang without `slang-glslang` reports the missing library only in the diagnostics of a successful generation of SPIR-V | Owner to decide. The row records this as a behaviour of Slang rather than a defect, so it may not be worth an issue. Draft not written |
 | KB-6 | Slang, `shader-slang/slang` | `spReflectionType_GetElementCount` returns 0 instead of `SLANG_UNBOUNDED_SIZE` for an array without a length | Draft not written |
 | KB-7 | Slang, `shader-slang/slang` | `spReflection_getGlobalConstantBufferBinding` returns 0 on SPIR-V when the global constant buffer is at another binding | Draft written in Section 4, not posted |
+| RKB-1 | slang-rhi, `shader-slang/slang-rhi` | The range check of `readBuffer` can overflow, so a range past the end of a buffer passes it | Draft not written. The defect was read in the source and is not reproduced yet |
 
 The status of an entry is one of these values:
 

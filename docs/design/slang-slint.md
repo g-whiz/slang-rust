@@ -142,7 +142,7 @@ Slint renders only when something requests a frame (run). Either of two ways dri
 
 The licence expression of Slint's crates is `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0` (run). Section 4.2 states the option this design takes.
 
-The library alone, with the features of SLS-1, brings seven of the crates of Slint, no crate under a BSD or BSL licence, some duplicate versions, and the advisory RUSTSEC-2026-0441 for the unmaintained `pin-utils` (run). Cargo resolves the lock file with every feature of every package, so the lock file also holds optional dependencies of Slint that are not built.
+The library alone, with the features of SLS-1, brings seven of the crates of Slint, no crate under a BSD or BSL licence, some duplicate versions, and the advisory RUSTSEC-2026-0441 for the unmaintained `pin-utils` (run). It also brings the advisory RUSTSEC-2026-0543 for `chrono`, which is unmaintained in every version. `chrono` 0.4.45 enters through `i-slint-core` 1.18.1, which `slint` 1.18.1 requires (run). Cargo resolves the lock file with every feature of every package, so the lock file also holds optional dependencies of Slint that are not built.
 
 The windowing backend on winit and the FemtoVG renderer on wgpu, which the examples package enables for example 4, bring the rest (run). They bring crates under `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` and more duplicate versions. They also bring four advisories, each for an unmaintained crate with no upgrade available and no vulnerability reported:
 
@@ -189,7 +189,7 @@ SLS-5. The section `Licence` of `crates/slang-slint/README.md` MUST state this c
 
 `deny.toml` accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It admits `GPL-3.0-only`, which the Slint crates of `slang-slint` and the examples package need, with the evidence of compatibility with `GPL-3.0-or-later` that TOOL-24 requires, and skips each duplicate version that the library brings under TOOL-26.
 
-It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 8 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for five advisories.
+It admits `BSD-2-Clause`, `BSD-3-Clause`, and `BSL-1.0` only for the backend and the renderer of the examples package (Section 3.6). Section 8 of `docs/design/tooling.md` records each entry, the evidence, and the owner's exceptions for six advisories.
 
 ## 5. The Device
 
@@ -417,7 +417,7 @@ The threat model treats the shader source, the file paths, and the sizes that a 
 
 Slint adds many crates to the build graph (Section 3.6) and links fontconfig and the libraries that it uses. `Cargo.lock` fixes their versions, and `cargo-deny` checks their advisories, licences, and sources (Section 4.2).
 
-By the owner's decisions, it ignores five advisories, each for an unmaintained crate with no reported vulnerability. One is for `pin-utils`, which the library brings, and four come only with the Slint backend of the unpublished examples package (Section 3.6).
+By the owner's decisions, it ignores six advisories, each for an unmaintained crate with no reported vulnerability. Two are for `pin-utils` and `chrono`, which the library brings, and four come only with the Slint backend of the unpublished examples package (Section 3.6).
 
 These attacks are out of scope, because a program that runs them has chosen to: a malicious shader, and a shader or a file that reaches a defect of Slang, naga, wgpu, Slint, or a driver (Section 1.6).
 

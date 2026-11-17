@@ -45,9 +45,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
    No agent weakens the lint or tool configuration to make a check pass. Rules LINT-1 and LINT-2 in Section 4.4 of the coding standard define the form of an exception and when the configuration may change. The `reason` states the reason in plain words and names no rule identifier, as Hard Rule 15 requires.
 7. **Soundness and security by default.** When two approaches are otherwise comparable, the agent MUST choose the sounder and more secure one and say so in its report, because unsound or insecure code that works is rarely revisited.
 
-   Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, and `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`). Any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states.
+   Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, and `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`), and in the planned crates `slang-rhi-sys` and `slang-rhi` of M9, whose design documents record the reason (RSYS-2 of `docs/design/slang-rhi-sys.md`, RHI-2 of `docs/design/slang-rhi.md`). Any other crate that needs it records the reason in its design document first, as Section 4.4 of the coding standard states.
 
-   Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions are never written by hand and never checked in. The build script of `slang-compiler-sys` generates them into `OUT_DIR` in every build, so the agent changes them only by changing the binding generator or its rule set (FFI-1, COM-9, ARCH-33 of `docs/design/architecture.md`).
+   Generated bindings, vtables, universally unique identifier (UUID) constants, thunks, and the generated list of C functions are never written by hand and never checked in. The build script of `slang-compiler-sys` generates them into `OUT_DIR` in every build, as the build script of the planned `slang-rhi-sys` will for slang-rhi, so the agent changes them only by changing the binding generator or its rule sets (FFI-1, COM-9, ARCH-33 of `docs/design/architecture.md`).
 
    No file in the repository contains a secret. A build script installs nothing, writes only inside `OUT_DIR` or the shared folder in the Cargo target directory of the build, and reaches no network, except the build script of `slang-src`, which clones the recorded commit of the Slang tree by its full hash (SYS-5). A continuous integration (CI) workflow verifies the SHA-256 checksum of every download whose upstream publishes one.
 8. **Every action is a `just` recipe.** Every command, build step, and check is a recipe in the root `justfile`, which is one flat file with `[group]` attributes and no `just` modules, because modules hide their recipes from `just --list`. The agent invokes no script under `scripts/` directly when a recipe wraps it.
@@ -72,7 +72,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
    The checks that a safe interface needs stay whatever Slang's defects are: the bounds of indexes, null returns, the conversion of strings, objects of another session, and reentrant calls, which Slang documents as unsupported.
 
-   The agent MUST record each defect once, in the list of known upstream bugs in Section 3.12 of `docs/design/slang-compiler.md`, with the smallest known input, the call, the observed outcome, and the source location if already known, so that a later investigation can start from it. The agent MUST NOT investigate a defect further unless it blocks the work.
+   The agent MUST record each defect once, in the list of known upstream bugs in Section 3.12 of `docs/design/slang-compiler.md`, or in Section 3.1 of `docs/design/slang-rhi.md` for a defect of slang-rhi, with the smallest known input, the call, the observed outcome, and the source location if already known, so that a later investigation can start from it. The agent MUST NOT investigate a defect further unless it blocks the work.
 
    The agent MUST add an entry for each defect that should be reported to the to-do list of upstream reports, `docs/upstream-reports.md`, in the same change that records the defect, because that list is the one place where the owner finds the reports to make. Section 2 of that list gives the rules for an entry.
 
@@ -245,6 +245,10 @@ The change alters the packaged files of every crate of the release. At `0.1.0-al
 
 Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
+M9, `slang-rhi-sys`, `slang-rhi`, and additive reflection (Section 15.12 of `docs/design/architecture.md`), is in progress, and its design exists. It consists of the new documents `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, Section 7.8 of `docs/design/slang-compiler-sys.md` for the generator, Sections 6.7, 9.6, and 9.7 of `docs/design/slang-compiler.md` for reflection, SRC-25 and the new required submodule of `docs/design/slang-src.md`, and TOOL-52 of `docs/design/tooling.md`, within the owner's decisions of 2026-11-17 (Section 4.1 of `docs/design/slang-rhi-sys.md`). Section 15.12 of the architecture design orders its six code steps, and no code of M9 exists yet. The open questions RSQ-1 of `docs/design/slang-rhi-sys.md` and RHQ-1 of `docs/design/slang-rhi.md` wait for the owner in M9.
+
+On 2026-11-17, the advisory database gained RUSTSEC-2026-0543, which reports `chrono` as unmaintained, with no upgrade available. In CI run 44090478850, on a branch that changed no dependency, `check-deny` failed with it in the job "Run every check on Linux", and `check-deny` failed the same way on `main`. The owner decided that day to ignore the advisory in `deny.toml`, and Section 8 of `docs/design/tooling.md` records the reason.
+
 What exists and works:
 
 - The `justfile` and its recipes, which `just --list` shows. They include these recipes:
@@ -399,6 +403,7 @@ What exists and works:
 - The design of `slango` and the compute kernel example, `docs/design/slango.md`, a draft that milestone M3 implemented, and that also holds the design of M4, rendering, which M4 implemented.
 - The design of `slang-slint` and the Slint example, `docs/design/slang-slint.md`, a draft that milestone M5 implemented.
 - The design of `slango-macros` and its generator `slango-codegen`, `docs/design/slango-macros.md`, a draft that milestone M6 implemented.
+- The designs of `slang-rhi-sys` and `slang-rhi`, `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, drafts for M9 that no code implements yet.
 
 `just check` passes in the development container, and it passed in CI in run 43749637842. The tests of `slang-bindgen` and of `slang-compiler-sys` run in the default tier.
 
@@ -420,7 +425,8 @@ What does not exist yet:
 
 - The custom file system of `slang-compiler`, which is deferred with no milestone assigned (Section 15.22 of `docs/design/architecture.md`). It is the trait `FileSystem` and the setter `SessionBuilder::file_system` of Section 8 of `docs/design/slang-compiler.md`, with the error kind `FileSystem`, the Rust-owned blob, the panic handling of SLC-18, and the Slang call guard raised around the user's code of every vtable function (SLC-28). A user who needs one reaches Slang's file system interface through `slang-compiler-sys`.
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
-- The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
+- The crates `slang-rhi-sys` and `slang-rhi`, the slang-rhi rule set of `slang-bindgen`, the additive reflection of `slang-compiler`, the required submodule `external/slang-rhi` with the clone entry of SRC-25, and the recipes `check-rhi` and `test-rhi`, which M9 designs (Section 15.12 of `docs/design/architecture.md`).
+- The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi`, which is written as the first task of the milestone that delivers the crate.
 - A recipe that builds the examples package with its feature `vendored`, and a `gpu` test on the vendored route.
 
 The workspace lint tables, `clippy.toml`, the tools that `just check` runs, and the custom checkers enforce their rules, so an agent learns those rules from a failing check, as Hard Rule 3 states.
@@ -592,7 +598,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - `gpu/windowed_renderer.rs` and `gpu/shader_playground.rs` check the scene of each windowed example drawn offscreen and its reload.
   - The `insta` snapshots are under `snapshots/`.
 - `clippy.toml`: The Clippy configuration of Section 4.3 of the coding standard.
-- `deny.toml`: The cargo-deny configuration of Section 8 of `docs/design/tooling.md`, whose `[advisories]` table ignores five advisories by the owner's decisions and whose `[bans]` table skips 31 duplicate versions. Its `[licenses]` table accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It accepts `GPL-3.0-only` for every crate, so a reviewer checks that no crate under a permissive licence depends on a crate under the GPL (TOOL-34). Section 8 of `docs/design/tooling.md` lists the licence allow-list, the advisories, and the skips with the reason for each.
+- `deny.toml`: The cargo-deny configuration of Section 8 of `docs/design/tooling.md`, whose `[advisories]` table ignores six advisories by the owner's decisions and whose `[bans]` table skips 31 duplicate versions. Its `[licenses]` table accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It accepts `GPL-3.0-only` for every crate, so a reviewer checks that no crate under a permissive licence depends on a crate under the GPL (TOOL-34). Section 8 of `docs/design/tooling.md` lists the licence allow-list, the advisories, and the skips with the reason for each.
 - `.config/nextest.toml`: The nextest profiles `default`, `gpu`, and `hw-gpu`, which implement the test tiers as Section 4 of `docs/design/tooling.md` defines. It also holds `default-miri`, which Miri uses and which skips the modules named `ffi`, `gpu`, and `hw_gpu`, and an override that keeps the output of the `gpu` tests of `slango`, which name their adapter.
 - `taplo.toml`: The taplo configuration, with four-space indentation and the exclusion of `target/` and `.worktrees/`.
 - `typos.toml`: The typos configuration, which ignores two correct patterns that typos would otherwise report, and accepts three whole identifiers that the Slang headers misspell and that the design documents name (Section 5.10 of `docs/design/slang-compiler-sys.md`).
@@ -626,6 +632,8 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - The hidden module and the element type check of `slango`.
   - The macro and the generated code.
   - Errors, threading, and the tests.
+- `docs/design/slang-rhi-sys.md`: The design of `slang-rhi-sys` for M9, which is authoritative for the facts about slang-rhi, the wrapper build, the decision for each kind of declaration of the slang-rhi headers, the ABI probe, the safety contract, the platforms, and the tests of the crate.
+- `docs/design/slang-rhi.md`: The design of `slang-rhi` for M9, which is authoritative for its ownership model, its public API of the compute path, errors, threading, the guards around native calls, and the tests.
 - `justfile`: The root `justfile`, with the groups `checks`, `ci`, `git`, `release`, and `rust`. The group `ci` holds `install-vulkan-sdk`, which only the CI workflow runs, and the group `release` holds `doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`. Its variables `release_packages` and `documentation_site` hold the crates of the next release, in the order of their dependencies, and the base address of the hosted documentation. Its variables `vendored_packages`, `vendored_features`, and `vendored_environment` hold the packages, the feature, and the environment of `test-vendored` and `check-vendored`, which are `slang-src slang-glslang-sys slang-compiler-sys slang-compiler` and `slang-compiler/vendored`.
 - `.github/workflows/ci.yml`: The CI workflow, which Section 7 of `docs/design/tooling.md` specifies. It runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request.
   - It has the jobs `check`, `test`, `ci-only`, `semver`, `coverage`, and `vendored`. Every job makes libclang available, and each job except `vendored` then installs the Vulkan SDK and checks it with `check-vulkan-sdk`.
@@ -671,7 +679,8 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 
 These locations are planned and do not exist yet:
 
-- `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, written as the first task of the crate's milestone.
+- `crates/slang-rhi-sys/` and `crates/slang-rhi/`: The crates of M9, which `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md` specify.
+- `docs/design/<crate-name>.md`: One design document for each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi`, written as the first task of the crate's milestone.
 ## Technology Decisions
 
 `docs/design/architecture.md` is authoritative for the architecture: the crates and their layering, how Slang is obtained and which Slang is recorded, the responsibilities of each crate, the examples, the test tiers, platform support, publishing, and the roadmap. This section summarizes it, together with the toolchain and environment decisions, and the architecture design prevails wherever the two disagree.
@@ -741,7 +750,7 @@ The planned crates are:
   - A headless compute kernel called through the typed bindings of `slango-macros`.
   - Planned examples, which Section 10 of `docs/design/architecture.md` lists with their milestones, including the path-tracing demo.
 
-Bindings for slang-rhi, the crates `slang-rhi-sys` and `slang-rhi`, are planned for M9 (Section 15.12 of `docs/design/architecture.md`).
+Bindings for slang-rhi, the crates `slang-rhi-sys` and `slang-rhi`, are planned for M9 (Section 15.12 of `docs/design/architecture.md`), and `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md` design them.
 
 The binding generator produces the `#[repr(C)]` vtable structs, UUID constants, and thunks through which Rust calls the Slang interfaces in the style of the Component Object Model (COM). None of them is written by hand.
 
@@ -1055,7 +1064,7 @@ just coverage
 
 Hard Rule 1 is the rule an agent is most likely to skip, because the code works without it. After every change, and before it reports the change complete, the agent MUST re-read and correct these documents, once each, because a stale document misleads the next agent:
 
-1. The design document of each crate or tool that the change alters, including its design content, its assumptions and open questions, and, for `slang-compiler`, its list of known upstream bugs, together with the entry in `docs/upstream-reports.md` of each defect in it that should be reported. Progress and status are recorded only in Project Status of this file, never in a design document (Section 3.6 of the writing guide).
+1. The design document of each crate or tool that the change alters, including its design content, its assumptions and open questions, and, for `slang-compiler` and `slang-rhi`, its list of known upstream bugs, together with the entry in `docs/upstream-reports.md` of each defect in it that should be reported. Progress and status are recorded only in Project Status of this file, never in a design document (Section 3.6 of the writing guide).
 2. Every statement in another document that the change makes false, which the agent finds by searching for the names that the change touches. `README.md`, the architecture design, the tooling design, and this file change only as Hard Rule 1 states. This includes the README of each crate that the change alters, which is the crate's page on crates.io, and every pointer in a README that the change makes false, as RDM-33 of `docs/writing-readmes.md` requires.
 3. `docs/rust-coding-standards.md` with its Appendix A, `docs/rust-references.md`, `docs/writing-documentation.md`, `docs/writing-readmes.md`, or `docs/avoiding-claudelish.md`, only when the change alters a rule, a lint, a tool, a source, or a documentation convention.
 4. The Date field of the metadata table of each document the change touched.
