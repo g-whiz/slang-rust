@@ -480,6 +480,11 @@ check-features:
 check-msrv:
     CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
 
+# Check the release packages with a library target, other than slang-src and slang-glslang-sys, for breaking changes against their last release on crates.io, with the default features of each, run by CI only. It fetches each baseline from crates.io, which needs network access, and builds each crate twice
+[group('checks')]
+check-semver:
+    cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --default-features
+
 # Write a test coverage report to target/lcov.info, run by CI only
 [group('rust')]
 coverage:

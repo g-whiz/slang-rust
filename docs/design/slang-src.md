@@ -286,7 +286,7 @@ This illustration shows the requirement in the manifest of a dependent:
 
 ```toml
 [dependencies]
-slang-src = { version = "=0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1", path = "../slang-src" }
+slang-src = { version = "=0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1", path = "../slang-src" }
 ```
 
 ### 7.3. Another Slang Commit

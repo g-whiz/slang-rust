@@ -199,7 +199,7 @@ SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, a
 
 Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it.
 
-The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0-alpha.1", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
+The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0-alpha.2", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
 
 With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node of `slango` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 
@@ -577,7 +577,7 @@ The change that confirms or corrects it states the result in Section 3 and in th
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | The first release, in M8 |
+| SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | A build of a crate that depends on `slango-macros` and `slango` from crates.io, once crates.io holds a second version of `slango` |
 | SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run |
 
 ## 12. Open Questions
@@ -585,7 +585,7 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | Identifier | Question | Answered by |
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
-| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M8, at the first release |
+| SLMQ-2 | Should `slango` re-export `shader!` behind a feature? The first release shipped without a re-export and without a decision | The owner of the project, in a milestone not assigned yet |
 | SLMQ-3 | The rules of SLM-19 break C-CASE and API-3: `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives `httpserver`, `gHDRScale` gives `g_hdrscale`, and a structure name is never converted (Section 7.4). The options are to split words at `_`, `.`, a step from lowercase or a digit to uppercase, and before the last capital of an uppercase run that a lowercase letter follows, and to apply the rule of type names to structures too, before the release, because a later change renames generated items in every caller without a tool seeing it, or to keep the rules and record why. The owner let the first release, an alpha, ship without deciding it (TOOL-37 of `docs/design/tooling.md`) | The owner of the project, by a decision before the first release that is not an alpha |
 | SLMQ-4 | `shader!` takes only one string literal and makes every generated item `pub`, so a caller cannot choose a visibility such as `pub(crate)`, add an attribute to a generated item, or name the module (SLM-9), against C-MACRO-VIS, C-MACRO-ATTR, and C-EVOCATIVE. The options are to add a form such as `shader!(pub mod saxpy = "saxpy.slang")` before the release, keeping or dropping the bare literal, or to keep the literal alone and add such a form later, which is additive but leaves two syntaxes. The owner let the first release, an alpha, ship without deciding it (TOOL-37 of `docs/design/tooling.md`) | The owner of the project, by a decision before the first release that is not an alpha |
 
@@ -648,7 +648,9 @@ These are properties of the design, recorded and not guarded against:
 - A documentation build of a crate that calls the macro needs Slang, and docs.rs, which has none, is not supported (Section 3.8).
 - The feature `vendored` of `slango` does not reach the macro's copy of Slang, so a program without a Vulkan SDK at build time enables it on `slango-macros` as well (Section 4.3).
 
-These are not determined: the macro in rust-analyzer and in a cross build that links, the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5), and the behaviour of cargo-semver-checks on hidden items.
+These are not determined: the macro in rust-analyzer and in a cross build that links, and the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5).
+
+cargo-semver-checks treats the hidden module `__private` of `slango` as outside the public API, and it does not check `slango-macros`, which has no library target (Section 9.3 of `docs/design/tooling.md`).
 
 ## 15. References
 

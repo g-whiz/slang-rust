@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -514,7 +514,7 @@ Each entry that this section first recorded was run on the toolchain of Section 
 
 Each deterministic check that is not a lint belongs to one tool. The development container provides every tool in this table, except the custom checkers, which are scripts under `scripts/` that run on its Python 3. The Status column says whether the check runs the tool.
 
-A recipe runs each command of this section that the check runs, and Section 3.2 of `docs/design/tooling.md` lists those recipes. The CI workflow runs the check on Linux, Clippy, the doctests, and the tests on Windows and macOS, the feature and MSRV checks of `cargo hack` on Linux, and the coverage command of `cargo llvm-cov` on Linux, as Section 7.1 of `docs/design/tooling.md` specifies.
+A recipe runs each command of this section that the check runs, and Section 3.2 of `docs/design/tooling.md` lists those recipes. The CI workflow runs the check on Linux, Clippy, the doctests, and the tests on Windows and macOS, the feature and MSRV checks of `cargo hack` on Linux, the coverage command of `cargo llvm-cov` on Linux, and the command of `cargo semver-checks` on Linux, as Section 7.1 of `docs/design/tooling.md` specifies.
 
 The configuration of the tools that need one exists in the repository: `deny.toml` for `cargo deny`, `.config/nextest.toml` for `cargo nextest run`, `typos.toml` for `typos`, and `taplo.toml` for `taplo`. A tool that the check does not run enforces nothing on a change, so each rule it would enforce stays a judgement rule, as Section 3.5 of the writing guide states.
 
@@ -527,7 +527,7 @@ The configuration of the tools that need one exists in the repository: `deny.tom
 | `cargo doc` | The rustdoc lints (Section 7.12 of the writing guide) | Run by the check |
 | `cargo deny` | Licences on the allow-list of `docs/design/tooling.md`, with `GPL-3.0-or-later` for `slang-slint` alone, security advisories, banned and duplicate crates, and the allowed sources of crates, configured in `deny.toml` as this section requires | Run by the check |
 | `cargo insta` | Reviewing changes to snapshot tests (TEST-2) | Installed, run by hand |
-| `cargo semver-checks` | Breaking changes to the public API against the last release | Installed, not run until the first release |
+| `cargo semver-checks` | Breaking changes to the public API against the last release | Run outside the check, by the CI job `semver` in every run of the workflow. While the releases are alphas, it runs none of its checks of the API (Section 9.3 of `docs/design/tooling.md`) |
 | `cargo hack` | That every combination of Cargo features compiles (DEP-1), with `--feature-powerset`, and that the workspace builds with the toolchain of `rust-version` (DEP-4) | Run outside the check, by CI in every run of the workflow |
 | `cargo machete` | Unused dependencies | Run by the check |
 | `cargo llvm-cov` | Test coverage | Run outside the check, by the CI job `coverage` in every run of the workflow, as a report and not a gate |
@@ -571,7 +571,13 @@ taplo fmt --check
 actionlint
 ```
 
-The command for `cargo semver-checks` is chosen with the first release, because the tool fails on a crate that has no published version. The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.
+This command runs the check of `cargo semver-checks`, which compares each crate of the release with a library target, except `slang-src` and `slang-glslang-sys`, with its last release on crates.io, with the default features of each crate (TOOL-38 of `docs/design/tooling.md`):
+
+```sh
+cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --default-features
+```
+
+The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.
 
 The CI job `coverage` runs the recipe on Linux and uploads the report as an artifact, which is the only result of the job (Section 7.1 of `docs/design/tooling.md`). Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that.
 
