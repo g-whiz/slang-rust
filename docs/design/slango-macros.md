@@ -427,7 +427,7 @@ These are compile errors of the kind `NameConflict`:
 - A Slang field named like a padding field, such as `_padding0`, because the padding fields take their names after the public fields.
 - Two different structures with one Slang name, such as `Item` in two namespaces.
 
-These rules break C-CASE and API-3 for some names. The conversion copies all but the first letter of each part and splits a word only after a lowercase letter or a digit, so `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives the field `httpserver`, and `gHDRScale` gives `g_hdrscale`, and a structure name is never converted. Whether to change the rules before the release is open (SLMQ-3 of Section 12).
+These rules break C-CASE and API-3 for some names. The conversion copies all but the first letter of each part and splits a word only after a lowercase letter or a digit, so `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives the field `httpserver`, and `gHDRScale` gives `g_hdrscale`, and a structure name is never converted. Whether to change the rules before the first release that is not an alpha is open (SLMQ-3 of Section 12).
 
 ### 7.5. Not Supported in M6
 

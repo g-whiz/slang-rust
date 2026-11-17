@@ -4,16 +4,16 @@ set -euo pipefail
 usage() {
     printf '%s\n' "usage: self-test-release" "" \
         "Runs scripts/check-package, check-release, check-doc-site, publish-dry-run," \
-        "publish, tag-release, and yank against stubs of cargo, git, gh, curl, and" \
-        "sleep in a temporary directory, and runs the recipes publish-dry-run, publish," \
+        "publish, tag-release, and yank against stubs of cargo, git, gh, curl, sleep," \
+        "and date in a temporary directory, and runs the recipes publish-dry-run, publish," \
         "and tag-release through just on a copy of the justfile and those scripts in" \
         "that directory. It fails unless each case gives its expected exit status," \
         "message, and calls of the stubs. It resolves just to its absolute path first" \
         "and calls it by that path, because just can be installed in a directory that" \
         "also holds the real cargo. PATH then holds only the stubs, /usr/bin, and /bin," \
         "and the run stops before any case when just is not installed, when a program" \
-        "that the scripts run is not in /usr/bin or /bin, when cargo, git, gh, curl, or" \
-        "sleep does not resolve to its stub, or when any other program named cargo is" \
+        "that the scripts run is not in /usr/bin or /bin, when cargo, git, gh, curl," \
+        "sleep, or date does not resolve to its stub, or when any other program named cargo is" \
         "on PATH, so no case can reach crates.io or GitHub." \
         "Exits 1 when a case fails, and 2 when the setup is broken."
 }
@@ -44,7 +44,55 @@ case "$1" in
             cp "${STUB_CRATES}"/*.crate "${STUB_TARGET}/package/"
         fi
         ;;
-    publish | yank) exit "${STUB_CARGO_STATUS:-0}" ;;
+    publish)
+        if [[ "$4" == "${STUB_CARGO_SIGNAL_ON:-}" ]]; then
+            kill -s "${STUB_CARGO_SIGNAL}" "${PPID}"
+            kill -s "${STUB_CARGO_SIGNAL}" "$$"
+        fi
+        if [[ "$4" == "${STUB_CARGO_UPLOADED_THEN_FAILS:-}" ]]; then
+            if [[ -f "${STUB_LOG}.uploaded-$4" ]]; then
+                printf 'error: crate %s@0.1.0 already exists on crates.io index\n' "$4" >&2
+                exit 101
+            fi
+            : >"${STUB_LOG}.uploaded-$4"
+            key="$(printf '%s' "https://crates.io/api/v1/crates/$4/0.1.0" | tr '/:' '__')"
+            if [[ -z "${STUB_CARGO_UPLOAD_LOST:-}" ]]; then
+                printf '200' >"${STUB_WEB}/${key}.status"
+            fi
+            printf '   Uploading %s\n    Uploaded %s v0.1.0 to registry `crates-io`\n' "$4" "$4" >&2
+            if [[ "${STUB_CARGO_FAILURE_AFTER_UPLOAD}" == cdn ]]; then
+                printf 'warning: spurious network error (3 tries remaining): failed to get successful HTTP response from `https://index.crates.io/1/%s`, got 429\nbody:\n<title>429 Too Many Requests</title>\nerror: failed to query replaced source registry `crates-io`\n' "$4" >&2
+            else
+                printf 'error: failed to query replaced source registry `crates-io`\n' >&2
+            fi
+            exit 101
+        fi
+        state="${STUB_LOG}.refused"
+        limit="${STUB_CARGO_RATE_LIMITED:-0}"
+        if [[ -n "${STUB_CARGO_RATE_LIMITED_EACH:-}" ]]; then
+            state="${STUB_LOG}.refused-$4"
+            limit="${STUB_CARGO_RATE_LIMITED_EACH}"
+        fi
+        refused=0
+        if [[ -f "${state}" ]]; then
+            refused="$(cat "${state}")"
+        fi
+        if [[ "${refused}" -lt "${limit}" ]]; then
+            printf '%s\n' "$((refused + 1))" >"${state}"
+            detail="You have published too many new crates in a short period of time."
+            if [[ -n "${STUB_RETRY_AFTER:-}" ]]; then
+                detail="You have published too many new crates in a short period of time. Please try again after ${STUB_RETRY_AFTER} and see https://crates.io/docs/rate-limits for more details."
+            fi
+            printf 'error: failed to publish %s to registry at https://crates.io\n\nCaused by:\n  the remote server responded with an error (status 429 Too Many Requests): %s\n' "$4" "${detail}" >&2
+            exit 101
+        fi
+        if [[ "${STUB_CARGO_STATUS:-0}" -ne 0 ]]; then
+            printf 'error: failed to publish %s\n' "$4" >&2
+            exit "${STUB_CARGO_STATUS}"
+        fi
+        printf '   Uploading %s\n' "$4" >&2
+        ;;
+    yank) exit "${STUB_CARGO_STATUS:-0}" ;;
 esac
 EOF
 
@@ -74,12 +122,16 @@ url=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output) output="$2"; shift 2 ;;
-        --proto | --user-agent | --write-out | --retry) shift 2 ;;
+        --proto | --user-agent | --write-out | --retry | --connect-timeout | --max-time) shift 2 ;;
         -*) shift ;;
         *) url="$1"; shift ;;
     esac
 done
 printf 'curl %s\n' "${url}" >>"${STUB_LOG}"
+if [[ "${STUB_CURL_STATUS:-0}" -ne 0 ]]; then
+    printf 'curl: (6) Could not resolve host: crates.io\n' >&2
+    exit "${STUB_CURL_STATUS}"
+fi
 key="$(printf '%s' "${url}" | tr '/:' '__')"
 status=404
 if [[ -f "${STUB_WEB}/${key}.status" ]]; then
@@ -95,6 +147,22 @@ EOF
 
 cat >"${stubs}/sleep" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
+printf 'sleep %s\n' "$*" >>"${STUB_LOG}"
+if [[ $# -ne 1 || ! "$1" =~ ^[0-9]+$ || "$1" -le 0 ]]; then
+    printf 'sleep: invalid time interval %s\n' "$*" >&2
+    exit 1
+fi
+EOF
+
+cat >"${stubs}/date" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == "-u +%s" && -n "${STUB_NOW:-}" ]]; then
+    printf '%s\n' "${STUB_NOW}"
+    exit 0
+fi
+exec /usr/bin/date "$@"
 EOF
 
 chmod +x "${stubs}"/*
@@ -103,23 +171,27 @@ if ! just_program="$(command -v just)" || [[ "${just_program}" != /* ]]; then
     exit 2
 fi
 export PATH="${stubs}:/usr/bin:/bin"
-for tool in bash env python3 awk cat cmp cp cut diff dirname du find grep gzip head ln mkdir mktemp rm sed sort tail tar tr wc; do
+for tool in bash env python3 awk cat cmp cp cut diff dirname du find grep gzip head ln mkdir mktemp rm sed sort tail tar tee tr wc; do
     if ! command -v "${tool}" >/dev/null 2>&1; then
         printf 'self-test-release: %s is not in /usr/bin or /bin, so the cases cannot run\n' "${tool}" >&2
         exit 2
     fi
 done
-for tool in cargo git gh curl sleep; do
+for tool in cargo git gh curl sleep date; do
     if [[ "$(command -v "${tool}")" != "${stubs}/${tool}" ]]; then
         printf 'self-test-release: %s does not resolve to its stub, so the cases do not run\n' "${tool}" >&2
         exit 2
     fi
 done
+if [[ ! -x /usr/bin/date ]]; then
+    printf 'self-test-release: /usr/bin/date does not exist, so the stub of date cannot pass its calls on\n' >&2
+    exit 2
+fi
 if [[ "$(type -ap cargo)" != "${stubs}/cargo" ]]; then
     printf 'self-test-release: a program named cargo other than the stub is on PATH, so the cases do not run\n' >&2
     exit 2
 fi
-unset GITHUB_ACTIONS CARGO_REGISTRY_TOKEN CARGO_TARGET_DIR
+unset GITHUB_ACTIONS CARGO_REGISTRY_TOKEN CARGO_TARGET_DIR STUB_NOW STUB_RETRY_AFTER
 
 site="https://example.invalid/docs"
 head_commit=1111111111111111111111111111111111111111
@@ -148,6 +220,8 @@ new_case() {
     export STUB_GIT_STATUS=""
     export STUB_GIT_FETCH_STATUS=0
     export STUB_CARGO_STATUS=0
+    export STUB_CARGO_RATE_LIMITED=0
+    export STUB_CURL_STATUS=0
 }
 
 metadata() {
@@ -277,13 +351,188 @@ record "${head_commit}" "a b"
 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish other packages than the dry run" 1 "recorded the packages 'a b', not 'b'" "" "${scripts}/publish" b
 expect_no_call "publish other packages than the dry run" '^cargo '
 
-new_case
-record "${head_commit}" "a b"
-CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish after the dry run" 0 "" "cargo publish --no-verify -p a -p b" "${scripts}/publish" a b
+publish_case() {
+    new_case
+    record "${head_commit}" "$*"
+    local entries=() name
+    for name in "$@"; do
+        entries+=("${name}|0.1.0|MIT OR Apache-2.0||null")
+    done
+    metadata "${entries[@]}"
+}
 
-new_case
-record "${head_commit}" "a"
-STUB_CARGO_STATUS=101 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that cargo fails" 101 "" "cargo publish --no-verify -p a" "${scripts}/publish" a
+published_before() {
+    local name
+    for name in "$@"; do
+        web "${api}/${name}/0.1.0" 200
+        web "${api}/${name}" 200
+    done
+}
+
+expect_calls() {
+    local actual
+    actual="$(grep -cxF -- "$3" "${case_dir}/log" || true)"
+    if [[ "${actual}" -ne "$2" ]]; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    the stubs were called %s times with %s, expected %s\n' "$1" "${actual}" "$3" "$2"
+    fi
+}
+
+expect_order() {
+    local first second
+    first="$(grep -nxF -- "$2" "${case_dir}/log" | head -n 1 | cut -d : -f 1)" || first=""
+    second="$(grep -nxF -- "$3" "${case_dir}/log" | head -n 1 | cut -d : -f 1)" || second=""
+    if [[ -z "${first}" || -z "${second}" || "${first}" -ge "${second}" ]]; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    the stubs were not called with %s before %s\n' "$1" "$2" "$3"
+    fi
+}
+
+api="https://crates.io/api/v1/crates"
+
+publish_case a b
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish after the dry run" 0 "2 published in this run, 0 already there" "cargo publish --no-verify -p a" "${scripts}/publish" a b
+expect_order "publish after the dry run publishes in order" "cargo publish --no-verify -p a" "cargo publish --no-verify -p b"
+check_output "publish after the dry run shows the output of cargo" "Uploading b"
+check_output "publish after the dry run names a new crate" "a 0.1.0 is a new crate on crates.io"
+check_call "publish after the dry run asks crates.io for the version" "curl ${api}/a/0.1.0"
+check_call "publish after the dry run asks crates.io for the crate" "curl ${api}/a"
+expect_no_call "publish after the dry run waits for no rate limit" '^sleep [0-9]{2,}$'
+
+publish_case a b c d e f
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish of more new crates than the burst" 0 "6 published in this run" "cargo publish --no-verify -p f" "${scripts}/publish" a b c d e f
+expect_calls "publish of more new crates than the burst" 1 "sleep 600"
+expect_order "publish of more new crates than the burst waits after the fifth" "cargo publish --no-verify -p e" "sleep 600"
+expect_order "publish of more new crates than the burst waits before the sixth" "sleep 600" "cargo publish --no-verify -p f"
+check_output "publish of more new crates than the burst says why it waits" "waiting 600 s before the new crate f 0.1.0"
+
+publish_case a b
+web "${api}/a/0.1.0" 404
+web "${api}/a" 200
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish of a new version" 0 "a 0.1.0 is a new version of a crate on crates.io" "cargo publish --no-verify -p a" "${scripts}/publish" a b
+check_output "publish of a new version tells it from a new crate" "b 0.1.0 is a new crate on crates.io"
+
+publish_case a b
+published_before a
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish of a version that exists" 0 "a 0.1.0 is already on crates.io and is skipped" "cargo publish --no-verify -p b" "${scripts}/publish" a b
+expect_no_call "publish of a version that exists" '^cargo publish --no-verify -p a$'
+check_output "publish of a version that exists counts it" "1 published in this run, 1 already there"
+
+publish_case a
+published_before a
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish when every version exists" 0 "0 published in this run, 1 already there" "" "${scripts}/publish" a
+expect_no_call "publish when every version exists" '^cargo publish'
+
+read -r -a partial_names <<<"slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros"
+publish_case "${partial_names[@]}"
+published_before "${partial_names[@]:0:5}"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish after a partial publish" 0 "3 published in this run, 5 already there" "cargo publish --no-verify -p slango-macros" "${scripts}/publish" "${partial_names[@]}"
+for name in "${partial_names[@]:0:5}"; do
+    expect_no_call "publish after a partial publish skips ${name}" "^cargo publish --no-verify -p ${name}\$"
+    check_output "publish after a partial publish names ${name}" "${name} 0.1.0 is already on crates.io and is skipped"
+done
+expect_order "publish after a partial publish publishes in order" "cargo publish --no-verify -p slango" "cargo publish --no-verify -p slango-codegen"
+expect_no_call "publish after a partial publish waits for no rate limit" '^sleep [0-9]{2,}$'
+
+publish_case a b
+STUB_NOW=1800000000 STUB_RETRY_AFTER="Fri, 15 Jan 2027 08:02:00 GMT" STUB_CARGO_RATE_LIMITED=1 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish refused for the rate limit once" 0 "2 published in this run" "sleep 125" "${scripts}/publish" a b
+expect_calls "publish refused for the rate limit once retries" 2 "cargo publish --no-verify -p a"
+expect_order "publish refused for the rate limit once waits before the retry" "sleep 125" "cargo publish --no-verify -p b"
+expect_order "publish refused for the rate limit once then paces" "sleep 125" "sleep 600"
+expect_order "publish refused for the rate limit once paces the next crate" "sleep 600" "cargo publish --no-verify -p b"
+check_output "publish refused for the rate limit once says why it waits" "refused the new crate a 0.1.0 for its rate limit, so waiting 125 s before retry 1 of 3"
+
+publish_case a b
+STUB_CARGO_RATE_LIMITED=10 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish refused for the rate limit past the retries" 101 "still refuses the new crate a 0.1.0 for its rate limit after 3 retries" "" "${scripts}/publish" a b
+expect_calls "publish refused for the rate limit past the retries" 4 "cargo publish --no-verify -p a"
+expect_calls "publish refused for the rate limit past the retries waits the interval" 3 "sleep 600"
+expect_no_call "publish refused for the rate limit past the retries" '^cargo publish --no-verify -p b$'
+check_output "publish refused for the rate limit past the retries names the rest" "not published: a b"
+
+publish_case a b
+published_before a
+STUB_CARGO_STATUS=101 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that cargo fails" 101 "cargo publish of b 0.1.0 failed with status 101" "cargo publish --no-verify -p b" "${scripts}/publish" a b
+expect_calls "publish that cargo fails does not retry" 1 "cargo publish --no-verify -p b"
+check_output "publish that cargo fails names the published" "already on crates.io before this run: a"
+check_output "publish that cargo fails names the rest" "not published: b"
+
+publish_case a b
+STUB_CURL_STATUS=6 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish when crates.io is unreachable" 1 "cannot reach ${api}/a/0.1.0, so nothing was published" "" "${scripts}/publish" a b
+expect_no_call "publish when crates.io is unreachable" '^cargo publish'
+
+publish_case a b
+web "${api}/b/0.1.0" 500
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish when crates.io fails" 1 "answered with HTTP status 500, so nothing was published" "" "${scripts}/publish" a b
+expect_no_call "publish when crates.io fails" '^cargo publish'
+
+publish_case a c
+metadata "a|0.1.0|MIT OR Apache-2.0||null"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish of a package that is not a member" 1 "c is not a member of the workspace" "" "${scripts}/publish" a c
+expect_no_call "publish of a package that is not a member" '^cargo publish'
+
+expect_empty_tmp() {
+    if [[ -n "$(ls -A "${case_dir}/tmp")" ]]; then
+        failures=$((failures + 1))
+        printf 'FAIL %s\n    the temporary directory holds %s\n' "$1" "$(ls -A "${case_dir}/tmp")"
+    fi
+}
+
+with_default_signals() {
+    python3 -I -c '
+import os, signal, sys
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+os.execv(sys.argv[1], sys.argv[1:])
+' "$@"
+}
+
+publish_case a b
+STUB_NOW=1800000000 STUB_RETRY_AFTER="Fri, 15 Jan 2027 07:00:00 GMT" STUB_CARGO_RATE_LIMITED=1 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish refused until a time in the past" 0 "2 published in this run" "sleep 60" "${scripts}/publish" a b
+check_output "publish refused until a time in the past waits a tenth of the interval" "so waiting 60 s before retry 1 of 3"
+
+publish_case a b
+STUB_NOW=1800000000 STUB_RETRY_AFTER="Fri, 15 Jan 2027 09:00:00 GMT" STUB_CARGO_RATE_LIMITED=1 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish refused until a time beyond the bound" 101 "until Fri, 15 Jan 2027 09:00:00 GMT, which is more than 1205 s away" "" "${scripts}/publish" a b
+expect_calls "publish refused until a time beyond the bound does not retry" 1 "cargo publish --no-verify -p a"
+expect_no_call "publish refused until a time beyond the bound does not wait" '^sleep [0-9]{2,}$'
+check_output "publish refused until a time beyond the bound names the rest" "not published: a b"
+
+publish_case a b
+STUB_CARGO_RATE_LIMITED_EACH=3 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish of two packages each refused three times" 0 "2 published in this run" "cargo publish --no-verify -p b" "${scripts}/publish" a b
+expect_calls "publish of two packages each refused three times retries the first" 4 "cargo publish --no-verify -p a"
+expect_calls "publish of two packages each refused three times retries the second" 4 "cargo publish --no-verify -p b"
+
+publish_case a b
+mkdir -p "${case_dir}/tmp"
+TMPDIR="${case_dir}/tmp" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish removes its temporary directory" 0 "2 published in this run" "" "${scripts}/publish" a b
+expect_empty_tmp "publish removes its temporary directory"
+
+publish_case a b
+mkdir -p "${case_dir}/tmp"
+STUB_CARGO_STATUS=101 TMPDIR="${case_dir}/tmp" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that fails removes its temporary directory" 101 "failed with status 101" "" "${scripts}/publish" a b
+expect_empty_tmp "publish that fails removes its temporary directory"
+
+for failure in cdn plain; do
+    publish_case a b
+    STUB_CARGO_UPLOADED_THEN_FAILS=a STUB_CARGO_FAILURE_AFTER_UPLOAD="${failure}" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that cargo fails after the upload, ${failure}" 0 "2 published in this run" "cargo publish --no-verify -p b" "${scripts}/publish" a b
+    check_output "publish that cargo fails after the upload, ${failure}, says so" "cargo publish of a 0.1.0 failed with status 101, but crates.io holds that version"
+    expect_calls "publish that cargo fails after the upload, ${failure}, does not retry" 1 "cargo publish --no-verify -p a"
+    expect_no_call "publish that cargo fails after the upload, ${failure}, does not wait" '^sleep [0-9]{2,}$'
+done
+
+publish_case a b
+STUB_CARGO_UPLOADED_THEN_FAILS=a STUB_CARGO_FAILURE_AFTER_UPLOAD=cdn STUB_CARGO_UPLOAD_LOST=1 CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish that cargo fails with a 429 page of the index" 101 "cargo publish of a 0.1.0 failed with status 101" "" "${scripts}/publish" a b
+expect_calls "publish that cargo fails with a 429 page of the index does not retry" 1 "cargo publish --no-verify -p a"
+expect_no_call "publish that cargo fails with a 429 page of the index does not wait" '^sleep [0-9]{2,}$'
+
+for signal in INT:130 TERM:143; do
+    publish_case a b c
+    mkdir -p "${case_dir}/tmp"
+    STUB_CARGO_SIGNAL_ON=b STUB_CARGO_SIGNAL="${signal%:*}" TMPDIR="${case_dir}/tmp" CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "publish on ${signal%:*}" "${signal#*:}" "interrupted while publishing b 0.1.0" "cargo publish --no-verify -p b" with_default_signals "${scripts}/publish" a b c
+    check_output "publish on ${signal%:*} names the published" "published in this run: a"
+    check_output "publish on ${signal%:*} names the rest" "not published: b c"
+    expect_no_call "publish on ${signal%:*} stops" '^cargo publish --no-verify -p c$'
+    expect_empty_tmp "publish on ${signal%:*} removes its temporary directory"
+done
 
 new_case
 expect "publish-dry-run without packages" 2 "usage: publish-dry-run" "" "${scripts}/publish-dry-run"
@@ -472,8 +721,6 @@ pack a 0.1.0 "${case_dir}/crates/a-0.1.0.crate"
 web "https://static.crates.io/crates/a/a-0.1.0.crate" 503
 expect "check-package when crates.io fails" 1 "answered with HTTP status 503" "" "${scripts}/check-package" "${site}" a
 
-api="https://crates.io/api/v1/crates"
-
 release_metadata() {
     metadata "a|0.1.0|MIT OR Apache-2.0|${site}/a/|null" "b-c|0.1.0|MIT OR Apache-2.0|${site}/b_c/|null"
 }
@@ -601,7 +848,11 @@ fi
 new_case
 mkdir -p "${repo}/target"
 printf 'commit=%s\npackages=%s\n' "${head_commit}" "${release_packages}" >"${repo}/target/publish-dry-run.commit"
-CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "the recipe publish without arguments" 0 "" "cargo publish --no-verify${release_selection}" "${just_program}" --justfile "${repo}/justfile" publish
+metadata "${release_entries[@]}"
+CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "the recipe publish without arguments" 0 "${#release_names[@]} published in this run" "cargo publish --no-verify -p ${release_names[-1]}" "${just_program}" --justfile "${repo}/justfile" publish
+for name in "${release_names[@]}"; do
+    check_call "the recipe publish without arguments publishes ${name}" "cargo publish --no-verify -p ${name}"
+done
 
 new_case
 metadata "${release_entries[@]}"

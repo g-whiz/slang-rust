@@ -170,7 +170,7 @@ The fourth code step of M8, done on 2026-11-17, carried out the owner's decision
 - `tag-release` passes `--prerelease` to `gh release create` when the version holds a hyphen, so the tag of the first release is `v0.1.0-alpha.1` and its GitHub release is a pre-release.
 - `README.md` states that the API is unstable and that a dependent names the full pre-release version.
 
-On 2026-11-17, the owner set the source of GitHub Pages to "GitHub Actions" and added the tag rule `v*` to the environment `github-pages`, which is step 6 of Section 9.6 of `docs/design/tooling.md`. The GitHub API then reported the build type `workflow`, the address `https://g-whiz.github.io/slang-rust/`, and two deployment policies, the branch `main` and the tag `v*`. Nothing is deployed, published, or tagged yet.
+On 2026-11-17, the owner set the source of GitHub Pages to "GitHub Actions" and added the tag rule `v*` to the environment `github-pages`, which is step 6 of Section 9.6 of `docs/design/tooling.md`. The GitHub API then reported the build type `workflow`, the address `https://g-whiz.github.io/slang-rust/`, and two deployment policies, the branch `main` and the tag `v*`. At that point, nothing was deployed, published, or tagged.
 
 On 2026-11-17 in the development container, these checks passed on the code of the step with every requirement between members exact, before the last edits of its documents:
 
@@ -180,7 +180,42 @@ On 2026-11-17 in the development container, these checks passed on the code of t
 
 `check-package` and `publish-dry-run` did not run, because Cargo packages only a committed tree.
 
-M8 still needs steps 3 to 5 of Section 9.6 of `docs/design/tooling.md`, which are `check-package`, `doc-site`, and `publish-dry-run`, on the merged commit of `main`. The owner then gives the go-ahead and publishes, and `tag-release` runs only with the owner's go-ahead. The change that follows the release then adds `check-semver` and the CI job `semver`, once TQ-16 of `docs/design/tooling.md` is answered.
+On 2026-11-17, the owner ran `just publish` for the eight crates at the commit "Release every crate as 0.1.0-alpha.1 with exact requirements", with the script as it was before the fifth code step. crates.io refused the sixth new crate for its rate limit, which allows a burst of five new crates and then one every ten minutes (Section 9.7 of `docs/design/tooling.md`).
+
+The crates.io API afterwards showed these crates at their alpha versions:
+
+- `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, and `slang-compiler`, which that run published.
+- `slango`, which the owner published later the same day.
+
+At that point, `slango-codegen` and `slango-macros` were not published, no tag existed, and nothing was deployed.
+
+On `main` before the fifth code step, `just publish-dry-run` with the eight crates passed while six of the versions were on crates.io. Cargo printed the warning "already exists on crates.io index" for each of the six and went on. `just publish-dry-run slango-codegen slango-macros` passed as well.
+
+The fifth code step of M8, done on 2026-11-17 at the owner's request, made `publish` comply with the rate limits of crates.io and safe to run again after a partial release (TOOL-51 of `docs/design/tooling.md`). It changed `scripts/publish`, its cases in `scripts/self-test-release`, and the help comment of the recipe:
+
+- `publish` asks crates.io for each version before it publishes anything, skips every version that crates.io holds, and publishes the others with one run of Cargo each, in the given order.
+- It waits once this run has used up the burst of a kind, waits and retries after a refusal for the rate limit, and confirms every failure of Cargo against crates.io.
+- When it stops, it names the crates published in this run, those already on crates.io, and those not published.
+
+On 2026-11-17 in the development container, `just check` passed. It printed "release self-test passed: 78 cases", against 58 before, "966 tests run: 966 passed, 0 skipped", and, under Miri, "557 tests run: 557 passed (15 slow), 409 skipped".
+
+An adversarial review ran the script against stub programs and found no leak of the token and no way to publish a version twice. It found defects, which the step fixed:
+
+- The match of a refusal also matched a page of status 429 of the index that Cargo can print after an upload, so the match now accepts only an error of the API.
+- A failure of Cargo after an upload counted as a failure, so every failure is now confirmed against crates.io.
+- The wait had no upper bound and a lower bound of 1 s, curl had no timeouts, an interrupt printed no report, and the expansion of an empty array was not safe under `set -u` on bash older than 4.4.
+
+Not verified are a real refusal for the rate limit through the real Cargo, whose error the script matches by a form that a reviewer read in the source of Cargo on its main branch and not in the installed Cargo 1.99.1 (TA-22 of `docs/design/tooling.md`), and the script on bash older than 4.4 and with the `date` of macOS (TA-23).
+
+Later on 2026-11-17, the owner published `slango-codegen` and `slango-macros`, also with the script as it was before the fifth code step. The reworked script of the fifth code step published nothing in this release.
+
+The crates.io API then showed all eight crates of the first release, none yanked. `slang-bindgen`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros` are at `0.1.0-alpha.1`, and `slang-src` is at `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`.
+
+With the owner's go-ahead, `just tag-release` then tagged the published commit of `main` as `v0.1.0-alpha.1`, pushed the tag, and created the GitHub release, which GitHub reports as a pre-release. The push of the tag started the documentation workflow for the first time, and its run 44024668235 concluded `success` with both jobs, "Build the documentation site" and "Deploy the documentation site", succeeded.
+
+`just check-release` then exited with status 0. It printed, for each of the eight crates, that its version is on crates.io and that its documentation address answers, and ended with "check-release: crates.io holds every package, and each documentation address answers". The site is at `https://g-whiz.github.io/slang-rust/`.
+
+M8 still needs the merge of the fifth code step, and then the change that follows the release, which adds `check-semver` and the CI job `semver` once TQ-16 of `docs/design/tooling.md` is answered.
 
 Four open questions that the designs assign to M7 stay open, because no exit criterion of M7 requires them: SRCQ-1 and SRCQ-3 of `docs/design/slang-src.md`, SGLQ-2 of `docs/design/slang-glslang-sys.md`, and CQ-7 of `docs/design/slang-compiler.md`. The owner has not assigned them another milestone yet.
 
@@ -195,7 +230,7 @@ What exists and works:
   - `test-vendored` and `check-vendored` test, lint, and document `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, and `slang-compiler` with the feature `slang-compiler/vendored` in `target/vendored`, so their first run there clones Slang and builds Slang and slang-glslang from source. `test-vendored` then runs the tests of the modules `bindings` and `structs` of `slango-macros` with only `slango-macros/vendored`, and `check-vendored` runs Clippy on `slang-slint` with only `slang-slint/vendored`, which check the forward of the feature by each of the two crates (TOOL-7 of `docs/design/tooling.md`).
   - `check-vendored-shared-folder` checks where the clone is, recognizing a clone by its work tree `src/<commit>/tree/.git`, and prints the size of the shared folder.
   - The recipes of the release, which Section 9.6 of `docs/design/tooling.md` specifies. `check-package` checks the members without `publish = false`, the `documentation` fields, and each packaged `.crate` file. `check-release` checks a release on crates.io. `doc-site` builds the hosted documentation on the vendored route into `target/vendored/doc`. `publish-dry-run` runs Cargo's dry run and records the commit and the crates. `publish`, `tag-release`, and `yank` publish, tag, and yank. `check-package`, `publish-dry-run`, and `publish` exist on Linux and macOS only.
-  - `release-scripts-self-test` runs the scripts of the release, and three of its recipes, against stub programs of `cargo`, `git`, `gh`, `curl`, and `sleep`, so it reaches neither crates.io nor GitHub (Section 9.9 of `docs/design/tooling.md`).
+  - `release-scripts-self-test` runs the scripts of the release, and three of its recipes, against stub programs of `cargo`, `git`, `gh`, `curl`, `sleep`, and `date`, so it reaches neither crates.io nor GitHub (Section 9.9 of `docs/design/tooling.md`).
 
   The variables `release_packages` and `documentation_site` of the `justfile` hold the crates of the next release and the base address of the hosted documentation, which every recipe of the release reads (TOOL-35 and Section 9.4 of `docs/design/tooling.md`).
 
@@ -204,7 +239,7 @@ What exists and works:
   Its variable `slang_library_path` holds the assignment that puts `$VULKAN_SDK/lib` on the library path of Linux or macOS. The recipes that run compiled code which loads Slang put it at the start of their command line (SCS-32 of `docs/design/slang-compiler-sys.md`).
 - The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`. These are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-workflow-pins`, and `check-doc-references`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each. They also include the scripts of the release, `check-package`, `check-release`, `check-doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`, and their self-test `self-test-release`.
 - The git hooks in `.pre-commit-config.yaml`.
-- The documentation workflow `.github/workflows/documentation.yml`, which runs only on a push of a tag that matches `v*`. Its job `build` runs `just doc-site` on a fresh checkout and uploads the site, and its job `deploy`, the only job with `pages: write` and `id-token: write`, deploys it to GitHub Pages (Section 7.5 of `docs/design/tooling.md`). It has never run, because no such tag exists.
+- The documentation workflow `.github/workflows/documentation.yml`, which runs only on a push of a tag that matches `v*`. Its job `build` runs `just doc-site` on a fresh checkout and uploads the site, and its job `deploy`, the only job with `pages: write` and `id-token: write`, deploys it to GitHub Pages (Section 7.5 of `docs/design/tooling.md`). Its first run, for the tag `v0.1.0-alpha.1`, deployed the site of the first release, as the paragraphs on the publish above state.
 - The CI workflow `.github/workflows/ci.yml`, which runs on every push to `main`, every push to a branch that matches `feature/**`, and every pull request.
   - Every job makes libclang available, and every job except `vendored` installs the Vulkan SDK of the version that the workflow records, verified against a SHA-256 checksum that the workflow records, and checks it with `check-vulkan-sdk`, on Linux, Windows, and macOS. The job `coverage` measures test coverage on Linux and keeps the report as an artifact. Section 7 of `docs/design/tooling.md` specifies the jobs.
   - The job `vendored`, added on 2026-11-15, installs no Vulkan SDK and sets up no developer environment of the Microsoft toolchain.
@@ -358,7 +393,6 @@ What does not exist yet:
 - The custom file system of `slang-compiler`, which is deferred with no milestone assigned (Section 15.22 of `docs/design/architecture.md`). It is the trait `FileSystem` and the setter `SessionBuilder::file_system` of Section 8 of `docs/design/slang-compiler.md`, with the error kind `FileSystem`, the Rust-owned blob, the panic handling of SLC-18, and the Slang call guard raised around the user's code of every vtable function (SLC-28). A user who needs one reaches Slang's file system interface through `slang-compiler-sys`.
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
 - The recipe `check-semver` and the CI job `semver`, which the change that follows the first release adds (TOOL-39 of `docs/design/tooling.md`).
-- The first release: no crate is published, no tag `v<version>` and no GitHub release exist, and the hosted documentation does not exist, so the `documentation` field of each crate names a page that does not answer yet.
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, and `slang-glslang-sys`, which is written as the first task of the milestone that delivers the crate.
 - A recipe that builds the examples package with its feature `vendored`, and a `gpu` test on the vendored route.
 
@@ -574,7 +608,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `scripts/check-release`: The script of `check-release`, which checks the versions, the `documentation` fields, and the hosted pages of a release on crates.io.
 - `scripts/check-doc-site`: The script that `doc-site` runs after `cargo doc`, which checks the page of each crate, writes the index page, and checks the site for symbolic links and its size.
 - `scripts/publish-dry-run`: The script of `publish-dry-run`, which runs `cargo publish --dry-run` and writes the record `target/publish-dry-run.commit`.
-- `scripts/publish`: The script of `publish`, which refuses unless the checks of Section 9.6 of `docs/design/tooling.md` pass and then runs `cargo publish --no-verify`.
+- `scripts/publish`: The script of `publish`, which refuses unless the checks of Section 9.6 of `docs/design/tooling.md` pass, skips every version that crates.io holds, and publishes the other crates with one run of `cargo publish --no-verify` each, within the rate limits of crates.io (TOOL-51 of `docs/design/tooling.md`).
 - `scripts/tag-release`: The script of `tag-release`, which tags `HEAD`, pushes the tag, and creates the GitHub release.
 - `scripts/yank`: The script of `yank`, which runs `cargo yank` and refuses in CI and without a token.
 - `scripts/self-test-release`: The self-test of the release scripts, which `release-scripts-self-test` runs against stub programs (Section 9.9 of `docs/design/tooling.md`).
@@ -663,7 +697,7 @@ The planned crates are:
 
   Since M4, it also draws into a texture with render pipelines built from existing vertex and fragment entry points, still with SPIR-V only and no unsafe code. A shader target configurable per backend is deferred with no milestone assigned (Sections 1.4 and 1.5 of `docs/design/slango.md`).
 - `slango-macros`: A function-like procedural macro, `shader!`, of M6, that compiles a `.slang` file with Slang during compilation and generates typed Rust bindings to its compute kernels. The generated code embeds the precompiled SPIR-V and layout snapshot and calls the same core of `slango` as the runtime API through a hidden module of `slango`, and the generator is in the library crate `slango-codegen` (SLM-1, SLM-6, and Section 7 of `docs/design/slango-macros.md`). Every crate that uses it needs Slang at build time, and `slango` does not re-export it in M6 (Section 4.1 of that design). The feature `vendored` of `slango` does not reach the copy of Slang that the macro links, so a program without a Vulkan SDK at build time enables `vendored` on `slango-macros` as well (Section 4.3 of that design).
-- `slango-codegen`: The library crate of M6, to be published, that holds the generator of `slango-macros`, so that its pure tests run under Miri (SLM-1 of `docs/design/slango-macros.md`).
+- `slango-codegen`: The library crate of M6, published in the first release, that holds the generator of `slango-macros`, so that its pure tests run under Miri (SLM-1 of `docs/design/slango-macros.md`).
 - `slang-slint`: An extension to Slint that provides a view backed by a Slang render pipeline, built on `slango`, with wgpu only, permanently. In M5 it is a minimal view that hands a texture that `slango` draws to an ordinary Slint `Image` element, on a narrow range of Slint versions with wgpu 30 only. Slint creates the device from a configuration that `slang-slint` supplies (SLS-1, SLS-6, and SLS-9 of `docs/design/slang-slint.md`).
 
   The licence consequence of depending on Slint is in Section 4.2 of `docs/design/slang-slint.md`.
@@ -705,7 +739,7 @@ CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, insta
 
 Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
-The published crates are planned for crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). Nothing is published without the owner's explicit go-ahead.
+The published crates reach crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). The first release, of eight alpha crates, is on crates.io, and the second, which adds `slang-slint`, is planned. Nothing is published without the owner's explicit go-ahead.
 
 docs.rs is not supported, because it builds without network access and the crates need libclang and either a Vulkan SDK or a clone of Slang. The workflow `.github/workflows/documentation.yml` builds the documentation of each release from its tag on the vendored route and hosts it on GitHub Pages, and the `documentation` field of each crate points there. Only that workflow deploys the site, because a site built elsewhere names the absolute build path of its machine (TOOL-49 of `docs/design/tooling.md`). Section 9 of that design defines the release procedure, in which only the owner publishes, with a token that never enters the repository, CI, or an agent's environment.
 
@@ -722,7 +756,7 @@ The development container provides this environment:
 - Two Vulkan devices: an NVIDIA RTX 4070 and lavapipe, a software implementation of Vulkan.
 - The CUDA 13.5 toolkit.
 
-Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. The recipes of the release also run `cargo package`, `cargo publish`, git, `gh`, and curl through their scripts. The recipe `check-semver`, which runs cargo-semver-checks, does not exist yet. The change that follows the first release adds it (TOOL-39 of `docs/design/tooling.md`).
+Recipes run Clippy, rustfmt, cargo-nextest, cargo-deny, cargo-hack, cargo-machete, cargo-llvm-cov, typos, taplo, Miri, shellcheck, actionlint, and the custom checkers under `scripts/`. The recipes of the release also run `cargo package`, `cargo publish`, git, `gh`, and curl through their scripts, and `publish` runs curl to ask crates.io which versions it holds. The recipe `check-semver`, which runs cargo-semver-checks, does not exist yet. The change that follows the first release adds it (TOOL-39 of `docs/design/tooling.md`).
 
 CI installs the latest version of each tool on its runners, and the Vulkan SDK version that the CI configuration records. A tool version in CI can therefore differ from the one in the container, as Section 7.1 of `docs/design/tooling.md` states.
 
@@ -959,7 +993,7 @@ The recipes of the release procedure, which Section 9.6 of `docs/design/tooling.
 - `check-package` after a change to a manifest, to `release_packages` or `documentation_site`, to a licence file, or to `README.md`. Cargo refuses a packaged file with an uncommitted change, so it runs only after the commit. It runs on Linux and macOS only and reaches `static.crates.io`.
 - `publish-dry-run` after the same changes, on a committed tree as well, on Linux and macOS only. It needs `VULKAN_SDK`, libclang, network access, and the tools of the vendored build, clones and builds Slang in `target/`, took about 12 minutes in the development container, and writes the record that `publish` checks.
 - `doc-site` after a change to the API documentation of a crate of the release, or to the recipe. It needs what `check-vendored` needs and builds in `target/vendored`. Its site is for reading only, and an agent never deploys it (TOOL-49 of `docs/design/tooling.md`).
-- `check-release` after a release, to check it. It reaches crates.io and the hosted site, and fails before the first release, because crates.io holds none of the crates.
+- `check-release` after a release, to check it. It reaches crates.io and the hosted site, and fails when crates.io lacks a version of the release, when a `documentation` field differs, or when a documentation address does not answer.
 
 ```sh
 just check-package

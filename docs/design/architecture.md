@@ -144,9 +144,9 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Planned for the second release, with `publish = false` until then (Section 13) | M5 |
 | `slango-macros` | `crates/slango-macros/` | Typed Rust bindings to Slang code, generated at build time (Section 8.4) | Yes | M6 |
 | `slango-codegen` | `crates/slango-codegen/` | The generator of `slango-macros`, as a library (Section 4.2 of `docs/design/slango-macros.md`) | Yes | M6 |
-| `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Planned for the first release (Section 13) | M7 |
-| `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Planned for the first release (Section 13) | M7 |
-| `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Planned for the first release (Section 13) | M1, M7 |
+| `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Yes | M7 |
+| `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Yes | M7 |
+| `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Yes | M1, M7 |
 | `slang-rhi-sys` | Planned | Raw bindings of slang-rhi and the build script that builds it | Planned for the second release (Section 13) | M9 |
 | `slang-rhi` | Planned | Safe wrappers over `slang-rhi-sys` | Planned for the second release (Section 13) | M9 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
@@ -502,7 +502,7 @@ ARCH-37. A build MUST NOT stop because its target is not one of the tested targe
 
 ## 13. Publishing
 
-The workspace plans for publication on crates.io in two releases. The examples set `publish = false` and are never published. Every other member that a release does not publish also sets `publish = false` until the release that publishes it, so Cargo refuses to publish it (TOOL-35 of `docs/design/tooling.md`).
+The workspace is published on crates.io in two releases. The first is published, and the second is planned. The examples set `publish = false` and are never published. Every other member that a release does not publish also sets `publish = false` until the release that publishes it, so Cargo refuses to publish it (TOOL-35 of `docs/design/tooling.md`).
 
 | Release | Milestone | Crates | Condition |
 | --- | --- | --- | --- |

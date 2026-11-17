@@ -19,7 +19,7 @@ Such a requirement also accepts a later alpha release, which may break the depen
 
 ## Crates
 
-The workspace holds nine crates. No crate is published yet.
+The workspace holds nine crates. Eight of them are published on crates.io, and `slang-slint` is not.
 
 | Crate | Purpose |
 | --- | --- |

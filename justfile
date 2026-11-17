@@ -316,7 +316,7 @@ publish-dry-run *packages:
     fi
     scripts/publish-dry-run "$@"
 
-# Publish the given packages, or every release package when none are given, to crates.io without a verification build, only by the owner with CARGO_REGISTRY_TOKEN set for this one run, and only at the commit of origin/main whose dry run recorded the same packages
+# Publish the given packages, or every release package when none are given, to crates.io without a verification build, only by the owner with CARGO_REGISTRY_TOKEN set for this one run, and only at the commit of origin/main whose dry run recorded the same packages. It skips every version that crates.io already holds, so a rerun completes a partial publish, publishes one package at a time, and waits as the rate limits of crates.io require, which can take ten minutes for each new crate past the fifth
 [group('release')]
 [unix]
 publish *packages:

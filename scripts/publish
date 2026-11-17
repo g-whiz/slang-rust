@@ -11,8 +11,36 @@ usage() {
         "after a fetch, and when HEAD and the given packages differ from the commit" \
         "and the packages that the last successful publish-dry-run recorded in" \
         "target/publish-dry-run.commit. Runs from the root of the workspace." \
-        "Exits 1 when it refuses, with the status of cargo when the publish fails, and" \
-        "2 on a usage error or when a tool is missing."
+        "" \
+        "It then reads the version of each package with cargo metadata and asks the" \
+        "crates.io API, without the token, with a generic user agent, and one second" \
+        "after the previous request, whether crates.io holds that version, or the crate" \
+        "without that version, or not the crate. It refuses when a package is not a" \
+        "member or when crates.io cannot answer, before it publishes anything. It skips" \
+        "every version that crates.io holds, so a rerun after a partial publish" \
+        "completes the release with the same command." \
+        "" \
+        "It publishes the other packages one at a time in the given order, with one run" \
+        "of cargo publish each, whose output it shows and reads. crates.io allows a" \
+        "burst of 5 new crates and then one every 600 seconds, and a burst of 30 new" \
+        "versions of existing crates and then one every 60 seconds. Once this run has" \
+        "published the burst of a kind, it waits the interval of that kind before each" \
+        "further package of that kind. When cargo publish fails, it asks crates.io for" \
+        "that version again, and when crates.io holds it, counts the package as" \
+        "published and goes on. When the crates.io API refuses a package with HTTP" \
+        "status 429, it waits until the time that crates.io names, plus 5 seconds, or" \
+        "the interval of that kind when it cannot read that time, but at least a tenth" \
+        "of the interval, treats the burst of that kind as used up, and tries the" \
+        "package again, at most 3 times. When the named time is more than twice the" \
+        "interval away, it stops instead of waiting. The token stays in" \
+        "the environment of the script while it waits." \
+        "An interrupt or a TERM signal stops the release and prints what is published." \
+        "" \
+        "Exits 0 when crates.io holds every given package, 1 when it refuses, with the" \
+        "status of cargo when a publish fails or crates.io still refuses after the" \
+        "retries, 130 on an interrupt, and 143 on a TERM signal, after it names the" \
+        "packages published and not published, and 2 on a usage error or when a tool" \
+        "is missing."
 }
 
 if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
@@ -21,7 +49,7 @@ if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
     exit 2
 fi
 
-for tool in cargo git; do
+for tool in cargo git curl python3 sleep date tee grep awk; do
     if ! command -v "${tool}" >/dev/null 2>&1; then
         printf 'publish: %s not found on PATH\n' "${tool}" >&2
         exit 2
@@ -74,8 +102,209 @@ if [[ "${recorded_packages}" != "$*" ]]; then
     refuse "the dry run recorded the packages '${recorded_packages}', not '$*', so run just publish-dry-run with the same packages first"
 fi
 
-selection=()
+user_agent="slang-rust-release-check"
+api="https://crates.io/api/v1/crates"
+new_crate_burst=5
+new_crate_interval=600
+new_version_burst=30
+new_version_interval=60
+rate_limit_retries=3
+clock_margin=5
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work}"' EXIT
+
+if ! cargo metadata --no-deps --format-version 1 >"${work}/metadata.json"; then
+    refuse "cargo metadata failed, so the versions of the packages cannot be read"
+fi
+python3 -I -c '
+import json, sys
+for package in json.load(open(sys.argv[1], encoding="utf-8"))["packages"]:
+    print(package["name"] + "\t" + package["version"])
+' "${work}/metadata.json" >"${work}/versions"
+
+fetch() {
+    sleep 1
+    curl -q --silent --show-error --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+        --retry 3 --user-agent "${user_agent}" --output "$2" --write-out '%{http_code}' "$1"
+}
+
+names=()
+versions=()
+kinds=()
 for name in "$@"; do
-    selection+=(-p "${name}")
+    version="$(awk -F '\t' -v name="${name}" '$1 == name { print $2 }' "${work}/versions")"
+    if [[ -z "${version}" ]]; then
+        refuse "${name} is not a member of the workspace, so nothing was published"
+    fi
+    if ! status="$(fetch "${api}/${name}/${version}" "${work}/answer.json")"; then
+        refuse "cannot reach ${api}/${name}/${version}, so nothing was published"
+    fi
+    case "${status}" in
+        200)
+            kind=existing
+            ;;
+        404)
+            if ! status="$(fetch "${api}/${name}" "${work}/answer.json")"; then
+                refuse "cannot reach ${api}/${name}, so nothing was published"
+            fi
+            case "${status}" in
+                200) kind=version ;;
+                404) kind=crate ;;
+                *) refuse "${api}/${name} answered with HTTP status ${status}, so nothing was published" ;;
+            esac
+            ;;
+        *)
+            refuse "${api}/${name}/${version} answered with HTTP status ${status}, so nothing was published"
+            ;;
+    esac
+    names+=("${name}")
+    versions+=("${version}")
+    kinds+=("${kind}")
+    case "${kind}" in
+        existing) printf 'publish: %s %s is already on crates.io and is skipped\n' "${name}" "${version}" ;;
+        version) printf 'publish: %s %s is a new version of a crate on crates.io\n' "${name}" "${version}" ;;
+        crate) printf 'publish: %s %s is a new crate on crates.io\n' "${name}" "${version}" ;;
+    esac
 done
-cargo publish --no-verify "${selection[@]}"
+
+published=()
+skipped=()
+pending=()
+for index in "${!names[@]}"; do
+    if [[ "${kinds[index]}" == existing ]]; then
+        skipped+=("${names[index]}")
+    else
+        pending+=("${names[index]}")
+    fi
+done
+
+report() {
+    printf 'publish: published in this run: %s\n' "${published[*]:-none}" >&2
+    printf 'publish: already on crates.io before this run: %s\n' "${skipped[*]:-none}" >&2
+    printf 'publish: not published: %s\n' "${pending[*]:-none}" >&2
+}
+
+named_time=""
+named_seconds=""
+read_named_time() {
+    local target now
+    named_time="$(grep -oE 'try again after [A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT' "$1" | head -n 1)" || true
+    named_time="${named_time#try again after }"
+    named_seconds=""
+    if [[ -n "${named_time}" ]] &&
+        { target="$(LC_ALL=C date -u -d "${named_time}" +%s 2>/dev/null)" ||
+            target="$(LC_ALL=C date -u -j -f '%a, %d %b %Y %T GMT' "${named_time}" +%s 2>/dev/null)"; } &&
+        now="$(date -u +%s)" && [[ "${target}" =~ ^[0-9]+$ && "${now}" =~ ^[0-9]+$ ]]; then
+        named_seconds=$((target - now + clock_margin))
+    fi
+}
+
+current=""
+interrupted() {
+    if [[ -n "${current}" ]]; then
+        printf 'publish: interrupted while publishing %s, which crates.io may hold now, so the release stopped\n' "${current}" >&2
+    else
+        printf 'publish: interrupted, so the release stopped\n' >&2
+    fi
+    report
+    exit "$1"
+}
+trap 'interrupted 130' INT
+trap 'interrupted 143' TERM
+
+exec 3>&1
+new_crates=0
+new_versions=0
+for index in "${!names[@]}"; do
+    name="${names[index]}"
+    version="${versions[index]}"
+    kind="${kinds[index]}"
+    if [[ "${kind}" == existing ]]; then
+        continue
+    fi
+    if [[ "${kind}" == crate ]]; then
+        label="new crate"
+        burst="${new_crate_burst}"
+        interval="${new_crate_interval}"
+        count="${new_crates}"
+    else
+        label="new version"
+        burst="${new_version_burst}"
+        interval="${new_version_interval}"
+        count="${new_versions}"
+    fi
+    if [[ "${count}" -ge "${burst}" ]]; then
+        printf 'publish: waiting %s s before the %s %s %s, because crates.io allows a burst of %s and then one every %s s, and this run has used up the burst\n' \
+            "${interval}" "${label}" "${name}" "${version}" "${burst}" "${interval}"
+        sleep "${interval}"
+    fi
+
+    current="${name} ${version}"
+    retries=0
+    while true; do
+        log="${work}/cargo.log"
+        set +e
+        cargo publish --no-verify -p "${name}" 2>&1 1>&3 | tee "${log}" >&2
+        statuses=("${PIPESTATUS[@]}")
+        set -e
+        status="${statuses[0]}"
+        if [[ "${status}" -eq 0 ]]; then
+            break
+        fi
+        if confirmed="$(fetch "${api}/${name}/${version}" "${work}/confirm.json")" && [[ "${confirmed}" == 200 ]]; then
+            printf 'publish: cargo publish of %s %s failed with status %s, but crates.io holds that version, so it counts as published in this run\n' \
+                "${name}" "${version}" "${status}" >&2
+            break
+        fi
+        if ! grep -qE 'responded with an error \(status 429' "${log}"; then
+            printf 'publish: cargo publish of %s %s failed with status %s\n' "${name}" "${version}" "${status}" >&2
+            report
+            exit "${status}"
+        fi
+        count="${burst}"
+        if [[ "${retries}" -ge "${rate_limit_retries}" ]]; then
+            printf 'publish: crates.io still refuses the %s %s %s for its rate limit after %s retries, so run this recipe again later\n' \
+                "${label}" "${name}" "${version}" "${rate_limit_retries}" >&2
+            report
+            exit "${status}"
+        fi
+        retries=$((retries + 1))
+        lower=$((interval / 10))
+        upper=$((2 * interval + clock_margin))
+        read_named_time "${log}"
+        if [[ -z "${named_seconds}" ]]; then
+            seconds="${interval}"
+        elif [[ "${named_seconds}" -gt "${upper}" ]]; then
+            printf 'publish: crates.io refused the %s %s %s for its rate limit until %s, which is more than %s s away, so run this recipe again after that time\n' \
+                "${label}" "${name}" "${version}" "${named_time}" "${upper}" >&2
+            report
+            exit "${status}"
+        elif [[ "${named_seconds}" -lt "${lower}" ]]; then
+            seconds="${lower}"
+        else
+            seconds="${named_seconds}"
+        fi
+        printf 'publish: crates.io refused the %s %s %s for its rate limit, so waiting %s s before retry %s of %s\n' \
+            "${label}" "${name}" "${version}" "${seconds}" "${retries}" "${rate_limit_retries}"
+        sleep "${seconds}"
+    done
+
+    count=$((count + 1))
+    if [[ "${kind}" == crate ]]; then
+        new_crates="${count}"
+    else
+        new_versions="${count}"
+    fi
+    published+=("${name}")
+    remaining=()
+    for other in ${pending[@]+"${pending[@]}"}; do
+        if [[ "${other}" != "${name}" ]]; then
+            remaining+=("${other}")
+        fi
+    done
+    pending=(${remaining[@]+"${remaining[@]}"})
+    current=""
+done
+
+printf 'publish: crates.io holds every given package: %s published in this run, %s already there\n' "${#published[@]}" "${#skipped[@]}"

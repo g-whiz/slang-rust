@@ -220,7 +220,7 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-release` | `checks` | `scripts/check-release` with `documentation_site` and the crates of `release_packages`, which reads each crate from crates.io and checks its version, its `documentation` field, and that the address answers (Section 9.6) | No, it checks a release after the publish |
 | `doc-site` | `release` | The documentation command of Section 4.8 on the vendored route for the crates of `release_packages`, and then `scripts/check-doc-site`, which checks that each crate has its index page, writes the index page of the site, and checks the site (TOOL-41). Its first run in `target/vendored` clones Slang and builds Slang and slang-glslang | No, the release procedure and the documentation workflow run it |
 | `publish-dry-run` | `release` | `scripts/publish-dry-run`, which runs `cargo publish --dry-run` for the given crates, by default those of `release_packages`, and records the verified commit and crates in `target/publish-dry-run.commit` (Section 9.6). Available on Linux and macOS only, and only on a committed tree | No, the release procedure runs it |
-| `publish` | `release` | `scripts/publish`, which runs `cargo publish --no-verify` for the given crates, by default those of `release_packages`, after the checks of Section 9.6. Only the owner runs it, with a token (TOOL-46). Available on Linux and macOS only | No, it publishes |
+| `publish` | `release` | `scripts/publish`, which, after the checks of Section 9.6, asks crates.io for each of the given crates, by default those of `release_packages`, skips every version that crates.io holds, and publishes each other crate with its own run of `cargo publish --no-verify`, in the given order, within the rate limits of crates.io (TOOL-51). Only the owner runs it, with a token (TOOL-46). Available on Linux and macOS only | No, it publishes |
 | `tag-release` | `release` | `scripts/tag-release` with the notes file and the crates of `release_packages`, which creates and pushes the tag `v<version>` and creates the GitHub release with the given notes, marked as a pre-release when the version holds a hyphen (Section 9.6). It needs the owner's go-ahead | No, it tags and deploys |
 | `yank` | `release` | `scripts/yank`, which runs `cargo yank` of one version of one crate (Section 9.8). Only the owner runs it, with a token (TOOL-46) | No, it changes crates.io |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 7.1) |
@@ -940,11 +940,11 @@ Besides the checkout and installer actions that `ci.yml` pins, the workflow uses
 | `actions/upload-pages-artifact` | v5.0.0 | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
 | `actions/deploy-pages` | v5.0.1 | `368f82528645a54fb793d4d04e342629a3f51346` |
 
-The workflow does not use `actions/configure-pages`, of which v6.0.0 is commit `45bfe0192ca1faeb007ade9deae92b16b8254a0d`. Its input `enablement` can turn Pages on only with a token other than `GITHUB_TOKEN` [CONFIGURE-PAGES], which TOOL-22 rules out, and rustdoc writes relative links, so the site needs no base address from it (TA-15). The owner turns Pages on in the settings of the repository instead (Section 9.6).
+The workflow does not use `actions/configure-pages`, of which v6.0.0 is commit `45bfe0192ca1faeb007ade9deae92b16b8254a0d`. Its input `enablement` can turn Pages on only with a token other than `GITHUB_TOKEN` [CONFIGURE-PAGES], which TOOL-22 rules out, and rustdoc writes relative links, so the site needs no base address from it. The first run of the workflow confirmed that `actions/deploy-pages` deploys the artifact without it, in a deploy job without `contents: read`. The owner turns Pages on in the settings of the repository instead (Section 9.6).
 
 The `concurrency` group of the workflow is `pages`, with `cancel-in-progress` false, so a deployment that has started finishes. The workflow caches nothing, so each run clones Slang and builds Slang and slang-glslang from an empty target directory, as the `vendored` job does.
 
-GitHub Pages limits a published site to 1 GB and a deployment to 10 minutes [GH-PAGES-LIMITS], and `doc-site` checks the size (TOOL-41). The artifact may hold no symbolic or hard link [UPLOAD-PAGES-ARTIFACT]. The site is public, because the repository is public (TA-16).
+GitHub Pages limits a published site to 1 GB and a deployment to 10 minutes [GH-PAGES-LIMITS], and `doc-site` checks the size (TOOL-41). The artifact may hold no symbolic or hard link [UPLOAD-PAGES-ARTIFACT]. The site is public, because the repository is public, as `check-release` confirmed by reading each address of the first release without credentials.
 
 The workflow cannot share the YAML anchors of `ci.yml`, so its steps that install libclang and the vendored tools are copies of those of `ci.yml`. A change to one of these steps changes both workflows in the same change, which is a judgement rule.
 
@@ -954,7 +954,7 @@ The job `build` runs on a fresh checkout, so `doc-site` writes the site into an 
 
 To deploy the site of a tag again, such as after a failed deployment, the owner reruns the workflow run of that tag. A rerun changes the public site, so it needs the owner's go-ahead like the push of the tag.
 
-The environment `github-pages` is expected to allow deployments only from the default branch until the owner adds a rule for the tags, which step 6 of Section 9.6 does (TA-21). If the environment cannot allow tags, the workflow gains the trigger `workflow_dispatch`, and its deploy job runs only for a run that the owner starts on `main`. The owner starts it right after `tag-release`, while `main` is still the commit of the tag, so the site still shows the release. TOOL-42 then names both triggers, in the change that finds the limit.
+The environment `github-pages` is expected to allow deployments only from the default branch until the owner adds a rule for the tags, which step 6 of Section 9.6 does (TA-21). With that rule, the environment allows the deployment of the tag of a release, as the first run of the workflow confirmed, so the workflow needs no other trigger.
 
 ## 8. Dependency Policy
 
@@ -1180,7 +1180,7 @@ These rules carry out the policy:
 
 The open questions that the review of Section 9.5 defers MUST be decided before the first release that is not an alpha, because that release promises compatibility for its API.
 
-The first release publishes the versions that the manifests hold, `0.1.0-alpha.1`, and `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1` for `slang-src`, and its tag is `v0.1.0-alpha.1`.
+The first release published the versions that the manifests hold, `0.1.0-alpha.1`, and `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1` for `slang-src`, and its tag is `v0.1.0-alpha.1`.
 
 `check-semver` compares each crate with the baseline that Section 9.3 defines. While every release is an alpha, crates.io holds only pre-releases of these crates, so the baseline of each crate is its newest version, which is the previous alpha. How cargo-semver-checks judges a breaking change between two alphas of `0.1.0` is TQ-16.
 
@@ -1210,7 +1210,7 @@ The tool checks procedural macro crates as well as libraries [CSC-SRC]. For `sla
 
 TOOL-39. The recipe `check-semver` and the CI job `semver` MUST be added by the change that follows the first release, together with the raise of TOOL-37, and not before. From then on, the job MUST run `just check-semver` in every run of the workflow.
 
-Before the first release, no crate has a version to compare with. cargo-semver-checks then fails each crate with "not found in registry" [CSC-SRC] and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace, and a comparison with `main` reports every change to the API, which tells a reviewer nothing.
+Before the first release, no crate had a version to compare with. cargo-semver-checks fails each such crate with "not found in registry" [CSC-SRC] and has no option to skip such a crate. Its option `--baseline-rev` compares with a git revision instead, but it fails on a second run when the target directory is inside the workspace, and a comparison with `main` reports every change to the API, which tells a reviewer nothing.
 
 `check-semver` stays outside `check`, as `check-features` and `check-msrv` do. It fetches each baseline from crates.io, so it needs network access, and it builds every crate twice, once for the current version and once for the baseline. CI runs it in every run of the workflow.
 
@@ -1253,7 +1253,7 @@ The site is built on the vendored route, by a choice of the design, for these re
 
 The cost is the clone of Slang and the build of Slang and slang-glslang in a run from an empty target directory, which takes about as long as `check-vendored`.
 
-In the development container, the one command documented all eight crates into one site with 0 warnings. From an empty target directory on 16 cores, the recipe took 7 min 46 s, including the clone and both native builds, and the site took 27 MB with no symbolic link. Whether the workflow stays within its timeout on a hosted Linux runner is TA-13.
+In the development container, the one command documented all eight crates into one site with 0 warnings. From an empty target directory on 16 cores, the recipe took 7 min 46 s, including the clone and both native builds, and the site took 27 MB with no symbolic link. On a hosted Linux runner, the first run of the documentation workflow, which caches nothing, completed its job `build` within the timeout of 60 minutes, which confirms TA-13.
 
 The command enables `slango-macros/vendored` as well, because the copy of Slang that the macro links is a host dependency, which the feature of `slang-compiler` does not reach (Section 4.3 of `docs/design/slango-macros.md`). Without it, and without `VULKAN_SDK`, the build of the macro stops. The public API of each crate is the same on both routes, so the site describes what a user of either route gets.
 
@@ -1369,7 +1369,7 @@ These recipes carry out the release. The recipes `check-package`, `publish-dry-r
 | --- | --- |
 | `check-package` | It reads the members from `cargo metadata --no-deps --format-version 1` and fails when those without `publish = false` differ from `release_packages`, compared as sets. It fails when the `documentation` field of a crate differs from its address under `documentation_site` (TOOL-40, Section 9.4), and stops before packaging on either failure. It prints `cargo package --list` for each crate, runs one `cargo package --no-verify` with `-p` for each crate, and checks each `.crate` file under the `package` directory of the target directory as TOOL-45 requires. It reports every failed condition and then exits with status 1, and exits with status 2 on a usage error or a missing tool |
 | `publish-dry-run` | `cargo publish --dry-run` with `-p` for each package that it is given, by default every crate of `release_packages`, which packages and compiles every given crate in the order of their dependencies, as if the others were published [RUST-1.90]. A dependency outside the given list resolves to its version on crates.io (TA-17). It needs the Vulkan SDK and libclang for the dynamic route, and network access and the vendored tools for `slang-src` and `slang-glslang-sys`, which the development container provides. It first removes any earlier record. On success, it writes the record `target/publish-dry-run.commit` with two lines, `commit=<full hash of HEAD>` and `packages=<the given packages, separated by spaces, in the given order>` |
-| `publish` | It refuses to run, with exit status 1, in this order: when `GITHUB_ACTIONS` is set, even to an empty value, when `CARGO_REGISTRY_TOKEN` is unset or empty, when `git status --porcelain --untracked-files=normal` fails or reports an uncommitted change or an untracked file, when `git fetch origin main` fails, when `HEAD` differs from `origin/main`, when the record is missing, when the recorded commit differs from `HEAD`, and when the recorded list differs from the packages that it is given, by default every crate of `release_packages`. The lists are compared as exact strings, so the same crates in another order also refuse. It then runs `cargo publish --no-verify` with `-p` for each of those packages (Section 9.7) |
+| `publish` | It refuses to run, with exit status 1, in this order: when `GITHUB_ACTIONS` is set, even to an empty value, when `CARGO_REGISTRY_TOKEN` is unset or empty, when `git status --porcelain --untracked-files=normal` fails or reports an uncommitted change or an untracked file, when `git fetch origin main` fails, when `HEAD` differs from `origin/main`, when the record is missing, when the recorded commit differs from `HEAD`, and when the recorded list differs from the packages that it is given, by default every crate of `release_packages`. The lists are compared as exact strings, so the same crates in another order also refuse. It then reads the version of each package from `cargo metadata`, asks crates.io which versions it holds, and publishes the others one at a time, as TOOL-51 of Section 9.7 specifies |
 | `tag-release` | It takes the path of the notes file, relative to the directory where `just` runs. It refuses to run, with exit status 1, when the notes file is not a readable, non-empty regular file, before any call of git, so that a missing file cannot stop `gh` after the tag is pushed. It then runs `git fetch origin main` and refuses when the fetch fails or `HEAD` differs from `origin/main`. It reads from `cargo metadata` the one version that every crate of `release_packages` except `slang-src` shares, and refuses when they differ or when a crate is not a member. It creates the annotated tag `v<version>` on `HEAD` with the message `v<version>`, pushes `refs/tags/v<version>` to `origin`, and runs `gh release create v<version> --verify-tag --title v<version> --notes-file <notes>`. When the version holds a hyphen, which marks a SemVer pre-release such as `0.1.0-alpha.1`, it adds `--prerelease`, so that GitHub marks the release as a pre-release |
 | `check-release` | For each crate of `release_packages`, it reads the version of the manifest from `cargo metadata` and asks `https://crates.io/api/v1/crates/<crate>/<version>`, then prints `<crate> <version>: on crates.io` or `<crate> <version>: not on crates.io`, so that its output also lists the crates that a failed publish left out (Section 9.7). For a crate that crates.io holds, it reads the `documentation` field from `https://crates.io/api/v1/crates/<crate>` and requests that address. It fails when crates.io lacks the version, when the field differs from the address under `documentation_site` (Section 9.4), or when the address does not answer with HTTP status 200, and it checks every crate before it exits |
 | `yank` | It takes exactly two arguments and runs `cargo yank --version <version> <package>`, with the checks of `publish` on `GITHUB_ACTIONS` and `CARGO_REGISTRY_TOKEN` (Section 9.8) |
@@ -1380,10 +1380,12 @@ The choices of the design behind these rows:
 - `tag-release` fetches `origin/main` before it compares, as `publish` does, because a stale `origin/main` would let it tag a commit that `main` no longer points to.
 - `publish` reads "no uncommitted change" as no change and no untracked file, the stricter reading.
 - `publish` and `yank` treat `GITHUB_ACTIONS` as set when it holds any value, including the empty string.
-- `check-release` sends the user agent `slang-rust-release-check`, which names the application and no person, and waits one second before each request to the crates.io API. The data access policy of crates.io requires a user agent that identifies the application and at most one request per second, and only suggests contact details. The policy sets no rate limit on `static.crates.io` [CRATES-DATA-ACCESS].
-- `check-package` decides whether crates.io holds the version of a crate by the HTTP status of the download of `https://static.crates.io/crates/<crate>/<crate>-<version>.crate`. Status 200 means that it holds the version, and the recipe compares the files. Status 404 means that it does not. Any other status fails the check. The recipe uses no request to the API, which the rate limit covers.
+- `check-release` and `publish` send the user agent `slang-rust-release-check`, which names the application and no person, and wait one second before each request to the crates.io API. The data access policy of crates.io requires a user agent that identifies the application and at most one request per second, and only suggests contact details. The policy sets no request limit on `static.crates.io` [CRATES-DATA-ACCESS].
+- `check-package` decides whether crates.io holds the version of a crate by the HTTP status of the download of `https://static.crates.io/crates/<crate>/<crate>-<version>.crate`. Status 200 means that it holds the version, and the recipe compares the files. Status 404 means that it does not. Any other status fails the check. The recipe uses no request to the API, which the request limit of the data access policy covers. That limit is separate from the publishing rate limits of Section 9.7.
 
-The crates.io API returns the `documentation` field of a crate at `https://crates.io/api/v1/crates/<crate>` as `.crate.documentation`, and a version at `https://crates.io/api/v1/crates/<crate>/<version>` as `.version.num`. crates.io serves a published `.crate` file at `https://static.crates.io/crates/<crate>/<crate>-<version>.crate`. For a crate that does not exist, all three answer with status 404. A published crate of another project and the unpublished `slang-bindgen` showed this.
+The crates.io API returns the `documentation` field of a crate at `https://crates.io/api/v1/crates/<crate>` as `.crate.documentation`, and a version at `https://crates.io/api/v1/crates/<crate>/<version>` as `.version.num`. crates.io serves a published `.crate` file at `https://static.crates.io/crates/<crate>/<crate>-<version>.crate`. For a crate that does not exist, all three answer with status 404. A published crate of another project and `slang-bindgen`, before its first publish, showed this.
+
+For a published crate, a version that crates.io does not hold also answers with status 404 at `https://crates.io/api/v1/crates/<crate>/<version>`. The two cases differ only in the detail text of the answer, "crate `<crate>` does not exist" or "crate `<crate>` does not have a version `<version>`". `publish` therefore tells them apart with a second request to `https://crates.io/api/v1/crates/<crate>`, and never by the text. The address of a version also resolves the long pre-release of `slang-src`.
 
 No published `.crate` file of this project has been compared yet.
 
@@ -1406,7 +1408,9 @@ The conditions keep out what a package must never hold. Cargo flattens a symboli
 
 With all eight crates, `cargo package` and `cargo publish --dry-run` packaged each crate against the packages of the others and verified them in the order of `release_packages`. For the verification of `slang-glslang-sys`, Cargo unpacked `slang-src` from its local registry under `target/package/tmp-registry`, so the exact requirement on the version of `slang-src` selected that pre-release.
 
-The dry run printed "warning: aborting upload due to dry run" for each crate. This confirms the order and the requirements of TA-17, and leaves its other parts open.
+The dry run printed "warning: aborting upload due to dry run" for each crate. This confirms the order and the requirements of TA-17.
+
+A dry run of a subset resolves each dependency outside the subset to its version on crates.io: the dry run of `slango-codegen` and `slango-macros` alone passed while crates.io held `slango`. A dry run of a version that crates.io already holds also passes, and Cargo prints the warning "already exists on crates.io index" for it and goes on, so the dry run of the whole list passes during the recovery of a partial release.
 
 Cargo verifies the packages in the workspace target directory, in `target/debug`, and not under `target/package`. The verification builds two units of `slang-src`: the member of the workspace, and the copy that Cargo unpacked for `slang-glslang-sys`. Where they keep the clone of Slang depends on whether Cargo tagged `target/` (SRC-23 of `docs/design/slang-src.md`):
 
@@ -1435,16 +1439,92 @@ unset token
 
 `publish` passes `--no-verify`, by a choice of the design, so that no build script runs while the token is in the environment. A verification build runs the build script of every dependency, and a build script inherits the environment of Cargo. `publish-dry-run` has already verified the same commit and the same crates, which `publish` checks through `target/publish-dry-run.commit`.
 
+The token stays in the environment of `publish` while it waits for the rate limits of TOOL-51, up to 600 s before each new crate past the burst and up to 1205 s before each retry, and no build script runs during the waits. Every program that the script starts inherits its environment, but only Cargo reads the token. The requests that the script sends to the crates.io API carry no token, and the script prints the token nowhere and runs without shell tracing.
+
 Trusted Publishing from a workflow is deferred, with no change for the first release. It would need a workflow that publishes, which TOOL-22 forbids, a trusted publisher configured on crates.io for each crate, and the action `rust-lang/crates-io-auth-action` [CRATES-AUTH-ACTION] with `id-token: write`. TQ-11 asks whether the second release moves to it.
 
-Cargo publishes the selected crates in the order of their dependencies and waits for each to appear in the index before the next [CARGO-PUBLISH, RUST-1.90] (TA-17). For the first release, the order is that of `release_packages`: `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
+`publish` runs Cargo once for each crate that it publishes, in the order of its arguments, which by default is that of `release_packages`. For the first release, that order is `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
 
-Publishing several crates is not atomic [RUST-1.90], and a published version can never be overwritten or deleted [CARGO-PUBLISHING]. When one crate fails, the crates before it are public for good. The recovery always works on the crates that are not published yet, which this section calls the remaining crates, and never runs a dry run or a publish of a version that crates.io already holds. Whether Cargo refuses a dry run of such a version is not confirmed, and the design does not depend on the answer.
+Each run of `cargo publish` waits for its crate to appear in the index before it returns [CARGO-PUBLISH, RUST-1.90] (TA-17), so the next run finds it. `publish` does not reorder its arguments, so a list given by hand keeps the order of `release_packages`. Only `publish-dry-run` passes every crate to one run of Cargo, which orders them by their dependencies.
 
-The recovery starts the same way in every case. An agent runs `just check-release`, whose output lists which crates of `release_packages` crates.io holds, because a crate whose upload succeeded can still fail while Cargo waits for the index. The remaining crates are the others, in the order of `release_packages`. The owner then continues in one of three ways.
+TOOL-51. `publish` MUST stay within the publishing rate limits of crates.io. It MUST publish no version that crates.io already holds, and MUST publish nothing when it cannot learn which versions crates.io holds, so that running it again after a partial release is safe. A refusal for the rate limit otherwise stops a release part way, and a rerun that reached a published version would stop at it.
 
-1. A transient failure, such as a lost connection or a timeout while Cargo waits for the index, needs no change. On the same commit, an agent runs `just publish-dry-run` with the remaining crates, and the owner runs `just publish` with the same list.
-2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, `README.md`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5 with the remaining crates, step 7, and step 8 with the remaining crates then run on the new commit, at the versions of the release. The tag of step 9 names the new commit.
+crates.io limits publishing for each user account with a leaky bucket [CRATES-RATE-LIMITS]. The values in this table are the defaults of crates.io, which its configuration can change and which crates.io can raise for one user:
+
+| Kind | Burst | Then | Message of a refusal |
+| --- | --- | --- | --- |
+| New crate | 5 crates | One crate every 600 s | "You have published too many new crates in a short period of time" |
+| New version of an existing crate | 30 versions | One version every 60 s | "You have published too many updates to existing crates in a short period of time" |
+
+A refusal is an answer with HTTP status 429 and a `Retry-After` header that holds an HTTP date. Its detail text is the message, followed by "Please try again after `<date>` and see https://crates.io/docs/rate-limits for more details.", in which `<date>` has the form `Fri, 15 Jan 2027 08:02:00 GMT`.
+
+After the refusals of Section 9.6, `publish` behaves as this table states, row by row:
+
+| Step | Behaviour |
+| --- | --- |
+| Versions | It reads the version of each given package from `cargo metadata --no-deps --format-version 1`. A package that is not a member refuses the run with exit status 1 and "`<name>` is not a member of the workspace, so nothing was published". |
+| Check before publishing | Before it publishes any package, it asks `https://crates.io/api/v1/crates/<name>/<version>` for each. Status 200 means that crates.io holds the version. Status 404 leads to a second request to `https://crates.io/api/v1/crates/<name>`, where status 200 means a new version and status 404 means a new crate. It prints one line for each package: "is already on crates.io and is skipped", "is a new version of a crate on crates.io", or "is a new crate on crates.io". |
+| Refusal of the check | A failed request, or any other status of either request, refuses the run with exit status 1 and a message that ends "so nothing was published". |
+| Requests | Each request follows `sleep 1`, sends the user agent `slang-rust-release-check` and no token, and runs curl with `-q`, which skips the user's `.curlrc`, with HTTPS only, TLS 1.2 or later, a connection timeout of 10 s, a total timeout of 30 s, and 3 retries. |
+| Skip | It publishes no package that crates.io holds. |
+| Publish | It runs `cargo publish --no-verify -p <name>` once for each other package, in the given order. Cargo's standard output goes to standard output, and its standard error goes to standard error and into a temporary log that the script reads. |
+| Pacing | It counts the new crates and the new versions that this run publishes. Before a package of a kind whose count has reached the burst of that kind, it prints "waiting `<interval>` s before the `<kind>` ..." and waits the interval of that kind. |
+| Confirmation | When Cargo fails, for any reason, it asks crates.io for that version again. When crates.io answers with status 200, the package counts as published in this run, for the pacing as well, and the script goes on with the next package without a wait. |
+| Detection of a refusal | Otherwise, a failure counts as a refusal for the rate limit only when Cargo's output matches the extended regular expression `responded with an error \(status 429` (TA-22). Any other failure stops the run at once, with "cargo publish of `<name>` `<version>` failed with status `<N>`", the report, and Cargo's exit status. |
+| Wait | After a refusal, it reads the time of "try again after `<date>`" in Cargo's output with GNU `date -d`, or else with BSD `date -j -f` (TA-23), and waits until that time plus 5 s. When it cannot read the time, it waits the interval of the kind. The wait is at least a tenth of the interval. When that wait would exceed twice the interval plus 5 s, which is when the named time is more than twice the interval away, it does not wait, and stops with a message that names the time, the report, and Cargo's exit status. |
+| Retry | After the wait, the burst of that kind counts as used up for the rest of the run, and it publishes the same package again. Each package has at most 3 retries, so Cargo runs at most 4 times for it. When the retries run out, it stops with "crates.io still refuses ... after 3 retries, so run this recipe again later", the report, and Cargo's exit status. |
+| Report | Whenever a failure or an interrupt stops it after the check before publishing, it prints three lines on standard error, "published in this run:", "already on crates.io before this run:", and "not published:", each followed by the names of the packages, or by "none". |
+| Interrupt | After the check before publishing, `INT` and `TERM` stop the run with "interrupted while publishing `<name>` `<version>`, which crates.io may hold now, so the release stopped", or "interrupted, so the release stopped" between packages, and with the report, in which the package in progress counts as not published. A signal during the check before publishing ends the script without the report, because nothing is published then. |
+| Success | It prints "crates.io holds every given package: `<N>` published in this run, `<M>` already there", also when it skipped every package and Cargo never ran. |
+
+The bounds of the waits follow from the limits:
+
+| Kind | Burst | Interval | Shortest wait after a refusal | Longest wait after a refusal |
+| --- | --- | --- | --- | --- |
+| New crate | 5 | 600 s | 60 s | 1205 s |
+| New version | 30 | 60 s | 6 s | 125 s |
+
+These are the exit statuses of `publish`:
+
+| Status | Meaning |
+| --- | --- |
+| 0 | crates.io holds every given package |
+| 1 | A refusal of Section 9.6, or of the check before publishing, before anything is published |
+| The status of Cargo | A failure of Cargo that crates.io does not confirm, a refusal for the rate limit after 3 retries, or a named time beyond the longest wait |
+| 130 | An interrupt, `INT` |
+| 143 | A `TERM` signal |
+| 2 | A usage error, or a missing tool |
+
+`publish` needs `cargo`, `git`, `curl`, `python3`, `sleep`, `date`, `tee`, `grep`, and `awk` on `PATH`, and exits with status 2 and "`<tool>` not found on PATH" when one is missing.
+
+This illustration, the output of the script against the stub programs of Section 9.9, shows a rerun of the first release after crates.io accepted its first five crates:
+
+```text
+publish: slang-bindgen 0.1.0-alpha.1 is already on crates.io and is skipped
+publish: slang-src 0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1 is already on crates.io and is skipped
+publish: slang-compiler-sys 0.1.0-alpha.1 is already on crates.io and is skipped
+publish: slang-glslang-sys 0.1.0-alpha.1 is already on crates.io and is skipped
+publish: slang-compiler 0.1.0-alpha.1 is already on crates.io and is skipped
+publish: slango 0.1.0-alpha.1 is a new crate on crates.io
+publish: slango-codegen 0.1.0-alpha.1 is a new crate on crates.io
+publish: slango-macros 0.1.0-alpha.1 is a new crate on crates.io
+publish: crates.io holds every given package: 3 published in this run, 5 already there
+```
+
+The check runs for every package before the first publish, by a choice of the design, because only then can the script refuse before anything is published when crates.io cannot answer. A publish without the check could reach a version that crates.io holds, which Cargo refuses part way through, while a rerun repeats the check at no cost.
+
+Cargo can fail after a successful upload, such as while it waits for the index, and its output can then hold a page with status 429 from the content delivery network of the index. The pattern therefore matches only an error of the API, and the confirmation counts such an upload as published instead of publishing it again.
+
+The 5 s margin covers a difference between the clock of the machine and that of crates.io, and the shortest wait keeps a named time in the past from an immediate retry. A named time further away than the limits explain stops the run, so that the owner decides when to run it again, instead of the script holding the token for that long. After a refusal, the burst of the kind counts as used up, so that the next package of that kind does not meet a refusal of its own and spend a retry.
+
+Publishing several crates is not atomic [RUST-1.90], and a published version can never be overwritten or deleted [CARGO-PUBLISHING]. When one crate fails, the crates before it are public for good. The crates that are not published yet are called the remaining crates in this section.
+
+`publish` skips every version that crates.io holds (TOOL-51), and a dry run of such a version passes (Section 9.6). The recovery therefore runs `publish-dry-run` and `publish` either with the default list or with the remaining crates, as long as both recipes get the same list.
+
+The recovery starts the same way in every case. An agent runs `just check-release`, whose output lists which crates of `release_packages` crates.io holds, because a crate whose upload succeeded can still fail while Cargo waits for the index. The remaining crates are the others, in the order of `release_packages`, and the report of `publish` names them as well. The owner then continues in one of three ways.
+
+1. A transient failure needs no change. Such failures include a lost connection, a timeout while Cargo waits for the index, an interrupt, and a refusal for the rate limit on which `publish` stopped. On the same commit, an agent runs `just publish-dry-run`, and the owner runs `just publish` with the same list, after the time that crates.io named when it refused for the rate limit. When `main` has moved since the failed publish, such as for a change to the release scripts that changes no packaged file, the recovery runs on the new commit of `main` as path 2 does.
+2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, `README.md`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5, step 7, and step 8 then run on the new commit, at the versions of the release, with steps 5 and 8 given the same list. The tag of step 9 names the new commit.
 3. A failure that needs a change to a published crate cannot reuse that version, so the release starts again from step 1 with the next alpha for every crate, as TOOL-37 requires. The versions already published stay, and the owner yanks one of them only under Section 9.8.
 
 Path 2 keeps the versions of the release, because every requirement of a remaining crate on a published one names the published version. For example, when `slang-glslang-sys`, the fourth crate of the first release, fails:
@@ -1470,11 +1550,14 @@ The recipes of the release run scripts under `scripts/`: `check-package`, `check
 
 The script runs every case against stub programs, in this way:
 
-- It writes stubs of `cargo`, `git`, `gh`, `curl`, and `sleep` into a temporary directory. Each stub records its arguments in a log, and the stubs of `cargo`, `git`, and `curl` answer from files that each case writes, such as the output of `cargo metadata`, the commits of `HEAD` and `origin/main`, and the HTTP status and body of each address.
+- It writes stubs of `cargo`, `git`, `gh`, `curl`, `sleep`, and `date` into a temporary directory. Each stub except that of `date` records its arguments in a log, and the stubs of `cargo`, `git`, and `curl` answer from files that each case writes, such as the output of `cargo metadata`, the commits of `HEAD` and `origin/main`, and the HTTP status and body of each address.
+- The stub of `curl` can also fail as for a host that it cannot reach. The stub of `sleep` fails unless it gets exactly one argument that is a positive whole number, so a case sees a wait that the real `sleep` would reject.
+- The stub of `date` prints a fixed time for `date -u +%s` when a case sets one, and passes every other call to `/usr/bin/date`.
+- The stub of `cargo publish` prints "Uploading" with the name. A case can make it fail with a given status, refuse each package or the first calls for the rate limit with the text of an error of status 429 and an optional time to try again, upload a version and then fail with a page of status 429 of the index or with another error, or send `INT` or `TERM` to the script.
 - Before it changes `PATH`, it resolves `just` with `command -v` to an absolute path, and it refuses to start, with exit status 2 and the message "just is not installed", when it finds none. It then calls `just` only by that path, and the directory of `just` never goes onto `PATH`.
 - It sets `PATH` to the directory of the stubs followed by `/usr/bin` and `/bin`, so the real Cargo of the toolchain is not on `PATH`.
-- It refuses to start, with exit status 2, when one of the programs that the scripts and the cases run is not in `/usr/bin` or `/bin`, with a message that names it. The list is `bash`, `env`, `python3`, `awk`, `cat`, `cmp`, `cp`, `cut`, `diff`, `dirname`, `du`, `find`, `grep`, `gzip`, `head`, `ln`, `mkdir`, `mktemp`, `rm`, `sed`, `sort`, `tail`, `tar`, `tr`, and `wc`.
-- It refuses to start, with exit status 2, unless `command -v` resolves each of the five names to its stub and no other program named `cargo` is on `PATH`, so no case can reach crates.io or GitHub.
+- It refuses to start, with exit status 2, when one of the programs that the scripts and the cases run is not in `/usr/bin` or `/bin`, with a message that names it. The list is `bash`, `env`, `python3`, `awk`, `cat`, `cmp`, `cp`, `cut`, `diff`, `dirname`, `du`, `find`, `grep`, `gzip`, `head`, `ln`, `mkdir`, `mktemp`, `rm`, `sed`, `sort`, `tail`, `tar`, `tee`, `tr`, and `wc`.
+- It refuses to start, with exit status 2, unless `command -v` resolves each of the six names to its stub and no other program named `cargo` is on `PATH`, so no case can reach crates.io or GitHub. It also refuses when `/usr/bin/date` does not exist, because the stub of `date` passes its calls on to it.
 - It unsets `GITHUB_ACTIONS`, `CARGO_REGISTRY_TOKEN`, and `CARGO_TARGET_DIR` before the cases, so it runs the same in CI.
 - Each case checks the exit status, a message, and the calls in the log. The cases of a refusal also check that no call that would act happened, such as `cargo publish`, `git tag`, `git push`, or `gh`.
 
@@ -1482,7 +1565,17 @@ TOOL-50. A program that the self-test needs and that may lie outside `/usr/bin` 
 
 The cases of `check-package` build real `.crate` archives, one for each condition of TOOL-45 and for the answers of `static.crates.io`. The cases of `check-release` cover a complete release, a partial one, a wrong or missing `documentation` field, a site that does not answer, an error of crates.io, and a crate that is not a member. The cases of `check-doc-site` cover a complete site with its index page, a missing page, a page under the name with hyphens, a symbolic link, a site over the limit, and a limit that is not a number. The cases of `tag-release` include a release with a version without a hyphen and one with a pre-release, and check that `gh release create` gets `--prerelease` for the pre-release only.
 
-The last cases copy the `justfile` and the scripts of `publish-dry-run`, `publish`, and `tag-release` into the temporary directory and run the three recipes through `just`. They check that a recipe without arguments passes every crate of `release_packages`, read with `just --evaluate`, and that `tag-release` resolves a relative path of the notes file.
+The cases of `publish`, besides its refusals of Section 9.6, cover the rules of TOOL-51:
+
+- The check before publishing: two new crates published in order with both requests made, a new version told apart from a new crate, a version that crates.io holds skipped, every version held so that Cargo never runs, and the partial release with five versions held and three published without a wait.
+- The pacing: six new crates, with one wait of 600 s, between the fifth and the sixth.
+- The refusals: one refusal with a named time, which waits 125 s, retries, and then waits 600 s before the next new crate, a named time in the past, which waits 60 s, a named time beyond the longest wait, which stops without a wait, the retries used up, and two packages refused three times each, which both succeed.
+- The confirmation: an upload followed by a failure, with a page of status 429 of the index and with another error, counted as published, and a page of status 429 for a version that crates.io lacks, which stops without a retry.
+- The other failures: a failure of Cargo, crates.io that cannot be reached, crates.io that answers with status 500, and a package that is not a member.
+- The interrupts: `INT` and `TERM` during the second of three packages, which exit with status 130 and 143 and print the report. These cases start the script through `python3 -I` with both signals reset to their default, because a shell that starts with a signal ignored cannot trap it.
+- The temporary directory, which the script removes after a success and after a failure.
+
+The last cases copy the `justfile` and the scripts of `publish-dry-run`, `publish`, and `tag-release` into the temporary directory and run the three recipes through `just`. They check that a recipe without arguments passes every crate of `release_packages`, read with `just --evaluate`, and that `tag-release` resolves a relative path of the notes file. For `publish`, the case checks one run of `cargo publish --no-verify -p <name>` for each crate of `release_packages`.
 
 The script reports each failed case after "FAIL", exits with status 1 when a case fails, and prints the number of cases when all pass. The cases are inline in the script, and the script has no directory under `scripts/fixtures/`, because `scripts/self-test-checker` runs only the custom checkers of Section 6.
 
@@ -1505,8 +1598,8 @@ TOOL-29. The container image MUST provide these, because the recipes of Section 
 - `$VULKAN_SDK/lib` on `LD_LIBRARY_PATH` for every process, whether or not a login shell started it, so that a test binary finds the Slang shared library at run time (Section 4.4 of the architecture design).
 - libclang, which every build of `slang-compiler-sys` and the recipe `check-slang-call-guard` load to generate the bindings (SCS-64 of `docs/design/slang-compiler-sys.md`).
 - git, CMake 3.22 or later, Ninja, and a C++20 compiler, which `test-vendored` and `check-vendored` need to build Slang and slang-glslang on the vendored route, and Python 3 for the build of slang-glslang (Section 9.3 of `docs/design/slang-compiler-sys.md` and Section 8 of `docs/design/slang-glslang-sys.md`).
-- `gh` and curl, which `tag-release` runs and `check-release` and `check-package` run (Section 9.6).
-- Python 3, tar, `cmp`, `diff`, `find`, `du`, and awk, which the scripts of the release run. They read JSON with Python 3 and not with jq, which is no requirement.
+- `gh`, which `tag-release` runs, and curl, which `check-release`, `check-package`, and `publish` run (Section 9.6).
+- Python 3, tar, `cmp`, `diff`, `find`, `du`, awk, `tee`, and `date`, which the scripts of the release run. They read JSON with Python 3 and not with jq, which is no requirement.
 
 The image meets these release requirements: it provides `gh` 2.103.3 and curl 8.14.1 under `/usr/bin`, and the other programs of the release scripts.
 
@@ -1522,28 +1615,33 @@ The gap does not affect the recipes, because each recipe that runs compiled code
 
 Each row is a fact that this document relies on and that has not been checked. A section that relies on one of them cites its identifier. The change that confirms or corrects an assumption states the result in the section that relies on it and removes the row.
 
-An identifier is never reused, so the next assumption takes TA-22.
+An identifier is never reused, so the next assumption takes TA-24.
 
 TA-9, that the hosted Windows and macOS runners provide Python 3 that the build of slang-glslang finds, is confirmed: the build of slang-glslang ran on both, and the step of Section 7.4 found Python 3 as `python3` on both.
 
 TA-19, the addresses of the crates.io API and of `static.crates.io` that `check-release` and `check-package` read, is confirmed for a published crate of another project and for an unpublished crate (Section 9.6).
 
-The parts of TA-13 and TA-17 that the development container could show are confirmed and stated in Sections 9.4 and 9.6, and their rows keep the rest.
+TA-13, that `doc-site` completes within the timeout of 60 minutes on a hosted Linux runner, including the clone and the builds of Slang and slang-glslang, is confirmed in Section 9.4.
 
-The parts of TA-15 and TA-21 that the settings of the repository could show are confirmed. With the source of GitHub Pages set to "GitHub Actions", GitHub provides the environment `github-pages`, and the owner could add to it a deployment rule for tags that match `v*`, next to the rule for the branch `main`. Their rows keep the rest.
+TA-15, that `actions/deploy-pages` deploys the artifact of `actions/upload-pages-artifact` without `actions/configure-pages` and that its job needs no `contents: read`, is confirmed in Section 7.5.
+
+TA-16, that a GitHub Pages site of a public repository is public, is confirmed in Section 7.5.
+
+The part of TA-17 that the development container could show is confirmed and stated in Section 9.6, and its row keeps the rest. The part of TA-17 on a dry run of a subset is confirmed in Section 9.6, and `publish` no longer depends on the order in which one run of Cargo publishes several crates, so its row keeps only the wait for the index.
+
+The parts of TA-21 that the settings of the repository and the first run of the documentation workflow could show are confirmed in Section 7.5. With the source of GitHub Pages set to "GitHub Actions", GitHub provides the environment `github-pages`, and the owner could add to it a deployment rule for tags that match `v*`, next to the rule for the branch `main`. The row keeps the rest.
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | TA-10 | cargo-semver-checks 0.51.0 accepts `--workspace`, `--exclude`, and `--default-features` in the meaning of TOOL-38, whose help text was not read | TOOL-38 | The first run of `check-semver`, in the change that follows the first release |
 | TA-11 | cargo-semver-checks runs the build scripts of the current crates and of the baselines, with the environment of the recipe, so they find `VULKAN_SDK` and libclang | Section 9.3 | The first run of `check-semver` |
 | TA-12 | cargo-semver-checks treats an item with `#[doc(hidden)]`, such as the module `__private` of `slango`, as outside the public API | Section 9.3 | The first change to `__private` after the first release. If the tool reports such a change, `__private` gets a lint exception of the tool, if it has one. Otherwise the answer to TQ-16 decides what the check needs |
-| TA-13 | `doc-site`, which documents all eight crates into one site of 27 MB in the development container (Section 9.4), completes within the timeout of 60 minutes on a hosted Linux runner, including the clone and the builds of Slang and slang-glslang | TOOL-41, Section 7.5 | The first run of the documentation workflow |
-| TA-15 | `actions/deploy-pages` deploys the artifact of `actions/upload-pages-artifact` without `actions/configure-pages`, and its job needs no `contents: read` | Section 7.5 | The first run of the documentation workflow |
-| TA-16 | A GitHub Pages site of a public repository is public | Sections 7.5 and 9.4 | `check-release` after the first release, which reads each address without credentials |
-| TA-17 | `cargo publish` with several `-p` options publishes the crates in the order of their dependencies, as its dry run verifies them (Section 9.6), and waits for each in the index. A dry run of a subset resolves each dependency outside the subset to its version on crates.io | Sections 9.6 and 9.7 | The first publish for the order and the wait, and the first recovery of Section 9.7, if one is needed, for a subset |
+| TA-17 | A run of `cargo publish` for one crate returns only after the crate appears in the index of crates.io, so the next run of `publish` resolves it as a dependency | Section 9.7 | The next run of `publish` that publishes a crate and then a crate that depends on it |
 | TA-18 | crates.io lets an API token be limited to publishing new crates and new versions, to named crates, and to an expiry date | TOOL-46 | The owner, when creating the token of the first release |
 | TA-20 | `taiki-e/install-action` installs cargo-semver-checks from its manifest, verified against a checksum, as TOOL-21 requires | Section 7.1 | The change that adds the CI job `semver` |
-| TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*`, and the rule for `v*` allows the deployment of the tag of a release | Sections 7.5 and 9.6 | The first run of the documentation workflow |
+| TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*` | Sections 7.5 and 9.6 | A run that a tag starts while the environment has no rule for `v*`, which no step of the release procedure makes, because step 6 adds the rule before the first tag |
+| TA-22 | Cargo prints a refusal of the crates.io API for its rate limit as "the remote server responded with an error (status 429 Too Many Requests):" followed by the detail text of Section 9.7, which holds "try again after `<date>`", so that the pattern `responded with an error \(status 429` of `publish` matches it and the script reads the time. A reviewer read that form in the source of Cargo on its main branch, and read the detail text in the sources of crates.io. The source of the installed Cargo 1.99.1 was not read, and no real refusal was observed through Cargo | TOOL-51 | The first real refusal for the rate limit. If Cargo prints it otherwise, `publish` stops with Cargo's status instead of waiting, and the owner runs it again later |
+| TA-23 | On macOS, `date -u -j -f '%a, %d %b %Y %T GMT'` reads the named time, and `publish` runs on the bash that `/usr/bin/env bash` finds there, which can be bash 3.2. Neither was run, because the development container has only GNU `date` and bash 5.2. When the time cannot be read, `publish` waits the interval of the kind, which is slower but within the limits | TOOL-51 | The first run of `publish` on macOS |
 
 ## 12. Open Questions
 
@@ -1584,7 +1682,7 @@ The design addresses each part:
 4. For pull requests, TOOL-22 keeps secrets out of every workflow and forbids the event that runs pull request code with secrets, and `check-workflow-pins` reports that event. A run for a pull request from a fork gets a read-only token and no secrets (Section 7.2).
 5. For hooks, `.pre-commit-config.yaml` pins the repository `pre-commit-hooks` to a commit SHA, and the local hooks run only recipes of this repository.
 6. For checker output, every custom checker escapes its output (Section 6.1), so a checked file cannot send a control sequence to the terminal.
-7. For the token, TOOL-46 keeps it out of the repository, CI, Cargo's credentials file, and every agent's environment, limits its scopes and lifetime, and passes it to one command. `publish` runs no build script while the token is in its environment, because it passes `--no-verify` after the dry run verified the same commit. TOOL-22 keeps publishing out of every workflow, TOOL-47 keeps the release recipes off the allow list, and `check-package` checks the contents of every package before the publish (TOOL-45).
+7. For the token, TOOL-46 keeps it out of the repository, CI, Cargo's credentials file, and every agent's environment, limits its scopes and lifetime, and passes it to one command. `publish` runs no build script while the token is in its environment, because it passes `--no-verify` after the dry run verified the same commit, and its requests to the crates.io API carry no token. TOOL-22 keeps publishing out of every workflow, TOOL-47 keeps the release recipes off the allow list, and `check-package` checks the contents of every package before the publish (TOOL-45).
 8. For the site, only the deploy job of a workflow that runs on a tag holds `pages: write` and `id-token: write` (TOOL-42). Pushing a tag needs write access to the repository, and the actions of the workflow are pinned by commit SHA (TOOL-20). TOOL-49 keeps a site built on a developer's machine, which names that machine's build path, off the public site.
 
 These attacks are out of scope:
@@ -1604,7 +1702,7 @@ The residual risk has nine parts:
 5. `check-workflow-pins` reads workflows line by line, so a reference written in a form that it does not read (Section 6.8) can pass it. The permissions of each job, the use of secrets, and whether each download step verifies its file depend on review.
 6. The escaping covers only the custom checkers of Section 6. `scripts/check-commit-message` and the external tools that the recipes run, such as shellcheck, typos, actionlint, and Cargo, print their output without this escaping, and this document does not specify how they handle control characters. Because a backslash prints unchanged, escaped output can be ambiguous to a reader, which misleads but sends no control sequence.
 7. The installers of the Vulkan SDK for macOS and Windows fetch metadata from LunarG's remote repository during the installation (Section 7.3), and the recorded checksum does not cover that metadata, so a tampered response is not detected. Two facts limit this risk: the files that the installer installs come from the verified download, and the step selects only the core component. No supported option that installs without this access is known.
-8. During `just publish`, the token is in the environment of `just` and Cargo in the development container, so a process in the container that can read that environment, or a compromised Cargo, can take it. The limits of TA-18 bound what it can do, and the owner revokes the token after the release.
+8. During `just publish`, the token is in the environment of `just`, the script, and every program that the script starts in the development container, including while the script waits for the rate limits of TOOL-51, which can add up to tens of minutes. A process in the container that can read that environment, or a compromised Cargo or other program that the script starts, can take it. The limits of TA-18 bound what it can do, and the owner revokes the token after the release.
 9. A compromised action of the documentation workflow, or a compromised dependency of a crate whose build script runs in `doc-site`, can change the site of a release. It cannot publish a crate or write to the repository, because the deploy job holds no other permission.
 
 ## 14. Operational Considerations
@@ -1626,7 +1724,7 @@ This table lists every recipe parameter and its default. Every other recipe take
 | `check-doc-references` | Paths of files to check | Every `.rs`, `.toml`, `.yml`, `.yaml`, and `.json` file, the `justfile`, and every file under `scripts/` except the checker's own self-test cases (Section 6.10) |
 | `check-commit-message` | The commit message file | None. The parameter is required. |
 | `merge` | The branch, and further arguments for `scripts/merge-branch` | None for the branch, which is required |
-| `publish-dry-run`, `publish` | The names of the crates to verify or publish, which `publish` compares with the list that the dry run recorded | Every crate of `release_packages`. A list serves only to finish a release that failed part way (Section 9.7) |
+| `publish-dry-run`, `publish` | The names of the crates to verify or publish, which `publish` compares with the list that the dry run recorded | Every crate of `release_packages`. A list serves only to finish a release that failed part way, which the default list also does, because `publish` skips every version that crates.io holds (Section 9.7) |
 | `tag-release` | `NOTES`, the path of the file with the release notes. A relative path is relative to the directory where `just` runs, through the attribute `[no-cd]`, and the recipe then runs the script from the root of the repository | None. The parameter is required |
 | `yank` | The crate and the version to yank | None. Both are required |
 | `install-vulkan-sdk` | The SDK version, as four numbers separated by full stops, and the expected SHA-256 checksum of the download for the platform, as 64 lowercase hexadecimal characters (Section 7.3) | None. Both are required. `just` rejects a missing or extra argument before the script runs, and the script exits with status 2 on a malformed one |
@@ -1647,7 +1745,7 @@ This table lists every environment variable that the recipes, the hooks, or the 
 | `DYLD_LIBRARY_PATH` | The dynamic loader on macOS, when a test binary starts, and the `justfile`, which reads its earlier value | The recipes that run compiled code which loads Slang set it on their own command line to `$VULKAN_SDK/lib` followed by any earlier value (Section 3.2). Outside a recipe, it is unset unless the developer sets it. On a macOS CI runner, `install-vulkan-sdk` sets it to `$VULKAN_SDK/lib` followed by any earlier value (Section 7.3), so the directory appears twice in a recipe there. Whether the assignment on the command line reaches a test binary on a Mac with System Integrity Protection enabled is SA-7 of `docs/design/slang-compiler-sys.md`. |
 | `PATH` | The dynamic loader on Windows, when a test binary starts, and every shell | On a Windows CI runner, `install-vulkan-sdk` adds `$VULKAN_SDK\Bin`, which holds `slang-compiler.dll`, and on Linux and macOS runners it adds `$VULKAN_SDK/bin` (Section 7.3). |
 | `CLAUDE_PROJECT_DIR` | The hook in `.claude/settings.json` | Set by Claude Code. The hook does not run outside it. |
-| `CARGO_REGISTRY_TOKEN` | Cargo, in `publish` and `yank` | Unset everywhere except on the command line of the owner's one run of `publish` or `yank` (TOOL-46). When it is unset or empty, both recipes refuse to run. |
+| `CARGO_REGISTRY_TOKEN` | Cargo, in `publish` and `yank` | Unset everywhere except on the command line of the owner's one run of `publish` or `yank` (TOOL-46). When it is unset or empty, both recipes refuse to run. It stays set while `publish` waits for the rate limits of crates.io (Section 9.7). |
 | `GITHUB_ACTIONS` | `publish` and `yank` | Set to `true` by GitHub Actions on every runner. When it is set, even to an empty value, both recipes refuse to run, because no workflow publishes (TOOL-22). `release-scripts-self-test` unsets it, so it runs in CI. |
 
 The workflow also sets these variables for its own steps, and no recipe reads them. Its top-level `env` holds `VULKAN_SDK_VERSION`, `VULKAN_SDK_SHA256_LINUX`, `VULKAN_SDK_SHA256_MACOS`, and `VULKAN_SDK_SHA256_WINDOWS`. The step that installs the SDK passes the version and the checksum for its platform to `install-vulkan-sdk` as arguments (Section 7.3).
@@ -1701,7 +1799,7 @@ This table says what a failure of each check means and what the developer does.
 | `tag-release` | Exit status 1: the notes file is not a readable, non-empty file, the fetch failed, `HEAD` differs from `origin/main`, or the crates other than `slang-src` do not share one version, as the message after "tag-release:" says. Otherwise git or `gh` failed with its own message | Fixes the notes file or the versions, or runs it in the main checkout at `origin/main`. When the push or `gh` failed after the tag was created, the owner decides how to continue, because the tag is public once pushed |
 | `yank` | It refused, as for `publish`, or crates.io rejected the yank | Runs it as the owner with a token that may yank (TOOL-46) |
 | `release-scripts-self-test` | Exit status 1: a case gave another exit status, message, or call of the stubs, which the recipe prints after "FAIL" with the name of the case. Exit status 2: `just` is not installed, a program that the cases need is not in `/usr/bin` or `/bin`, a stub does not resolve, another `cargo` is on `PATH`, or `just` cannot evaluate `release_packages` | Fixes the script, or, when the change to its behaviour is intended, the case in `scripts/self-test-release`. For status 2, installs the program that the message names, or fixes the setup that it names |
-| `publish` | A check of Section 9.6 refused the run, or crates.io or Cargo rejected a crate | For a refusal, runs `publish-dry-run` on the current `main` or sets the token. For a rejection, follows Section 9.7 |
+| `publish` | Exit status 1: a check of Section 9.6 refused the run, a package is not a member, or crates.io could not answer the check before publishing, and nothing was published. The status of Cargo: Cargo failed and crates.io does not hold the version, crates.io still refused for its rate limit after 3 retries, or it named a time beyond the longest wait, as the message and the report of the published and remaining packages say. Exit status 130 or 143: an interrupt or a `TERM` signal stopped the release. Exit status 2: a usage error or a missing tool | For a refusal of Section 9.6, runs `publish-dry-run` on the current `main` or sets the token. When crates.io could not answer, runs it again later. For the rate limit, runs it again with the same list later, and not before a time that the message names. For an interrupt or another failure of Cargo, follows Section 9.7 |
 | `check-release` | crates.io lacks a version, its `documentation` field differs, or the hosted address does not answer | Waits for the documentation workflow of the tag and runs it again. Otherwise reruns that workflow with the owner's go-ahead, or fixes the field in the next release |
 | `doc-site` | A build failure as for `check-vendored`, or a rustdoc lint. Otherwise `scripts/check-doc-site` failed with a message after "check-doc-site:": "cargo doc wrote no page" with the path of each missing index page of a crate, "holds symbolic links" with the links, or "takes N KiB, more than the limit of 976562 KiB". It exits with status 1 for these and for a missing site directory, and with status 2 on a usage error or a limit that is not a whole number of KiB | For a build failure or a lint, as for `check-vendored`. For a missing page, checks the name of the crate in `release_packages` and its library target. For a link or the size, finds the file that causes it in `target/vendored/doc`, which can be a stale file of an earlier build (Section 9.4) |
 
@@ -1783,6 +1881,7 @@ The agent creates a new branch from `main` that holds the identical tree of the 
 - [CRATES-AUTH-ACTION] The Rust Project, the action `rust-lang/crates-io-auth-action`, <https://github.com/rust-lang/crates-io-auth-action>, read on 2026-11-15.
 - [CRATES-DATA-ACCESS] crates.io, "Data Access Policy", the source of the page in the repository rust-lang/crates.io, `svelte/src/routes/data-access/+page.svelte`, <https://github.com/rust-lang/crates.io>, read on 2026-11-16.
 - [CRATES-DELETE] The Rust Blog, "crates.io: development update", 2025-02-05, <https://blog.rust-lang.org/2025/02/05/crates-io-development-update/>, and RFC 3660, "crates.io crate deletions", <https://rust-lang.github.io/rfcs/3660-crates-io-crate-deletions.html>, both read on 2026-11-15.
+- [CRATES-RATE-LIMITS] crates.io, the page on publishing rate limits, <https://crates.io/docs/rate-limits>, which serves its text only through JavaScript, and its source in the repository rust-lang/crates.io at commit `52370836f0b91f5010de43caeaa333212bda0050`, `svelte/src/routes/docs/rate-limits/+page.svelte`, with the defaults in `src/rate_limiter.rs` and the error in `src/util/errors/json.rs`, <https://github.com/rust-lang/crates.io>, read on 2026-11-17.
 - [CRATES-TP-2025] The Rust Blog, "crates.io: development update", 2025-07-11, <https://blog.rust-lang.org/2025/07/11/crates-io-development-update-2025-07>, read on 2026-11-15.
 - [CSC-README] cargo-semver-checks, its README, <https://github.com/obi1kenobi/cargo-semver-checks>, read on 2026-11-15.
 - [CSC-SRC] cargo-semver-checks, its sources `src/lib.rs` and `src/rustdoc_gen.rs` on `main`, <https://raw.githubusercontent.com/obi1kenobi/cargo-semver-checks/main/src/lib.rs> and <https://raw.githubusercontent.com/obi1kenobi/cargo-semver-checks/main/src/rustdoc_gen.rs>, read on 2026-11-15.
@@ -1848,3 +1947,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-48 | 3.1 | `check-features` skips every combination of `slango` without `wgpu`. |
 | TOOL-49 | 9.4 | Only the documentation workflow deploys the hosted site, from its own build, and no site built on another machine is deployed. |
 | TOOL-50 | 9.9 | The self-test of the release scripts resolves a tool that it needs, such as `just`, before it narrows `PATH`, calls it by its absolute path only, and keeps its directory off `PATH`. |
+| TOOL-51 | 9.7 | `publish` stays within the publishing rate limits of crates.io, skips every version that crates.io holds, and publishes nothing when it cannot learn which versions crates.io holds. |
