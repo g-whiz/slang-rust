@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -545,7 +545,7 @@ This is the one list of the known defects of the recorded Slang (Section 1.6). E
 
 The crate does not guard against these defects.
 
-An agent that meets a new defect adds a row with the next identifier and investigates no further unless the defect blocks its work. A report is drafted only as low-priority work and posted only with the owner's go-ahead. An identifier is never reused.
+An agent that meets a new defect adds a row with the next identifier and investigates no further unless the defect blocks its work. A defect that should be reported also gets an entry in the to-do list of upstream reports, `docs/upstream-reports.md`, where its report is drafted as low-priority work and posted only with the owner's go-ahead. An identifier is never reused.
 
 | Identifier | Defect and smallest input | Call | Outcome | Source | Report |
 | --- | --- | --- | --- | --- | --- |

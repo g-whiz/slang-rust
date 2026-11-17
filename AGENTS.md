@@ -74,7 +74,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
    The agent MUST record each defect once, in the list of known upstream bugs in Section 3.12 of `docs/design/slang-compiler.md`, with the smallest known input, the call, the observed outcome, and the source location if already known, so that a later investigation can start from it. The agent MUST NOT investigate a defect further unless it blocks the work.
 
-   The agent MAY draft a bug report as low-priority work and MUST NOT post it without the owner's explicit go-ahead, because a report speaks for the project in a public repository.
+   The agent MUST add an entry for each defect that should be reported to the to-do list of upstream reports, `docs/upstream-reports.md`, in the same change that records the defect, because that list is the one place where the owner finds the reports to make. Section 2 of that list gives the rules for an entry.
+
+   The agent MAY draft a bug report in that list as low-priority work and MUST NOT post it without the owner's explicit go-ahead in the current session, because a report speaks for the project in a public repository.
 15. **Code cites no project document.** The agent MUST NOT cite, in a code file or a comment, a project document, which is a Markdown file under `docs/`, a section of one, or a rule identifier that a project document defines, such as `SLC-32` or `FFI-7`. A reader of the code or of a published crate sees it without the repository's documents, and a citation breaks when a document changes.
 
    The rule covers API documentation, ordinary comments, the `reason` strings of lint exceptions, error and panic messages, recipe help comments, script usage text, and comments in configuration files. Code also MUST NOT hold project history wording, such as "this version", a milestone, or a step.
@@ -85,7 +87,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-16, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
+As of 2026-11-17, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
 
 - M0, tooling and skeleton, is complete.
 - M1, the binding generator and `slang-compiler-sys`, is complete. It delivered the pin file, the binding generator, the checked-in bindings, the build script with its dynamic and static routes, the installation of the pinned Vulkan SDK in every CI job, and the CI job `coverage`. What stays open after M1 is in the rows of Sections 15 and 16 of `docs/design/slang-compiler-sys.md`.
@@ -307,7 +309,7 @@ What exists and works:
   - Its unit tests in `src/tests.rs` parse synthetic headers and compile for Linux only. Its integration-test binary `tests/generator/` runs the binary on the headers at `VULKAN_SDK` and on failing inputs, and compiles for Linux only as well (Section 7.5 of `docs/design/slang-compiler-sys.md`).
   - The binary's output for the headers of the Vulkan SDK in the development container was the same text for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, and `aarch64-unknown-linux-gnu` on 2026-11-15. In run 43717303370, the build script generated the bindings on Windows and macOS as well, and the tests of `slang-bindgen`, which compile for Linux only, ran on Linux only.
 - The four licence texts at the root, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-APACHE-LLVM`, and `LICENSE-GPL`, a symbolic link to the text of its own licence in each package directory, and `README.md`, whose section "Building Slang From Source" is the user guide to the vendored build.
-- The writing guide, the coding standard, and the reference list under `docs/`.
+- The writing guide, the coding standard, the reference list, and the list of upstream reports under `docs/`.
 - The architecture design, `docs/design/architecture.md`, which specifies the planned crates, how Slang is obtained and which Slang is recorded, and the roadmap of milestones M0 to M18.
 - The tooling design, `docs/design/tooling.md`, which specifies the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, and the requirements on the container image, which milestone M0 implemented, and the release procedure, the check for breaking changes, and the hosted documentation, which M8 designed and whose recipes, scripts, and workflow, all but `check-semver` and the CI job `semver`, the second code step of M8 implemented.
 - The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, `docs/design/slang-compiler-sys.md`, a draft for M7, whose dynamic route, generator, and build information the second code step of M7 implemented, whose vendored route the third implemented, and whose system libraries the fourth added.
@@ -516,6 +518,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
 - `docs/writing-documentation.md`: The normative writing guide.
 - `docs/rust-coding-standards.md`: The normative Rust coding standard, with the specification of the lint and tool configuration.
 - `docs/rust-references.md`: The reference list of external sources behind the coding standard, with a topic index.
+- `docs/upstream-reports.md`: The one to-do list of bug reports to make to upstream projects, with an entry for each defect that should be reported and the drafts written so far (Hard Rule 14).
 - `docs/design/architecture.md`: The architecture design, which is authoritative for the crates, their layering, how Slang is obtained and which Slang is recorded, the examples, the test tiers, platform support, publishing, and the roadmap.
 - `docs/design/tooling.md`: The tooling design, which is authoritative for the toolchain configuration, the recipes, the hooks, the custom checkers, the CI workflow, the dependency policy, the release procedure with the hosted documentation, and the requirements on the container image.
 - `docs/design/slang-compiler-sys.md`: The design of `slang-compiler-sys` and the binding generator `slang-bindgen`, which is authoritative for the scope and shape of the generated bindings, the tested targets, the generator, the build information, the build script on both routes, and the tests of the crate.
@@ -967,7 +970,7 @@ just coverage
 
 Hard Rule 1 is the rule an agent is most likely to skip, because the code works without it. After every change, and before it reports the change complete, the agent MUST re-read and correct these documents, once each, because a stale document misleads the next agent:
 
-1. The design document of each crate or tool that the change alters, including its design content, its assumptions and open questions, and, for `slang-compiler`, its list of known upstream bugs. Progress and status are recorded only in Project Status of this file, never in a design document (Section 3.6 of the writing guide).
+1. The design document of each crate or tool that the change alters, including its design content, its assumptions and open questions, and, for `slang-compiler`, its list of known upstream bugs, together with the entry in `docs/upstream-reports.md` of each defect in it that should be reported. Progress and status are recorded only in Project Status of this file, never in a design document (Section 3.6 of the writing guide).
 2. Every statement in another document that the change makes false, which the agent finds by searching for the names that the change touches. `README.md`, the architecture design, the tooling design, and this file change only as Hard Rule 1 states. `README.md` is also the crates.io readme of every published member.
 3. `docs/rust-coding-standards.md` with its Appendix A, `docs/rust-references.md`, or `docs/writing-documentation.md`, only when the change alters a rule, a lint, a tool, a source, or a documentation convention.
 4. The Date field of the metadata table of each document the change touched.
