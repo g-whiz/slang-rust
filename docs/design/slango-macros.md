@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
@@ -199,9 +199,9 @@ SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, a
 
 Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it.
 
-The requirement on `slango` cannot come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry as `0.1.0`. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0", features = ["wgpu"] }` in its own manifest, with a comment that cites SLM-2. This is the exception to DEP-2 that the coding standard states.
+The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0-alpha.1", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
 
-With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node `slango v0.1.0` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
+With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node of `slango` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 
 SLM-3. The crates MUST use `syn` 2 and `prettyplease` 0.2, the versions already in the lock file, and MUST NOT use `proc-macro-error` or `proc-macro-error2`.
 
@@ -225,8 +225,8 @@ This illustration shows the dependencies of such a program:
 
 ```toml
 [dependencies]
-slango = { version = "0.1", features = ["vendored"] }
-slango-macros = { version = "0.1", features = ["vendored"] }
+slango = { version = "0.1.0-alpha.1", features = ["vendored"] }
+slango-macros = { version = "0.1.0-alpha.1", features = ["vendored"] }
 ```
 
 The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.
@@ -586,8 +586,8 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | --- | --- | --- |
 | SLMQ-1 | Should a Cargo feature of `slango` remove `slang-compiler` at run time, so that a program with only precompiled modules needs no Slang library, and what does `load_module` do without it? | A later milestone, not assigned |
 | SLMQ-2 | Should `slango` re-export `shader!` behind a feature? | M8, at the first release |
-| SLMQ-3 | The rules of SLM-19 break C-CASE and API-3: `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives `httpserver`, `gHDRScale` gives `g_hdrscale`, and a structure name is never converted (Section 7.4). The options are to split words at `_`, `.`, a step from lowercase or a digit to uppercase, and before the last capital of an uppercase run that a lowercase letter follows, and to apply the rule of type names to structures too, before the release, because a later change renames generated items in every caller without a tool seeing it, or to keep the rules and record why. This review finding blocks the first release until the owner of the project decides it | The owner of the project, by a decision before the first release, M8 |
-| SLMQ-4 | `shader!` takes only one string literal and makes every generated item `pub`, so a caller cannot choose a visibility such as `pub(crate)`, add an attribute to a generated item, or name the module (SLM-9), against C-MACRO-VIS, C-MACRO-ATTR, and C-EVOCATIVE. The options are to add a form such as `shader!(pub mod saxpy = "saxpy.slang")` before the release, keeping or dropping the bare literal, or to keep the literal alone and add such a form later, which is additive but leaves two syntaxes. This review finding blocks the first release until the owner of the project decides it | The owner of the project, by a decision before the first release, M8 |
+| SLMQ-3 | The rules of SLM-19 break C-CASE and API-3: `CSMain` gives the kernel struct `CSMain` and the field `csmain`, `MY_KERNEL` gives `MYKERNEL`, `HTTPServer` gives `httpserver`, `gHDRScale` gives `g_hdrscale`, and a structure name is never converted (Section 7.4). The options are to split words at `_`, `.`, a step from lowercase or a digit to uppercase, and before the last capital of an uppercase run that a lowercase letter follows, and to apply the rule of type names to structures too, before the release, because a later change renames generated items in every caller without a tool seeing it, or to keep the rules and record why. The owner let the first release, an alpha, ship without deciding it (TOOL-37 of `docs/design/tooling.md`) | The owner of the project, by a decision before the first release that is not an alpha |
+| SLMQ-4 | `shader!` takes only one string literal and makes every generated item `pub`, so a caller cannot choose a visibility such as `pub(crate)`, add an attribute to a generated item, or name the module (SLM-9), against C-MACRO-VIS, C-MACRO-ATTR, and C-EVOCATIVE. The options are to add a form such as `shader!(pub mod saxpy = "saxpy.slang")` before the release, keeping or dropping the bare literal, or to keep the literal alone and add such a form later, which is additive but leaves two syntaxes. The owner let the first release, an alpha, ship without deciding it (TOOL-37 of `docs/design/tooling.md`) | The owner of the project, by a decision before the first release that is not an alpha |
 
 An identifier is never reused.
 

@@ -29,13 +29,16 @@
 //! is `2026.17-25-gc7954ebd1`. It is the Slang that ships in the Vulkan
 //! software development kit (SDK) that the crates are tested with.
 //!
-//! The version of a release of this crate names the Slang that it clones.
-//! The pre-release identifiers of the version after `slang` are the numbers
-//! of the build tag, with a missing patch number or commit count written as
-//! `0`, followed by `g` and the first nine digits of the commit hash. The
-//! version `0.1.0-slang.2026.17.0.25.gc7954ebd1` therefore names the build tag
-//! `2026.17-25-gc7954ebd1`. The identifiers are not a pre-release of `0.1.0`,
-//! and they are numeric so that versions of Slang order as numbers.
+//! The version of a release of this crate names the release and the Slang
+//! that it clones. Its pre-release identifiers start with those of the
+//! release, such as `alpha.1` for an alpha release, and end with `slang` and
+//! the numbers of the build tag, with a missing patch number or commit count
+//! written as `0`, followed by `g` and the first nine digits of the commit
+//! hash. The version `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1` therefore
+//! belongs to the release `0.1.0-alpha.1` and names the build tag
+//! `2026.17-25-gc7954ebd1`. The identifiers from `slang` on do not mark a
+//! pre-release, and they are numeric so that versions of Slang order as
+//! numbers.
 //!
 //! Every crate that depends on this crate requires its exact version, with
 //! `=`, because a caret requirement on a pre-release would let

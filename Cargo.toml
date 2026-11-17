@@ -25,7 +25,7 @@ default-members = [
 
 [workspace.package]
 authors = ["George Gianacopoulos <gpg.software@gmail.com>"]
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"
@@ -41,15 +41,15 @@ pollster = "0.4.0"
 prettyplease = "0.2.37"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-slang-bindgen = { path = "crates/slang-bindgen", version = "=0.1.0" }
-slang-compiler = { path = "crates/slang-compiler", version = "0.1.0" }
-slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "0.1.0" }
-slang-glslang-sys = { path = "crates/slang-glslang-sys", version = "0.1.0" }
-slang-slint = { path = "crates/slang-slint", version = "0.1.0" }
-slang-src = { path = "crates/slang-src", version = "=0.1.0-slang.2026.17.0.25.gc7954ebd1" }
-slango = { path = "crates/slango", version = "0.1.0" }
-slango-codegen = { path = "crates/slango-codegen", version = "=0.1.0" }
-slango-macros = { path = "crates/slango-macros", version = "0.1.0" }
+slang-bindgen = { path = "crates/slang-bindgen", version = "=0.1.0-alpha.1" }
+slang-compiler = { path = "crates/slang-compiler", version = "=0.1.0-alpha.1" }
+slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "=0.1.0-alpha.1" }
+slang-glslang-sys = { path = "crates/slang-glslang-sys", version = "=0.1.0-alpha.1" }
+slang-slint = { path = "crates/slang-slint", version = "=0.1.0-alpha.1" }
+slang-src = { path = "crates/slang-src", version = "=0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1" }
+slango = { path = "crates/slango", version = "=0.1.0-alpha.1" }
+slango-codegen = { path = "crates/slango-codegen", version = "=0.1.0-alpha.1" }
+slango-macros = { path = "crates/slango-macros", version = "=0.1.0-alpha.1" }
 slint = { version = "~1.18", default-features = false }
 syn = { version = "2.0.119", default-features = false }
 trybuild = "1.0.122"

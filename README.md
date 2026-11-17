@@ -4,6 +4,19 @@ slang-rust is a set of Rust crates for [Slang](https://shader-slang.org), a lang
 
 The crates let a Rust program compile Slang code, read the parameters it declares, and run it on a GPU. The source code and the documents that this README names are in the repository at <https://github.com/g-whiz/slang-rust>.
 
+## Stability
+
+Every release of these crates is an alpha release, with a version such as `0.1.0-alpha.1`. The API is unstable and may change in any release, including from one alpha to the next.
+
+Cargo matches a pre-release version only for a requirement that names a pre-release, so a requirement such as `"0.1"` matches no alpha release. A dependent names the full pre-release version, as in this example:
+
+```toml
+[dependencies]
+slango = "0.1.0-alpha.1"
+```
+
+Such a requirement also accepts a later alpha release, which may break the dependent. A dependent that needs one fixed API writes the exact requirement `"=0.1.0-alpha.1"`.
+
 ## Crates
 
 The workspace holds nine crates. No crate is published yet.
@@ -62,15 +75,15 @@ Enable `vendored` on the crate that your program depends on: `slang-compiler`, `
 
 ```toml
 [dependencies]
-slango = { version = "0.1", features = ["vendored"] }
+slango = { version = "0.1.0-alpha.1", features = ["vendored"] }
 ```
 
 A program that calls the macro `shader!` enables the feature on `slango-macros` as well:
 
 ```toml
 [dependencies]
-slango = { version = "0.1", features = ["vendored"] }
-slango-macros = { version = "0.1", features = ["vendored"] }
+slango = { version = "0.1.0-alpha.1", features = ["vendored"] }
+slango-macros = { version = "0.1.0-alpha.1", features = ["vendored"] }
 ```
 
 The macro runs on the build machine, and Cargo resolves the features of a procedural macro apart from those of the program. The macro and the program therefore each link their own copy of Slang, and each copy needs the feature. On a machine without `VULKAN_SDK`, a build with the feature on only one of the two crates stops with the error that starts "VULKAN_SDK is not set". Both copies are built from one source tree and share one build, as [The Shared Folder](#the-shared-folder) describes.
@@ -116,7 +129,7 @@ The crate-level documentation of `slang-src` describes the folder in full.
 
 ### Which Slang
 
-A build with the feature builds one recorded Slang commit, `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`, whose build tag is `2026.17-25-gc7954ebd1`. It is the Slang of Vulkan SDK 1.4.363.1, which the crates are tested with. The version of `slang-src` names it, such as `0.1.0-slang.2026.17.0.25.gc7954ebd1`.
+A build with the feature builds one recorded Slang commit, `c7954ebd1f1984ad2bfde15f76248db41dc34aa3`, whose build tag is `2026.17-25-gc7954ebd1`. It is the Slang of Vulkan SDK 1.4.363.1, which the crates are tested with. The version of `slang-src` names it, such as `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`.
 
 The only way to build another Slang commit is Cargo's `[patch]` table with a fork of `slang-src` that records that commit. This is best effort and unsupported. The crate-level documentation of `slang-src` gives the steps.
 
@@ -126,7 +139,7 @@ The constant `slang_compiler_sys::BUILD_INFO` tells a program which Slang its bu
 - `slang_commit`: the full commit hash with the feature, and `None` with the Slang of a Vulkan SDK.
 - `linkage`: `Linkage::Static` with the feature, and `Linkage::Dynamic` without it.
 - `tested_target`: whether the target is one of four that the build script lists as tested, which are `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`, and `x86_64-apple-darwin`.
-- `version`: one string that names all of it, such as `0.1.0+slang.2026.17.0.25.gc7954ebd1.vendored`.
+- `version`: one string that names all of it, such as `0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.vendored`.
 
 ### Platforms
 

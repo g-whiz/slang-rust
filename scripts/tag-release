@@ -9,7 +9,9 @@ usage() {
         "HEAD differs from origin/main after a fetch, or when the packages other than" \
         "slang-src do not share one version. It then creates the annotated tag" \
         "v<version> on HEAD, pushes it to origin, and runs gh release create with" \
-        "--verify-tag and the notes file. Runs from the root of the workspace." \
+        "--verify-tag and the notes file, and with --prerelease when the version holds" \
+        "a hyphen, which marks a SemVer pre-release. Runs from the root of the" \
+        "workspace." \
         "Exits 1 when it refuses, with the status of git or gh when one of them fails," \
         "and 2 on a usage error or when a tool is missing."
 }
@@ -66,6 +68,10 @@ print(versions.pop())
 fi
 
 tag="v${version}"
+release_options=(--verify-tag --title "${tag}" --notes-file "${notes}")
+if [[ "${version}" == *-* ]]; then
+    release_options+=(--prerelease)
+fi
 git tag --annotate --message "${tag}" "${tag}" "${head}"
 git push origin "refs/tags/${tag}"
-gh release create "${tag}" --verify-tag --title "${tag}" --notes-file "${notes}"
+gh release create "${tag}" "${release_options[@]}"

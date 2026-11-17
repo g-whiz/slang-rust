@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
@@ -221,7 +221,7 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `doc-site` | `release` | The documentation command of Section 4.8 on the vendored route for the crates of `release_packages`, and then `scripts/check-doc-site`, which checks that each crate has its index page, writes the index page of the site, and checks the site (TOOL-41). Its first run in `target/vendored` clones Slang and builds Slang and slang-glslang | No, the release procedure and the documentation workflow run it |
 | `publish-dry-run` | `release` | `scripts/publish-dry-run`, which runs `cargo publish --dry-run` for the given crates, by default those of `release_packages`, and records the verified commit and crates in `target/publish-dry-run.commit` (Section 9.6). Available on Linux and macOS only, and only on a committed tree | No, the release procedure runs it |
 | `publish` | `release` | `scripts/publish`, which runs `cargo publish --no-verify` for the given crates, by default those of `release_packages`, after the checks of Section 9.6. Only the owner runs it, with a token (TOOL-46). Available on Linux and macOS only | No, it publishes |
-| `tag-release` | `release` | `scripts/tag-release` with the notes file and the crates of `release_packages`, which creates and pushes the tag `v<version>` and creates the GitHub release with the given notes (Section 9.6). It needs the owner's go-ahead | No, it tags and deploys |
+| `tag-release` | `release` | `scripts/tag-release` with the notes file and the crates of `release_packages`, which creates and pushes the tag `v<version>` and creates the GitHub release with the given notes, marked as a pre-release when the version holds a hyphen (Section 9.6). It needs the owner's go-ahead | No, it tags and deploys |
 | `yank` | `release` | `scripts/yank`, which runs `cargo yank` of one version of one crate (Section 9.8). Only the owner runs it, with a token (TOOL-46) | No, it changes crates.io |
 | `coverage` | `rust` | The cargo llvm-cov command of Section 4.8 with the arguments that Section 4.8 names for it, after the library path assignment, which write the LCOV report `target/lcov.info`. It prints no coverage summary, and it is not a gate | No, the CI job `coverage` runs it (Section 7.1) |
 
@@ -1155,9 +1155,9 @@ For the first release, `release_packages` holds `slang-bindgen slang-src slang-c
 
 `check-package` fails when the members without `publish = false` differ from `release_packages` (Section 9.6).
 
-TOOL-36. Every release MUST publish every crate of `release_packages` at a version that crates.io does not hold yet. The crates other than `slang-src` MUST share the version of `[workspace.package]`, and every exact requirement between members MUST name the version of the same release. `slang-src` MUST take a new version under SRC-13 of `docs/design/slang-src.md` in every release, with a new patch number when its recorded commit is unchanged.
+TOOL-36. Every release MUST publish every crate of `release_packages` at a version that crates.io does not hold yet. The crates other than `slang-src` MUST share the version of `[workspace.package]`, and every requirement between members MUST name the version of the same release. `slang-src` MUST take the version that SRC-13 of `docs/design/slang-src.md` derives from the version of the release and the recorded Slang.
 
-The reason is the exact requirements of the workspace:
+The reason is the exact requirements of the workspace. Every requirement between members is exact while the releases are alphas (TOOL-37), and these four are exact for reasons of their own, which hold for any release:
 
 | Crate | Requires exactly | Where the requirement is declared |
 | --- | --- | --- |
@@ -1170,9 +1170,19 @@ A crate that requires another exactly cannot move to a new version of it without
 
 Every crate stays below version 1.0 (Section 13 of the architecture design). Below 1.0, Cargo treats a change of the minor number as breaking and a change of the patch number as compatible [CARGO-SEMVER].
 
-TOOL-37. The change that follows a release MUST raise the version of `[workspace.package]` to the next patch number, together with every exact requirement that names it. A later change that breaks the public API of a crate of the release MUST raise the minor number in the same change. `check-semver` compares each crate with its last release, so it then accepts a compatible change and fails a breaking change until the minor number is raised.
+TOOL-37. Every release MUST be an alpha release, with the version `0.1.0-alpha.<N>`, until the owner decides otherwise. `<N>` starts at 1 and rises by one with each release of the whole set of crates. The public API of an alpha is unstable and may change in any release, so a later version can break a dependent, as `README.md` tells users.
 
-The first release publishes the versions that the manifests hold, `0.1.0` and the version of `slang-src` that SRC-13 derives from the recorded Slang. `slang-src` keeps its version between releases, and the change that prepares a release gives it the new version that TOOL-36 requires.
+These rules carry out the policy:
+
+- The change that follows a release MUST raise `<N>` by one in the version of `[workspace.package]`, in every requirement between members, and in the version of `slang-src`, whose release identifiers come first and whose Slang identifiers stay last (SRC-13 of `docs/design/slang-src.md`).
+- Every requirement of one member on another MUST be exact, written with `=`, such as `"=0.1.0-alpha.1"`. An alpha makes no promise of compatibility, and a caret requirement on a pre-release also accepts every later pre-release of the same version (Section 3.1 of `docs/design/slang-src.md`), which could pair a crate with an incompatible alpha of another.
+- A release that fails or turns out wrong is followed by the next alpha. No version is published twice, as Sections 9.7 and 9.8 apply.
+
+The open questions that the review of Section 9.5 defers MUST be decided before the first release that is not an alpha, because that release promises compatibility for its API.
+
+The first release publishes the versions that the manifests hold, `0.1.0-alpha.1`, and `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1` for `slang-src`, and its tag is `v0.1.0-alpha.1`.
+
+`check-semver` compares each crate with the baseline that Section 9.3 defines. While every release is an alpha, crates.io holds only pre-releases of these crates, so the baseline of each crate is its newest version, which is the previous alpha. How cargo-semver-checks judges a breaking change between two alphas of `0.1.0` is TQ-16.
 
 ### 9.3. The Check for Breaking Changes
 
@@ -1346,7 +1356,6 @@ The preconditions of step 1 are these:
 - The review of the public API of Section 9.5 is complete, and every finding that blocks the release is fixed.
 - The CI run of the last commit of `main` concluded `success` with every job, as the commands of Section 14.7 show.
 - The release steps run in the main checkout at that commit, with no uncommitted change, on Linux or macOS (TOOL-33). The development container meets this.
-- The owner has decided whether to keep, remove, or replace the `authors` field of `[workspace.package]` (TQ-15). Every member inherits it, and Cargo copies its value into the packaged `Cargo.toml` of every crate of the release, where crates.io keeps it for good.
 
 Cargo refuses to package a crate whose packaged files hold an uncommitted change, and no recipe passes `--allow-dirty` (TOOL-45). `check-package` and `publish-dry-run` therefore run only on a committed tree, and fail on a branch before the commit of a change to a manifest or another packaged file. A change that prepares a release, or a fix of path 2 of Section 9.7, is committed before an agent runs them on it, and steps 3 to 5 run on the commit of `main` that the owner publishes.
 
@@ -1361,7 +1370,7 @@ These recipes carry out the release. The recipes `check-package`, `publish-dry-r
 | `check-package` | It reads the members from `cargo metadata --no-deps --format-version 1` and fails when those without `publish = false` differ from `release_packages`, compared as sets. It fails when the `documentation` field of a crate differs from its address under `documentation_site` (TOOL-40, Section 9.4), and stops before packaging on either failure. It prints `cargo package --list` for each crate, runs one `cargo package --no-verify` with `-p` for each crate, and checks each `.crate` file under the `package` directory of the target directory as TOOL-45 requires. It reports every failed condition and then exits with status 1, and exits with status 2 on a usage error or a missing tool |
 | `publish-dry-run` | `cargo publish --dry-run` with `-p` for each package that it is given, by default every crate of `release_packages`, which packages and compiles every given crate in the order of their dependencies, as if the others were published [RUST-1.90]. A dependency outside the given list resolves to its version on crates.io (TA-17). It needs the Vulkan SDK and libclang for the dynamic route, and network access and the vendored tools for `slang-src` and `slang-glslang-sys`, which the development container provides. It first removes any earlier record. On success, it writes the record `target/publish-dry-run.commit` with two lines, `commit=<full hash of HEAD>` and `packages=<the given packages, separated by spaces, in the given order>` |
 | `publish` | It refuses to run, with exit status 1, in this order: when `GITHUB_ACTIONS` is set, even to an empty value, when `CARGO_REGISTRY_TOKEN` is unset or empty, when `git status --porcelain --untracked-files=normal` fails or reports an uncommitted change or an untracked file, when `git fetch origin main` fails, when `HEAD` differs from `origin/main`, when the record is missing, when the recorded commit differs from `HEAD`, and when the recorded list differs from the packages that it is given, by default every crate of `release_packages`. The lists are compared as exact strings, so the same crates in another order also refuse. It then runs `cargo publish --no-verify` with `-p` for each of those packages (Section 9.7) |
-| `tag-release` | It takes the path of the notes file, relative to the directory where `just` runs. It refuses to run, with exit status 1, when the notes file is not a readable, non-empty regular file, before any call of git, so that a missing file cannot stop `gh` after the tag is pushed. It then runs `git fetch origin main` and refuses when the fetch fails or `HEAD` differs from `origin/main`. It reads from `cargo metadata` the one version that every crate of `release_packages` except `slang-src` shares, and refuses when they differ or when a crate is not a member. It creates the annotated tag `v<version>` on `HEAD` with the message `v<version>`, pushes `refs/tags/v<version>` to `origin`, and runs `gh release create v<version> --verify-tag --title v<version> --notes-file <notes>` |
+| `tag-release` | It takes the path of the notes file, relative to the directory where `just` runs. It refuses to run, with exit status 1, when the notes file is not a readable, non-empty regular file, before any call of git, so that a missing file cannot stop `gh` after the tag is pushed. It then runs `git fetch origin main` and refuses when the fetch fails or `HEAD` differs from `origin/main`. It reads from `cargo metadata` the one version that every crate of `release_packages` except `slang-src` shares, and refuses when they differ or when a crate is not a member. It creates the annotated tag `v<version>` on `HEAD` with the message `v<version>`, pushes `refs/tags/v<version>` to `origin`, and runs `gh release create v<version> --verify-tag --title v<version> --notes-file <notes>`. When the version holds a hyphen, which marks a SemVer pre-release such as `0.1.0-alpha.1`, it adds `--prerelease`, so that GitHub marks the release as a pre-release |
 | `check-release` | For each crate of `release_packages`, it reads the version of the manifest from `cargo metadata` and asks `https://crates.io/api/v1/crates/<crate>/<version>`, then prints `<crate> <version>: on crates.io` or `<crate> <version>: not on crates.io`, so that its output also lists the crates that a failed publish left out (Section 9.7). For a crate that crates.io holds, it reads the `documentation` field from `https://crates.io/api/v1/crates/<crate>` and requests that address. It fails when crates.io lacks the version, when the field differs from the address under `documentation_site` (Section 9.4), or when the address does not answer with HTTP status 200, and it checks every crate before it exits |
 | `yank` | It takes exactly two arguments and runs `cargo yank --version <version> <package>`, with the checks of `publish` on `GITHUB_ACTIONS` and `CARGO_REGISTRY_TOKEN` (Section 9.8) |
 
@@ -1378,7 +1387,7 @@ The crates.io API returns the `documentation` field of a crate at `https://crate
 
 No published `.crate` file of this project has been compared yet.
 
-Every packaged crate holds `Cargo.toml`, the original manifest as `Cargo.toml.orig`, `Cargo.lock`, `.cargo_vcs_info.json`, and `README.md`, besides the files of its package directory. The normalized `Cargo.toml` carries the values that the crate inherits from `[workspace.package]`, including `authors`.
+Every packaged crate holds `Cargo.toml`, the original manifest as `Cargo.toml.orig`, `Cargo.lock`, `.cargo_vcs_info.json`, and `README.md`, besides the files of its package directory. The normalized `Cargo.toml` carries the values that the crate inherits from `[workspace.package]`, including `authors`, where crates.io keeps them for good. The owner keeps the `authors` field as it is, which answers TQ-15.
 
 TOOL-45. A release MUST be packaged on Linux or macOS (TOOL-33), and `check-package` MUST fail on a `.crate` file that breaks one of these conditions:
 
@@ -1395,7 +1404,7 @@ The conditions keep out what a package must never hold. Cargo flattens a symboli
 
 `check-package` does not show that a package compiles. `publish-dry-run` shows that every package compiles from its own contents against the packages of the others, that the version requirements between them resolve, and that the build of `slang-src` and `slang-glslang-sys` works from the packaged files. It does not show that crates.io accepts the packages, such as their names and metadata, and it uploads nothing.
 
-With all eight crates, `cargo package` and `cargo publish --dry-run` packaged each crate against the packages of the others and verified them in the order of `release_packages`. For the verification of `slang-glslang-sys`, Cargo unpacked `slang-src` from its local registry under `target/package/tmp-registry`, so the exact requirement `=0.1.0-slang.2026.17.0.25.gc7954ebd1` selected that pre-release.
+With all eight crates, `cargo package` and `cargo publish --dry-run` packaged each crate against the packages of the others and verified them in the order of `release_packages`. For the verification of `slang-glslang-sys`, Cargo unpacked `slang-src` from its local registry under `target/package/tmp-registry`, so the exact requirement on the version of `slang-src` selected that pre-release.
 
 The dry run printed "warning: aborting upload due to dry run" for each crate. This confirms the order and the requirements of TA-17, and leaves its other parts open.
 
@@ -1436,16 +1445,16 @@ The recovery starts the same way in every case. An agent runs `just check-releas
 
 1. A transient failure, such as a lost connection or a timeout while Cargo waits for the index, needs no change. On the same commit, an agent runs `just publish-dry-run` with the remaining crates, and the owner runs `just publish` with the same list.
 2. A failure that a change to a remaining crate fixes, such as metadata that crates.io rejects, needs a new commit. An agent fixes it on a feature branch, which merges as Section 14.7 describes, and the fix MUST leave the packaged content of every published crate unchanged, including what a package takes from the root `Cargo.toml`, `Cargo.lock`, `README.md`, and the root licence texts. `check-package` shows it, as TOOL-45 states, and a fix that cannot avoid such a change takes path 3. Steps 3 and 4, step 5 with the remaining crates, step 7, and step 8 with the remaining crates then run on the new commit, at the versions of the release. The tag of step 9 names the new commit.
-3. A failure that needs a change to a published crate cannot reuse that version, so the release starts again from step 1 with the next patch number for every crate, as TOOL-36 requires. The versions already published stay, and the owner yanks one of them only under Section 9.8.
+3. A failure that needs a change to a published crate cannot reuse that version, so the release starts again from step 1 with the next alpha for every crate, as TOOL-37 requires. The versions already published stay, and the owner yanks one of them only under Section 9.8.
 
 Path 2 keeps the versions of the release, because every requirement of a remaining crate on a published one names the published version. For example, when `slang-glslang-sys`, the fourth crate of the first release, fails:
 
-- `slang-bindgen`, `slang-src`, and `slang-compiler-sys` are on crates.io at `0.1.0` and the version of `slang-src`, published from the first commit.
+- `slang-bindgen`, `slang-src`, and `slang-compiler-sys` are on crates.io at `0.1.0-alpha.1` and the version of `slang-src`, published from the first commit.
 - The remaining crates are `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
-- `slang-glslang-sys` requires `slang-src` exactly and `slang-compiler-sys` at `0.1.0`, and `slang-compiler` requires `slang-compiler-sys` at `0.1.0`. The dry run of the remaining crates resolves these requirements to the published versions on crates.io, so it shows that the remaining crates build against them.
+- `slang-glslang-sys` requires `slang-src` and `slang-compiler-sys` exactly, and `slang-compiler` requires `slang-compiler-sys` at `=0.1.0-alpha.1`. The dry run of the remaining crates resolves these requirements to the published versions on crates.io, so it shows that the remaining crates build against them.
 - The fix changes no file of the three published crates, so the new commit holds their published contents, and the tag on the new commit still describes every crate of the release.
 
-Path 3 applies instead when the cause lies in one of the three published crates. That crate cannot get a second `0.1.0`, and the exact requirements of TOOL-36 tie the crates together, so every crate moves to `0.1.1` and `slang-src` to its next patch number. `slang-bindgen` `0.1.0` and the other published versions stay on crates.io, and stay usable unless Section 9.8 applies.
+Path 3 applies instead when the cause lies in one of the three published crates. That crate cannot get a second `0.1.0-alpha.1`, and the exact requirements of TOOL-37 tie the crates together, so every crate moves to `0.1.0-alpha.2`, and `slang-src` to `0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1` when its recorded commit is unchanged. `slang-bindgen` `0.1.0-alpha.1` and the other published versions stay on crates.io, and stay usable unless Section 9.8 applies.
 
 crates.io can delete a whole crate within 72 hours of its publication [CRATES-DELETE], under further conditions that the sources state differently. This design does not rely on it.
 
@@ -1453,7 +1462,7 @@ crates.io can delete a whole crate within 72 hours of its publication [CRATES-DE
 
 The owner yanks a version with `just yank <package> <version>` only when the version is unsound, fails to build for every user, or was published with wrong contents. When one defect affects several crates of a release, the owner yanks each of them. A yank needs the owner's go-ahead and a token that may yank, under TOOL-46.
 
-A yank only stops new lock files from selecting the version. Existing lock files keep it, and nothing is deleted [CARGO-YANK]. A yank does not remove a secret that a package holds [CARGO-PUBLISHING], so such a secret is revoked where it was issued. A yank is followed by a release with the next patch number under TOOL-36.
+A yank only stops new lock files from selecting the version. Existing lock files keep it, and nothing is deleted [CARGO-YANK]. A yank does not remove a secret that a package holds [CARGO-PUBLISHING], so such a secret is revoked where it was issued. A yank is followed by the next alpha release under TOOL-37.
 
 ### 9.9. Self-Test of the Release Scripts
 
@@ -1471,7 +1480,7 @@ The script runs every case against stub programs, in this way:
 
 TOOL-50. A program that the self-test needs and that may lie outside `/usr/bin` and `/bin`, such as `just`, MUST be resolved to its absolute path before the self-test narrows `PATH`, MUST be called by that path, and its directory MUST NOT go onto `PATH`. A CI runner installs such tools in directories of its own, which the narrowed `PATH` lacks, and such a directory can also hold a real `cargo`, so putting it on `PATH` could let a case reach crates.io.
 
-The cases of `check-package` build real `.crate` archives, one for each condition of TOOL-45 and for the answers of `static.crates.io`. The cases of `check-release` cover a complete release, a partial one, a wrong or missing `documentation` field, a site that does not answer, an error of crates.io, and a crate that is not a member. The cases of `check-doc-site` cover a complete site with its index page, a missing page, a page under the name with hyphens, a symbolic link, a site over the limit, and a limit that is not a number.
+The cases of `check-package` build real `.crate` archives, one for each condition of TOOL-45 and for the answers of `static.crates.io`. The cases of `check-release` cover a complete release, a partial one, a wrong or missing `documentation` field, a site that does not answer, an error of crates.io, and a crate that is not a member. The cases of `check-doc-site` cover a complete site with its index page, a missing page, a page under the name with hyphens, a symbolic link, a site over the limit, and a limit that is not a number. The cases of `tag-release` include a release with a version without a hyphen and one with a pre-release, and check that `gh release create` gets `--prerelease` for the pre-release only.
 
 The last cases copy the `justfile` and the scripts of `publish-dry-run`, `publish`, and `tag-release` into the temporary directory and run the three recipes through `just`. They check that a recipe without arguments passes every crate of `release_packages`, read with `just --evaluate`, and that `tag-release` resolves a relative path of the notes file.
 
@@ -1521,18 +1530,20 @@ TA-19, the addresses of the crates.io API and of `static.crates.io` that `check-
 
 The parts of TA-13 and TA-17 that the development container could show are confirmed and stated in Sections 9.4 and 9.6, and their rows keep the rest.
 
+The parts of TA-15 and TA-21 that the settings of the repository could show are confirmed. With the source of GitHub Pages set to "GitHub Actions", GitHub provides the environment `github-pages`, and the owner could add to it a deployment rule for tags that match `v*`, next to the rule for the branch `main`. Their rows keep the rest.
+
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | TA-10 | cargo-semver-checks 0.51.0 accepts `--workspace`, `--exclude`, and `--default-features` in the meaning of TOOL-38, whose help text was not read | TOOL-38 | The first run of `check-semver`, in the change that follows the first release |
 | TA-11 | cargo-semver-checks runs the build scripts of the current crates and of the baselines, with the environment of the recipe, so they find `VULKAN_SDK` and libclang | Section 9.3 | The first run of `check-semver` |
-| TA-12 | cargo-semver-checks treats an item with `#[doc(hidden)]`, such as the module `__private` of `slango`, as outside the public API | Section 9.3 | The first change to `__private` after the first release. If the tool reports such a change, the release takes the next minor number, or `__private` gets a lint exception of the tool, if it has one |
+| TA-12 | cargo-semver-checks treats an item with `#[doc(hidden)]`, such as the module `__private` of `slango`, as outside the public API | Section 9.3 | The first change to `__private` after the first release. If the tool reports such a change, `__private` gets a lint exception of the tool, if it has one. Otherwise the answer to TQ-16 decides what the check needs |
 | TA-13 | `doc-site`, which documents all eight crates into one site of 27 MB in the development container (Section 9.4), completes within the timeout of 60 minutes on a hosted Linux runner, including the clone and the builds of Slang and slang-glslang | TOOL-41, Section 7.5 | The first run of the documentation workflow |
-| TA-15 | `actions/deploy-pages` deploys the artifact of `actions/upload-pages-artifact` without `actions/configure-pages`, its job needs no `contents: read`, and GitHub provides the environment `github-pages` once the source of Pages is "GitHub Actions" | Section 7.5 | The first run of the documentation workflow |
+| TA-15 | `actions/deploy-pages` deploys the artifact of `actions/upload-pages-artifact` without `actions/configure-pages`, and its job needs no `contents: read` | Section 7.5 | The first run of the documentation workflow |
 | TA-16 | A GitHub Pages site of a public repository is public | Sections 7.5 and 9.4 | `check-release` after the first release, which reads each address without credentials |
 | TA-17 | `cargo publish` with several `-p` options publishes the crates in the order of their dependencies, as its dry run verifies them (Section 9.6), and waits for each in the index. A dry run of a subset resolves each dependency outside the subset to its version on crates.io | Sections 9.6 and 9.7 | The first publish for the order and the wait, and the first recovery of Section 9.7, if one is needed, for a subset |
 | TA-18 | crates.io lets an API token be limited to publishing new crates and new versions, to named crates, and to an expiry date | TOOL-46 | The owner, when creating the token of the first release |
 | TA-20 | `taiki-e/install-action` installs cargo-semver-checks from its manifest, verified against a checksum, as TOOL-21 requires | Section 7.1 | The change that adds the CI job `semver` |
-| TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*`, and the owner can add such a rule | Sections 7.5 and 9.6 | The owner, in step 6 of Section 9.6, and the first run of the documentation workflow |
+| TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*`, and the rule for `v*` allows the deployment of the tag of a release | Sections 7.5 and 9.6 | The first run of the documentation workflow |
 
 ## 12. Open Questions
 
@@ -1544,11 +1555,11 @@ Each row is a question that this document leaves open. The design document in th
 | TQ-12 | Does the hosted site keep the documentation of each released version in a directory of its own, so that the link of an older version shows that version? The deployment replaces the whole site, so it would need to rebuild or keep every earlier version, and no official guidance on such directories was found (Section 9.4) | This document | M11 |
 | TQ-13 | Is there a stable way to keep the absolute build path out of the hosted site, such as an option of rustdoc or Cargo, a short path for the generated bindings, or a pass over the site in `doc-site` (Section 9.4)? A stable option of a later toolchain answers it when a `doc-site` run with it leaves no file of the site naming the build directory, and the source pages and "Source" links of the hand-written crates stay | This document | M11 |
 | TQ-14 | Should `publish-dry-run` build with `CARGO_TARGET_DIR=target/vendored`, without the rest of `vendored_environment`, so that it always finds a tagged target directory and reuses the clone and, when the compiler, the variables of CMake, and the commit match, the native builds of the vendored recipes (Section 9.6)? The cost: `target/vendored` would also hold builds on the dynamic route and the packages under `target/vendored/package`, so `check-package` would have to read the same directory, and TOOL-7 and Section 9.6 would gain a departure with its reason. The reuse of the native builds is not measured | This document | M11 |
-| TQ-15 | Does the owner keep, remove, or replace the `authors` field of `[workspace.package]` before the first publish? Cargo copies its value into the packaged manifest of every crate of the release, where crates.io keeps it for good (Section 9.6) | This document | M8 |
+| TQ-16 | While every release is an alpha (TOOL-37), does cargo-semver-checks fail a breaking change between two alphas of `0.1.0`, such as `0.1.0-alpha.1` and `0.1.0-alpha.2`, or accept it? Its sources cited in Section 9.3 state how it chooses the baseline, not how it judges the step between two pre-releases. If it fails such a change, `check-semver` needs a rule for alphas before it is added (TOOL-39) | This document | M8 |
 
-TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.9.
+TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.9. TQ-15, whether the owner keeps the `authors` field of `[workspace.package]`, is answered in Section 9.6.
 
-An identifier is never reused, so the next question takes TQ-16.
+An identifier is never reused, so the next question takes TQ-17.
 
 ## 13. Security Considerations
 
@@ -1684,7 +1695,7 @@ This table says what a failure of each check means and what the developer does.
 | `install-vulkan-sdk` | Exit status 1: the checksum of the download differs from the expected one, and the message "install-vulkan-sdk: SHA-256 mismatch" gives both values, or the macOS archive does not hold exactly one installer application. Exit status 2: a malformed argument, an unset or empty `RUNNER_TEMP`, `GITHUB_ENV`, or `GITHUB_PATH`, or an unsupported platform. A missing or extra argument fails in `just` before the script runs. A failed download, unpacking, or installation stops the script with the non-zero status of the command that failed | For a mismatch, compares the checksum in the workflow with the one that LunarG publishes for the file (Section 7.3) before changing anything, because a mismatch can mean a tampered download. For a failed download, runs the job again |
 | `check-vulkan-sdk` | Exit status 1: `VULKAN_SDK` names a path that is not a directory, with the message "check-vulkan-sdk: VULKAN_SDK names <path>, which is not a directory", or the SDK at `VULKAN_SDK` lacks `slang.h`, `slang-tag-version.h`, or the Slang library of the platform, defines another build tag, or has a `slangc` that fails or prints another tag, as each message after "check-vulkan-sdk:" says. Exit status 2: an argument was given, `VULKAN_SDK` is unset or empty, or `just recorded-slang` failed or printed no `RECORDED_BUILD_TAG` | Installs the SDK version that the workflow records and points `VULKAN_SDK` at it. In CI, a differing tag means that the workflow and `slang-src` record different Slangs, which the change that moves the recorded Slang fixes (ARCH-30 of the architecture design). Fixes `recorded.rs` when `just recorded-slang` fails |
 | `check-features`, `check-msrv` | A feature combination does not compile, or the code needs a newer toolchain than `rust-version` | Fixes the code, or raises `rust-version` under TOOL-5 |
-| `check-semver` | Exit status 100: a crate has a breaking change against its last release, which the tool names. Exit status 101: the check could not complete, such as for a failed build of a crate or its baseline, a missing `VULKAN_SDK` or libclang, or no network access | For status 100, raises the minor number under TOOL-37, or changes the code so that it stays compatible. For status 101, fixes what the message names, as for a recipe that compiles the workspace |
+| `check-semver` | Exit status 100: a crate has a breaking change against its last release, which the tool names. Exit status 101: the check could not complete, such as for a failed build of a crate or its baseline, a missing `VULKAN_SDK` or libclang, or no network access | For status 100, changes the code so that it stays compatible, or follows the answer to TQ-16 while the releases are alphas (TOOL-37). For status 101, fixes what the message names, as for a recipe that compiles the workspace |
 | `check-package` | The members without `publish = false` differ from `release_packages`, a `documentation` field differs from TOOL-40, `cargo package` failed, such as for uncommitted changes, or a `.crate` file breaks TOOL-45, as the message says | Fixes `release_packages`, the manifest, or the package directory. For a symbolic link or a licence file that differs, packages from a checkout on Linux or macOS with symbolic links (TOOL-33) |
 | `publish-dry-run` | A package does not compile from its own contents, a version requirement does not resolve, or Cargo refused a packaged file with an uncommitted change, with "contain changes that were not yet committed into git". It writes no record then | Fixes the manifest or the files that the package lacks, and runs `check-package` again. For an uncommitted change, commits it and runs the recipe again (Section 9.6) |
 | `tag-release` | Exit status 1: the notes file is not a readable, non-empty file, the fetch failed, `HEAD` differs from `origin/main`, or the crates other than `slang-src` do not share one version, as the message after "tag-release:" says. Otherwise git or `gh` failed with its own message | Fixes the notes file or the versions, or runs it in the main checkout at `origin/main`. When the push or `gh` failed after the tag was created, the owner decides how to continue, because the tag is public once pushed |
@@ -1822,8 +1833,8 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-33 | 9.1 | The root holds each licence text once, each package links its own licence under the conventional name, and a release is packaged on Linux or macOS. |
 | TOOL-34 | 8 | A GPL licence is accepted only for `slang-slint`, the examples package, and the Slint crates that they use. cargo-deny enforces `GPL-3.0-or-later` for `slang-slint` alone, and a reviewer checks that no permissive crate depends on a `GPL-3.0-only` crate. |
 | TOOL-35 | 9.2 | The `justfile` holds the crates of the next release once, in `release_packages`, and every other member sets `publish = false`. |
-| TOOL-36 | 9.2 | Every release publishes every crate of `release_packages`, all but `slang-src` at the shared workspace version, and `slang-src` at a new version under SRC-13. |
-| TOOL-37 | 9.2 | After a release, the workspace version moves to the next patch, and a breaking change raises the minor number in the same change. |
+| TOOL-36 | 9.2 | Every release publishes every crate of `release_packages`, all but `slang-src` at the shared workspace version, and `slang-src` at the version that SRC-13 derives from it. |
+| TOOL-37 | 9.2 | Every release is `0.1.0-alpha.<N>` until the owner decides otherwise, `<N>` rises by one after each release, members require each other exactly, and a failed or wrong release is followed by the next alpha. |
 | TOOL-38 | 9.3 | `check-semver` checks the crates of the release except `slang-src` and `slang-glslang-sys` against crates.io, with the default features only. |
 | TOOL-39 | 9.3 | `check-semver` and the CI job `semver` arrive with the change after the first release, and the job then runs in every run, outside `check`. |
 | TOOL-40 | 9.4 | The `documentation` field of each released crate is its address on the hosted site. |

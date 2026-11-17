@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -843,13 +843,13 @@ SCS-53. `slang-compiler-sys` MUST expose the constant `BUILD_INFO` of the type `
 
 `version` is a Semantic Versioning 2.0.0 version made of the version of `slang-compiler-sys`, a plus sign, and build metadata that names the Slang and the route: `slang`, the Slang identifiers of the build tag, and `dynamic` or `vendored`. The Slang identifiers are the numbers that SRC-13 of the `slang-src` design derives from a build tag, with a missing patch or count written as `0`, followed by `g` and the hash that the build tag carries.
 
-A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.1.0+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
+A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.1.0-alpha.1+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
 
-These are the values for the recorded Slang on each route, with `0.1.0` as an illustration of the crate version:
+These are the values for the recorded Slang on each route, with `0.1.0-alpha.1` as the crate version:
 
 ```text
-0.1.0+slang.2026.17.0.25.gc7954ebd1.dynamic
-0.1.0+slang.2026.17.0.25.gc7954ebd1.vendored
+0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.dynamic
+0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.vendored
 ```
 
 A build tag of an installed SDK that does not have the form of SRC-12 of the `slang-src` design, including one whose hash has fewer than nine digits, such as `2026.17-25-gc7954eb`, gives the build metadata `slang`, the build tag with every character other than an ASCII letter, a digit, or a hyphen replaced by a hyphen, and the route. The build tag itself is in `slang_build_tag` unchanged.
@@ -888,7 +888,7 @@ This illustration shows a dependency of a user's crate on `slang-compiler` with 
 
 ```toml
 [dependencies]
-slang-compiler = { version = "0.1", features = ["vendored"] }
+slang-compiler = { version = "0.1.0-alpha.1", features = ["vendored"] }
 ```
 
 ### 9.2. Dynamic Route
@@ -1517,12 +1517,12 @@ Assumption A-6 of the architecture design, that a dependency's build script cann
 
 Each row is a question that this document leaves open, and the change that answers it removes the row. The next question takes SQ-8.
 
-SQ-6 and SQ-7 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project and blocks the first release until the owner decides it.
+SQ-6 and SQ-7 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. The owner let the first release, an alpha, ship without deciding them, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| SQ-6 | `BuildInfo` encodes one fact, the route, in three fields: `linkage`, `slang_commit`, which is `Some` exactly for `Static`, and the suffix of `version`. `tested_target` is a `bool` that is `true` for `x86_64-apple-darwin`, which is only type-checked, so it merges two of three states (Section 8.1). Both break TYPE-3, and `tested_target` also TYPE-2, and the public field types lock in at the release. The options are to make the route one value, such as `Linkage::Static { commit }` and `Linkage::Dynamic`, drop or derive `slang_commit`, and replace `tested_target` with a `#[non_exhaustive]` enumeration such as `TargetSupport { Tested, TypeChecked, Untested }` before the release, or to keep the shape and record why | The owner of the project, by a decision | Before the first release, M8 |
-| SQ-7 | `slang_bindgen::ErrorKind::Libclang` covers a missing libclang, which the user fixes by installing it, and a libclang instance that the process already holds, which the caller fixes by calling from one thread at a time (Section 7.7). Callers match on the kind, so one kind for both breaks ERR-1, and moving the second case to its own kind later changes what an existing caller sees. The options are to add a kind such as `LibclangInUse` before the release, or to keep one kind and record why | The owner of the project, by a decision | Before the first release, M8 |
+| SQ-6 | `BuildInfo` encodes one fact, the route, in three fields: `linkage`, `slang_commit`, which is `Some` exactly for `Static`, and the suffix of `version`. `tested_target` is a `bool` that is `true` for `x86_64-apple-darwin`, which is only type-checked, so it merges two of three states (Section 8.1). Both break TYPE-3, and `tested_target` also TYPE-2, and the public field types lock in at the release. The options are to make the route one value, such as `Linkage::Static { commit }` and `Linkage::Dynamic`, drop or derive `slang_commit`, and replace `tested_target` with a `#[non_exhaustive]` enumeration such as `TargetSupport { Tested, TypeChecked, Untested }` before the release, or to keep the shape and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
+| SQ-7 | `slang_bindgen::ErrorKind::Libclang` covers a missing libclang, which the user fixes by installing it, and a libclang instance that the process already holds, which the caller fixes by calling from one thread at a time (Section 7.7). Callers match on the kind, so one kind for both breaks ERR-1, and moving the second case to its own kind later changes what an existing caller sees. The options are to add a kind such as `LibclangInUse` before the release, or to keep one kind and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
 
 ## 17. Security Considerations
 

@@ -113,8 +113,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! slango = { version = "0.1", features = ["vendored"] }
-//! slango-macros = { version = "0.1", features = ["vendored"] }
+//! slango = { version = "0.1.0-alpha.1", features = ["vendored"] }
+//! slango-macros = { version = "0.1.0-alpha.1", features = ["vendored"] }
 //! ```
 //!
 //! Both copies of Slang are built once from one source tree, because the

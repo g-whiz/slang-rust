@@ -328,7 +328,7 @@ publish *packages:
     fi
     scripts/publish "$@"
 
-# Create and push the tag v<version> on HEAD, which must equal origin/main, and create its GitHub release with the release notes in the file NOTES, which deploys the hosted documentation. Only with the owner's go-ahead
+# Create and push the tag v<version> on HEAD, which must equal origin/main, and create its GitHub release, marked as a pre-release when the version holds a hyphen, with the release notes in the file NOTES, which deploys the hosted documentation. Only with the owner's go-ahead
 [group('release')]
 [no-cd]
 tag-release NOTES:

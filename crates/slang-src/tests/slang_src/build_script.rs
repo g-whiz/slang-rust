@@ -990,9 +990,19 @@ fn slang_version_writes_every_part_of_a_build_tag_as_a_number() {
 
 #[test]
 fn recorded_constants_match_the_version_of_the_manifest() {
-    let identifiers = slang_version(RECORDED_BUILD_TAG, RECORDED_COMMIT)
-        .map(|version| format!("slang.{version}"));
-    assert_eq!(identifiers.as_deref(), Some(env!("CARGO_PKG_VERSION_PRE")));
+    let pre = env!("CARGO_PKG_VERSION_PRE");
+    let Some(identifiers) = slang_version(RECORDED_BUILD_TAG, RECORDED_COMMIT)
+        .map(|version| format!("slang.{version}"))
+    else {
+        panic!("{RECORDED_BUILD_TAG} is not a build tag that slang_version reads");
+    };
+    let release = pre
+        .strip_suffix(&identifiers)
+        .unwrap_or_else(|| panic!("the pre-release {pre} does not end with {identifiers}"));
+    assert!(
+        release.is_empty() || release.ends_with('.'),
+        "the pre-release {pre} does not separate {identifiers} with a dot"
+    );
     if let Some((_, hash)) = RECORDED_BUILD_TAG.rsplit_once("-g") {
         assert!(
             RECORDED_COMMIT.starts_with(hash),

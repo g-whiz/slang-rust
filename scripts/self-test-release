@@ -359,6 +359,13 @@ expect "tag-release" 0 "" "git tag --annotate --message v0.3.1 v0.3.1 ${head_com
 check_call "tag-release pushes" "git push origin refs/tags/v0.3.1"
 check_call "tag-release creates the release" "gh release create v0.3.1 --verify-tag --title v0.3.1 --notes-file ${case_dir}/notes"
 
+new_case
+shared_versions 0.3.1-alpha.2 0.3.1-alpha.2
+printf 'notes\n' >"${case_dir}/notes"
+expect "tag-release of a pre-release" 0 "" "git tag --annotate --message v0.3.1-alpha.2 v0.3.1-alpha.2 ${head_commit}" "${scripts}/tag-release" "${case_dir}/notes" a slang-src b
+check_call "tag-release of a pre-release pushes" "git push origin refs/tags/v0.3.1-alpha.2"
+check_call "tag-release of a pre-release marks the release" "gh release create v0.3.1-alpha.2 --verify-tag --title v0.3.1-alpha.2 --notes-file ${case_dir}/notes --prerelease"
+
 good_package() {
     metadata "a|0.1.0|MIT OR Apache-2.0|${site}/a/|null" "ex|0.1.0|MIT OR Apache-2.0||[]"
 }

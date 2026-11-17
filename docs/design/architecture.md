@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-16 |
+| Date | 2026-11-17 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -93,7 +93,7 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 - nextest profile: A named set of settings in the configuration of cargo-nextest, such as a filter that selects tests.
 - OptiX: NVIDIA's ray-tracing API, which runs on CUDA.
 - pkg-config: A tool that reports the compiler and linker flags of an installed library from a `.pc` file.
-- pre-release identifier: The part of a Semantic Versioning (SemVer) 2.0.0 version after the first hyphen and before any plus sign, such as `slang.2026.17.0.25.gc7954ebd1` in `0.1.0-slang.2026.17.0.25.gc7954ebd1`. It consists of identifiers separated by dots, and SemVer compares identifiers that consist of digits only numerically.
+- pre-release identifier: The part of a Semantic Versioning (SemVer) 2.0.0 version after the first hyphen and before any plus sign, such as `alpha.1.slang.2026.17.0.25.gc7954ebd1` in `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`. It consists of identifiers separated by dots, and SemVer compares identifiers that consist of digits only numerically.
 - procedural macro: A Rust macro, compiled as a crate of its own, that runs during the compilation of the code that uses it and generates Rust code.
 - ray query: A query that traces a ray through an acceleration structure from inside an ordinary shader, without a ray tracing pipeline.
 - ray tracing pipeline: A GPU pipeline whose stages generate rays, run a hit group on each hit, and run a miss shader on each miss.
@@ -303,7 +303,7 @@ ARCH-34. `slang-compiler` MUST check, when it creates a global session, that the
 
 ARCH-30. An agent that moves the recorded Slang to the Slang of a new Vulkan SDK MUST, in one change, update the SDK version and its checksums in the CI configuration, the recorded commit and build tag of `slang-src` with its manifest version and every exact requirement of it, fix what the new headers break, and run every check, including the vendored CI jobs. Records that disagree on the main branch make CI test two different Slangs or fail on every run (Section 8.2 of `docs/design/slang-compiler-sys.md`).
 
-ARCH-32. An agent that prepares a release after a move of the recorded Slang MUST release `slang-src` with a new minor number (SRC-13 of `docs/design/slang-src.md`) and release every crate that requires it exactly. It MUST release `slang-compiler-sys` as a breaking change, except when the generated bindings of the old and the new recorded Slang are identical. A user who upgrades within a compatible version range expects code that compiled against the bindings to keep compiling.
+ARCH-32. An agent that prepares a release after a move of the recorded Slang MUST release `slang-src` at the version that SRC-13 of `docs/design/slang-src.md` gives for the new Slang and release every crate that requires it exactly. It MUST release `slang-compiler-sys` as a breaking change, except when the generated bindings of the old and the new recorded Slang are identical. A user who upgrades within a compatible version range expects code that compiled against the bindings to keep compiling.
 
 Slang is reported to release every one to three weeks. That is background to why the recorded Slang follows the SDK and not each Slang release.
 
@@ -319,7 +319,7 @@ Another Slang version, from another SDK or from a fork of `slang-src` that the u
 
 `slang-compiler-sys` contains the build script of Section 4, which generates the bindings into `OUT_DIR` in every build, the inclusion of those bindings, the build information, and its crate-level documentation, with no other hand-written API, as FFI-1 of the coding standard requires. No generated code is in the repository or the published package. Its manifest declares `links = "slang-compiler"` and the one feature `vendored`, and its build script emits every link directive (FFI-2).
 
-The build information `BUILD_INFO` records the build tag of the Slang of the build, its full commit on the vendored route, its linkage, and a full version whose build metadata names both, such as `0.1.0+slang.2026.17.0.25.gc7954ebd1.vendored` (SCS-53 of `docs/design/slang-compiler-sys.md`). The build script also exports the include directory, the library directory, the linkage, and the build tag as `links` metadata, which a later `-sys` crate that builds against the same Slang reads (SCS-54).
+The build information `BUILD_INFO` records the build tag of the Slang of the build, its full commit on the vendored route, its linkage, and a full version whose build metadata names both, such as `0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.vendored` (SCS-53 of `docs/design/slang-compiler-sys.md`). The build script also exports the include directory, the library directory, the linkage, and the build tag as `links` metadata, which a later `-sys` crate that builds against the same Slang reads (SCS-54).
 
 The generated code consists of these items:
 
@@ -533,7 +533,7 @@ Publishing readiness means complete publication metadata, the text of its licenc
 
 docs.rs is not supported. CI builds the documentation of every published crate and hosts it outside docs.rs, such as on GitHub Pages, and the documentation link of each crate's manifest points there. The reason is that every build of `slang-compiler-sys` after M7 generates its bindings with libclang and either clones Slang over the network or links an installed Slang, and docs.rs builds without network access. Section 9.4 of `docs/design/tooling.md` gives the source and the hosted site.
 
-Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes in the change that follows the first release, because cargo-semver-checks needs a published version to compare with (TOOL-39 of `docs/design/tooling.md`). Every crate stays below version 1.0, as DEP-3 of the coding standard requires.
+Milestone M0 set up the metadata so that it is checked from the start. M8 adds the check for breaking changes in the change that follows the first release, because cargo-semver-checks needs a published version to compare with (TOOL-39 of `docs/design/tooling.md`). Every crate stays below version 1.0, as DEP-3 of the coding standard requires. By the owner's decision, every release is an alpha release with an unstable API until the owner decides otherwise, and TOOL-37 of `docs/design/tooling.md` defines its versions.
 
 ARCH-24. An agent MUST NOT publish a crate to crates.io without the owner's explicit go-ahead, because a published version cannot be deleted, only yanked, so a mistaken release stays visible to every user.
 
@@ -729,7 +729,7 @@ Several milestones replace requirements of this document that the code satisfies
   - `slang-glslang-sys` builds slang-glslang, which consists of glslang, SPIRV-Tools, and Slang's glue code. A statically built `slang-compiler` depends on it and installs its loader when it creates a global session, so a vendored build emits optimized SPIR-V.
   - `vendored` is an opt-in Cargo feature, off by default, and no environment variable selects the linkage. Dynamic linking keeps default builds fast and small.
   - No pin gates a build. A dynamic build accepts the Slang of any installed Vulkan SDK, generates the bindings from its headers, and records the real version. This is best effort, because the safe crates are written and tested against one Slang version and document any other version as unsupported.
-  - The recorded Slang commit lives only in `slang-src`. The manifest version of `slang-src` carries the Slang version as a pre-release identifier, by deliberate abuse of the notation, for example `0.1.0-slang.2026.17.0.25.gc7954ebd1`. The design fixes the spelling of the identifiers (SRC-13 of `docs/design/slang-src.md`).
+  - The recorded Slang commit lives only in `slang-src`. The manifest version of `slang-src` carries the Slang version as pre-release identifiers, by deliberate abuse of the notation, for example `0.1.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`. The design fixes the spelling of the identifiers (SRC-13 of `docs/design/slang-src.md`).
   - `slang-compiler-sys` has a plain manifest version. It exposes a constant with the build information, which names the real Slang version or commit and whether Slang is linked statically or dynamically.
   - The Slang loaded at run time must be the Slang that the bindings were generated from, and the check compares it with the build's own record.
   - The dynamic CI jobs install a pinned Vulkan SDK version, recorded in the CI configuration. The commit of `slang-src` is the commit of the Slang in that SDK, and a check fails when the two differ, so that the crates are tested against one Slang.
@@ -763,6 +763,7 @@ Several milestones replace requirements of this document that the code satisfies
   - docs.rs is not supported. CI builds the documentation and hosts it elsewhere, such as on GitHub Pages, and the documentation link of each crate points there.
   - Nothing is published without the owner's explicit go-ahead.
   - The crates of the release are published under the licences that Section 13 assigns (ARCH-36).
+  - The public API ships as it is after the review of the public API. Every published release is an alpha release until the owner decides otherwise, and the questions that the review deferred are decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
 - Replaces: the docs.rs requirements of `docs/design/tooling.md`, and the statement of `docs/design/slango.md` that the crate has exactly one Cargo feature, `vendored` (SLO-27).
 - Depends on: M7.
 - Design document, which exists before any code of the milestone: the publishing sections of `docs/design/tooling.md`, revised, and `docs/design/slango.md`, revised for the forward-compatibility pass.

@@ -528,7 +528,7 @@ pub struct BuildInfo {
     pub tested_target: bool,
     /// The full version of the build, which names the Slang and the way the
     /// build obtained it, such as
-    /// `0.1.0+slang.2026.17.0.25.gc7954ebd1.dynamic`.
+    /// `0.1.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.dynamic`.
     ///
     /// It is the version of this crate, a plus sign, and build metadata made
     /// of `slang`, the numbers of the build tag with a missing patch or
