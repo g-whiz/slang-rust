@@ -450,7 +450,23 @@ impl Module {
         &self.raw
     }
 
-    pub(crate) fn session(&self) -> &Session {
+    /// Returns the session that the module belongs to, which keeps it alive.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether two values of [`Module`] belong to
+    /// the same Slang session, by the pointers of their sessions:
+    ///
+    /// ```
+    /// use slang_compiler::Module;
+    ///
+    /// fn same_session(first: &Module, second: &Module) -> bool {
+    ///     first.session().as_raw() == second.session().as_raw()
+    /// }
+    /// # let _ = same_session;
+    /// ```
+    #[must_use]
+    pub fn session(&self) -> &Session {
         &self.session
     }
 
@@ -1138,7 +1154,23 @@ impl EntryPoint {
         &self.raw
     }
 
-    pub(crate) fn session(&self) -> &Session {
+    /// Returns the session that the entry point belongs to, which keeps it alive.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether two values of [`EntryPoint`] belong to
+    /// the same Slang session, by the pointers of their sessions:
+    ///
+    /// ```
+    /// use slang_compiler::EntryPoint;
+    ///
+    /// fn same_session(first: &EntryPoint, second: &EntryPoint) -> bool {
+    ///     first.session().as_raw() == second.session().as_raw()
+    /// }
+    /// # let _ = same_session;
+    /// ```
+    #[must_use]
+    pub fn session(&self) -> &Session {
         &self.session
     }
 

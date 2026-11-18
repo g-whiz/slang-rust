@@ -5,6 +5,7 @@
 use std::fs;
 use std::slice;
 
+use slang_compiler::reflection::ScalarType;
 use slang_compiler::{
     BindingIndex, BindingSpace, CompilerOptions, Component, ErrorKind, GlobalSession,
     LinkedProgram, Module, Operation, ParameterCategory, Session, SpecializationArg, Stage, Target,
@@ -827,4 +828,226 @@ fn entry_point_with_stage_checks_a_function_without_a_shader_attribute() {
     assert_eq!(error.code(), Some(SlangResult::SLANG_FAIL.0), "{error}");
     assert!(has_code(error.diagnostics(), 38000), "{error}");
     assert!(error.to_string().contains("`missing`"), "{error}");
+}
+
+/// A compute shader that multiplies a cooperative vector of four 8-bit
+/// integers with a matrix, after the source of Slang's own test of the
+/// metadata of cooperative types.
+const COOPERATIVE_VECTOR: &str = r#"
+using namespace linalg;
+
+RWStructuredBuffer<int32_t> output;
+ByteAddressBuffer input;
+RWByteAddressBuffer matrix;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    let vector = coopVecLoad<4, int8_t>(input);
+    let result = coopVecMatMul<int32_t, 4, 4>(
+        vector,
+        CoopVecComponentType::SignedInt8,
+        matrix,
+        0,
+        CoopVecComponentType::SignedInt8,
+        CoopVecMatrixLayout::RowMajor,
+        false,
+        4);
+    for (int i = 0; i < result.getCount(); ++i)
+        output[i] = result[i];
+}
+"#;
+
+/// Links `source` with its entry point `main` in `session`.
+fn link_main(session: &Session, name: &str, source: &str) -> LinkedProgram {
+    let module = session
+        .load_module_from_source(name, format!("{name}.slang"), source)
+        .expect("the source compiles")
+        .into_value();
+    let entry_point = module.entry_point("main").expect("the entry point exists");
+    session
+        .compose(&[
+            Component::Module(&module),
+            Component::EntryPoint(&entry_point),
+        ])
+        .expect("the parts compose")
+        .into_value()
+        .link()
+        .expect("the composition links")
+        .into_value()
+}
+
+#[test]
+fn the_metadata_of_spirv_lists_the_cooperative_vector_types_that_it_uses() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = Session::builder(&global)
+        .target(
+            Target::new(TargetFormat::Spirv)
+                .profile("spirv_1_6")
+                .capability("spvCooperativeVectorNV"),
+        )
+        .build()
+        .expect("Slang creates the session");
+    let target = session.target_index(0).expect("a target");
+    let program = link_main(&session, "cooperative", COOPERATIVE_VECTOR);
+    for metadata in [
+        program
+            .target_metadata(target)
+            .expect("Slang generates the code")
+            .into_value(),
+        program
+            .entry_point_metadata(0, target)
+            .expect("Slang generates the code")
+            .into_value(),
+    ] {
+        let cooperative = metadata
+            .cooperative_types()
+            .expect("the metadata reports cooperative types");
+        let mut types = cooperative
+            .cooperative_vector_types()
+            .expect("Slang returns each record")
+            .into_iter()
+            .map(|ty| (ty.component_type, ty.max_size, ty.used_for_training_op))
+            .collect::<Vec<_>>();
+        types.sort_by_key(|(component, _, _)| format!("{component:?}"));
+        assert_eq!(
+            types,
+            [(ScalarType::Int32, 4, false), (ScalarType::Int8, 4, false)]
+        );
+        let combinations = cooperative
+            .cooperative_vector_combinations()
+            .expect("Slang returns each record");
+        assert_eq!(combinations.len(), 1);
+        let combination = combinations[0];
+        assert_eq!(combination.input_type, ScalarType::Int8);
+        assert_eq!(combination.input_interpretation, ScalarType::Int8);
+        assert_eq!(combination.input_packing_factor, 1);
+        assert_eq!(combination.matrix_interpretation, ScalarType::Int8);
+        assert_eq!(combination.bias_interpretation, ScalarType::None);
+        assert_eq!(combination.result_type, ScalarType::Int32);
+        assert!(!combination.transpose);
+        assert_eq!(
+            cooperative
+                .cooperative_matrix_types()
+                .expect("Slang returns each record"),
+            []
+        );
+        assert_eq!(
+            cooperative
+                .cooperative_matrix_combinations()
+                .expect("Slang returns each record"),
+            []
+        );
+    }
+}
+
+#[test]
+fn the_metadata_of_a_program_without_cooperative_types_has_empty_lists() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = Session::builder(&global)
+        .target(Target::new(TargetFormat::Spirv))
+        .build()
+        .expect("Slang creates the session");
+    let metadata = link_main(&session, "kernel", KERNEL)
+        .entry_point_metadata(0, session.target_index(0).expect("a target"))
+        .expect("Slang generates the code")
+        .into_value();
+    let cooperative = metadata
+        .cooperative_types()
+        .expect("the metadata reports cooperative types");
+    assert_eq!(
+        cooperative.cooperative_vector_types().expect("no record"),
+        []
+    );
+    assert_eq!(
+        cooperative
+            .cooperative_vector_combinations()
+            .expect("no record"),
+        []
+    );
+    assert_eq!(
+        cooperative.cooperative_matrix_types().expect("no record"),
+        []
+    );
+    assert_eq!(
+        cooperative
+            .cooperative_matrix_combinations()
+            .expect("no record"),
+        []
+    );
+}
+
+#[test]
+fn each_wrapper_returns_the_session_that_created_it() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = Session::builder(&global)
+        .target(Target::new(TargetFormat::Spirv))
+        .build()
+        .expect("Slang creates the session");
+    let other = Session::builder(&global)
+        .target(Target::new(TargetFormat::Spirv))
+        .build()
+        .expect("Slang creates the session");
+    let module = session
+        .load_module_from_source("kernel", "kernel.slang", KERNEL)
+        .expect("the source compiles")
+        .into_value();
+    let entry_point = module.entry_point("main").expect("the entry point exists");
+    let composed = session
+        .compose(&[
+            Component::Module(&module),
+            Component::EntryPoint(&entry_point),
+        ])
+        .expect("the parts compose")
+        .into_value();
+    let program = composed.link().expect("the composition links").into_value();
+    for owner in [
+        module.session(),
+        entry_point.session(),
+        composed.session(),
+        program.session(),
+    ] {
+        assert_eq!(owner.as_raw(), session.as_raw());
+        assert_ne!(owner.as_raw(), other.as_raw());
+    }
+}
+
+#[test]
+fn a_method_called_inside_the_slang_call_guard_panics_without_calling_slang() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = Session::builder(&global)
+        .target(Target::new(TargetFormat::Spirv))
+        .build()
+        .expect("Slang creates the session");
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        slang_compiler::with_slang_call_guard(|| {
+            session.load_module_from_source("guarded", "guarded.slang", KERNEL)
+        })
+    }));
+    let payload = outcome.expect_err("the load panics");
+    let message = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        message.starts_with("reentrant call: Session::load_module_from_source "),
+        "{message}"
+    );
+    assert!(
+        session
+            .loaded_modules()
+            .expect("Slang lists the modules")
+            .all(|module| module.name().expect("UTF-8") != Some("guarded")),
+        "the load did not reach Slang"
+    );
+    let module = session
+        .load_module_from_source("after", "after.slang", KERNEL)
+        .expect("the guard fell when the closure unwound")
+        .into_value();
+    let target_count = slang_compiler::with_slang_call_guard(|| {
+        drop(module);
+        session.target_count()
+    });
+    assert_eq!(target_count, 1);
 }

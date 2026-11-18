@@ -1,6 +1,7 @@
 use slang_compiler_sys::{
-    SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangInt, SlangResourceAccess, SlangResourceShape,
-    SlangResourceShapeIntegral, SlangScalarType, SlangTypeKind,
+    SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangDeclKind, SlangInt, SlangModifierID,
+    SlangResourceAccess, SlangResourceShape, SlangResourceShapeIntegral, SlangScalarType,
+    SlangTypeKind,
 };
 
 use crate::enums::{ParameterCategory, unrecognized};
@@ -508,16 +509,126 @@ impl LayoutUnits {
     }
 }
 
+/// A modifier of a declaration in Slang source, such as `static` or
+/// `[Differentiable]`, which [`Function::has_modifier`](super::Function::has_modifier)
+/// and [`Variable::has_modifier`](super::Variable::has_modifier) look for.
+///
+/// Slang calls it `SlangModifierID`. The enumeration is non-exhaustive, so a
+/// later version can add modifiers, and a `match` on it needs a wildcard arm.
+///
+/// # Examples
+///
+/// See the example of [`Function::has_modifier`](super::Function::has_modifier).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ModifierId {
+    /// `shared`, a variable of an effect that several shaders share, as
+    /// Slang's `SLANG_MODIFIER_SHARED`.
+    Shared,
+    /// `no_diff`, a value that automatic differentiation treats as a
+    /// constant, as Slang's `SLANG_MODIFIER_NO_DIFF`.
+    NoDiff,
+    /// `static`, as Slang's `SLANG_MODIFIER_STATIC`.
+    Static,
+    /// `const`, as Slang's `SLANG_MODIFIER_CONST`.
+    Const,
+    /// `export`, as Slang's `SLANG_MODIFIER_EXPORT`.
+    Export,
+    /// `extern`, as Slang's `SLANG_MODIFIER_EXTERN`.
+    Extern,
+    /// `[Differentiable]`, a function that automatic differentiation can
+    /// differentiate, as Slang's `SLANG_MODIFIER_DIFFERENTIABLE`.
+    Differentiable,
+    /// `[mutating]`, a method that changes the value it is called on, as
+    /// Slang's `SLANG_MODIFIER_MUTATING`.
+    Mutating,
+    /// `in`, an input parameter, as Slang's `SLANG_MODIFIER_IN`.
+    In,
+    /// `out`, an output parameter, as Slang's `SLANG_MODIFIER_OUT`.
+    Out,
+    /// `inout`, a parameter that is both input and output, as Slang's
+    /// `SLANG_MODIFIER_INOUT`.
+    InOut,
+}
+
+impl ModifierId {
+    pub(crate) fn to_raw(self) -> SlangModifierID {
+        match self {
+            Self::Shared => SlangModifierID::SLANG_MODIFIER_SHARED,
+            Self::NoDiff => SlangModifierID::SLANG_MODIFIER_NO_DIFF,
+            Self::Static => SlangModifierID::SLANG_MODIFIER_STATIC,
+            Self::Const => SlangModifierID::SLANG_MODIFIER_CONST,
+            Self::Export => SlangModifierID::SLANG_MODIFIER_EXPORT,
+            Self::Extern => SlangModifierID::SLANG_MODIFIER_EXTERN,
+            Self::Differentiable => SlangModifierID::SLANG_MODIFIER_DIFFERENTIABLE,
+            Self::Mutating => SlangModifierID::SLANG_MODIFIER_MUTATING,
+            Self::In => SlangModifierID::SLANG_MODIFIER_IN,
+            Self::Out => SlangModifierID::SLANG_MODIFIER_OUT,
+            Self::InOut => SlangModifierID::SLANG_MODIFIER_INOUT,
+        }
+    }
+}
+
+/// The kind of the declaration inside a generic, such as a function or a
+/// structure, which [`Generic::inner_kind`](super::Generic::inner_kind)
+/// returns.
+///
+/// Slang calls it `SlangDeclKind`. The enumeration is non-exhaustive, so a
+/// later version can add kinds, and a `match` on it needs a wildcard arm.
+///
+/// # Examples
+///
+/// See the example of [`Generic`](super::Generic).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DeclKind {
+    /// A declaration that reflection does not describe, as Slang's
+    /// `SLANG_DECL_KIND_UNSUPPORTED_FOR_REFLECTION`.
+    Unsupported,
+    /// A structure, as Slang's `SLANG_DECL_KIND_STRUCT`.
+    Struct,
+    /// A function, as Slang's `SLANG_DECL_KIND_FUNC`.
+    Func,
+    /// A module, as Slang's `SLANG_DECL_KIND_MODULE`.
+    Module,
+    /// A generic, as Slang's `SLANG_DECL_KIND_GENERIC`.
+    Generic,
+    /// A variable, as Slang's `SLANG_DECL_KIND_VARIABLE`.
+    Variable,
+    /// A namespace, as Slang's `SLANG_DECL_KIND_NAMESPACE`.
+    Namespace,
+    /// An enumeration, as Slang's `SLANG_DECL_KIND_ENUM`.
+    Enum,
+}
+
+impl DeclKind {
+    /// Converts a declaration kind that reflection returned.
+    pub(crate) fn from_raw(raw: SlangDeclKind) -> Result<Self> {
+        use SlangDeclKind as D;
+        Ok(match raw {
+            D::SLANG_DECL_KIND_UNSUPPORTED_FOR_REFLECTION => Self::Unsupported,
+            D::SLANG_DECL_KIND_STRUCT => Self::Struct,
+            D::SLANG_DECL_KIND_FUNC => Self::Func,
+            D::SLANG_DECL_KIND_MODULE => Self::Module,
+            D::SLANG_DECL_KIND_GENERIC => Self::Generic,
+            D::SLANG_DECL_KIND_VARIABLE => Self::Variable,
+            D::SLANG_DECL_KIND_NAMESPACE => Self::Namespace,
+            D::SLANG_DECL_KIND_ENUM => Self::Enum,
+            SlangDeclKind(other) => return Err(unrecognized("declaration kind", other)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use slang_compiler_sys::{
-        SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangResourceAccess, SlangResourceShape,
-        SlangScalarType, SlangTypeKind,
+        SLANG_UNBOUNDED_SIZE, SLANG_UNKNOWN_SIZE, SlangDeclKind, SlangModifierID,
+        SlangResourceAccess, SlangResourceShape, SlangScalarType, SlangTypeKind,
     };
 
     use super::{
-        LayoutSize, LayoutUnits, ResourceAccess, ResourceBaseShape, ResourceShape, ScalarType,
-        TypeKind,
+        DeclKind, LayoutSize, LayoutUnits, ModifierId, ResourceAccess, ResourceBaseShape,
+        ResourceShape, ScalarType, TypeKind,
     };
     use crate::reflection::BindingType;
     use crate::{ErrorKind, ParameterCategory};
@@ -534,6 +645,63 @@ mod tests {
         assert_send_sync::<LayoutSize>();
         assert_send_sync::<LayoutUnits>();
         assert_send_sync::<BindingType>();
+        assert_send_sync::<ModifierId>();
+        assert_send_sync::<DeclKind>();
+    }
+
+    #[test]
+    fn every_modifier_converts_to_its_raw_value() {
+        let pairs = [
+            (ModifierId::Shared, SlangModifierID::SLANG_MODIFIER_SHARED),
+            (ModifierId::NoDiff, SlangModifierID::SLANG_MODIFIER_NO_DIFF),
+            (ModifierId::Static, SlangModifierID::SLANG_MODIFIER_STATIC),
+            (ModifierId::Const, SlangModifierID::SLANG_MODIFIER_CONST),
+            (ModifierId::Export, SlangModifierID::SLANG_MODIFIER_EXPORT),
+            (ModifierId::Extern, SlangModifierID::SLANG_MODIFIER_EXTERN),
+            (
+                ModifierId::Differentiable,
+                SlangModifierID::SLANG_MODIFIER_DIFFERENTIABLE,
+            ),
+            (
+                ModifierId::Mutating,
+                SlangModifierID::SLANG_MODIFIER_MUTATING,
+            ),
+            (ModifierId::In, SlangModifierID::SLANG_MODIFIER_IN),
+            (ModifierId::Out, SlangModifierID::SLANG_MODIFIER_OUT),
+            (ModifierId::InOut, SlangModifierID::SLANG_MODIFIER_INOUT),
+        ];
+        for (modifier, raw) in pairs {
+            assert_eq!(modifier.to_raw(), raw, "{modifier:?}");
+        }
+        assert!(
+            (0..=SlangModifierID::SLANG_MODIFIER_INOUT.0).eq(pairs.iter().map(|(_, raw)| raw.0))
+        );
+    }
+
+    #[test]
+    fn every_declaration_kind_converts_to_its_variant() {
+        let pairs = [
+            (
+                SlangDeclKind::SLANG_DECL_KIND_UNSUPPORTED_FOR_REFLECTION,
+                DeclKind::Unsupported,
+            ),
+            (SlangDeclKind::SLANG_DECL_KIND_STRUCT, DeclKind::Struct),
+            (SlangDeclKind::SLANG_DECL_KIND_FUNC, DeclKind::Func),
+            (SlangDeclKind::SLANG_DECL_KIND_MODULE, DeclKind::Module),
+            (SlangDeclKind::SLANG_DECL_KIND_GENERIC, DeclKind::Generic),
+            (SlangDeclKind::SLANG_DECL_KIND_VARIABLE, DeclKind::Variable),
+            (
+                SlangDeclKind::SLANG_DECL_KIND_NAMESPACE,
+                DeclKind::Namespace,
+            ),
+            (SlangDeclKind::SLANG_DECL_KIND_ENUM, DeclKind::Enum),
+        ];
+        for (raw, kind) in pairs {
+            assert_eq!(DeclKind::from_raw(raw).ok(), Some(kind), "{raw:?}");
+        }
+        assert!((0..=SlangDeclKind::SLANG_DECL_KIND_ENUM.0).eq(pairs.iter().map(|(raw, _)| raw.0)));
+        let error = DeclKind::from_raw(SlangDeclKind(8)).expect_err("not a kind");
+        assert_eq!(error.kind(), ErrorKind::Unrecognized);
     }
 
     #[test]

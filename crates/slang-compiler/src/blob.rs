@@ -2,8 +2,11 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::slice;
 
-use slang_compiler_sys::{IMetadata, ISlangBlob, SlangResult, SlangUInt};
+use slang_compiler_sys::{
+    ICooperativeTypesMetadata, IMetadata, ISlangBlob, Interface, SlangResult, SlangUInt,
+};
 
+use crate::cooperative::CooperativeTypes;
 use crate::enums::ParameterCategory;
 use crate::error::{Compiled, Diagnostics, Error, ErrorKind, Operation, Result};
 use crate::guard;
@@ -605,6 +608,55 @@ impl Metadata {
             };
             mapping::check(operation, result, Diagnostics::default())?;
             Ok(used)
+        })
+    }
+
+    /// Returns the cooperative matrix and vector types that the generated
+    /// code uses, or `None` when the metadata does not report them.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether the code of an entry point uses any
+    /// cooperative vector type:
+    ///
+    /// ```
+    /// use slang_compiler::{LinkedProgram, TargetIndex};
+    ///
+    /// fn uses_cooperative_vectors(
+    ///     program: &LinkedProgram,
+    ///     target: TargetIndex,
+    /// ) -> slang_compiler::Result<bool> {
+    ///     let metadata = program.entry_point_metadata(0, target)?.into_value();
+    ///     Ok(match metadata.cooperative_types() {
+    ///         Some(cooperative) => !cooperative.cooperative_vector_types()?.is_empty(),
+    ///         None => false,
+    ///     })
+    /// }
+    /// # let _ = uses_cooperative_vectors;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn cooperative_types(&self) -> Option<CooperativeTypes<'_>> {
+        let raw = guard::call("Metadata::cooperative_types", || {
+            // SAFETY: `self.raw` points to a live metadata object, used only on
+            // this thread, the identifier is a constant of the bindings, and
+            // the call runs with the Slang call guard raised.
+            unsafe {
+                guard::abort_on_exception("IMetadata::castAs", || {
+                    IMetadata::castAs(self.raw.as_ptr(), &ICooperativeTypesMetadata::UUID)
+                })
+            }
+        });
+        NonNull::new(raw.cast::<ICooperativeTypesMetadata>()).map(|raw| {
+            // SAFETY: `castAs` returned the cooperative types interface of this
+            // metadata object, without a reference of its own, so it lives as
+            // long as the object that `self` holds.
+            unsafe { CooperativeTypes::new(raw, self) }
         })
     }
 

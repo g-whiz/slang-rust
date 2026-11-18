@@ -4,16 +4,17 @@ use std::ptr::{self, NonNull};
 use slang_compiler_sys::{
     ISlangBlob, SlangLayoutRules, SlangReflection, SlangReflectionEntryPoint,
     SlangReflectionFunction, SlangReflectionType, SlangReflectionVariableLayout, SlangUInt,
-    TypeReflection, spReflection_FindTypeByName, spReflection_GetParameterByIndex,
-    spReflection_GetParameterCount, spReflection_GetTypeLayout, spReflection_ToJson,
-    spReflection_findEntryPointByName, spReflection_getEntryPointByIndex,
-    spReflection_getEntryPointCount, spReflection_getGlobalConstantBufferBinding,
-    spReflection_getGlobalConstantBufferSize, spReflection_getGlobalParamsVarLayout,
-    spReflectionEntryPoint_getComputeThreadGroupSize, spReflectionEntryPoint_getFunction,
-    spReflectionEntryPoint_getName, spReflectionEntryPoint_getNameOverride,
-    spReflectionEntryPoint_getParameterByIndex, spReflectionEntryPoint_getParameterCount,
-    spReflectionEntryPoint_getResultVarLayout, spReflectionEntryPoint_getStage,
-    spReflectionEntryPoint_getVarLayout, spReflectionEntryPoint_hasDefaultConstantBuffer,
+    TypeReflection, spReflection_FindFunctionByName, spReflection_FindFunctionByNameInType,
+    spReflection_FindTypeByName, spReflection_GetParameterByIndex, spReflection_GetParameterCount,
+    spReflection_GetTypeLayout, spReflection_ToJson, spReflection_findEntryPointByName,
+    spReflection_getEntryPointByIndex, spReflection_getEntryPointCount,
+    spReflection_getGlobalConstantBufferBinding, spReflection_getGlobalConstantBufferSize,
+    spReflection_getGlobalParamsVarLayout, spReflectionEntryPoint_getComputeThreadGroupSize,
+    spReflectionEntryPoint_getFunction, spReflectionEntryPoint_getName,
+    spReflectionEntryPoint_getNameOverride, spReflectionEntryPoint_getParameterByIndex,
+    spReflectionEntryPoint_getParameterCount, spReflectionEntryPoint_getResultVarLayout,
+    spReflectionEntryPoint_getStage, spReflectionEntryPoint_getVarLayout,
+    spReflectionEntryPoint_hasDefaultConstantBuffer,
 };
 
 use super::{
@@ -379,6 +380,136 @@ impl<'a> ProgramLayout<'a> {
             // or the core module, and `self.session` keeps all of them alive
             // for `'a`.
             unsafe { Type::from_raw(raw, self.session) }
+        }))
+    }
+
+    /// Finds a function by its name in the modules of the program, and
+    /// returns `None` when Slang finds no such function.
+    ///
+    /// When several functions share the name, the one handle that this
+    /// returns stands for all of them: [`Function::is_overloaded`] is `true`
+    /// for it, and [`Function::overloads`] lists them. To choose one for the
+    /// types of a call, use [`Function::specialize_with_arg_types`].
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether a module defines a function that automatic
+    /// differentiation can differentiate under a name:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::{ModifierId, ProgramLayout};
+    ///
+    /// fn is_differentiable(layout: ProgramLayout<'_>, name: &str) -> slang_compiler::Result<bool> {
+    ///     Ok(layout
+    ///         .find_function_by_name(name)?
+    ///         .is_some_and(|function| function.has_modifier(ModifierId::Differentiable)))
+    /// }
+    /// # let _ = is_differentiable;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// without calling Slang, when `name` contains a NUL byte, which Slang
+    /// cannot take.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn find_function_by_name(self, name: &str) -> Result<Option<Function<'a>>> {
+        let name = c_string(name, Operation::Reflect, "the function name")?;
+        let raw = guard::call("ProgramLayout::find_function_by_name", || {
+            // SAFETY: as for `find_entry_point_by_name`.
+            unsafe {
+                guard::abort_on_exception("spReflection_FindFunctionByName", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflection_FindFunctionByName(self.raw.as_ptr(), name.as_ptr())
+                })
+            }
+        });
+        Ok(NonNull::new(raw).map(|raw| {
+            // SAFETY: Slang returned a function of the session of this layout,
+            // which lives in the syntax trees of that session or its modules,
+            // and `self.session` keeps them alive for `'a`.
+            unsafe { Function::new(raw, self.session) }
+        }))
+    }
+
+    /// Finds a function by its name among the members of `ty`, such as a
+    /// method of a structure, and returns `None` when Slang finds no such
+    /// function.
+    ///
+    /// As for [`ProgramLayout::find_function_by_name`], a name that several
+    /// methods share returns one handle that stands for all of them.
+    ///
+    /// # Examples
+    ///
+    /// This example finds the method `get` of a structure that the module
+    /// defines:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::{Function, ProgramLayout};
+    ///
+    /// fn getter<'a>(
+    ///     layout: ProgramLayout<'a>,
+    ///     structure: &str,
+    /// ) -> slang_compiler::Result<Option<Function<'a>>> {
+    ///     match layout.find_type_by_name(structure)? {
+    ///         Some(ty) => layout.find_function_by_name_in_type(ty, "get"),
+    ///         None => Ok(None),
+    ///     }
+    /// }
+    /// # let _ = getter;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// without calling Slang, when `ty` belongs to another session or `name`
+    /// contains a NUL byte, which Slang cannot take.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn find_function_by_name_in_type(
+        self,
+        ty: Type<'a>,
+        name: &str,
+    ) -> Result<Option<Function<'a>>> {
+        if !ty.session().is_same(self.session) {
+            return Err(other_session(Operation::Reflect, "the type"));
+        }
+        let name = c_string(name, Operation::Reflect, "the function name")?;
+        let raw = guard::call("ProgramLayout::find_function_by_name_in_type", || {
+            // SAFETY: as for `find_entry_point_by_name`, and `ty` is a live
+            // type of the session of this layout, which the check above
+            // established and which its borrow keeps alive.
+            unsafe {
+                guard::abort_on_exception("spReflection_FindFunctionByNameInType", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflection_FindFunctionByNameInType(
+                        self.raw.as_ptr(),
+                        ty.as_raw().as_ptr().cast::<SlangReflectionType>(),
+                        name.as_ptr(),
+                    )
+                })
+            }
+        });
+        Ok(NonNull::new(raw).map(|raw| {
+            // SAFETY: as for `find_function_by_name`.
+            unsafe { Function::new(raw, self.session) }
         }))
     }
 

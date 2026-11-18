@@ -16,16 +16,18 @@ use std::slice;
 
 use slang_compiler_sys::{
     BUILD_INFO, BuiltinModuleName, CompileCoreModuleFlags, CompilerOptionEntry,
-    CompilerOptionValueKind, ContainerType, DeclReflection, FunctionReflection, ICompileRequest,
-    IComponentType, IComponentTypeVtbl, IEntryPoint, IEntryPointVtbl, IGlobalSession,
-    IGlobalSessionVtbl, IMetadata, IMetadataVtbl, IModule, IModuleVtbl, ISession, ISessionVtbl,
-    ISlangBlob, ISlangBlobVtbl, ISlangCastable, ISlangCastableVtbl, ISlangMutableFileSystem,
-    ISlangSharedLibrary, ISlangSharedLibraryLoader, ISlangUnknown, ISlangUnknownVtbl,
-    ITypeConformance, Interface, LayoutRules, ProgramLayout, SessionDesc, SlangArchiveType,
-    SlangCapabilityID, SlangCompileRequest, SlangCompileTarget, SlangInt, SlangInt32,
-    SlangParameterCategory, SlangPassThrough, SlangProfileID, SlangResult, SlangSourceLanguage,
-    SlangStage, SlangUInt, SlangUUID, SourceLocation, SpecializationArg, TargetDesc,
-    TypeLayoutReflection, TypeReflection,
+    CompilerOptionValueKind, ContainerType, CooperativeMatrixCombination, CooperativeMatrixType,
+    CooperativeVectorCombination, CooperativeVectorTypeUsageInfo, DeclReflection,
+    FunctionReflection, ICompileRequest, IComponentType, IComponentTypeVtbl,
+    ICooperativeTypesMetadata, ICooperativeTypesMetadataVtbl, IEntryPoint, IEntryPointVtbl,
+    IGlobalSession, IGlobalSessionVtbl, IMetadata, IMetadataVtbl, IModule, IModuleVtbl, ISession,
+    ISessionVtbl, ISlangBlob, ISlangBlobVtbl, ISlangCastable, ISlangCastableVtbl,
+    ISlangMutableFileSystem, ISlangSharedLibrary, ISlangSharedLibraryLoader, ISlangUnknown,
+    ISlangUnknownVtbl, ITypeConformance, Interface, LayoutRules, ProgramLayout, SessionDesc,
+    SlangArchiveType, SlangCapabilityID, SlangCompileRequest, SlangCompileTarget, SlangInt,
+    SlangInt32, SlangParameterCategory, SlangPassThrough, SlangProfileID, SlangResult,
+    SlangSourceLanguage, SlangStage, SlangUInt, SlangUUID, SourceLocation, SpecializationArg,
+    TargetDesc, TypeLayoutReflection, TypeReflection,
 };
 
 use crate::owned::Owned;
@@ -2100,16 +2102,23 @@ static MODULE_VTABLE: IModuleVtbl = IModuleVtbl {
 };
 
 /// A fake `IMetadata`, which reports the binding 0 of the binding space 0 as
-/// used and every other binding as unused.
+/// used and every other binding as unused, and which answers `castAs` for
+/// the cooperative types interface when it holds such records.
 pub(crate) struct FakeMetadata;
 
-type MetadataObject = FakeObject<IMetadataVtbl, ()>;
+/// The state of a fake metadata object: the cooperative types interface that
+/// its `castAs` returns, if any.
+struct MetadataState {
+    cooperative: Option<CooperativeFace>,
+}
+
+type MetadataObject = FakeObject<IMetadataVtbl, MetadataState>;
 
 static METADATA_INTERFACES: [SlangUUID; 2] = [ISlangUnknown::UUID, IMetadata::UUID];
 
 static METADATA_VTABLE: IMetadataVtbl = IMetadataVtbl {
     base: ISlangCastableVtbl {
-        base: unknown_vtable::<IMetadataVtbl, ()>(),
+        base: unknown_vtable::<IMetadataVtbl, MetadataState>(),
         castAs: unwinding2(metadata_cast_as),
     },
     isParameterLocationUsed: unwinding5(metadata_location_used),
@@ -2117,17 +2126,214 @@ static METADATA_VTABLE: IMetadataVtbl = IMetadataVtbl {
 };
 
 impl FakeMetadata {
-    fn create(log: &Log) -> NonNull<IMetadata> {
-        MetadataObject::create(&METADATA_VTABLE, log, "metadata", &METADATA_INTERFACES, ())
+    pub(crate) fn create(log: &Log) -> NonNull<IMetadata> {
+        MetadataObject::create(
+            &METADATA_VTABLE,
+            log,
+            "metadata",
+            &METADATA_INTERFACES,
+            MetadataState { cooperative: None },
+        )
+    }
+
+    /// Creates a fake metadata object whose `castAs` returns a cooperative
+    /// types interface with `records`, which lives inside the object and is
+    /// not counted, as Slang's metadata object answers.
+    pub(crate) fn create_cooperative(log: &Log, records: CooperativeRecords) -> NonNull<IMetadata> {
+        let face = CooperativeFace {
+            vtable: &COOPERATIVE_VTABLE,
+            log: log.clone(),
+            records,
+        };
+        MetadataObject::create(
+            &METADATA_VTABLE,
+            log,
+            "metadata",
+            &METADATA_INTERFACES,
+            MetadataState {
+                cooperative: Some(face),
+            },
+        )
     }
 }
 
 unsafe extern "system" fn metadata_cast_as(
+    this: *mut ISlangCastable,
+    uuid: *const SlangUUID,
+) -> *mut c_void {
+    // SAFETY: `METADATA_VTABLE` belongs to a live `MetadataObject` only.
+    let object = unsafe { MetadataObject::from_this(this) };
+    object.log.push(Event::call(object.name, "castAs"));
+    // SAFETY: the crate passes a live identifier.
+    let uuid = unsafe { &*uuid };
+    match &object.state.cooperative {
+        Some(face) if *uuid == ICooperativeTypesMetadata::UUID => {
+            ptr::from_ref(face).cast_mut().cast()
+        }
+        _ => ptr::null_mut(),
+    }
+}
+
+/// The records that the cooperative types interface of a fake metadata
+/// object reports, and a result code that every call by position returns
+/// instead of a record when it is set.
+#[derive(Default)]
+pub(crate) struct CooperativeRecords {
+    pub(crate) matrix_types: Vec<CooperativeMatrixType>,
+    pub(crate) matrix_combinations: Vec<CooperativeMatrixCombination>,
+    pub(crate) vector_types: Vec<CooperativeVectorTypeUsageInfo>,
+    pub(crate) vector_combinations: Vec<CooperativeVectorCombination>,
+    pub(crate) failure: Option<SlangResult>,
+}
+
+/// The cooperative types interface inside a fake metadata object, whose
+/// first field is the vtable, so that a pointer to it is a valid pointer to
+/// `ICooperativeTypesMetadata`.
+#[repr(C)]
+struct CooperativeFace {
+    vtable: &'static ICooperativeTypesMetadataVtbl,
+    log: Log,
+    records: CooperativeRecords,
+}
+
+impl CooperativeFace {
+    /// Returns the face behind an interface pointer.
+    ///
+    /// # Safety
+    ///
+    /// `this` comes from `metadata_cast_as` of a metadata object that is not
+    /// freed while the returned reference lives. Breaking it is undefined
+    /// behaviour.
+    unsafe fn from_this<'a, I>(this: *mut I) -> &'a Self {
+        // SAFETY: the caller guarantees that `this` points to the live face of
+        // a metadata object, which is only read through shared references.
+        unsafe { &*this.cast::<Self>() }
+    }
+
+    /// Writes the record at `index` of `list` to `out`, or returns the
+    /// failure of the records, or `SLANG_E_INVALID_ARG` past the end, as
+    /// Slang does.
+    ///
+    /// # Safety
+    ///
+    /// `out` is a live out-pointer. Breaking it is undefined behaviour.
+    unsafe fn write<T: Copy>(&self, list: &[T], index: SlangUInt, out: *mut T) -> SlangResult {
+        if let Some(failure) = self.records.failure {
+            return failure;
+        }
+        let Some(record) = list.get(index) else {
+            return SlangResult::SLANG_E_INVALID_ARG;
+        };
+        // SAFETY: the caller guarantees that `out` is a live out-pointer.
+        unsafe { out.write(*record) };
+        SlangResult::SLANG_OK
+    }
+}
+
+static COOPERATIVE_VTABLE: ICooperativeTypesMetadataVtbl = ICooperativeTypesMetadataVtbl {
+    base: ISlangCastableVtbl {
+        base: ISlangUnknownVtbl {
+            queryInterface: unwinding3(cooperative_query_interface),
+            addRef: unwinding1(cooperative_count),
+            release: unwinding1(cooperative_count),
+        },
+        castAs: unwinding2(cooperative_cast_as),
+    },
+    getCooperativeMatrixTypeCount: unwinding1(cooperative_matrix_type_count),
+    getCooperativeMatrixTypeByIndex: unwinding3(cooperative_matrix_type),
+    getCooperativeMatrixCombinationCount: unwinding1(cooperative_matrix_combination_count),
+    getCooperativeMatrixCombinationByIndex: unwinding3(cooperative_matrix_combination),
+    getCooperativeVectorTypeCount: unwinding1(cooperative_vector_type_count),
+    getCooperativeVectorTypeByIndex: unwinding3(cooperative_vector_type),
+    getCooperativeVectorCombinationCount: unwinding1(cooperative_vector_combination_count),
+    getCooperativeVectorCombinationByIndex: unwinding3(cooperative_vector_combination),
+};
+
+unsafe extern "system" fn cooperative_query_interface(
+    this: *mut ISlangUnknown,
+    _: *const SlangUUID,
+    out: *mut *mut c_void,
+) -> SlangResult {
+    // SAFETY: `COOPERATIVE_VTABLE` belongs to a live face only.
+    let face = unsafe { CooperativeFace::from_this(this) };
+    face.log.push(Event::call("cooperative", "queryInterface"));
+    // SAFETY: a caller passes a live out-pointer.
+    unsafe { out.write(ptr::null_mut()) };
+    SlangResult::SLANG_E_NO_INTERFACE
+}
+
+unsafe extern "system" fn cooperative_count(this: *mut ISlangUnknown) -> u32 {
+    // SAFETY: `COOPERATIVE_VTABLE` belongs to a live face only.
+    let face = unsafe { CooperativeFace::from_this(this) };
+    face.log
+        .push(Event::call("cooperative", "addRef or release"));
+    1
+}
+
+unsafe extern "system" fn cooperative_cast_as(
     _: *mut ISlangCastable,
     _: *const SlangUUID,
 ) -> *mut c_void {
     ptr::null_mut()
 }
+
+/// Defines the pair of functions of one list of the cooperative types
+/// interface: the count and the record by position.
+macro_rules! cooperative_list {
+    ($count:ident, $at:ident, $field:ident, $record:ty, $count_name:literal, $at_name:literal) => {
+        unsafe extern "system" fn $count(this: *mut ICooperativeTypesMetadata) -> SlangUInt {
+            // SAFETY: `COOPERATIVE_VTABLE` belongs to a live face only.
+            let face = unsafe { CooperativeFace::from_this(this) };
+            face.log.push(Event::call("cooperative", $count_name));
+            SlangUInt::try_from(face.records.$field.len()).expect("a test holds few records")
+        }
+
+        unsafe extern "system" fn $at(
+            this: *mut ICooperativeTypesMetadata,
+            index: SlangUInt,
+            out: *mut $record,
+        ) -> SlangResult {
+            // SAFETY: `COOPERATIVE_VTABLE` belongs to a live face only.
+            let face = unsafe { CooperativeFace::from_this(this) };
+            face.log.push(Event::call("cooperative", $at_name));
+            // SAFETY: the crate passes a live out-pointer.
+            unsafe { face.write(&face.records.$field, index, out) }
+        }
+    };
+}
+
+cooperative_list!(
+    cooperative_matrix_type_count,
+    cooperative_matrix_type,
+    matrix_types,
+    CooperativeMatrixType,
+    "getCooperativeMatrixTypeCount",
+    "getCooperativeMatrixTypeByIndex"
+);
+cooperative_list!(
+    cooperative_matrix_combination_count,
+    cooperative_matrix_combination,
+    matrix_combinations,
+    CooperativeMatrixCombination,
+    "getCooperativeMatrixCombinationCount",
+    "getCooperativeMatrixCombinationByIndex"
+);
+cooperative_list!(
+    cooperative_vector_type_count,
+    cooperative_vector_type,
+    vector_types,
+    CooperativeVectorTypeUsageInfo,
+    "getCooperativeVectorTypeCount",
+    "getCooperativeVectorTypeByIndex"
+);
+cooperative_list!(
+    cooperative_vector_combination_count,
+    cooperative_vector_combination,
+    vector_combinations,
+    CooperativeVectorCombination,
+    "getCooperativeVectorCombinationCount",
+    "getCooperativeVectorCombinationByIndex"
+);
 
 unsafe extern "system" fn metadata_location_used(
     this: *mut IMetadata,

@@ -578,6 +578,26 @@ pub struct ComponentType {
 }
 
 impl ComponentType {
+    /// Returns the session that the component type belongs to, which keeps it alive.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether two values of [`ComponentType`] belong to
+    /// the same Slang session, by the pointers of their sessions:
+    ///
+    /// ```
+    /// use slang_compiler::ComponentType;
+    ///
+    /// fn same_session(first: &ComponentType, second: &ComponentType) -> bool {
+    ///     first.session().as_raw() == second.session().as_raw()
+    /// }
+    /// # let _ = same_session;
+    /// ```
+    #[must_use]
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
     /// Returns the number of entry points of the component type, the
     /// positions that [`LinkedProgram::entry_point_code`] accepts after a
     /// link.
@@ -1240,6 +1260,26 @@ pub struct LinkedProgram {
 }
 
 impl LinkedProgram {
+    /// Returns the session that the program belongs to, which keeps it alive.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether two values of [`LinkedProgram`] belong to
+    /// the same Slang session, by the pointers of their sessions:
+    ///
+    /// ```
+    /// use slang_compiler::LinkedProgram;
+    ///
+    /// fn same_session(first: &LinkedProgram, second: &LinkedProgram) -> bool {
+    ///     first.session().as_raw() == second.session().as_raw()
+    /// }
+    /// # let _ = same_session;
+    /// ```
+    #[must_use]
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
     /// Returns the number of entry points of the program, the positions that
     /// [`LinkedProgram::entry_point_code`] accepts.
     ///

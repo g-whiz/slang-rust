@@ -229,6 +229,7 @@
 
 mod blob;
 mod component;
+mod cooperative;
 mod enums;
 mod error;
 #[cfg(test)]
@@ -245,12 +246,17 @@ mod strings;
 
 pub use blob::{BindingIndex, BindingSpace, Blob, Metadata};
 pub use component::{Component, ComponentType, LinkedProgram, SpecializationArg, TypeConformance};
+pub use cooperative::{
+    CooperativeMatrixCombination, CooperativeMatrixType, CooperativeMatrixUse, CooperativeTypes,
+    CooperativeVectorCombination, CooperativeVectorTypeUsageInfo, Scope,
+};
 pub use enums::{
     DebugInfoLevel, FloatingPointMode, LanguageVersion, LineDirectiveMode, MatrixLayout,
     OptimizationLevel, ParameterCategory, Stage, TargetFormat, Toggle,
 };
 pub use error::{Compiled, Diagnostics, Error, ErrorKind, Operation, Result};
 pub use global_session::{GlobalSession, GlobalSessionBuilder};
+pub use guard::with_slang_call_guard;
 pub use module::{DependencyFilePaths, EntryPoint, EntryPoints, LoadedModules, Module};
 pub use options::{CompilerOptions, OptionName};
 pub use session::{Session, SessionBuilder, Target, TargetIndex};

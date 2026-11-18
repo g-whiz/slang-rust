@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -518,7 +518,29 @@ The C++ class `FunctionReflection` (header `slang.h:3450`) wraps the functions n
 
 `Modifier` (header `slang.h:3206`) has no methods. `findModifier` returns a non-null pointer exactly when the declaration carries the modifier, so presence is its only information. The identifiers are those of `SlangModifierID` (header `slang.h:2422-2432`): `Shared`, `NoDiff`, `Static`, `Const`, `Export`, `Extern`, `Differentiable`, `Mutating`, `In`, `Out`, and `InOut`.
 
+`findFunctionByName` parses its argument as an expression and checks it, and it returns null when the lookup throws a C++ exception (implementation `source/slang/slang-reflection-api.cpp:1017-1043`, `source/slang/slang-linkable.cpp:942-990`). So `twice<float>` returns the specialized function and `Box<float>.get` returns the method (run). The names `1 + 2`, `Box`, `Box<float>`, a global variable, `float`, `twice<`, and the empty name return null, and `findFunctionByNameInType` on the type `float` returns null (run).
+
+A name that two functions share returned one overloaded handle, whose overloads came out in the reverse of their order of declaration (run). That handle reports no modifier, no user attribute, no generic container, and no parameter, and `specializeWithArgTypes` with no argument types returns null for it (run). For a handle that is not overloaded, `getOverloadCount` returns 1 and `getOverload` returns null at position 0 (run).
+
+`specializeWithArgTypes` on the name `pick`, which declares `int pick(int)` and an overload with two parameters, chose `int pick(int)` for the type `int` and the overload with two parameters for `float` and `float` (run). Three `bool` arguments returned null (run).
+
+A function declared `[Differentiable]` reports `Differentiable` and none of the other ten identifiers of `SlangModifierID`. An `inout` parameter reports both `Out` and `InOut`, and an `out` parameter reports `Out` alone (run).
+
+The return type `T` of an unspecialized generic function has the kind `TypeKind::None` (run). The outer generic container of a generic method `convert<U>` inside `Box<float>` is the generic `Box`, and a generic at the top level of a module has none (run). For `twice<float>`, the concrete type of the type parameter `T` is `float` (run).
+
+`getConcreteIntVal` returns 4 for the value parameter of `Grid<4>` and 0 for that of the unspecialized `sum<let N>` (run), because it returns 0 for every value that is not a constant (implementation `source/slang/slang-reflection-api.cpp:5071-5079`). So 0 does not tell whether the parameter is filled in.
+
+The functions of `spReflectionGeneric_` that take a parameter do not check that it belongs to the generic (implementation `source/slang/slang-reflection-api.cpp:4951-5080`). `GetTypeParameterConstraintCount` and `GetTypeParameterConstraintType` check only that the variable is some type parameter and then look it up in the constraints of this generic (`:4961-4966`, `:4983-4988`). `GetConcreteType` makes a type of any variable (`:5042`), and `GetConcreteIntVal` dereferences the result of a cast to a value parameter without a null check (`:5064-5069`), so a variable that is not a value parameter is a null dereference.
+
+Slang returned the same pointer for a parameter of a generic on every call (run), so a comparison by pointer identifies the parameters of a generic.
+
 `SlangTypeKind` has no kind for a cooperative matrix or a cooperative vector (header `slang.h:2137`). The cooperative types that code generation used for a target are metadata of the interface `ICooperativeTypesMetadata` (header `slang.h:5342`), which derives from `ISlangCastable` and which the documentation of the header says a caller reaches from an `IMetadata` through `castAs` (header `slang.h:5340`). Its eight methods return four counts and four records by position, each record through an out-parameter with a result code (header `slang.h:5350-5364`), and the lists are empty on a target that lowers cooperative types to arrays (header `slang.h:5333-5336`). The metadata object answers `castAs` for that UUID with a pointer to itself and adds no reference (implementation `source/compiler-core/slang-artifact-associated-impl.cpp:283-305`, `:316-319`).
+
+A SPIR-V program that calls `coopVecMatMul`, compiled with the profile `spirv_1_6` and the capability `spvCooperativeVectorNV`, has target metadata and entry point metadata that answer `castAs` for `ICooperativeTypesMetadata`. Both list the cooperative vector types `Int32` and `Int8` with the size 4, and one cooperative vector combination, on the dynamic route and on the vendored route (run). The metadata of a program without cooperative types also answers `castAs`, with four empty lists (run).
+
+Without the capability, the same program compiles to SPIR-V with empty lists, so Slang lowers the vectors there. GLSL also gives empty lists, and HLSL with the profile `sm_6_9` lists the same records as SPIR-V (run).
+
+A parameter of type `CoopVec<float, 4>` reflects as `TypeKind::Struct` with the name `CoopVec` and the full name `CoopVec<float, 4>` (run). Its element type is null, its element count is 0, and it has no fields, so no reflection function gives its element type or count (run).
 
 ### 3.10. Process-Level State
 
@@ -967,6 +989,8 @@ A `Blob` reads the pointer and the size of its bytes from Slang once, when it is
 SLC-39. `Metadata::cooperative_types(&self) -> Option<CooperativeTypes<'_>>` MUST call the generated thunk of `castAs` with the UUID of `ICooperativeTypesMetadata` from the trait `Interface` (COM-4), inside `abort_on_exception`, and return `None` for null. `CooperativeTypes<'m>` MUST borrow the `Metadata` and hold the pointer without a reference, and MUST be neither `Send` nor `Sync`. Its methods `cooperative_matrix_types`, `cooperative_matrix_combinations`, `cooperative_vector_types`, and `cooperative_vector_combinations` MUST each read the count, call the function by position for each position below it, convert each result code through the one mapping of SLC-11, and return `Result<Vec<_>>` of the records below.
 
 `castAs` returns the metadata object itself and adds no reference (Section 3.9), so the borrow of the `Metadata` that owns the reference keeps the pointer valid, and a reference of its own would be a second owner that COM-2 does not need. Each record comes through an out-parameter with its own result code, so an iterator would yield a `Result` for each item, while the lists are short and a `Vec` returns them in one call.
+
+A failing result code of a record fails with the operation `QueryMetadata`. A value of `SlangScope`, `SlangCooperativeMatrixUse`, or `SlangScalarType` in a record that the header does not list fails with the kind `Unrecognized` and the operation `Reflect`, because the one conversion of SLC-14 for values from Slang reports that operation.
 
 The records are `Copy` passive records with public fields, `#[non_exhaustive]`, at the crate root next to `Metadata`, and keep the names of the structs of `slang.h` (API-3):
 
@@ -1522,17 +1546,25 @@ SLC-37. `reflection::Generic<'a>` MUST be a handle of SLC-19 over `GenericReflec
 - `type_parameter_constraints(self, parameter: Variable<'a>) -> Result<TypeParameterConstraints<'a>>`, an iterator of `Type<'a>`, which fails with the kind `InvalidArgument` unless `parameter` is one of the type parameters of this generic, by pointer.
 - `inner_kind(self) -> Result<DeclKind>`, where `reflection::DeclKind` mirrors `SlangDeclKind` under SLC-14 with the variants `Unsupported`, `Struct`, `Func`, `Module`, `Generic`, `Variable`, `Namespace`, and `Enum`.
 - `concrete_type(self, parameter: Variable<'a>) -> Result<Option<Type<'a>>>` and `concrete_int_val(self, parameter: Variable<'a>) -> Result<i64>`, which check `parameter` as `type_parameter_constraints` does, against the type parameters for the first and the value parameters for the second.
-- `apply_specializations(self, generic: Generic<'a>) -> Option<Generic<'a>>`.
+- `apply_specializations(self, generic: Generic<'a>) -> Result<Option<Generic<'a>>>`.
 
-`Function::apply_specializations(self, generic: Generic<'a>) -> Option<Function<'a>>` and `Type::apply_specializations(self, generic: Generic<'a>) -> Option<Type<'a>>` MUST also exist. Every method that takes a `Generic`, a `Variable`, or a `Type` checks that it belongs to the session of the receiver (SLC-7).
+`Function::apply_specializations(self, generic: Generic<'a>) -> Result<Option<Function<'a>>>` and `Type::apply_specializations(self, generic: Generic<'a>) -> Result<Option<Type<'a>>>` MUST also exist. Every method that takes a `Generic`, a `Variable`, or a `Type` checks that it belongs to the session of the receiver (SLC-7).
 
-The functions that take a parameter treat it as a parameter of the generic without a check that the header documents (Section 15, CA-19), so the crate checks the parameter against the lists of the generic, which is a check of an argument that a safe interface needs (Section 1.6). `asDecl` and `getInnerDecl` return a declaration handle, whose family the crate leaves out (Section 9.5), so `inner_kind` gives the kind alone.
+Each `apply_specializations` returns `None` when Slang returns null, and fails with the kind `InvalidArgument` for a generic of another session, which an `Option` cannot report. Without that check, Slang would substitute declaration references of another session into this session.
+
+The functions that take a parameter treat it as a parameter of the generic without a check (Section 3.9), so the crate checks the parameter by pointer against the lists of the generic, which is a check of an argument that a safe interface needs (Section 1.6). Slang returns the same pointer for a parameter on every call (Section 3.9), so the check accepts every parameter of the generic and rejects every other variable.
+
+A parameter of an enclosing generic is not a parameter of an inner generic, so `concrete_type` of the inner generic fails for it with the kind `InvalidArgument`. A caller reads such a parameter through `outer_generic_container`.
+
+`asDecl` and `getInnerDecl` return a declaration handle, whose family the crate leaves out (Section 9.5), so `inner_kind` gives the kind alone.
 
 SLC-38. `Function::specialize_with_arg_types(self, argument_types: &[Type<'a>]) -> Result<Option<Function<'a>>>` MUST check that every type belongs to the session of the function (SLC-7), convert the length to `SlangInt` with `try_from` (SLC-12), pass an array of the raw pointers that lives until the call returns, and return `None` when Slang returns null.
 
 This is the specialization with argument types of M9: it resolves an overloaded or generic function for the types of a call, which the generated kernels of M16 need (Section 15.19 of the architecture design). The specialization of a component type with types and expressions stays `ComponentType::specialize` (Section 6.6).
 
-These are the facts that the additions leave to the tests, because neither the header nor the user guide states them: which modifiers a function declared `[Differentiable]` reports, whether `findFunctionByName` parses its argument as an expression, as `findTypeByName` does (KB-3 of Section 3.12), and what `getConcreteIntVal` returns for a generic that is not specialized. The crate does not guard against a defect that the tests find (Section 1.6). It records the defect in Section 3.12.
+Section 3.9 records what Slang does for the additions where neither the header nor the user guide states it. The documentation of `concrete_int_val` states that a result of 0 does not tell whether the parameter is filled in.
+
+`overloads` yields nothing for a handle that is not overloaded, because Slang returns null at its one position, and its documentation states this. The tests do not pass the names of KB-3 of Section 3.12 to `findFunctionByName`, because the crate does not search for defects of Slang (Section 1.6). A defect that a test meets goes into Section 3.12.
 
 ### 9.7. Accessors for Crates That Build on `slang-compiler`
 
@@ -1576,9 +1608,9 @@ SLC-28. The crate MUST keep a crate-private Slang call guard for each thread, wh
 
 A reentrant call is always a programming error in the user's code, never a condition that a correct program handles.
 
-The guard is raised on a thread only while a call of the crate into Slang is in progress there. The only Rust code that can run on the thread during such a call is code that Slang calls back. In this design that is the user's `FileSystem` implementation and its destructor (Sections 8.3 and 8.4), so no reentrant call is possible while the custom file system is deferred.
+The guard is raised on a thread while a call of the crate into Slang is in progress there, and while the closure of `with_slang_call_guard` runs (SLC-41). The Rust code that can run on the thread during a call of the crate is code that Slang calls back, which in this design is the user's `FileSystem` implementation and its destructor (Sections 8.3 and 8.4). During `with_slang_call_guard`, it is the closure and any callback that another native library makes on the thread, so a reentrant call is possible there while the custom file system is deferred.
 
-Every wrapper is neither `Send` nor `Sync` (SLC-21), so no code on another thread can reach the graph. Code on the same thread reaches a wrapper while the guard is raised only from inside a callback, through per-thread state such as a session kept in thread-local storage.
+Every wrapper is neither `Send` nor `Sync` (SLC-21), so no code on another thread can reach the graph. Code on the same thread reaches a wrapper while the guard is raised only from inside a callback, through per-thread state such as a session kept in thread-local storage, or from inside the closure of `with_slang_call_guard`.
 
 Returning an error for this case would make every method that calls Slang return a `Result` and every iterator yield `Result` items, for a condition that a correct program never meets. So the method panics instead, and each method returns a `Result` only where it can fail for another reason (Sections 6 and 9.2).
 
@@ -1605,7 +1637,7 @@ ERR-5 of the coding standard permits the panic of rule 2 as its exception for a 
 3. Every method that can reach it documents it under `# Panics` (Section 14).
 4. This section states the case.
 
-A reentrant call is a bug in the caller's code, not in the crate, so the message begins with `reentrant call:` and not with `internal error:`, which would blame the crate. The `panic!` is the fourth kind of ERR-6 and carries a lint exception for `clippy::panic` whose reason cites SLC-28 (LINT-1).
+A reentrant call is a bug in the caller's code, not in the crate, so the message begins with `reentrant call:` and not with `internal error:`, which would blame the crate. The `panic!` is the fourth kind of ERR-6 and carries a lint exception for `clippy::panic` whose reason says that a reentrant call is a bug in the caller's callback and that the guard panics before the call reaches Slang (LINT-1).
 
 The refusal of a reentrant call follows from Slang's documentation (Section 3.5) and stays. The deferral of releases rests on a reading of the implementation, not on a run, and is conservative. The change that confirms CA-15 with its test can release at once, which is not a breaking change.
 
@@ -1855,6 +1887,9 @@ Unit tests that need no Slang cover these cases:
 - `abort_on_exception` returning the value of a call that returns.
 - The conversions of every reflection enumeration, `LayoutSize`, `LayoutUnits`, `ResourceShape`, and the binding numbers of SLC-13.
 - On the fake, `layout` with its diagnostics, its check of the target before any call, and its panic on a reentrant call.
+- The conversions of `Scope` and `CooperativeMatrixUse`, each with an unlisted value as `Unrecognized`.
+- SLC-39 on the fake: the four lists read through the interface that `castAs` returns, with the calls in the log, `None` for metadata without the interface, a failing record with its result code and the operation `QueryMetadata`, an unlisted value in a record as `Unrecognized`, and a read while the guard is raised, which panics before it calls the fake.
+- SLC-41 on the fake: `with_slang_call_guard` returns the value of its closure, defers a release until the outermost of two nested calls returns, lowers the guard when the closure unwinds, and makes a method called inside it panic before it calls the fake.
 
 These tests also run under Miri, except those in `guard::tests::ffi`.
 
@@ -1930,7 +1965,7 @@ The additions of Sections 6.7, 9.6, and 9.7 get `ffi` tests in `ffi/reflection.r
 
 - A module with an overloaded function, a generic function with a type parameter, a constraint, and a value parameter, a function marked `[Differentiable]`, and a function with a user attribute with arguments. The tests find each by name, also inside a type, list the overloads, read the attributes and the modifiers, walk the generic container, and specialize with argument types, including types that match no overload, which give `None`.
 - A type or a parameter of another session, and a parameter that does not belong to the generic, which fail with kind `InvalidArgument` before any call.
-- The metadata of a program that uses `CoopVec` for SPIR-V, whose cooperative vector types the test reads, and the metadata of a program without cooperative types, whose lists are empty (Section 15, CA-18).
+- The metadata of a program that uses `CoopVec` for SPIR-V, whose cooperative vector types the test reads, and the metadata of a program without cooperative types, whose lists are empty (Section 3.9).
 - `session` of each wrapper of SLC-40 returns the session that created it, and a method of the crate called inside `with_slang_call_guard` panics without calling Slang, which a unit test on the fake also shows under Miri.
 
 Tests of reflection output and of diagnostics text use `insta` snapshots of `ProgramLayout::to_json` and of a printed layout, which are deterministic for a given source and contain no path (TEST-2). `insta` is a development dependency, declared in `[workspace.dependencies]` (DEP-2). Snapshots of diagnostics avoid absolute paths, which differ between machines and platforms.
@@ -1982,6 +2017,7 @@ The fake objects model these behaviours:
 - It also models `specialize` that fails with or without an output, a composite of one input that returns that input, code and metadata with null diagnostics or with diagnostics on success, `SLANG_E_NOT_AVAILABLE` with diagnostics, and a failed code generation that still writes a blob.
 - A fake `IModule`, `IEntryPoint`, `IComponentType`, or `IMetadata` reads its session at every call, so a session freed too early is a use after free under Miri.
 - A fake blob can hold an owning pointer until it is freed, so that a release can cause another release.
+- A fake `IMetadata` logs each `castAs`. One that a test creates with records of cooperative types answers the UUID of `ICooperativeTypesMetadata` with a `#[repr(C)]` interface that lives inside the metadata object and has no reference count of its own, as Slang's does (Section 3.9), and returns null for any other UUID. Every other fake metadata returns null.
 
 `ITypeConformance` has no fake object, because a `Type` needs reflection functions, which Miri cannot run.
 
@@ -2126,12 +2162,10 @@ An identifier is never reused, and the next assumption takes CA-20.
 | CA-9 | Slang accepts a Rust-implemented blob of size zero from `loadFile` as an empty file | Section 8.4 | The change that adds the custom file system (Section 8), by a test |
 | CA-11 | Slang calls a custom file system only during a call into a session or an object created from it, on the thread of that call | SLC-18, Section 11.5 | The change that adds the custom file system (Section 8), by a test that records the calling thread |
 | CA-15 | Releasing Slang objects of the same global session from inside a custom file system, during a load, leaves the load in progress unaffected | The deferral of releases of SLC-28, which the confirmation lifts | The change that adds the custom file system (Section 8), by the `ffi` test of CA-15 in Section 13.3 |
-| CA-18 | The metadata of a SPIR-V program that uses `CoopVec` lists its cooperative vector types, because SPIR-V keeps cooperative types as native constructs, and the metadata answers `castAs` for `ICooperativeTypesMetadata` on the vendored and the dynamic route | SLC-39 | The `ffi` test of Section 13.3 that reads them, in the code step of the additive reflection |
-| CA-19 | The functions of `spReflectionGeneric_` that take a variable treat it as a parameter of the generic without checking, so a variable of another declaration is undefined behaviour inside Slang | SLC-37, whose check of the parameter rests on it | A reading of `source/slang/slang-reflection-api.cpp` in the code step of the additive reflection. When Slang checks the parameter, the check of the crate stays, because it is a check of an argument |
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-14.
+Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-15.
 
 CQ-8 to CQ-12 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. The owner let the first release, an alpha, ship without deciding them, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
 
@@ -2145,7 +2179,8 @@ CQ-8 to CQ-12 come from the review of the public API before the first release (S
 | CQ-10 | `CompilerOptions::set_string` takes `&str` for text that it stores, while API-13 asks for `impl Into<String>`, as the typed text setters take (Section 7.3). The options are to change the parameters before the release, or to keep `&str` and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
 | CQ-11 | `VariableLayout::offset` returns `LayoutUnits` for a binding number, which `DescriptorRange::index_offset`, `global_constant_buffer_binding`, and `Metadata::is_parameter_location_used` treat as `BindingIndex`, against TYPE-8 and API-3 (Section 9.2). The options are to add an accessor `VariableLayout::binding_index(ParameterCategory) -> Option<BindingIndex>` and name one type for a binding number in SLC-12, or to keep the two forms and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
 | CQ-12 | `ProgramLayout::global_constant_buffer_binding` returns the number that Slang reports, which is 0 when the program has no global constant buffer and, observed on SPIR-V, 0 for a buffer at binding 2 (KB-7 of Section 3.12), so a caller cannot tell a buffer at binding 0 from no buffer. The options are to keep the method with its documented defect, or to remove it before the release and leave the binding to the call that KB-7 observed to give 2 on SPIR-V, `offset(ParameterCategory::DescriptorTableSlot)` of `global_params_var_layout()`, which Slang does not document as the binding | The owner of the project, by a decision | Before the first release that is not an alpha |
-| CQ-13 | `SlangTypeKind` has no kind for a cooperative vector or a cooperative matrix (Section 3.9). Which `TypeKind` does reflection report for a parameter of type `CoopVec`, and does M17 need a kind or the element type and count of such a type, which no function of the recorded Slang returns? | This document, by a test in the code step of the additive reflection, and the design of M17 | M9 for the test, M17 for the need |
+| CQ-13 | A parameter of type `CoopVec` reflects as `TypeKind::Struct` with the name `CoopVec`, and no function of the recorded Slang returns its element type or count (Section 3.9). Does M17 need a kind, or the element type and count, of such a type? | The design of M17 | M17 |
+| CQ-14 | The panic message of rule 2 of SLC-28 ends with "so a FileSystem implementation must not use the objects of this crate". Since SLC-41, the reentrant caller can also be the closure of `with_slang_call_guard` or a callback of another native library, such as slang-rhi, which the message does not name. The options are to reword the message so that it names any code that runs while the guard is raised, or to keep it. The message is published behaviour of the Slang call guard, which this document does not change without the owner | The owner of the project, by a decision | Not assigned |
 
 ## 17. Security Considerations
 

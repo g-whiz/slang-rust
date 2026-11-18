@@ -2,28 +2,34 @@ use std::fmt;
 use std::ptr::{self, NonNull};
 
 use slang_compiler_sys::{
-    ISlangBlob, SlangReflectionFunction, SlangReflectionType, TypeReflection,
-    spReflectionFunction_GetName, spReflectionFunction_GetParameter,
-    spReflectionFunction_GetParameterCount, spReflectionFunction_GetResultType,
-    spReflectionType_GetColumnCount, spReflectionType_GetElementCount,
-    spReflectionType_GetElementType, spReflectionType_GetFieldByIndex,
-    spReflectionType_GetFieldCount, spReflectionType_GetFullName, spReflectionType_GetKind,
-    spReflectionType_GetName, spReflectionType_GetResourceAccess,
-    spReflectionType_GetResourceResultType, spReflectionType_GetResourceShape,
-    spReflectionType_GetRowCount, spReflectionType_GetScalarType,
+    ISlangBlob, SlangInt, SlangReflectionFunction, SlangReflectionType, TypeReflection,
+    spReflectionFunction_FindModifier, spReflectionFunction_FindUserAttributeByName,
+    spReflectionFunction_GetGenericContainer, spReflectionFunction_GetName,
+    spReflectionFunction_GetParameter, spReflectionFunction_GetParameterCount,
+    spReflectionFunction_GetResultType, spReflectionFunction_GetUserAttributeCount,
+    spReflectionFunction_applySpecializations, spReflectionFunction_getOverload,
+    spReflectionFunction_getOverloadCount, spReflectionFunction_isOverloaded,
+    spReflectionFunction_specializeWithArgTypes, spReflectionType_GetColumnCount,
+    spReflectionType_GetElementCount, spReflectionType_GetElementType,
+    spReflectionType_GetFieldByIndex, spReflectionType_GetFieldCount, spReflectionType_GetFullName,
+    spReflectionType_GetGenericContainer, spReflectionType_GetKind, spReflectionType_GetName,
+    spReflectionType_GetResourceAccess, spReflectionType_GetResourceResultType,
+    spReflectionType_GetResourceShape, spReflectionType_GetRowCount,
+    spReflectionType_GetScalarType, spReflectionType_applySpecializations,
 };
 
 use super::{
-    LayoutSize, Positions, ResourceAccess, ResourceShape, ScalarType, TypeKind, Variable, count,
-    index,
+    Attribute, Generic, LayoutSize, ModifierId, Positions, ResourceAccess, ResourceShape,
+    ScalarType, TypeKind, UserAttributes, Variable, count, index,
 };
 use crate::blob;
-use crate::error::{Diagnostics, Operation, Result};
+use crate::component::other_session;
+use crate::error::{Diagnostics, Error, ErrorKind, Operation, Result};
 use crate::guard;
 use crate::mapping;
 use crate::owned::Owned;
 use crate::session::Session;
-use crate::strings::borrowed_str;
+use crate::strings::{borrowed_str, c_string};
 
 /// A type of Slang code, such as a structure, a vector, or a Slang
 /// interface, an `interface` declaration that Slang types implement.
@@ -709,6 +715,76 @@ impl<'a> Type<'a> {
         unsafe { Self::from_output(raw, self.session) }
     }
 
+    /// Returns the innermost generic that the declaration of the type sits
+    /// in, such as the generic of `Box<T>` for the type `Box<float>`, or
+    /// `None` when the type is not declared inside a generic.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Generic`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn generic_container(self) -> Option<Generic<'a>> {
+        let raw = guard::call("Type::generic_container", || {
+            // SAFETY: as for `kind`.
+            unsafe {
+                guard::abort_on_exception("spReflectionType_GetGenericContainer", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionType_GetGenericContainer(self.raw())
+                })
+            }
+        });
+        // SAFETY: Slang returned a generic of the same session.
+        unsafe { Generic::from_output(raw, self.session) }
+    }
+
+    /// Returns this type with the arguments of `generic` put in place of the
+    /// generic parameters that it names, or `None` when Slang returns none.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Generic::apply_specializations`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// without calling Slang, when `generic` belongs to another session.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn apply_specializations(self, generic: Generic<'a>) -> Result<Option<Type<'a>>> {
+        if !generic.session().is_same(self.session) {
+            return Err(other_session(Operation::Reflect, "the generic"));
+        }
+        let raw = guard::call("Type::apply_specializations", || {
+            // SAFETY: as for `kind`, and `generic` is a live generic of the
+            // same session, which the check above established.
+            unsafe {
+                guard::abort_on_exception("spReflectionType_applySpecializations", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionType_applySpecializations(self.raw(), generic.raw())
+                })
+            }
+        });
+        // SAFETY: Slang returned a type of the same session.
+        Ok(unsafe { Self::from_output(raw, self.session) })
+    }
+
     /// Returns the pointer to the type, for use with the reflection
     /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
@@ -806,10 +882,13 @@ position_iterator!(Fields<'a>, Variable<'a>);
 
 /// A function of Slang code, as its declaration describes it.
 ///
-/// Get one from [`EntryPoint::function`](crate::EntryPoint::function) or
-/// [`EntryPointLayout::function`](super::EntryPointLayout::function). Slang
-/// calls it `FunctionReflection`. It borrows the object that it came from, so
-/// it cannot outlive it.
+/// Get one from [`EntryPoint::function`](crate::EntryPoint::function),
+/// [`EntryPointLayout::function`](super::EntryPointLayout::function), or
+/// [`ProgramLayout::find_function_by_name`](super::ProgramLayout::find_function_by_name).
+/// A handle found by a name that several functions share stands for all of
+/// them, and [`Function::overloads`] lists them. Slang calls it
+/// `FunctionReflection`. It borrows the object that it came from, so it
+/// cannot outlive it.
 ///
 /// # Examples
 ///
@@ -982,6 +1061,402 @@ impl<'a> Function<'a> {
         unsafe { Type::from_output(raw, self.session) }
     }
 
+    /// Returns an iterator over the user attributes of the function,
+    /// attributes with a name that the source chooses, such as
+    /// `[Kernel("fast")]`, in the order of the source.
+    ///
+    /// # Examples
+    ///
+    /// This example collects the names of the user attributes of a function:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::Function;
+    ///
+    /// fn attribute_names(function: Function<'_>) -> slang_compiler::Result<Vec<String>> {
+    ///     let mut names = Vec::new();
+    ///     for attribute in function.user_attributes() {
+    ///         names.extend(attribute.name()?.map(str::to_owned));
+    ///     }
+    ///     Ok(names)
+    /// }
+    /// # let _ = attribute_names;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn user_attributes(self) -> UserAttributes<'a> {
+        let raw_count = guard::call("Function::user_attributes", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_GetUserAttributeCount", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_GetUserAttributeCount(self.raw.as_ptr())
+                })
+            }
+        });
+        UserAttributes::of_function(self, count(raw_count))
+    }
+
+    /// Returns the user attribute of the function named `name`, or `None`
+    /// when the function has none of that name.
+    ///
+    /// # Examples
+    ///
+    /// This example reads the first argument of the attribute `Kernel` as a
+    /// string:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::Function;
+    ///
+    /// fn kernel_mode(function: Function<'_>) -> slang_compiler::Result<Option<&str>> {
+    ///     match function.find_user_attribute_by_name("Kernel")? {
+    ///         Some(kernel) if kernel.argument_count() > 0 => kernel.argument_value_string(0),
+    ///         _ => Ok(None),
+    ///     }
+    /// }
+    /// # let _ = kernel_mode;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument) when
+    /// `name` contains a NUL byte, which Slang cannot take.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn find_user_attribute_by_name(self, name: &str) -> Result<Option<Attribute<'a>>> {
+        let name = c_string(name, Operation::Reflect, "the attribute name")?;
+        let global = self.session.global_session().as_raw();
+        let raw = guard::call("Function::find_user_attribute_by_name", || {
+            // SAFETY: as for `name`, `global` is the live global session of
+            // the session of the function, which owns the name pool that the
+            // call looks the name up in, and `name` is a C string that lives
+            // until the call returns.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_FindUserAttributeByName", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_FindUserAttributeByName(
+                        self.raw.as_ptr(),
+                        global.as_ptr(),
+                        name.as_ptr(),
+                    )
+                })
+            }
+        });
+        // SAFETY: Slang returned an attribute of the function, which lives in
+        // the syntax trees of the same session.
+        Ok(unsafe { Attribute::from_output(raw, self.session) })
+    }
+
+    /// Returns whether the declaration of the function carries `modifier`,
+    /// such as [`ModifierId::Differentiable`] for a function marked
+    /// `[Differentiable]`.
+    ///
+    /// A handle that stands for several overloads, which
+    /// [`Function::is_overloaded`] reports, carries no modifier, so this
+    /// returns `false` for it.
+    ///
+    /// # Examples
+    ///
+    /// This example tells whether automatic differentiation can
+    /// differentiate a function:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::{Function, ModifierId};
+    ///
+    /// fn is_differentiable(function: Function<'_>) -> bool {
+    ///     function.has_modifier(ModifierId::Differentiable)
+    /// }
+    /// # let _ = is_differentiable;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn has_modifier(self, modifier: ModifierId) -> bool {
+        let raw = guard::call("Function::has_modifier", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_FindModifier", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_FindModifier(self.raw.as_ptr(), modifier.to_raw())
+                })
+            }
+        });
+        !raw.is_null()
+    }
+
+    /// Returns the innermost generic that the function sits in, such as the
+    /// generic of `T` in `T twice<T : IArithmetic>(T value)`, or `None` when
+    /// the function is not declared inside a generic.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Generic`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn generic_container(self) -> Option<Generic<'a>> {
+        let raw = guard::call("Function::generic_container", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_GetGenericContainer", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_GetGenericContainer(self.raw.as_ptr())
+                })
+            }
+        });
+        // SAFETY: Slang returned a generic of the same session.
+        unsafe { Generic::from_output(raw, self.session) }
+    }
+
+    /// Returns this function with the arguments of `generic` put in place of
+    /// the generic parameters that it names, or `None` when Slang returns
+    /// none.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Generic::apply_specializations`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// without calling Slang, when `generic` belongs to another session.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn apply_specializations(self, generic: Generic<'a>) -> Result<Option<Function<'a>>> {
+        if !generic.session().is_same(self.session) {
+            return Err(other_session(Operation::Reflect, "the generic"));
+        }
+        let raw = guard::call("Function::apply_specializations", || {
+            // SAFETY: as for `name`, and `generic` is a live generic of the
+            // same session, which the check above established.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_applySpecializations", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_applySpecializations(self.raw.as_ptr(), generic.raw())
+                })
+            }
+        });
+        // SAFETY: Slang returned a function of the same session.
+        Ok(unsafe { Self::from_output(raw, self.session) })
+    }
+
+    /// Returns the function that Slang chooses for a call with arguments of
+    /// `argument_types`, with its generic parameters filled in from them, or
+    /// `None` when no overload of the function takes such arguments.
+    ///
+    /// Slang resolves the call as it would in source: among the overloads of
+    /// a handle that stands for several, and for the generic parameters of a
+    /// generic function, which it infers from the argument types.
+    ///
+    /// # Examples
+    ///
+    /// This example finds the function `twice` and resolves it for one
+    /// argument of type `float`:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::{Function, ProgramLayout};
+    ///
+    /// fn twice_for_float<'a>(layout: ProgramLayout<'a>) -> slang_compiler::Result<Option<Function<'a>>> {
+    ///     let (Some(twice), Some(float)) =
+    ///         (layout.find_function_by_name("twice")?, layout.find_type_by_name("float")?)
+    ///     else {
+    ///         return Ok(None);
+    ///     };
+    ///     twice.specialize_with_arg_types(&[float])
+    /// }
+    /// # let _ = twice_for_float;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// without calling Slang, when a type of `argument_types` belongs to
+    /// another session, or when there are more types than Slang's integer
+    /// type can count.
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    pub fn specialize_with_arg_types(
+        self,
+        argument_types: &[Type<'a>],
+    ) -> Result<Option<Function<'a>>> {
+        for (position, ty) in argument_types.iter().enumerate() {
+            if !ty.session.is_same(self.session) {
+                return Err(other_session(
+                    Operation::Reflect,
+                    &format!("argument type {position}"),
+                ));
+            }
+        }
+        let type_count = SlangInt::try_from(argument_types.len()).map_err(|error| {
+            Error::new(ErrorKind::InvalidArgument, Operation::Reflect).with_detail(format!(
+                "the {} argument types do not fit Slang's integer type: {error}",
+                argument_types.len()
+            ))
+        })?;
+        let raw_types = argument_types.iter().map(|ty| ty.raw()).collect::<Vec<_>>();
+        let raw = guard::call("Function::specialize_with_arg_types", || {
+            // SAFETY: as for `name`, every pointer of `raw_types` is a live type
+            // of the same session, which the check above established, and
+            // `raw_types` holds `type_count` of them until the call returns.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_specializeWithArgTypes", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_specializeWithArgTypes(
+                        self.raw.as_ptr(),
+                        type_count,
+                        raw_types.as_ptr(),
+                    )
+                })
+            }
+        });
+        // SAFETY: Slang returned a function of the same session.
+        Ok(unsafe { Self::from_output(raw, self.session) })
+    }
+
+    /// Returns whether this handle stands for several functions of one name,
+    /// as [`ProgramLayout::find_function_by_name`](super::ProgramLayout::find_function_by_name)
+    /// returns for an overloaded name.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Function::overloads`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn is_overloaded(self) -> bool {
+        guard::call("Function::is_overloaded", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_isOverloaded", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_isOverloaded(self.raw.as_ptr())
+                })
+            }
+        })
+    }
+
+    /// Returns an iterator over the functions that this handle stands for
+    /// when it is overloaded, each as a [`Function`].
+    ///
+    /// For a handle that is not overloaded, Slang reports one overload and
+    /// returns none for it, so the iterator yields nothing.
+    ///
+    /// # Examples
+    ///
+    /// This example lists the parameter counts of the overloads of a name:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::ProgramLayout;
+    ///
+    /// fn arities(layout: ProgramLayout<'_>, name: &str) -> slang_compiler::Result<Vec<usize>> {
+    ///     Ok(match layout.find_function_by_name(name)? {
+    ///         Some(function) if function.is_overloaded() => function
+    ///             .overloads()
+    ///             .map(|overload| overload.parameters().count())
+    ///             .collect(),
+    ///         Some(function) => vec![function.parameters().count()],
+    ///         None => Vec::new(),
+    ///     })
+    /// }
+    /// # let _ = arities;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn overloads(self) -> Overloads<'a> {
+        let raw_count = guard::call("Function::overloads", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_getOverloadCount", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_getOverloadCount(self.raw.as_ptr())
+                })
+            }
+        });
+        Overloads {
+            function: self,
+            positions: Positions::new(count(raw_count)),
+        }
+    }
+
+    /// Wraps a function that a reflection function returned, or returns
+    /// `None` for null.
+    ///
+    /// # Safety
+    ///
+    /// As for [`Function::new`], when `raw` is not null.
+    pub(super) unsafe fn from_output(
+        raw: *mut SlangReflectionFunction,
+        session: &'a Session,
+    ) -> Option<Self> {
+        // SAFETY: the caller guarantees the conditions of `new`.
+        NonNull::new(raw).map(|raw| unsafe { Self::new(raw, session) })
+    }
+
+    /// Returns the session that the function belongs to.
+    pub(crate) fn session(&self) -> &'a Session {
+        self.session
+    }
+
     /// Returns the pointer to the function, for use with the reflection
     /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
@@ -1077,3 +1552,61 @@ impl<'a> Parameters<'a> {
 }
 
 position_iterator!(Parameters<'a>, Variable<'a>);
+
+/// An iterator over the functions that an overloaded function handle stands
+/// for, which [`Function::overloads`] returns.
+///
+/// Each call of `next` asks Slang for the overload at the next position. A
+/// position at which Slang returns nothing yields no item, so the iterator
+/// does not implement [`ExactSizeIterator`]. Each call of `next` panics when
+/// it is called while another call of this crate into Slang is in progress
+/// on the same thread, because Slang is not reentrant.
+///
+/// # Examples
+///
+/// See the example of [`Function::overloads`].
+///
+/// The iterator cannot move to another thread, so this example does not
+/// compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slang_compiler::reflection::Overloads<'static>>();
+/// ```
+///
+/// The iterator cannot be shared between threads either, so this example
+/// does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slang_compiler::reflection::Overloads<'static>>();
+/// ```
+#[derive(Clone, Debug)]
+pub struct Overloads<'a> {
+    function: Function<'a>,
+    positions: Positions,
+}
+
+impl<'a> Overloads<'a> {
+    fn at(&self, position: usize) -> Option<Function<'a>> {
+        let index = index(position)?;
+        let raw = guard::call("Overloads::next", || {
+            // SAFETY: as for `Function::name`, and `index` is below the count
+            // that Slang reported, which bounds the index that
+            // `spReflectionFunction_getOverload` does not check.
+            unsafe {
+                guard::abort_on_exception("spReflectionFunction_getOverload", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionFunction_getOverload(self.function.raw.as_ptr(), index)
+                })
+            }
+        });
+        // SAFETY: Slang returned a function of the same session.
+        unsafe { Function::from_output(raw, self.function.session) }
+    }
+}
+
+position_iterator!(Overloads<'a>, Function<'a>);

@@ -82,6 +82,7 @@ macro_rules! position_iterator {
 }
 
 mod binding;
+mod generic;
 mod kinds;
 mod program;
 mod type_layout;
@@ -92,12 +93,14 @@ pub use binding::{
     BindingRange, BindingRanges, BindingType, DescriptorRange, DescriptorRanges, DescriptorSet,
     DescriptorSets,
 };
+pub use generic::{Generic, TypeParameterConstraints, TypeParameters, ValueParameters};
 pub use kinds::{
-    LayoutSize, LayoutUnits, ResourceAccess, ResourceBaseShape, ResourceShape, ScalarType, TypeKind,
+    DeclKind, LayoutSize, LayoutUnits, ModifierId, ResourceAccess, ResourceBaseShape,
+    ResourceShape, ScalarType, TypeKind,
 };
 pub use program::{EntryPointLayout, EntryPointLayouts, ParameterLayouts, ProgramLayout};
 pub use type_layout::{Categories, FieldLayouts, TypeLayout};
-pub use types::{Fields, Function, Parameters, Type};
+pub use types::{Fields, Function, Overloads, Parameters, Type};
 pub use variable::{Attribute, UserAttributes, Variable, VariableLayout};
 
 /// The positions that an iterator of this module has not yet yielded, from

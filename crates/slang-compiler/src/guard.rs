@@ -110,6 +110,48 @@ pub(crate) fn call<R>(method: &str, call: impl FnOnce() -> R) -> R {
     call()
 }
 
+/// Runs `f` with the Slang call guard of this thread raised, for code that
+/// calls Slang through another native library, such as slang-rhi, which
+/// shares Slang's objects with this crate.
+///
+/// Slang is not reentrant, and this crate refuses a call into Slang while
+/// another of its calls is in progress on the same thread. Code that calls a
+/// library which calls Slang wraps each such call in this function, so that
+/// the crate also counts it as a call in progress. A method of this crate
+/// that would call Slang inside `f`, such as one that the other library's
+/// callback reaches on the same thread, then panics before it calls Slang,
+/// instead of entering Slang a second time. A handle of this crate dropped
+/// inside `f` releases its Slang object after the guard falls, once no call
+/// is in progress on the thread. Apart from those releases, the function
+/// calls no function of Slang, and calls of it nest.
+///
+/// The guard falls when `f` returns or unwinds. It covers the calling thread
+/// only, because every object of this crate stays on the thread that
+/// created it.
+///
+/// # Examples
+///
+/// This example runs a stand-in for a call into another library inside the
+/// guard, and shows that a method of this crate called inside it panics:
+///
+/// ```
+/// use std::panic::{self, AssertUnwindSafe};
+///
+/// use slang_compiler::{GlobalSession, with_slang_call_guard};
+///
+/// let value = with_slang_call_guard(|| 40 + 2);
+/// assert_eq!(value, 42);
+///
+/// let reentrant = panic::catch_unwind(AssertUnwindSafe(|| {
+///     with_slang_call_guard(|| GlobalSession::new().map(drop))
+/// }));
+/// assert!(reentrant.is_err());
+/// ```
+pub fn with_slang_call_guard<R>(f: impl FnOnce() -> R) -> R {
+    let _raised = raise();
+    f()
+}
+
 #[cold]
 #[expect(
     clippy::panic,
@@ -187,7 +229,7 @@ mod tests {
 
     use slang_compiler_sys::ISlangBlob;
 
-    use super::{PENDING, abort_on_exception, call, raise};
+    use super::{PENDING, abort_on_exception, call, raise, with_slang_call_guard};
     use crate::fake::{Event, FakeBlob, Log, panic_message};
     use crate::owned::Owned;
 
@@ -273,6 +315,61 @@ mod tests {
     fn a_drop_without_the_guard_releases_at_once() {
         let log = Log::new();
         drop(adopt_blob(&log, "blob"));
+        assert_eq!(
+            log.events(),
+            [Event::release("blob", 0), Event::freed("blob")]
+        );
+    }
+
+    #[test]
+    fn a_method_inside_with_slang_call_guard_panics_before_it_calls_the_fake() {
+        let log = Log::new();
+        let global = crate::fake::global_session(&log);
+        let session = crate::fake::session(&global, 1);
+        let before = log.events();
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            with_slang_call_guard(|| session.load_module_from_source("m", "m.slang", ""))
+        }));
+        let payload = outcome.expect_err("the load panics");
+        let message = panic_message(payload.as_ref());
+        assert!(
+            message.starts_with("reentrant call: Session::load_module_from_source "),
+            "{message}"
+        );
+        assert_eq!(log.events(), before);
+        assert!(!super::is_raised());
+    }
+
+    #[test]
+    fn with_slang_call_guard_returns_the_value_and_defers_releases_until_it_returns() {
+        let log = Log::new();
+        let blob = adopt_blob(&log, "blob");
+        let value = with_slang_call_guard(|| {
+            drop(blob);
+            assert!(super::is_raised());
+            assert_eq!(log.events(), []);
+            with_slang_call_guard(|| 7)
+        });
+        assert_eq!(value, 7);
+        assert!(!super::is_raised());
+        assert_eq!(
+            log.events(),
+            [Event::release("blob", 0), Event::freed("blob")]
+        );
+    }
+
+    #[test]
+    fn with_slang_call_guard_lowers_the_guard_when_the_closure_unwinds() {
+        let log = Log::new();
+        let blob = adopt_blob(&log, "blob");
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            with_slang_call_guard(|| {
+                drop(blob);
+                std::panic::resume_unwind(Box::new("unwinding"));
+            })
+        }));
+        assert!(outcome.is_err());
+        assert!(!super::is_raised());
         assert_eq!(
             log.events(),
             [Event::release("blob", 0), Event::freed("blob")]

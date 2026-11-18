@@ -7,8 +7,8 @@
 use std::fmt::Write as _;
 
 use slang_compiler::reflection::{
-    BindingType, EntryPointLayout, LayoutSize, ProgramLayout, ScalarType, TypeKind, TypeLayout,
-    Variable, VariableLayout,
+    BindingType, DeclKind, EntryPointLayout, Function, LayoutSize, ModifierId, ProgramLayout,
+    ScalarType, Type, TypeKind, TypeLayout, Variable, VariableLayout,
 };
 use slang_compiler::{
     BindingIndex, BindingSpace, Component, ErrorKind, GlobalSession, LinkedProgram, MatrixLayout,
@@ -1075,4 +1075,548 @@ fn binding_spaces_and_binding_numbers_report_explicit_bindings() {
             ]
         );
     });
+}
+
+/// A module with an overloaded function, generic functions with a type
+/// parameter, a constraint, and a value parameter, a function marked
+/// `[Differentiable]`, a function with a user attribute with arguments, and
+/// generic structures with a method and a generic method.
+const FUNCTIONS: &str = r#"
+[__AttributeUsage(_AttributeTargets.Function)]
+struct KernelAttribute
+{
+    string mode;
+    int level;
+};
+
+float pick(float value) { return value; }
+float pick(float value, float other) { return value + other; }
+int pick(int value) { return value; }
+
+T twice<T : IArithmetic>(T value) { return value + value; }
+
+float sum<let N : int>(float values[N])
+{
+    float total = 0;
+    for (int i = 0; i < N; i++)
+        total += values[i];
+    return total;
+}
+
+[Differentiable]
+float square(float x) { return x * x; }
+
+[Kernel("fast", 3)]
+void tagged(inout float value, out float result)
+{
+    value += 1.0;
+    result = value;
+}
+
+struct Box<T : IArithmetic>
+{
+    T inner;
+    T get() { return inner; }
+    U convert<U : IArithmetic>(U scale) { return scale; }
+}
+
+struct Grid<let N : int>
+{
+    float cells[N];
+}
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main() {}
+"#;
+
+/// Loads `FUNCTIONS` into `session` and returns the module.
+fn functions_module(session: &Session) -> slang_compiler::Module {
+    session
+        .load_module_from_source("functions", "functions.slang", FUNCTIONS)
+        .expect("the source compiles")
+        .into_value()
+}
+
+/// Finds the function `name` in `layout`.
+fn function<'a>(layout: ProgramLayout<'a>, name: &str) -> Function<'a> {
+    layout
+        .find_function_by_name(name)
+        .expect("no NUL byte")
+        .unwrap_or_else(|| panic!("the module defines {name}"))
+}
+
+/// Finds the type `name` in `layout`.
+fn named_type<'a>(layout: ProgramLayout<'a>, name: &str) -> Type<'a> {
+    layout
+        .find_type_by_name(name)
+        .expect("no NUL byte")
+        .unwrap_or_else(|| panic!("the module defines {name}"))
+}
+
+fn full_names<'a>(types: impl Iterator<Item = Type<'a>>) -> Vec<String> {
+    types
+        .map(|ty| ty.full_name().expect("a full name"))
+        .collect()
+}
+
+#[test]
+fn functions_are_found_by_name_also_inside_a_type_and_as_an_expression() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let square = function(layout, "square");
+    assert_eq!(square.name().expect("UTF-8"), Some("square"));
+    assert!(!square.is_overloaded());
+    assert_eq!(square.overloads().count(), 0);
+    assert_eq!(square.parameters().count(), 1);
+    assert!(
+        layout
+            .find_function_by_name("missing")
+            .expect("no NUL byte")
+            .is_none()
+    );
+    assert!(
+        layout
+            .find_function_by_name("1 + 2")
+            .expect("no NUL byte")
+            .is_none()
+    );
+    let specialized = function(layout, "twice<float>");
+    let generic = specialized.generic_container().expect("a generic");
+    let parameter = generic.type_parameters().next().expect("T");
+    assert_eq!(
+        generic
+            .concrete_type(parameter)
+            .expect("a parameter of the generic")
+            .map(|ty| ty.full_name().expect("a full name")),
+        Some(String::from("float"))
+    );
+    let boxed = named_type(layout, "Box<float>");
+    let get = layout
+        .find_function_by_name_in_type(boxed, "get")
+        .expect("same session")
+        .expect("Box has get");
+    assert_eq!(get.name().expect("UTF-8"), Some("get"));
+    assert_eq!(
+        get.return_type()
+            .map(|ty| ty.full_name().expect("a full name")),
+        Some(String::from("float"))
+    );
+    assert!(
+        layout
+            .find_function_by_name_in_type(boxed, "missing")
+            .expect("same session")
+            .is_none()
+    );
+    let error = layout
+        .find_function_by_name("bad\0name")
+        .expect_err("a NUL byte fails");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    let error = layout
+        .find_function_by_name_in_type(boxed, "bad\0name")
+        .expect_err("a NUL byte fails");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+}
+
+#[test]
+fn an_overloaded_name_lists_its_overloads_and_resolves_for_argument_types() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let pick = function(layout, "pick");
+    assert!(pick.is_overloaded());
+    let arities = pick
+        .overloads()
+        .map(|overload| overload.parameters().count())
+        .collect::<Vec<_>>();
+    assert_eq!(arities, [1, 2, 1]);
+    let mut overloads = pick.overloads();
+    assert_eq!(overloads.size_hint(), (0, Some(3)));
+    assert!(overloads.next_back().is_some());
+    assert_eq!(overloads.count(), 2);
+    let float = named_type(layout, "float");
+    let int = named_type(layout, "int");
+    let boolean = named_type(layout, "bool");
+    let signature = |argument_types: &[Type<'_>]| {
+        pick.specialize_with_arg_types(argument_types)
+            .expect("same session")
+            .map(|chosen| {
+                full_names(
+                    chosen
+                        .parameters()
+                        .map(|parameter| parameter.ty().expect("a type")),
+                )
+            })
+    };
+    assert_eq!(signature(&[int]), Some(vec![String::from("int")]));
+    assert_eq!(
+        signature(&[float, float]),
+        Some(vec![String::from("float"), String::from("float")])
+    );
+    assert_eq!(signature(&[boolean, boolean, boolean]), None);
+    assert_eq!(signature(&[]), None);
+}
+
+#[test]
+fn attributes_and_modifiers_of_functions_and_parameters_are_read() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let every = [
+        ModifierId::Shared,
+        ModifierId::NoDiff,
+        ModifierId::Static,
+        ModifierId::Const,
+        ModifierId::Export,
+        ModifierId::Extern,
+        ModifierId::Differentiable,
+        ModifierId::Mutating,
+        ModifierId::In,
+        ModifierId::Out,
+        ModifierId::InOut,
+    ];
+    let modifiers_of = |has: &dyn Fn(ModifierId) -> bool| {
+        every
+            .into_iter()
+            .filter(|modifier| has(*modifier))
+            .collect::<Vec<_>>()
+    };
+    let square = function(layout, "square");
+    assert_eq!(
+        modifiers_of(&|modifier| square.has_modifier(modifier)),
+        [ModifierId::Differentiable]
+    );
+    assert_eq!(square.user_attributes().count(), 0);
+    let pick = function(layout, "pick");
+    assert_eq!(modifiers_of(&|modifier| pick.has_modifier(modifier)), []);
+    let tagged = function(layout, "tagged");
+    assert_eq!(modifiers_of(&|modifier| tagged.has_modifier(modifier)), []);
+    let parameters = tagged
+        .parameters()
+        .map(|parameter| modifiers_of(&|modifier| parameter.has_modifier(modifier)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        parameters,
+        [
+            vec![ModifierId::Out, ModifierId::InOut],
+            vec![ModifierId::Out]
+        ]
+    );
+    let names = tagged
+        .user_attributes()
+        .map(|attribute| attribute.name().expect("UTF-8"))
+        .collect::<Vec<_>>();
+    assert_eq!(names, [Some("Kernel")]);
+    let kernel = tagged
+        .find_user_attribute_by_name("Kernel")
+        .expect("no NUL byte")
+        .expect("tagged has Kernel");
+    assert_eq!(kernel.argument_count(), 2);
+    assert_eq!(
+        kernel.argument_value_string(0).expect("a position"),
+        Some("fast")
+    );
+    assert_eq!(kernel.argument_value_int(1).expect("a position"), Some(3));
+    assert!(
+        tagged
+            .find_user_attribute_by_name("Missing")
+            .expect("no NUL byte")
+            .is_none()
+    );
+    let error = tagged
+        .find_user_attribute_by_name("bad\0name")
+        .expect_err("a NUL byte fails");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+}
+
+#[test]
+fn generic_containers_list_their_parameters_constraints_and_arguments() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    assert!(function(layout, "square").generic_container().is_none());
+    let twice = function(layout, "twice");
+    let generic = twice.generic_container().expect("twice is generic");
+    assert_eq!(generic.name().expect("UTF-8"), Some("twice"));
+    assert_eq!(generic.inner_kind().expect("a known kind"), DeclKind::Func);
+    assert!(generic.outer_generic_container().is_none());
+    assert_eq!(generic.value_parameters().count(), 0);
+    let parameters = generic.type_parameters().collect::<Vec<_>>();
+    assert_eq!(parameters.len(), 1);
+    let parameter = parameters[0];
+    assert_eq!(parameter.name().expect("UTF-8"), Some("T"));
+    assert_eq!(
+        full_names(
+            generic
+                .type_parameter_constraints(parameter)
+                .expect("a type parameter of the generic")
+        ),
+        ["IArithmetic"]
+    );
+    assert!(
+        generic
+            .concrete_type(parameter)
+            .expect("a type parameter of the generic")
+            .is_none()
+    );
+
+    let float = named_type(layout, "float");
+    let specialized = twice
+        .specialize_with_arg_types(&[float])
+        .expect("same session")
+        .expect("twice takes a float");
+    assert_eq!(
+        specialized
+            .return_type()
+            .map(|ty| ty.full_name().expect("a full name")),
+        Some(String::from("float"))
+    );
+    let arguments = specialized.generic_container().expect("a generic");
+    let applied = twice
+        .apply_specializations(arguments)
+        .expect("same session")
+        .expect("Slang applies the arguments");
+    assert_eq!(
+        applied
+            .return_type()
+            .map(|ty| ty.full_name().expect("a full name")),
+        Some(String::from("float"))
+    );
+    let open = twice.return_type().expect("T");
+    assert_eq!(
+        open.apply_specializations(arguments)
+            .expect("same session")
+            .map(|ty| ty.full_name().expect("a full name")),
+        Some(String::from("float"))
+    );
+    let applied_generic = generic
+        .apply_specializations(arguments)
+        .expect("same session")
+        .expect("Slang applies the arguments");
+    let filled = applied_generic
+        .type_parameters()
+        .map(|parameter| {
+            applied_generic
+                .concrete_type(parameter)
+                .expect("a type parameter of the generic")
+                .map(|ty| ty.full_name().expect("a full name"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(filled, [Some(String::from("float"))]);
+}
+
+#[test]
+fn value_parameters_and_outer_generics_report_their_arguments() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let sum = function(layout, "sum")
+        .generic_container()
+        .expect("sum is generic");
+    assert_eq!(sum.type_parameters().count(), 0);
+    let count = sum.value_parameters().next().expect("N");
+    assert_eq!(count.name().expect("UTF-8"), Some("N"));
+    assert_eq!(sum.concrete_int_val(count).expect("a value parameter"), 0);
+    let grid = named_type(layout, "Grid<4>")
+        .generic_container()
+        .expect("Grid is generic");
+    assert_eq!(grid.inner_kind().expect("a known kind"), DeclKind::Struct);
+    let cells = grid.value_parameters().next().expect("N");
+    assert_eq!(grid.concrete_int_val(cells).expect("a value parameter"), 4);
+
+    let boxed = named_type(layout, "Box<float>");
+    let convert = layout
+        .find_function_by_name_in_type(boxed, "convert")
+        .expect("same session")
+        .expect("Box has convert");
+    let inner = convert.generic_container().expect("convert is generic");
+    assert_eq!(inner.name().expect("UTF-8"), Some("convert"));
+    let outer = inner.outer_generic_container().expect("Box is generic");
+    assert_eq!(outer.name().expect("UTF-8"), Some("Box"));
+    let element = outer.type_parameters().next().expect("T of Box");
+    assert_eq!(
+        full_names(
+            outer
+                .type_parameter_constraints(element)
+                .expect("T is a type parameter of Box")
+        ),
+        ["IArithmetic"]
+    );
+    let filled = outer
+        .concrete_type(element)
+        .expect("T is a type parameter of Box")
+        .map(|ty| ty.full_name().expect("UTF-8"));
+    assert_eq!(filled, Some(String::from("float")));
+    assert_eq!(
+        inner
+            .concrete_type(element)
+            .map(|_| ())
+            .expect_err("T of Box is not a parameter of convert")
+            .kind(),
+        ErrorKind::InvalidArgument
+    );
+    assert_eq!(
+        boxed.generic_container().map(|g| g.name().expect("UTF-8")),
+        Some(Some("Box"))
+    );
+}
+
+#[test]
+fn a_parameter_of_another_generic_or_kind_fails_before_any_call() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let module = functions_module(&session);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let twice = function(layout, "twice")
+        .generic_container()
+        .expect("twice is generic");
+    let sum = function(layout, "sum")
+        .generic_container()
+        .expect("sum is generic");
+    let boxed = named_type(layout, "Box<float>")
+        .generic_container()
+        .expect("Box is generic");
+    let theirs = boxed.type_parameters().next().expect("T of Box");
+    let value = sum.value_parameters().next().expect("N");
+    let mine = twice.type_parameters().next().expect("T of twice");
+    let field = function(layout, "square").parameters().next().expect("x");
+    for error in [
+        twice
+            .type_parameter_constraints(theirs)
+            .map(|_| ())
+            .expect_err("T of Box is not a parameter of twice"),
+        twice
+            .concrete_type(field)
+            .map(|_| ())
+            .expect_err("x is not a parameter of twice"),
+        twice
+            .concrete_type(value)
+            .map(|_| ())
+            .expect_err("N is a value parameter"),
+        sum.concrete_int_val(mine)
+            .map(|_| ())
+            .expect_err("T is a type parameter"),
+        sum.concrete_int_val(field)
+            .map(|_| ())
+            .expect_err("x is not a parameter of sum"),
+    ] {
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(error.operation(), Operation::Reflect);
+        assert_eq!(error.code(), None);
+    }
+    let error = sum
+        .concrete_int_val(field)
+        .expect_err("x is not a parameter of sum");
+    assert_eq!(
+        error.to_string(),
+        "cannot read reflection: the variable is not a value parameter of this generic, and Slang reads it as one without a check"
+    );
+}
+
+#[test]
+fn functions_and_generics_reject_handles_of_another_session_before_any_call() {
+    let global = GlobalSession::new().expect("Slang creates a global session");
+    let session = spirv_session(&global);
+    let other = spirv_session(&global);
+    let module = functions_module(&session);
+    let foreign_module = functions_module(&other);
+    let layout = module
+        .layout(session.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let foreign = foreign_module
+        .layout(other.target_index(0).expect("a target"))
+        .expect("Slang lays out the module")
+        .into_value();
+    let twice = function(layout, "twice");
+    let generic = twice.generic_container().expect("twice is generic");
+    let their_twice = function(foreign, "twice");
+    let their_generic = their_twice.generic_container().expect("twice is generic");
+    let their_parameter = their_generic.type_parameters().next().expect("T");
+    let their_float = named_type(foreign, "float");
+    let their_box = named_type(foreign, "Box<float>");
+    let their_value = function(foreign, "sum")
+        .generic_container()
+        .expect("sum is generic")
+        .value_parameters()
+        .next()
+        .expect("N");
+    let sum = function(layout, "sum")
+        .generic_container()
+        .expect("sum is generic");
+    let errors = [
+        layout
+            .find_function_by_name_in_type(their_box, "get")
+            .map(|_| ())
+            .expect_err("a type of another session"),
+        twice
+            .specialize_with_arg_types(&[their_float])
+            .map(|_| ())
+            .expect_err("a type of another session"),
+        twice
+            .apply_specializations(their_generic)
+            .map(|_| ())
+            .expect_err("a generic of another session"),
+        twice
+            .return_type()
+            .expect("T")
+            .apply_specializations(their_generic)
+            .map(|_| ())
+            .expect_err("a generic of another session"),
+        generic
+            .apply_specializations(their_generic)
+            .map(|_| ())
+            .expect_err("a generic of another session"),
+        generic
+            .type_parameter_constraints(their_parameter)
+            .map(|_| ())
+            .expect_err("a parameter of another session"),
+        generic
+            .concrete_type(their_parameter)
+            .map(|_| ())
+            .expect_err("a parameter of another session"),
+        sum.concrete_int_val(their_value)
+            .map(|_| ())
+            .expect_err("a parameter of another session"),
+    ];
+    for error in errors {
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(error.operation(), Operation::Reflect);
+        assert_eq!(error.code(), None);
+        assert!(
+            error.to_string().contains("belongs to another session"),
+            "{error}"
+        );
+    }
+    let error = twice
+        .specialize_with_arg_types(&[named_type(layout, "float"), their_float])
+        .expect_err("a type of another session");
+    assert_eq!(
+        error.to_string(),
+        "cannot read reflection: argument type 1 belongs to another session, and Slang resolves it only in its own session"
+    );
 }

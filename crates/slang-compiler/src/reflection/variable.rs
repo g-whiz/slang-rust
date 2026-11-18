@@ -5,21 +5,22 @@ use std::str;
 
 use slang_compiler_sys::{
     SlangReflectionTypeLayout, SlangReflectionUserAttribute, SlangReflectionVariable,
-    SlangReflectionVariableLayout, spReflectionUserAttribute_GetArgumentCount,
-    spReflectionUserAttribute_GetArgumentType, spReflectionUserAttribute_GetArgumentValueFloat,
-    spReflectionUserAttribute_GetArgumentValueInt,
+    SlangReflectionVariableLayout, spReflectionFunction_GetUserAttribute,
+    spReflectionUserAttribute_GetArgumentCount, spReflectionUserAttribute_GetArgumentType,
+    spReflectionUserAttribute_GetArgumentValueFloat, spReflectionUserAttribute_GetArgumentValueInt,
     spReflectionUserAttribute_GetArgumentValueString, spReflectionUserAttribute_GetName,
-    spReflectionVariable_FindUserAttributeByName, spReflectionVariable_GetName,
-    spReflectionVariable_GetType, spReflectionVariable_GetUserAttribute,
-    spReflectionVariable_GetUserAttributeCount, spReflectionVariableLayout_GetOffset,
-    spReflectionVariableLayout_GetSemanticIndex, spReflectionVariableLayout_GetSemanticName,
-    spReflectionVariableLayout_GetSpace, spReflectionVariableLayout_GetTypeLayout,
-    spReflectionVariableLayout_GetVariable, spReflectionVariableLayout_getStage,
+    spReflectionVariable_FindModifier, spReflectionVariable_FindUserAttributeByName,
+    spReflectionVariable_GetName, spReflectionVariable_GetType,
+    spReflectionVariable_GetUserAttribute, spReflectionVariable_GetUserAttributeCount,
+    spReflectionVariableLayout_GetOffset, spReflectionVariableLayout_GetSemanticIndex,
+    spReflectionVariableLayout_GetSemanticName, spReflectionVariableLayout_GetSpace,
+    spReflectionVariableLayout_GetTypeLayout, spReflectionVariableLayout_GetVariable,
+    spReflectionVariableLayout_getStage,
 };
 
 use super::{
-    LayoutSize, LayoutUnits, Positions, Type, TypeLayout, binding_number, count, index,
-    out_of_range,
+    Function, LayoutSize, LayoutUnits, ModifierId, Positions, Type, TypeLayout, binding_number,
+    count, index, out_of_range,
 };
 use crate::blob::BindingSpace;
 use crate::enums::{ParameterCategory, Stage};
@@ -612,7 +613,7 @@ impl<'a> Variable<'a> {
             }
         });
         UserAttributes {
-            variable: self,
+            owner: AttributeOwner::Variable(self),
             positions: Positions::new(count(raw_count)),
         }
     }
@@ -674,6 +675,57 @@ impl<'a> Variable<'a> {
         Ok(unsafe { Attribute::from_output(raw, self.session) })
     }
 
+    /// Returns whether the declaration of the variable carries `modifier`,
+    /// such as `const` on a global constant or `out` on a parameter.
+    ///
+    /// # Examples
+    ///
+    /// This example collects the names of the output parameters of a
+    /// function:
+    ///
+    /// ```
+    /// use slang_compiler::reflection::{Function, ModifierId};
+    ///
+    /// fn outputs(function: Function<'_>) -> slang_compiler::Result<Vec<String>> {
+    ///     let mut names = Vec::new();
+    ///     for parameter in function.parameters() {
+    ///         if parameter.has_modifier(ModifierId::Out) || parameter.has_modifier(ModifierId::InOut) {
+    ///             names.extend(parameter.name()?.map(str::to_owned));
+    ///         }
+    ///     }
+    ///     Ok(names)
+    /// }
+    /// # let _ = outputs;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when it is called while another call of this crate into Slang
+    /// is in progress on the same thread, because Slang is not reentrant. Only
+    /// code that Slang calls back during such a call can do that.
+    #[must_use]
+    pub fn has_modifier(self, modifier: ModifierId) -> bool {
+        let raw = guard::call("Variable::has_modifier", || {
+            // SAFETY: as for `name`.
+            unsafe {
+                guard::abort_on_exception("spReflectionVariable_FindModifier", || {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionVariable_FindModifier(self.raw.as_ptr(), modifier.to_raw())
+                })
+            }
+        });
+        !raw.is_null()
+    }
+
+    /// Returns the session that the variable belongs to, so that a method can
+    /// reject a variable of another session.
+    pub(crate) fn session(&self) -> &'a Session {
+        self.session
+    }
+
     /// Returns the pointer to the variable, for use with the reflection
     /// functions of `slang-compiler-sys` that this crate does not wrap.
     ///
@@ -712,8 +764,9 @@ impl fmt::Debug for Variable<'_> {
     }
 }
 
-/// An iterator over the user attributes of a variable, which
-/// [`Variable::user_attributes`] returns.
+/// An iterator over the user attributes of a variable or a function, which
+/// [`Variable::user_attributes`] and
+/// [`Function::user_attributes`](super::Function::user_attributes) return.
 ///
 /// Each call of `next` asks Slang for the attribute at the next position. A
 /// position at which Slang returns nothing yields no item, so the iterator
@@ -742,29 +795,71 @@ impl fmt::Debug for Variable<'_> {
 /// ```
 #[derive(Clone, Debug)]
 pub struct UserAttributes<'a> {
-    variable: Variable<'a>,
+    owner: AttributeOwner<'a>,
     positions: Positions,
 }
 
+/// The declaration whose user attributes a [`UserAttributes`] reads.
+#[derive(Clone, Copy, Debug)]
+enum AttributeOwner<'a> {
+    Variable(Variable<'a>),
+    Function(Function<'a>),
+}
+
 impl<'a> UserAttributes<'a> {
+    /// Returns an iterator over the user attributes of `function`, of which
+    /// Slang reported `count`.
+    pub(super) fn of_function(function: Function<'a>, count: usize) -> Self {
+        Self {
+            owner: AttributeOwner::Function(function),
+            positions: Positions::new(count),
+        }
+    }
+
     fn at(&self, position: usize) -> Option<Attribute<'a>> {
         let index = index(position)?;
-        let raw = guard::call("UserAttributes::next", || {
-            // SAFETY: as for `Variable::name`, and `index` is below the count
-            // that Slang reported.
-            unsafe {
-                guard::abort_on_exception("spReflectionVariable_GetUserAttribute", || {
-                    #[expect(
-                        ffi_unwind_calls,
-                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
-                    )]
-                    spReflectionVariable_GetUserAttribute(self.variable.raw.as_ptr(), index)
-                })
+        match self.owner {
+            AttributeOwner::Variable(variable) => {
+                let raw = guard::call("UserAttributes::next", || {
+                    // SAFETY: as for `Variable::name`, and `index` is below the
+                    // count that Slang reported.
+                    unsafe {
+                        guard::abort_on_exception("spReflectionVariable_GetUserAttribute", || {
+                            #[expect(
+                                ffi_unwind_calls,
+                                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                            )]
+                            spReflectionVariable_GetUserAttribute(variable.raw.as_ptr(), index)
+                        })
+                    }
+                });
+                // SAFETY: Slang returned an attribute of the variable, which
+                // lives in the syntax trees of the same session.
+                unsafe { Attribute::from_output(raw, variable.session) }
             }
-        });
-        // SAFETY: Slang returned an attribute of the variable, which lives in
-        // the syntax trees of the same session.
-        unsafe { Attribute::from_output(raw, self.variable.session) }
+            AttributeOwner::Function(function) => {
+                let raw = guard::call("UserAttributes::next", || {
+                    // SAFETY: `function` is a live function of its session,
+                    // which keeps it alive for `'a`, used only on this thread,
+                    // the call runs with the Slang call guard raised, and
+                    // `index` is below the count that Slang reported, which
+                    // bounds the index that
+                    // `spReflectionFunction_GetUserAttribute` does not check.
+                    unsafe {
+                        guard::abort_on_exception("spReflectionFunction_GetUserAttribute", || {
+                            #[expect(
+                                ffi_unwind_calls,
+                                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                            )]
+                            spReflectionFunction_GetUserAttribute(function.as_raw().as_ptr(), index)
+                        })
+                    }
+                });
+                // SAFETY: Slang returned an attribute of the function, which
+                // lives in the syntax trees of the same session.
+                unsafe { Attribute::from_output(raw, function.session()) }
+            }
+        }
     }
 }
 
@@ -773,8 +868,11 @@ position_iterator!(UserAttributes<'a>, Attribute<'a>);
 /// A user attribute of a declaration, an attribute with a name that the
 /// source chooses, such as `[Range(0, 10)]`, with its arguments.
 ///
-/// Get one from [`Variable::user_attributes`] or
-/// [`Variable::find_user_attribute_by_name`]. Slang calls it `Attribute` or
+/// Get one from [`Variable::user_attributes`],
+/// [`Variable::find_user_attribute_by_name`],
+/// [`Function::user_attributes`](super::Function::user_attributes), or
+/// [`Function::find_user_attribute_by_name`](super::Function::find_user_attribute_by_name).
+/// Slang calls it `Attribute` or
 /// `UserAttribute`. It borrows the object that it came from, so it cannot
 /// outlive it.
 ///
@@ -832,7 +930,7 @@ impl<'a> Attribute<'a> {
     /// of `session`, which live as long as the session, and `session` is
     /// borrowed for `'a` from a wrapper that a handle reached. Breaking this
     /// is undefined behaviour.
-    unsafe fn from_output(
+    pub(super) unsafe fn from_output(
         raw: *mut SlangReflectionUserAttribute,
         session: &'a Session,
     ) -> Option<Self> {
