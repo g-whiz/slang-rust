@@ -30,6 +30,16 @@ fn adapters_lists_an_adapter_and_a_device_opens_on_each() {
 }
 
 #[test]
+fn a_device_of_the_default_type_opens_on_the_api_of_the_platform() {
+    let (mut options, messages) = options(Toggle::Off);
+    options.device_type(DeviceType::Default);
+    let device = open(&options);
+    assert_eq!(device.info().device_type(), DEVICE_TYPE);
+    assert_eq!(device.info().api_name(), API);
+    assert_eq!(messages.errors(), []);
+}
+
+#[test]
 fn an_adapter_of_another_device_type_than_the_options_is_refused() {
     let adapter = slang_rhi::adapters(DEVICE_TYPE)
         .expect("slang-rhi lists the adapters")

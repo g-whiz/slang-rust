@@ -4,10 +4,14 @@
 //! slang-rhi is the C++ library of the Slang source tree that gives one API
 //! over several graphics APIs, such as Vulkan. This crate wraps its raw
 //! bindings, which `slang-rhi-sys` holds, for the path of one compute
-//! dispatch: a program lists the adapters, opens a device, creates a shader
-//! program and a compute pipeline from a program that `slang-compiler` linked,
-//! creates buffers, records a compute pass that binds parameters by name and
+//! dispatch, which runs a compute kernel on the GPU.
+//!
+//! A program lists the adapters, opens a device, creates a shader program and
+//! a compute pipeline from a program that `slang-compiler` linked, and creates
+//! buffers. It then records a compute pass, the commands of one or more
+//! dispatches, in which it binds the parameters of the kernel by name and
 //! dispatches the kernel, submits the work, and reads a buffer back.
+//!
 //! Everything that concerns Slang, the shader compiler, such as loading and
 //! linking modules, goes through `slang-compiler`. Use `slango` for a
 //! higher-level API on wgpu, and this crate to drive slang-rhi itself.
@@ -91,8 +95,8 @@
 //! [`Device::slang_session`] returns. Load and link every program of the
 //! device through that session, because a shader program takes only a
 //! program of the device's session. The global sessions that `slang-compiler`
-//! creates carry the loader of the SPIR-V optimizer, so the device's code is
-//! optimized.
+//! creates carry the loader of the SPIR-V optimizer, so the SPIR-V code of a
+//! Vulkan device is optimized. SPIR-V is the shader code format of Vulkan.
 //!
 //! # Ownership and threads
 //!
@@ -113,33 +117,78 @@
 //! when it stops calling it. Each device costs one small allocation that is
 //! never freed.
 //!
-//! Aborts the process, instead of returning an error, when a C++ exception
-//! escapes a call into slang-rhi or into Slang, after it writes one line to
-//! standard error that names the call. Aborts the process when the closure of
-//! a debug callback panics, because the panic reaches the boundary of
-//! slang-rhi, and when that closure uses an object of this crate or of
-//! `slang-compiler` while slang-rhi is inside a call of the same thread,
+//! The crate aborts the process, instead of returning an error, when a C++
+//! exception escapes a call into slang-rhi or into Slang, after it writes one
+//! line to standard error that names the call. It also aborts the process when
+//! the closure of a debug callback panics, because the panic reaches the
+//! boundary of slang-rhi, and when that closure uses an object of this crate
+//! or of `slang-compiler` while slang-rhi is inside a call of the same thread,
 //! which panics in the closure.
+//!
+//! # Debug messages
+//!
+//! slang-rhi reports errors, warnings, and information through a debug
+//! callback, a function that it calls with each message. A program receives
+//! these messages by setting a closure with
+//! [`DeviceOptions::debug_callback`], which gets each one as a
+//! [`DebugMessage`]. A device works without a closure.
+//!
+//! slang-rhi calls the closure from the thread of the call that caused the
+//! message or from a thread of the driver, and from several threads at once.
+//!
+//! The messages that Slang reports while slang-rhi compiles a kernel also
+//! become the diagnostics of the error of the failed call, which
+//! [`Error::diagnostics`] returns, whether or not the program sets a closure.
+//!
+//! [`DeviceOptions::validation`] turns on the debug device of slang-rhi,
+//! which checks each call against the rules of slang-rhi and reports a
+//! violation through the debug callback. It does not turn on the validation
+//! layer of Vulkan or the debug layer of Direct3D 12.
+//!
+//! # What the crate does not cover
+//!
+//! The crate wraps the compute path only. It has no render pipelines,
+//! textures, samplers, fences, mapped buffers, copy or clear commands, or
+//! queries. A program that needs one of them calls the raw bindings of
+//! `slang-rhi-sys` under their safety contract. These limits also apply:
+//!
+//! - A device opens only with [`DeviceType::Vulkan`] on Linux and
+//!   [`DeviceType::D3d12`] on Windows, or with [`DeviceType::Default`], which
+//!   selects that API. A device of any other type fails to open.
+//! - The crate creates no buffer with a format, so a parameter takes only a
+//!   raw buffer, such as a `StructuredBuffer`, a `RWStructuredBuffer`, or a
+//!   `ByteAddressBuffer`, and not a typed buffer such as `RWBuffer<float>`.
+//! - [`ShaderObject::offset_of`] finds only the parameters at the top level
+//!   by name, and not a field of a structure or an element of an array. The
+//!   fields of a `ConstantBuffer` or a `ParameterBlock` parameter cannot be
+//!   set.
+//! - A compute pipeline takes a program with exactly one compute entry point
+//!   and no specialization parameter left.
+//! - On Vulkan, a parameter that is left without a buffer works only on a
+//!   driver with the feature `nullDescriptor`, which the crate does not check.
 //!
 //! # How the crate gets slang-rhi
 //!
 //! The crate always builds Slang and slang-rhi from source and links them
 //! statically, through `slang-rhi-sys` and the feature `vendored` of
-//! `slang-compiler`. It never uses the Slang of a Vulkan SDK. The first build
+//! `slang-compiler`, and never uses the Slang of a Vulkan SDK. The first build
 //! in a Cargo target directory clones the Slang source tree, which needs git
 //! and network access, and builds Slang, its SPIR-V optimizer, and slang-rhi,
-//! which takes minutes. The build needs libclang, `cmake` 3.22 or later,
-//! Ninja, a C++20 compiler, and Python 3, and on Linux the development headers
-//! of Xlib, such as those of the Debian package `libx11-dev`, as the
-//! documentation of `slang-rhi-sys` states.
+//! which takes minutes.
+//!
+//! The build needs libclang, `cmake` 3.22 or later, Ninja, a C++20 compiler,
+//! and Python 3. It also needs the development headers of Xlib on Linux, such
+//! as those of the Debian package `libx11-dev`, and on Windows an installation
+//! of Visual Studio or its Build Tools with the C++ tools and a Windows SDK, as
+//! the documentation of `slang-rhi-sys` states.
 //!
 //! On Linux, a program that opens a device needs the Vulkan loader
 //! `libvulkan.so.1` and a Vulkan driver at run time, such as lavapipe, the
 //! software driver of Mesa. On Windows, a program that creates a pipeline
 //! needs `dxcompiler.dll` of the DirectX Shader Compiler on its `PATH` or
 //! beside its executable, through which Slang compiles the kernels to DXIL,
-//! and providing it is the responsibility of the program. The Windows SDK
-//! ships it.
+//! the shader code format of Direct3D 12. The program provides it, and the
+//! Windows SDK ships it.
 //!
 //! # Features
 //!
@@ -181,3 +230,7 @@ pub use device::{Adapter, AdapterType, Device, DeviceInfo, DeviceOptions, Device
 pub use error::{Error, ErrorKind, Operation, Result};
 pub use program::{ComputePipeline, ShaderProgram};
 pub use shader_object::{ShaderObject, ShaderOffset};
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

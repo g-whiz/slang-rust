@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | The root `README.md` and the `README.md` of every library crate in this repository |
 
 ## Abstract
@@ -127,7 +127,7 @@ RDM-7. The section `Status` MUST hold one alert of type `WARNING` that states th
 
 RDM-8. The section `Crates` MUST hold one table with one row for each library crate and the columns Crate, Use it to, and API documentation. The Crate column links the crate name to its crate README on GitHub, the Use it to column has one sentence, and the API documentation column links to the page of the crate on the hosted API documentation, or, for a crate with `publish = false`, to its source directory on GitHub.
 
-The rows start with the crates that a user depends on directly, which are `slango`, `slango-macros`, `slang-compiler`, and `slang-slint`, followed by the crates they build on, which are `slango-codegen`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-src`, and `slang-bindgen`. A visitor scans the table top down for the crate that fits. The tracing README uses such a table [TRACING].
+The rows start with the crates that a user depends on directly, which are `slango`, `slango-macros`, `slang-compiler`, `slang-slint`, and `slang-rhi`, followed by the crates they build on, which are `slango-codegen`, `slang-compiler-sys`, `slang-rhi-sys`, `slang-glslang-sys`, `slang-src`, and `slang-bindgen`. A visitor scans the table top down for the crate that fits. The tracing README uses such a table [TRACING].
 
 ### 5.5. Getting Started
 
@@ -155,7 +155,7 @@ Table 3. Sections of a crate README.
 | 2 | None | Required | The opening paragraph of Section 6.2 |
 | 3 | None | Required | The status notice of Section 6.3 |
 | 4 | `## Installation` | Required | The dependency snippet of Section 6.4, or for `slang-src` the sentences that RDM-13 gives instead |
-| 5 | `## Example` | Required, except for `slang-compiler-sys`, `slang-glslang-sys`, and `slang-src` | The example of Section 7 |
+| 5 | `## Example` | Required, except for `slang-compiler-sys`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-src` | The example of Section 7 |
 | 6 | `## Requirements` | Required when the crate needs more than Cargo | Pointers to the native requirements of the crate |
 | 7 | `## Documentation` | Required | Links to the page of the crate on the hosted API documentation and to the root README |
 | 8 | `## Licence` | Required | The licence of the crate and links to its licence texts |
@@ -182,13 +182,14 @@ Table 4. Content of a crate README by kind of crate.
 
 | Kind | Crates | The opening says | The example | `Requirements` also points to |
 | --- | --- | --- | --- | --- |
-| `-sys` crate | `slang-compiler-sys`, `slang-glslang-sys` | That the crate holds raw unsafe bindings or a native build, and that most users depend on `slang-compiler` instead | None | How the crate gets the native library, and the licence of the native code that it builds or links |
+| `-sys` crate | `slang-compiler-sys`, `slang-glslang-sys`, `slang-rhi-sys` | That the crate holds raw unsafe bindings or a native build, and that most users depend on `slang-compiler`, or on `slang-rhi` for `slang-rhi-sys`, instead | None | How the crate gets the native library, and the licence of the native code that it builds or links |
 | Source crate | `slang-src` | That the crate provides the Slang source tree to the build scripts of other crates, and that a user never depends on it directly | None, because the crate has no API | That its build script clones from the network on the first build in a target directory |
 | Build tool | `slang-bindgen` | That the crate generates the bindings from the Slang headers with libclang, and that `slang-compiler-sys` runs it in every build | One call of `generate` | libclang |
 | Safe wrapper | `slang-compiler` | That the crate compiles and reflects Slang shaders without a GPU, and that `slango` runs them | Compiling one small shader and printing a result | Slang and libclang |
 | High-level library | `slango` | That the crate runs compute kernels and draws with render pipelines on the GPU through wgpu | Loading a module and running one kernel | Slang, libclang, and a GPU adapter |
 | Procedural macro | `slango-macros` | That the macro compiles a Slang file while the crate builds and generates typed bindings to its kernels | One call of `shader!` and one call of a generated kernel | Slang at build time, the feature `vendored` on both `slango-macros` and `slango`, and the exact version that ties it to `slango` |
 | Generator | `slango-codegen` | That the crate is the generator behind `slango-macros`, and when to use it instead of the macro | One call of the generator | Slang at build time, and the exact version that ties it to `slango` |
+| Safe wrapper of slang-rhi | `slang-rhi` | That the crate runs compute kernels on the GPU through slang-rhi, and that `slango` runs them through wgpu | Opening a device and printing a result, with a link to a whole compute dispatch in the crate documentation | The build of Slang and slang-rhi from source, the supported platforms, and what a program needs at run time |
 | Slint integration | `slang-slint` | That the crate shows what `slango` draws in a Slint user interface | The smallest wiring of a Slint window to a `slango` render pipeline | What a Linux build of Slint needs, and the licence consequence in its own `Licence` section |
 
 ### 6.6. Manifest

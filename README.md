@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/g-whiz/slang-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/g-whiz/slang-rust/actions/workflows/ci.yml)
 
-slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the graphics processing unit (GPU) through [wgpu](https://wgpu.rs), generate typed Rust bindings to compute kernels while a crate builds, and show what a shader draws in a [Slint](https://slint.dev) user interface.
+slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the graphics processing unit (GPU) through [wgpu](https://wgpu.rs), generate typed Rust bindings to compute kernels while a crate builds, and show what a shader draws in a [Slint](https://slint.dev) user interface. They also run compute kernels through [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of Slang.
 
 ## Status
 
@@ -17,8 +17,10 @@ slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) sha
 | [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md) | Compile a Slang file while your crate builds and call its compute kernels through typed Rust bindings. | [slango_macros](https://g-whiz.github.io/slang-rust/slango_macros/) |
 | [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md) | Compile Slang shaders and reflect their parameters, with no GPU. | [slang_compiler](https://g-whiz.github.io/slang-rust/slang_compiler/) |
 | [slang-slint](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/README.md) | Show what a render pipeline of slango draws in a Slint user interface. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-slint) |
+| [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md) | Run Slang compute kernels on the GPU through slang-rhi, with Vulkan on Linux and Direct3D 12 on Windows. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi) |
 | [slango-codegen](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-codegen/README.md) | Generate the typed bindings of slango-macros outside a macro call, such as to print them. | [slango_codegen](https://g-whiz.github.io/slang-rust/slango_codegen/) |
 | [slang-compiler-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler-sys/README.md) | Call the raw Slang API where slang-compiler has no safe wrapper. | [slang_compiler_sys](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) |
+| [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md) | Call the raw slang-rhi API where slang-rhi has no safe wrapper. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi-sys) |
 | [slang-glslang-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-glslang-sys/README.md) | Give a Slang built from source its SPIR-V optimizer when you use slang-compiler-sys directly. | [slang_glslang_sys](https://g-whiz.github.io/slang-rust/slang_glslang_sys/) |
 | [slang-src](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-src/README.md) | Provide the Slang source tree to the build scripts that build Slang from source, which a program never depends on directly. | [slang_src](https://g-whiz.github.io/slang-rust/slang_src/) |
 | [slang-bindgen](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-bindgen/README.md) | Generate the raw Rust bindings of slang-compiler-sys from the Slang headers with libclang. | [slang_bindgen](https://g-whiz.github.io/slang-rust/slang_bindgen/) |
@@ -35,6 +37,8 @@ The crates support 64-bit targets only. These are the supported targets:
 - macOS on x86-64, `x86_64-apple-darwin`.
 
 Another 64-bit target is untested and unsupported, and the build warns about it.
+
+slang-rhi and slang-rhi-sys build only on Linux with the GNU C library and on Windows on x86-64 with the Microsoft toolchain, as the [slang-rhi-sys documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/src/lib.rs) describes.
 
 Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes.
 
@@ -79,8 +83,8 @@ Each crate has its own licence, which its README states:
 
 | Crates | Licence |
 | --- | --- |
-| [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md), [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md), [slango-codegen](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-codegen/README.md), [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), and [slang-bindgen](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-bindgen/README.md) | `MIT OR Apache-2.0` |
-| [slang-compiler-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler-sys/README.md), [slang-glslang-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-glslang-sys/README.md), and [slang-src](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-src/README.md) | `Apache-2.0 WITH LLVM-exception`, the licence of Slang |
+| [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md), [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md), [slango-codegen](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-codegen/README.md), [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md), and [slang-bindgen](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-bindgen/README.md) | `MIT OR Apache-2.0` |
+| [slang-compiler-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler-sys/README.md), [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md), [slang-glslang-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-glslang-sys/README.md), and [slang-src](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-src/README.md) | `Apache-2.0 WITH LLVM-exception`, the licence of Slang |
 | [slang-slint](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/README.md) | `GPL-3.0-or-later` |
 
 slang-slint depends on Slint, and the [slang-slint README](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/README.md) states what that means for the licence of a program that uses it.

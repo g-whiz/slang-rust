@@ -4,18 +4,22 @@
 //! slang-rhi is the C++ library of the Slang source tree that gives one API
 //! over several graphics and compute APIs. This crate builds it with its
 //! Vulkan backend on Linux and its Direct3D 12 backend on Windows from the
-//! Slang source tree that `slang-src` clones, and
-//! links it into the program, together with the Slang that
-//! `slang-compiler-sys` builds from the same tree with its feature
-//! `vendored`. Slang and slang-rhi therefore always come from one Slang
-//! commit, and the crate never uses the Slang of a Vulkan SDK.
+//! Slang source tree that `slang-src` clones, and links it into the program,
+//! together with the Slang that `slang-compiler-sys` builds from the same tree
+//! with its feature `vendored`. Slang and slang-rhi therefore always come from
+//! one Slang commit, and the crate never uses the Slang of a Vulkan SDK.
 //!
 //! The crate holds the raw bindings of slang-rhi, which its build script
 //! generates in every build from the headers of the slang-rhi that it links,
 //! with the binding generator `slang-bindgen` and libclang. They are
 //! `unsafe` and follow the C++ API one to one, so a program calls them only
-//! under the contract of the section [Safety](#safety). The crate `slang-rhi`
-//! is planned as the safe interface over them.
+//! under the contract of the section [Safety](#safety).
+//!
+//! Most programs use the crate `slang-rhi` instead, which wraps the bindings in
+//! a safe interface for compute dispatches, and call these bindings only for
+//! what it does not cover. The documentation of slang-rhi, at
+//! <https://github.com/shader-slang/slang-rhi>, gives the meaning of each
+//! item.
 //!
 //! # The bindings
 //!

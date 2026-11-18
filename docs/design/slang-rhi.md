@@ -460,9 +460,10 @@ TEST-7 of the coding standard asks for a fake of the interfaces, and the fake of
 
 ### 10.3. GPU Tests
 
-The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 19 tests, and they cover:
+The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 20 tests, and they cover:
 
 - `adapters` for the device type of the platform returns at least one adapter, and a device opens on each. An adapter of another device type than the options is refused.
+- A device of the type `Default` opens on the graphics API of the platform.
 - The compute path of Section 6.2 doubles a buffer with optimized code and no message of the debug callback.
 - Uniform parameters at distinct offsets, buffers in distinct ranges, and a uniform parameter of an entry point, set through `entry_point(0)`, land where `offset_of` finds them. A name of an entry point is not found at the root.
 - A shader program from a program of another session, offsets past the uniform data, past the binding ranges, or of another object, and initial data of the wrong length fail with `InvalidArgument`.
@@ -486,6 +487,7 @@ The tests run under the debug device of slang-rhi only, and none runs under the 
 
 - Valid use on the NVIDIA adapter under the Khronos validation layer, and valid use on D3D12 under its debug layer.
 - A hardware D3D12 adapter, ARM64 Windows, and a program on Windows without `dxcompiler.dll` (Section 7.3 of the sys design).
+- That a device of the type `Default` opens on D3D12 on Windows. The test of it has run on Vulkan only.
 - A device whose Vulkan driver lacks `nullDescriptor` (RHQ-7).
 - What slang-rhi and a driver do with a buffer larger than the device allows (RHQ-8).
 - The path of a failed rebind, after which slang-rhi returns no root object, which was read in the source and not run.
@@ -591,7 +593,7 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| RHQ-1 | Should `check-slang-call-guard` check that every call of this crate into slang-rhi and into Slang sits alone in its abort guard, as it checks for `slang-compiler`? Extending the checker changes a mechanism that `AGENTS.md` declares frozen, and leaving it out keeps a deterministic check as a judgement rule (Section 8.1) | The owner of the project, by a decision | M9 |
+| RHQ-1 | Should `check-slang-call-guard` check that every call of this crate into slang-rhi and into Slang sits alone in its abort guard, as it checks for `slang-compiler`? Extending the checker changes a mechanism that `AGENTS.md` declares frozen, and leaving it out keeps a deterministic check as a judgement rule (Section 8.1) | The owner of the project, by a decision | Not assigned |
 | RHQ-2 | Will slang-rhi document which of its objects tolerate use from several threads, so that the types of this crate and of the `rhi` backend of `slango` can be `Send` and `Sync`? | The owner, through an issue in the slang-rhi repository, `shader-slang/slang-rhi`, for which `docs/upstream-reports.md` holds no entry yet | M10 |
 | RHQ-3 | Can the crate free the debug callback object of a device, if slang-rhi offers a notice when a native device is freed? | This document, after RHQ-2 is asked upstream | Not assigned |
 | RHQ-4 | Should `create_shader_program` and `create_compute_pipeline` return the warnings of Slang on success, as `slang-compiler` does with `Compiled`? | This document | M10 |

@@ -92,7 +92,8 @@ pub enum AdapterType {
     Discrete,
     /// A graphics processor that shares the chip and memory of the CPU.
     Integrated,
-    /// A driver that runs on the CPU, such as lavapipe.
+    /// A driver that runs on the CPU, such as lavapipe on Vulkan or WARP on
+    /// Direct3D 12.
     Software,
     /// A kind that the driver does not report.
     Unknown,
@@ -254,7 +255,8 @@ fn fetch_adapter(
 /// lists them.
 ///
 /// An empty list means that slang-rhi finds no adapter of that API, such as
-/// when no Vulkan driver is installed, and it is not an error.
+/// when no Vulkan driver is installed or when the API is not available on
+/// the platform, and it is not an error.
 ///
 /// # Examples
 ///
@@ -723,7 +725,8 @@ impl Device {
     /// # Examples
     ///
     /// This example prints the graphics API and the adapter of a device. It
-    /// needs a Vulkan driver at run time, so it is compiled but not run:
+    /// needs a Vulkan driver on Linux or a Direct3D 12 adapter on Windows at
+    /// run time, so it is compiled but not run:
     ///
     /// ```no_run
     /// use slang_compiler::GlobalSession;
@@ -742,9 +745,9 @@ impl Device {
     /// Returns the session of `slang-compiler` of the device, through which a
     /// program loads and links the modules of its shader programs.
     ///
-    /// The session has one target, the code that the device runs, such as
-    /// SPIR-V for Vulkan, and was created from the global session of the
-    /// options of the device.
+    /// The session has one target, the format of the code that the device
+    /// runs, which is SPIR-V on Vulkan and DXIL on Direct3D 12. It was created
+    /// from the global session of the options of the device.
     ///
     /// # Examples
     ///
