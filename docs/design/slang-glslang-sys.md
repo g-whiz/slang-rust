@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-16 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-glslang-sys` |
 
 ## Abstract
@@ -177,6 +177,8 @@ The inputs of the key follow SRC-17 of the `slang-src` design, with these values
 - `files` is the FNV-1a hash of the bytes `CMakeLists.txt`, a NUL byte, the content of `native/CMakeLists.txt`, a NUL byte, `loader.cpp`, a NUL byte, the content of `native/loader.cpp`, and a NUL byte. The build logic compiles both files in with `include_str!`, so the hash is the hash of the files that the build script was compiled with.
 - `configure` holds the lines `-DCMAKE_BUILD_TYPE=Release` and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, and, with the Microsoft toolchain, the runtime library option. `-S`, `-B`, `-DSLANG_TREE_DIR=`, and `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=` name paths, and `-G Ninja` never changes, so they are left out.
 - `compiler` is found as SCS-56 and SCS-68 of the sys design state for `slang-compiler-sys`.
+
+The variables through which the compiler reads include and library directories are not inputs of the key, which Section 9.4 of the `slang-src` design states as a limit of every entry of libraries.
 
 An entry is complete only when its file `inputs` equals the inputs of the current build byte for byte and each of the five archives exists as a file in its `lib`. The build script replaces an entry that fails either check.
 

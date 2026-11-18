@@ -253,11 +253,11 @@ fn sources() -> PathBuf {
 }
 
 fn entry() -> PathBuf {
-    sources().join(RECORDED_COMMIT)
+    sources().join(clone_entry_name())
 }
 
 fn temporary() -> PathBuf {
-    sources().join(format!("{RECORDED_COMMIT}.tmp-4242"))
+    sources().join(format!("{}.tmp-4242", clone_entry_name()))
 }
 
 fn temporary_tree() -> PathBuf {
@@ -280,7 +280,7 @@ fn failure(host: &FakeHost) -> String {
 }
 
 fn exported(shared: &Path) -> Vec<String> {
-    let entry = shared.join("src").join(RECORDED_COMMIT);
+    let entry = shared.join("src").join(clone_entry_name());
     vec![
         format!("cargo::rerun-if-changed={}", entry.join("stamp").display()),
         format!("cargo::metadata=root={}", entry.join("tree").display()),
@@ -326,15 +326,35 @@ fn configure_clones_the_recorded_commit_into_a_new_clone_entry() {
             args(&ls_tree),
             network_args(&update),
         ]
+        .into_iter()
+        .chain(std::iter::repeat_n(
+            args(&["ls-files", "-z", "--deleted"]),
+            REQUIRED_SUBMODULES.len() + 1
+        ))
+        .collect::<Vec<_>>()
     );
-    assert!(host.runs().iter().all(|run| run.dir == tree));
+    let dirs: Vec<PathBuf> = host.runs().into_iter().map(|run| run.dir).collect();
+    let (clone_dirs, listed_dirs) = dirs.split_at(6);
+    assert!(clone_dirs.iter().all(|dir| *dir == tree));
+    assert_eq!(
+        listed_dirs,
+        std::iter::once(tree.clone())
+            .chain(
+                REQUIRED_SUBMODULES
+                    .iter()
+                    .map(|submodule| tree.join(submodule))
+            )
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         host.events(),
         [
             format!("Create {}", sources().display()),
             format!(
                 "Lock {}",
-                sources().join(format!("{RECORDED_COMMIT}.lock")).display()
+                sources()
+                    .join(format!("{}.lock", clone_entry_name()))
+                    .display()
             ),
             format!("List {}", sources().display()),
             format!("Create {}", tree.display()),
@@ -344,12 +364,17 @@ fn configure_clones_the_recorded_commit_into_a_new_clone_entry() {
             format!("Run {}", host.runs()[3]),
             format!("Run {}", host.runs()[4]),
             format!("Run {}", host.runs()[5]),
+        ]
+        .into_iter()
+        .chain(host.runs()[6..].iter().map(|run| format!("Run {run}")))
+        .chain([
             format!("Write {}", temporary().join("build-tag").display()),
             format!("text \"{RECORDED_BUILD_TAG}\\n\""),
             format!("Stamp {}", temporary().join("stamp").display()),
             format!("Rename {}", temporary().display()),
             format!("to {}", entry().display()),
-        ]
+        ])
+        .collect::<Vec<_>>()
     );
 }
 
@@ -402,7 +427,9 @@ fn configure_uses_an_existing_clone_entry_without_the_network() {
             format!("Create {}", sources().display()),
             format!(
                 "Lock {}",
-                sources().join(format!("{RECORDED_COMMIT}.lock")).display()
+                sources()
+                    .join(format!("{}.lock", clone_entry_name()))
+                    .display()
             ),
             format!("Run {}", runs[0]),
         ]
@@ -456,11 +483,13 @@ fn configure_clones_when_cargo_net_offline_is_not_true() {
 fn configure_removes_only_the_numbered_temporary_directories_of_the_commit() {
     let mut host = FakeHost::new();
     host.listing = [
-        format!("{RECORDED_COMMIT}.tmp-12"),
-        format!("{RECORDED_COMMIT}.tmp-4242"),
-        format!("{RECORDED_COMMIT}.tmp-"),
-        format!("{RECORDED_COMMIT}.tmp-x1"),
-        format!("{RECORDED_COMMIT}.lock"),
+        format!("{}.tmp-12", clone_entry_name()),
+        format!("{}.tmp-4242", clone_entry_name()),
+        format!("{}.tmp-", clone_entry_name()),
+        format!("{}.tmp-x1", clone_entry_name()),
+        format!("{}.lock", clone_entry_name()),
+        format!("{RECORDED_COMMIT}.tmp-7"),
+        RECORDED_COMMIT.to_owned(),
         "0123456789abcdef0123456789abcdef01234567.tmp-7".to_owned(),
     ]
     .into_iter()
@@ -479,7 +508,7 @@ fn configure_removes_only_the_numbered_temporary_directories_of_the_commit() {
             format!(
                 "Remove {}",
                 sources()
-                    .join(format!("{RECORDED_COMMIT}.tmp-12"))
+                    .join(format!("{}.tmp-12", clone_entry_name()))
                     .display()
             ),
             format!("Remove {}", temporary().display()),
@@ -623,7 +652,7 @@ fn configure_reports_a_failed_submodule_update_with_the_offline_advice() {
     assert!(message.starts_with("`git -c protocol.allow=never -c protocol.https.allow=always -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 submodule update --init --depth 1 -- external/cmark "), "{message}");
     assert!(
         message.ends_with(&format!(
-            "external/spirv-tools` ended with no exit status, because a signal ended it while cloning Slang at the commit {RECORDED_COMMIT}: error: RPC failed. {OFFLINE_ADVICE}"
+            "external/slang-rhi` ended with no exit status, because a signal ended it while cloning Slang at the commit {RECORDED_COMMIT}: error: RPC failed. {OFFLINE_ADVICE}"
         )),
         "{message}"
     );
@@ -696,8 +725,8 @@ fn configure_stops_when_a_required_submodule_is_not_checked_out() {
 #[test]
 fn configure_reports_every_file_operation_that_fails() {
     let denied = io::Error::from(io::ErrorKind::PermissionDenied);
-    let lock = sources().join(format!("{RECORDED_COMMIT}.lock"));
-    let stale = sources().join(format!("{RECORDED_COMMIT}.tmp-1"));
+    let lock = sources().join(format!("{}.lock", clone_entry_name()));
+    let stale = sources().join(format!("{}.tmp-1", clone_entry_name()));
     let cases = [
         (
             Op::Create,
@@ -768,7 +797,7 @@ fn configure_reports_every_file_operation_that_fails() {
     ];
     for (op, path, expected) in cases {
         let mut host = FakeHost::new().failing(op, path, io::ErrorKind::PermissionDenied);
-        host.listing = vec![OsString::from(format!("{RECORDED_COMMIT}.tmp-1"))];
+        host.listing = vec![OsString::from(format!("{}.tmp-1", clone_entry_name()))];
         assert_eq!(failure(&host), expected);
     }
 }
@@ -914,7 +943,7 @@ fn configure_exports_the_shared_folder_that_the_lookup_finds() {
     let tree = out()
         .join("slang-src")
         .join("src")
-        .join(format!("{RECORDED_COMMIT}.tmp-4242"))
+        .join(format!("{}.tmp-4242", clone_entry_name()))
         .join("tree");
     untagged.checked_out = REQUIRED_SUBMODULES
         .iter()
@@ -929,7 +958,8 @@ fn configure_exports_the_shared_folder_that_the_lookup_finds() {
 fn check_recorded_rejects_a_build_tag_of_another_form() {
     let form = "<major>.<minor>, optionally followed by .<patch>, optionally followed by -<count>-g<hash>, in which each number is 0 or a decimal number without a leading zero and <hash> is at least nine lowercase hexadecimal digits";
     for tag in ["v2026.17", "2026.17-25", "2026.17-25-gc7954eb", "2026\n.17"] {
-        let Err(BuildError(message)) = check_recorded(RECORDED_COMMIT, tag) else {
+        let Err(BuildError(message)) = check_recorded(RECORDED_COMMIT, tag, RECORDED_CLONE_ENTRY)
+        else {
             panic!("{tag} was accepted");
         };
         assert_eq!(
@@ -950,7 +980,9 @@ fn check_recorded_rejects_a_commit_that_is_not_a_full_lowercase_hash() {
         "../../../../escape/0123456789abcdef0123456",
         "",
     ] {
-        let Err(BuildError(message)) = check_recorded(commit, RECORDED_BUILD_TAG) else {
+        let Err(BuildError(message)) =
+            check_recorded(commit, RECORDED_BUILD_TAG, RECORDED_CLONE_ENTRY)
+        else {
             panic!("{commit} was accepted");
         };
         assert_eq!(
@@ -960,7 +992,24 @@ fn check_recorded_rejects_a_commit_that_is_not_a_full_lowercase_hash() {
             )
         );
     }
-    assert!(check_recorded(RECORDED_COMMIT, RECORDED_BUILD_TAG).is_ok());
+    assert!(check_recorded(RECORDED_COMMIT, RECORDED_BUILD_TAG, RECORDED_CLONE_ENTRY).is_ok());
+}
+
+#[test]
+fn the_recorded_clone_entry_is_the_name_that_the_build_computes() {
+    assert_eq!(RECORDED_CLONE_ENTRY, clone_entry_name());
+    let stale = format!("{RECORDED_COMMIT}-076690edef70bf9e");
+    let Err(BuildError(message)) = check_recorded(RECORDED_COMMIT, RECORDED_BUILD_TAG, &stale)
+    else {
+        panic!("{stale} was accepted");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "the recorded clone entry is \"{stale}\", but the recorded commit and the required submodules name the clone entry \"{}\". Record that name as RECORDED_CLONE_ENTRY in recorded.rs, where the recipes read it",
+            clone_entry_name()
+        )
+    );
 }
 
 #[test]
@@ -1017,4 +1066,156 @@ fn crate_documentation_names_the_recorded_commit_and_its_build_tag() {
     assert!(documentation.contains(&format!("`{RECORDED_COMMIT}`")));
     assert!(documentation.contains(&format!("`{RECORDED_BUILD_TAG}`")));
     assert!(documentation.contains(&format!("`{}`", env!("CARGO_PKG_VERSION"))));
+}
+
+#[test]
+fn fnv1a_gives_the_published_values_of_the_64_bit_hash() {
+    assert_eq!(fnv1a(b""), "cbf29ce484222325");
+    assert_eq!(fnv1a(b"a"), "af63dc4c8601ec8c");
+    assert_eq!(fnv1a(b"foobar"), "85944171f73967e8");
+}
+
+#[test]
+fn clone_entry_name_is_a_commit_prefix_and_the_hash_of_the_required_submodules() {
+    let paths = REQUIRED_SUBMODULES.join("\0") + "\0";
+    let name = clone_entry_name();
+    let commit = &RECORDED_COMMIT[..23];
+    assert_eq!(name, format!("{commit}-{}", fnv1a(paths.as_bytes())));
+    let Some(hash) = name.strip_prefix(&format!("{commit}-")) else {
+        panic!("{name} does not start with the first 23 digits of the recorded commit");
+    };
+    assert_eq!(hash.len(), 16);
+    assert!(
+        hash.bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    );
+    let without_rhi = REQUIRED_SUBMODULES
+        .iter()
+        .filter(|path| **path != "external/slang-rhi")
+        .fold(String::new(), |text, path| text + path + "\0");
+    assert_ne!(hash, fnv1a(without_rhi.as_bytes()));
+}
+
+#[test]
+fn clone_entry_name_is_at_most_as_long_as_a_full_commit_hash() {
+    let name = clone_entry_name();
+    assert!(
+        name.len() <= 40,
+        "the clone entry {name} has {} characters, but every path of the Slang tree in the clone grows with the name, and with a name longer than 40 characters the longest paths of the tree exceed the limit of 260 characters of a Windows path in the target directory of a CI runner",
+        name.len()
+    );
+    assert!(
+        name.bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'-')),
+        "{name} holds a character other than a lowercase hexadecimal digit or a hyphen"
+    );
+}
+
+#[test]
+fn configure_neither_reads_nor_removes_a_clone_entry_of_an_earlier_layout() {
+    for name in [
+        RECORDED_COMMIT.to_owned(),
+        format!("{RECORDED_COMMIT}-{}", &clone_entry_name()[24..]),
+    ] {
+        configure_ignores_the_entry(&sources().join(name));
+    }
+}
+
+fn configure_ignores_the_entry(old: &Path) {
+    let old = old.to_path_buf();
+    let host = FakeHost::new()
+        .with_present(old.clone())
+        .with_present(old.join("tree"));
+    let (result, directives) = run_configure(&host);
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(directives, exported(&shared()));
+    assert!(host.ran("fetch"));
+    let old = old.display().to_string();
+    for event in host.events() {
+        let path = event.split_once(' ').map_or("", |(_, path)| path);
+        assert!(
+            path != old && !path.starts_with(&format!("{old}/")),
+            "{event}"
+        );
+    }
+    assert!(host.runs().iter().all(|run| !run.dir.starts_with(&old)));
+}
+
+#[test]
+fn crate_documentation_names_every_required_submodule() {
+    let documentation = include_str!("../../src/lib.rs");
+    for submodule in REQUIRED_SUBMODULES {
+        assert!(
+            documentation.contains(&format!("`{submodule}`")),
+            "{submodule}"
+        );
+    }
+}
+
+#[test]
+fn configure_rejects_a_clone_whose_work_tree_lacks_tracked_files() {
+    let long = "docs/generated/tests/design/cross-cutting/diagnostics-catalog/30311-type-cannot-conform-to-both-value-and-pointer-diff-interfaces.slang";
+    let host = FakeHost::new().responding(move |invocation| {
+        Ok(match invocation.args.first().map(String::as_str) {
+            Some("ls-files") if invocation.dir == temporary_tree() => {
+                ok(&format!("docs/short.md\0{long}\0"))
+            }
+            Some("ls-files") if invocation.dir == temporary_tree().join("external/lua") => {
+                ok("lua.c\0")
+            }
+            _ => answer(invocation),
+        })
+    });
+    let path = entry().join("tree").join(long);
+    assert_eq!(
+        failure(&host),
+        format!(
+            "the clone of the Slang commit {RECORDED_COMMIT} lacks 3 of its tracked files, which git did not create in the work tree {}, such as {long}, whose path in the clone entry {} has {} characters. Git leaves out a file that it cannot create, most often because its path exceeds the limit of 260 characters of a Windows path, which the compilers and CMake that read the tree observe as well. The clone entry sits in the shared folder {} of the Cargo target directory, so set CARGO_TARGET_DIR to a directory with a shorter path and build again",
+            temporary_tree().display(),
+            path.display(),
+            path.display().to_string().chars().count(),
+            shared().display()
+        )
+    );
+    assert!(
+        !host
+            .events()
+            .iter()
+            .any(|event| event.starts_with("Rename"))
+    );
+}
+
+#[test]
+fn configure_names_a_missing_file_of_a_submodule_with_the_path_of_the_submodule() {
+    let host = FakeHost::new().responding(|invocation| {
+        Ok(match invocation.args.first().map(String::as_str) {
+            Some("ls-files") if invocation.dir == temporary_tree().join("external/spirv-tools") => {
+                ok("source/opt/pass.cpp\0")
+            }
+            _ => answer(invocation),
+        })
+    });
+    let message = failure(&host);
+    assert!(
+        message.contains(" lacks 1 of its tracked files, ")
+            && message.contains(", such as external/spirv-tools/source/opt/pass.cpp, "),
+        "{message}"
+    );
+}
+
+#[test]
+fn configure_stops_when_git_cannot_list_the_missing_files() {
+    let host = FakeHost::new().responding(|invocation| {
+        Ok(match invocation.args.first().map(String::as_str) {
+            Some("ls-files") => failed(Some(128), "fatal: not a git repository\n"),
+            _ => answer(invocation),
+        })
+    });
+    assert_eq!(
+        failure(&host),
+        format!(
+            "`git ls-files -z --deleted` in {} ended with exit status 128: fatal: not a git repository",
+            temporary_tree().display()
+        )
+    );
 }

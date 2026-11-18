@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     BuildError, CACHEDIR_TAG, Finished, GIT_REPOSITORY_VARIABLES, Host, Invocation,
-    RECORDED_BUILD_TAG, RECORDED_COMMIT, REQUIRED_SUBMODULES, base_dir, configure, git,
+    RECORDED_BUILD_TAG, RECORDED_COMMIT, REQUIRED_SUBMODULES, base_dir, clone_entry_name,
+    configure, git,
 };
 
 include!("../../../system.rs");
@@ -217,7 +218,7 @@ fn configure_reuses_the_clone_entry_that_the_build_script_of_this_build_wrote() 
     if let Err(BuildError(message)) = configure(&host, &mut directives) {
         return Err(io::Error::other(message));
     }
-    let entry = shared.join("src").join(RECORDED_COMMIT);
+    let entry = shared.join("src").join(clone_entry_name());
     let tree = entry.join("tree");
     assert_eq!(
         directives,
@@ -255,7 +256,7 @@ fn configure_reuses_the_clone_entry_that_the_build_script_of_this_build_wrote() 
 fn configure_rejects_a_clone_entry_whose_work_tree_was_removed() -> io::Result<()> {
     let base = scratch("entry-without-tree")?;
     fs::write(base.join(CACHEDIR_TAG), "")?;
-    let entry = base.join("slang-src").join("src").join(RECORDED_COMMIT);
+    let entry = base.join("slang-src").join("src").join(clone_entry_name());
     fs::create_dir_all(&entry)?;
     let host = Offline {
         system: System::default(),

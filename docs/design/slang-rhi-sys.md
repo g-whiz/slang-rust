@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-rhi-sys` |
 
 ## Abstract
@@ -69,6 +69,7 @@ This document calls those files the writing guide, the coding standard, the arch
 - Microsoft ABI: The C++ ABI of the Microsoft compiler on Windows.
 - placeholder slot: A field of a generated vtable struct that keeps the position of a method that Rust cannot call (SCS-75 of the sys design).
 - slang-rhi tree: The directory `external/slang-rhi` of the source tree. Paths in this document without a leading `external/` or `/` are paths in it.
+- Xlib: The C client library of the X Window System. Its development headers provide `X11/Xlib.h`.
 
 ## 3. Facts
 
@@ -76,7 +77,7 @@ This section is non-normative. It states what the slang-rhi tree of the recorded
 
 ### 3.1. The Library and Its Version
 
-slang-rhi is the submodule `external/slang-rhi` of the Slang tree (Slang's `.gitmodules:41-43`), whose gitlink in the recorded commit is `d6d31411a3ab5417945daa6b1d8811cfc340cb66`. Its CMake project declares no version (`CMakeLists.txt:6`), and its README says that it is not ready for general use (`README.md:10-11`). The submodule holds no tag: on 2026-11-17, in a clone of it that is not shallow, `git describe --tags` failed with "No names found" and `git tag` listed nothing. The recorded Slang commit therefore determines which slang-rhi a build gets. This confirms A-19 of the architecture design.
+slang-rhi is the submodule `external/slang-rhi` of the Slang tree (Slang's `.gitmodules:41-43`), whose gitlink in the recorded commit is `d6d31411a3ab5417945daa6b1d8811cfc340cb66`. Its CMake project declares no version (`CMakeLists.txt:6`), and its README says that it is not ready for general use (`README.md:10-11`). The submodule holds no tag: in a clone of it that is not shallow, `git describe --tags` failed with "No names found" and `git tag` listed nothing. The recorded Slang commit therefore determines which slang-rhi a build gets. This confirms A-19 of the architecture design.
 
 The Vulkan SDK ships no slang-rhi, so every build that uses it builds it from source. Its CMake build needs CMake 3.20 (`CMakeLists.txt:1`) and compiles C++20 (`CMakeLists.txt:1030`), which confirms the build part of A-15. Whether slang-rhi publishes releases elsewhere cannot be read from the tree. The tree itself downloads only a prebuilt Slang from Slang's releases (Section 3.5).
 
@@ -164,6 +165,10 @@ The macro verifies a download only when its call passes a hash, which must have 
 
 The Vulkan headers that slang-rhi pins and those of `external/vulkan` are of the same version, 1.4.347 (`CMakeLists.txt:264-266`, Slang's `external/vulkan/include/vulkan/vulkan_core.h:69`). FetchContent uses the directory that `FETCHCONTENT_SOURCE_DIR_VULKAN_HEADERS` names in place of a download.
 
+The Vulkan backend also needs a header that the source tree does not hold. `src/vulkan/vk-api.h:10-16` defines `VK_USE_PLATFORM_XLIB_KHR` on every Linux target other than Android, so Slang's `external/vulkan/include/vulkan/vulkan.h:58` includes `<X11/Xlib.h>`. A build of the Vulkan backend on Linux therefore needs the development headers of Xlib from the system, such as those of the Debian package `libx11-dev`, and a build with GCC without them stops with `fatal error: X11/Xlib.h: No such file or directory`.
+
+With the headers of `external/vulkan` and those of Xlib, a build on Linux compiles slang-rhi under GCC 14.2.0 with no warning.
+
 With `SLANG_RHI_BUILD_FROM_SLANG_REPO` on, slang-rhi expects a CMake target named `slang` from its parent project and defines none (`CMakeLists.txt:418-480`). It links that target publicly (`:483`) and adds `SLANG_RHI_SLANG_INCLUDE_DIR` to its include directories (`:530`). Without the option, it defines `slang` as an imported shared library, and a static Slang only for Emscripten (`:418-466`).
 
 Slang's own build adds slang-rhi when `SLANG_ENABLE_SLANG_RHI` is on, its default (Slang's `CMakeLists.txt:136`, `external/CMakeLists.txt:403-440`). It then forces the tests of slang-rhi on (`external/CMakeLists.txt:405`) and leaves the CPU, CUDA, OptiX, and Vulkan options at their defaults. The vendored route of `slang-compiler-sys` turns the option off (Section 9.3 of the sys design).
@@ -184,11 +189,15 @@ The owner decided on 2026-11-17:
 2. M9 delivers `slang-rhi-sys` on Linux with the Vulkan backend, built with no network access beyond the clone of `slang-src`. For Windows with D3D12 and macOS with Metal, a code step first tests whether slang-rhi builds with its optional downloads turned off, and brings the result to the owner before any download is designed (Section 7.2). This answers the Linux part of Q-35, whose rest RSQ-1 keeps open.
 3. The raw bindings cover the whole public API of slang-rhi wherever the generator can produce them soundly, and the safe crate wraps only the compute path in M9 (`docs/design/slang-rhi.md`).
 
+On 2026-11-18, the owner decided that the development headers of Xlib are a stated requirement of the build on Linux, such as those of the Debian package `libx11-dev`, and that the crate bundles no stub of `X11/Xlib.h` (Section 3.5, RSYS-17).
+
 The earlier decisions of Section 15.12 of the architecture design hold: `slang-bindgen` is a build dependency of the crate, the Vulkan, D3D12, and Metal backends are built by default on their platforms, and CUDA with OptiX and the CPU are opt-in features of M15.
 
 ### 4.2. The Manifest
 
-RSYS-1. The manifest of `slang-rhi-sys` MUST declare `links = "slang-rhi"` and MUST have no Cargo features. It MUST depend on `slang-src` with its exact version and on `slang-compiler-sys` with the feature `vendored`, and MUST have the build dependencies `slang-bindgen` with its exact version and `find-msvc-tools`, and `find-msvc-tools` as a development dependency.
+RSYS-1. The manifest of `slang-rhi-sys` MUST declare `links = "slang-rhi"` and MUST have no Cargo features. It MUST depend on `slang-src` with its exact version and on `slang-compiler-sys` with the feature `vendored`, both in the table `[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]`. It MUST have the build dependency `slang-bindgen` with its exact version from the change that makes the build script generate the bindings (RSYS-9), and MUST NOT depend on `find-msvc-tools` while RSYS-13 refuses every target of the Microsoft toolchain.
+
+The table of the target keeps the dependencies out of every build that RSYS-13 refuses. A build for another target then compiles neither `slang-src` nor `slang-compiler-sys`, so it clones and builds nothing before the build script of this crate stops it.
 
 `links` keeps two builds of slang-rhi out of one build graph (FFI-2). The exact version of `slang-src` keeps the tree of this crate and that of `slang-compiler-sys` one tree (SRC-14 of the `slang-src` design). The dependency on the vendored `slang-compiler-sys` places Slang's libraries after slang-rhi's on the link line, gives this build script the metadata of the Slang build (SCS-54 of the sys design), and starts this build only after the build of Slang, as SGL-1 of the `slang-glslang-sys` design explains for that crate.
 
@@ -196,11 +205,15 @@ The crate takes the version of the workspace and sets its own `license` field to
 
 The crate sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`, Section 13 of the architecture design). The workspace leaves it out of `default-members`, and every recipe that passes `--workspace` excludes it, as for `slang-glslang-sys` (TOOL-32), because its build clones and builds native code.
 
-`find-msvc-tools` serves the lookup of the Microsoft compiler. No target of M9 uses it (Section 7), and the dependency stays so that the build logic keeps the shape of the copies of Section 4.1 of the `slang-glslang-sys` design.
+`find-msvc-tools` serves the lookup of the Microsoft compiler, which no target of M9 needs (Section 7). The build logic has no such lookup while RSYS-13 refuses Windows, because the lookup would be code that never runs and the dependency would be unused, which `check-unused-deps` and `CARGO_BUILD_WARNINGS=deny` reject. The change that designs the build for Windows (RSQ-1) adds both. Until then, `VCINSTALLDIR` and `VCToolsVersion` stay rerun variables (RSYS-8), and `VCToolsVersion` stays an input of the entry key, as SRC-17 of the `slang-src` design lists them.
+
+`slang-bindgen` is unused until the build script runs the generator, for the same reason. The third code step of Section 15.12 of the architecture design adds it with the generation of RSYS-9.
 
 ### 4.3. The Crate Root
 
-RSYS-2. `src/lib.rs` MUST hold, in this order and with no other code: the crate-level documentation (Section 10), the opt-out `#![expect(unsafe_code, reason = "...")]` of Section 4.4 of the coding standard, `use slang_src as _;`, the module `bindings` with the lint exceptions of Section 5.10 of the sys design and the body `include!(concat!(env!("OUT_DIR"), "/bindings.rs"));`, and `pub use bindings::*;`. The integration-test binary MUST declare the module `symbols` that includes `symbols.rs` from `OUT_DIR`.
+RSYS-2. `src/lib.rs` MUST hold, in this order and with no other code: the crate-level documentation (Section 10), the opt-out `#![expect(unsafe_code, reason = "...")]` of Section 4.4 of the coding standard, `use slang_compiler_sys as _;` and `use slang_src as _;`, each under `#[cfg(all(target_os = "linux", target_env = "gnu"))]`, the module `bindings` with the lint exceptions of Section 5.10 of the sys design and the body `include!(concat!(env!("OUT_DIR"), "/bindings.rs"));`, and `pub use bindings::*;`. The integration-test binary MUST declare the module `symbols` that includes `symbols.rs` from `OUT_DIR`.
+
+The two `use` declarations name the dependencies whose `links` metadata the build script reads (DEP-2 of the coding standard), and carry the condition of the table of RSYS-1, because on another target the dependencies do not exist. The expectation, the module `bindings`, its re-export, and the module `symbols` arrive with the generated bindings (RSYS-9). Before them, the crate has no unsafe code, and an expectation that nothing fulfils fails the lint `unfulfilled_lint_expectations`.
 
 The crate is the raw layer of FFI-1 for slang-rhi. A hand-written item would be a second record of the headers that diverges from them, which COM-9 and Hard Rule 7 of `AGENTS.md` forbid. The crate keeps no build information of its own, because the Slang of a build is the one that `BUILD_INFO` of `slang-compiler-sys` records and the slang-rhi of a build is the gitlink of that commit.
 
@@ -225,7 +238,11 @@ Two routes exist. The other one turns on `SLANG_ENABLE_SLANG_RHI` in the configu
 
 The wrapper project is the sounder choice on every row, and it is the pattern of the `slang-glslang-sys` design (SGL-2). The INTERFACE library `slang` links nothing, because rustc links Slang's static libraries from `slang-compiler-sys`, and a static library needs no link of its own dependencies.
 
-The code step that implements this section confirms the route on Linux. It measures the time of a first build after the build of Slang, the size of the entry, that a change of the wrapper project rebuilds slang-rhi and not Slang, and that the tree is clean after the build (Section 13, RSA-1 to RSA-6).
+With `SLANG_RHI_BUILD_FROM_SLANG_REPO` on, slang-rhi takes the wrapper's `slang` target and, as `SLANG_RHI_SLANG_INCLUDE_DIR`, the include directory of the entry of `slang-compiler-sys`. The `prelude` directory that is missing next to that include directory does not matter to the Vulkan backend.
+
+The wrapper build writes nothing into the tree, which `git status --short --ignored` shows after a build, in the source tree, in `external/slang-rhi`, and in `external/vulkan`.
+
+A change of `native/CMakeLists.txt` makes Cargo run the build script of this crate again and not that of `slang-compiler-sys`. The build script then builds a new entry of slang-rhi beside the old one, while the shared folder keeps its one entry of Slang.
 
 ### 5.2. Configure Options
 
@@ -245,9 +262,17 @@ RSYS-4. The wrapper project MUST set the options of this table before it adds th
 | `SLANG_RHI_ENABLE_VULKAN` | `ON` | The backend of Linux |
 | `SLANG_RHI_ENABLE_CPU`, `_D3D11`, `_D3D12`, `_AGILITY_SDK`, `_NVAPI`, `_METAL`, `_CUDA`, `_OPTIX`, `_WGPU`, `_AFTERMATH` | `OFF` | Not built in M9. CUDA, OptiX, and the CPU arrive as features in M15, and WebGPU needs a download |
 
-The configure step is `cmake -S <native> -B <OUT_DIR>/build -G Ninja`, followed by `-DCMAKE_BUILD_TYPE=Release`, the two FetchContent options, `-DSLANG_TREE_DIR=<root>`, `-DSLANG_INCLUDE_DIR=<include>`, and `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<OUT_DIR>/lib`. The build step is `cmake --build <OUT_DIR>/build --target slang-rhi slang-rhi-sys-abi-probe`, followed by `--parallel` and the value of `NUM_JOBS` when it is a whole number. The build script runs every CMake command with standard input closed, removes `build/CMakeCache.txt` before every configure step, as SGL-2 does, and appends their output to `OUT_DIR/build.log`.
+The configure step is `cmake -S <native> -B <OUT_DIR>/build -G Ninja`, followed by `-DCMAKE_BUILD_TYPE=Release`, the two FetchContent options, `-DSLANG_TREE_DIR=<root>`, `-DSLANG_INCLUDE_DIR=<include>`, and `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=<OUT_DIR>/lib`. The build step is `cmake --build <OUT_DIR>/build --target slang-rhi slang-rhi-sys-abi-probe`, followed by `--parallel` and the value of `NUM_JOBS` when it is a whole number. Until the build script writes the ABI probe (RSYS-9), the build step names the target `slang-rhi` alone. The build script runs every CMake command with standard input closed, removes `build/CMakeCache.txt` before every configure step, as SGL-2 does, and appends their output to `OUT_DIR/build.log`.
 
 The options of the table are set as normal variables before `add_subdirectory`, which `option` and `cmake_dependent_option` in a subdirectory respect, as the wrapper of `slang-glslang-sys` does for SPIRV-Tools.
+
+The configure and build steps need no network. With the clone and the build of Slang already in the shared folder, they succeed under `unshare -rn`, which gives a network namespace without any network interface, with `CARGO_NET_OFFLINE=true`, and every compile command includes `external/vulkan/include` of the tree.
+
+The configured header defines `SLANG_RHI_SHARED` as 0 and `SLANG_RHI_ENABLE_VULKAN` as the only enabled backend. The only line of the log about a download is the status message `-- Fetching Vulkan headers ...`, which slang-rhi prints before it calls `FetchPackage`.
+
+RSYS-17. Before it adds the subdirectory, the wrapper project MUST check with `check_include_file_cxx` of the CMake module `CheckIncludeFileCXX` that the C++ compiler finds `X11/Xlib.h`. When the compiler does not find it, the wrapper project MUST stop the configure step with `message(FATAL_ERROR ...)` and a message that names the header, says that the Vulkan backend of slang-rhi includes it on Linux, and names the Debian package `libx11-dev` as an example of the development headers of Xlib. The crate MUST NOT bundle a stub of the header (Section 4.1).
+
+The check stops the build in the configure step with a message that names the cause, where the compiler would otherwise stop the build step with an error inside the Vulkan headers that names no package (Section 3.5). Its result lives only in `CMakeCache.txt` of the build directory, which the build script removes before every configure step, so a build after the installation of the headers checks again.
 
 ### 5.3. Warnings as Errors
 
@@ -256,6 +281,8 @@ RSYS-5. The wrapper project MUST clear the property `INTERFACE_COMPILE_OPTIONS` 
 slang-rhi turns every warning of its own sources into an error with no option to turn it off (Section 3.5). The CI of slang-rhi runs on runner images such as `ubuntu-latest` and sets up its compilers with no pinned version (`.github/workflows/ci.yml:43-63`, `:82-86`), so the tree records no compiler version that upstream tests.
 
 A user's compiler can differ from all of them, and a warning that upstream never saw would stop a user's build in code that the user cannot change. The wrapper of `slang-glslang-sys` sets `SPIRV_WERROR` to `OFF` for the same reason, and the warnings stay in `OUT_DIR/build.log`.
+
+In the build tree of a build on Linux, `build.ninja` holds no `-Werror`, and every compile command of `slang-rhi` carries `-Wall -Wextra -Wpedantic` without it, so clearing the property removes the flag from every compile command.
 
 ### 5.4. Libraries and Link Order
 
@@ -269,23 +296,42 @@ RSYS-6. The build script MUST check after the build that each library of this ta
 
 Each library precedes the libraries that it uses, which the static linker of Linux needs, and the dependency on `slang-compiler-sys` places Slang's libraries after these (RSYS-1). slang-rhi uses `dlopen` and starts the worker threads of its task pool with `std::thread` (`src/core/task-pool.cpp:135`, `:172`), which need `dl` and `pthread` on Linux, and it links no graphics library, because it loads `libvulkan.so.1` at run time (Section 3.4). The vendored route of `slang-compiler-sys` also links `dl` and `pthread` (SCS-69 of the sys design), and a repeated system library changes nothing.
 
-The library `slang-rhi-sys-abi-probe`, which the wrapper project builds from the ABI probe (RSYS-9), is not linked into the crate. The build script emits `cargo::rustc-link-arg-tests` with the path of its archive, so that only the integration-test binary links it (Section 13, RSA-9).
+The build places the three archives under `OUT_DIR/lib` with these names, and the link order resolves every symbol. Two programs outside the repository checked this:
+
+- A Rust crate that depends on `slang-rhi-sys` by path, with its own declaration of `rhiGetInstance`, linked with the link instructions of this crate and no unresolved symbol, and called `getDeviceTypeName` for the Vulkan device type through the vtable of `IRHI`.
+- A C++ program, linked with the three archives in this order, then Slang's six archives, `stdc++`, `dl`, and `pthread`, which created a Vulkan device, created a buffer with initial data and read it back, compiled a Slang compute shader through `IDevice::getSlangSession`, dispatched it, and read the expected results on an NVIDIA adapter and on lavapipe.
+
+The repository holds no such link test, because RSYS-2 and Hard Rule 7 of `AGENTS.md` forbid a hand-written declaration, and the tests of Section 9 link the crate once the bindings exist.
+
+The library `slang-rhi-sys-abi-probe`, which the wrapper project builds from the ABI probe (RSYS-9), is not linked into the crate. The build script emits `cargo::rustc-link-arg-tests` with the path of its archive, so that only the integration-test binary links it (Section 13, RSA-9). It emits the instruction from the change that adds the ABI probe.
 
 ### 5.5. The Entry of the Shared Folder
 
 RSYS-7. The build script MUST keep the four libraries of RSYS-6 and RSYS-9, under `lib`, and the configured header `slang-rhi-config.h`, under `include`, in an entry of the directory `slang-rhi-sys` of the shared folder that `DEP_SLANG_SRC_SHARED_DIR` names, with the entry protocol of SRC-16 and the entry key of SRC-17 of the `slang-src` design, and MUST use a complete entry whose inputs equal those of the current build instead of building.
 
-The inputs of the key follow SRC-17, with `files` the FNV-1a hash of the name and content of `native/CMakeLists.txt`, as SGL-6 hashes its native files, `configure` the lines `-DCMAKE_BUILD_TYPE=Release` and the two FetchContent options without their paths, and `compiler` found as SCS-56 of the sys design states. The ABI probe is a function of the headers, which the commit fixes, of the target, and of the version of `slang-bindgen`, which the exact requirement of RSYS-1 ties to the version of this crate in the input `crate`.
+Until the build script writes the ABI probe (RSYS-9), an entry holds the three archives of RSYS-6 under `lib` and the configured header under `include`.
 
-An entry is complete only when its file `inputs` equals the inputs of the current build byte for byte, and each of the four archives and the configured header exist as files. The build script replaces an entry that fails either check.
+The inputs of the key follow SRC-17, with these values:
+
+- `files` is the FNV-1a hash of the name and content of `native/CMakeLists.txt`, as SGL-6 hashes its native files.
+- `configure` holds the lines `-DCMAKE_BUILD_TYPE=Release`, `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, and `-DFETCHCONTENT_SOURCE_DIR_VULKAN_HEADERS=external/vulkan`, with the path of the Vulkan headers relative to the root of the tree, so that the path of the tree stays out of the key.
+- `compiler` is found as SCS-56 of the sys design states.
+
+The ABI probe is a function of the headers, which the commit fixes, of the target, and of the version of `slang-bindgen`, which the exact requirement of RSYS-1 ties to the version of this crate in the input `crate`. The variables through which the compiler reads include and library directories are not inputs of the key, which Section 9.4 of the `slang-src` design states as a limit of every entry of libraries (SRCQ-4 of that design).
+
+An entry is complete only when its file `inputs` equals the inputs of the current build byte for byte, and each of its archives and the configured header exist as files. The build script replaces an entry that fails either check.
 
 ### 5.6. Rerun Instructions
 
-RSYS-8. The build script MUST emit `cargo::rerun-if-env-changed` for `LIBCLANG_PATH`, `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET`, `VCINSTALLDIR`, and `VCToolsVersion`, and `cargo::rerun-if-changed` for the stamp file of the entry that it uses (SYS-1). The build logic compiles in `native/CMakeLists.txt` with `include_str!`, so a change of it recompiles and reruns the build script, as SGL-7 explains.
+RSYS-8. The build script MUST emit `cargo::rerun-if-env-changed` for `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET`, `VCINSTALLDIR`, and `VCToolsVersion`. It MUST emit `cargo::rerun-if-changed` for the stamp file of the entry that it uses (SYS-1). The build logic compiles in `native/CMakeLists.txt` with `include_str!`, so a change of it recompiles and reruns the build script, as SGL-7 explains.
+
+`LIBCLANG_PATH` steers only the generator, so the build script also emits its instruction from the change that makes it run the generator (RSYS-9).
 
 ## 6. The Bindings
 
 ### 6.1. Generation
+
+The generation of this section arrives in the third code step of Section 15.12 of the architecture design. Sections 4.2, 4.3, 5.2, 5.4, 5.5, 5.6, and 9 state what the crate holds before it.
 
 RSYS-9. On every run, after the configure step or the lookup of a complete entry, the build script MUST call `slang_bindgen::generate_slang_rhi` with `<root>/external/slang-rhi/include`, the `include` directory of the configure step or of the entry, the directory that `DEP_SLANG_COMPILER_INCLUDE` names, and `TARGET`, and MUST write `bindings.rs` and `symbols.rs` into `OUT_DIR`. When it builds, it MUST write the ABI probe into `OUT_DIR/build/abi-probe.cpp` before the build step, from which the wrapper project builds the static library `slang-rhi-sys-abi-probe`. A failure of the generator MUST stop the build with its error, before any link instruction.
 
@@ -340,9 +386,13 @@ The generated code carries no `Send` or `Sync` implementation, and its raw point
 
 ### 7.1. Linux
 
-RSYS-13. The build script MUST build on a target whose `CARGO_CFG_TARGET_OS` is `linux` and whose `CARGO_CFG_TARGET_ENV` is `gnu`, and MUST stop the build on every other target with an error that names the target and says that `slang-rhi-sys` builds only for Linux with the GNU C library, because its builds of the D3D12 and Metal backends are not designed. It MUST also stop on a cross-compilation, with the message of SGL-5 of the `slang-glslang-sys` design adapted to slang-rhi.
+RSYS-13. The build script MUST check the target first, after it reads `TARGET` and `HOST` and before it reads any metadata of its dependencies or starts any program. It MUST build on a target whose `CARGO_CFG_TARGET_OS` is `linux` and whose `CARGO_CFG_TARGET_ENV` is `gnu`, and MUST stop the build on every other target with an error that names the target and says that `slang-rhi-sys` builds only for Linux with the GNU C library, because its builds of the D3D12 and Metal backends are not designed. It MUST then stop on a cross-compilation, with the message of SGL-5 of the `slang-glslang-sys` design adapted to slang-rhi.
 
 A build of Windows or macOS with only the Vulkan backend would contradict the owner's decision that D3D12 and Metal are the backends of those platforms (Section 4.1), and a build of D3D12 needs a download that ARCH-35 of the architecture design forbids (Section 3.5). A stop in the build script names the reason before CMake fails in a way that does not. The vendored `slang-compiler-sys` cannot cross-compile, so this crate cannot either.
+
+On a target other than Linux with the GNU C library, the crate has no dependencies (RSYS-1), so Cargo sets none of the variables of their metadata, and a check after the reading of the metadata would report a missing dependency instead of the platform. A cross-compilation from one Linux target with the GNU C library to another keeps the dependencies, so the build script of `slang-src` clones first, and the build script of `slang-compiler-sys` stops with its own error that it cannot cross-compile before this build script runs.
+
+A build on Linux needs everything that a vendored build of `slang-compiler-sys` needs (SRC-20 of the `slang-src` design), and the development headers of Xlib, such as those of the Debian package `libx11-dev` (Section 3.5, RSYS-17).
 
 x86_64 Linux is the tested target. Another architecture of Linux with the GNU C library is allowed, untested, and unsupported, as ARCH-37 of the architecture design requires, and the build script of `slang-compiler-sys` already states it in its warning. On AArch64, the ABI probe relies on SA-21 of the sys design.
 
@@ -364,8 +414,9 @@ RSYS-15. The build script MUST keep its logic in `build_logic.rs` behind the tra
 | --- | --- |
 | `DEP_SLANG_SRC_*` or `DEP_SLANG_COMPILER_*` missing, or `DEP_SLANG_COMPILER_LINKAGE` not `static` | The variable, and that the crate depends on `slang-src` and on the vendored `slang-compiler-sys` directly |
 | The target is not Linux with the GNU C library, or differs from the host | RSYS-13 |
-| `cmake`, `ninja`, or the compiler probe cannot start | The program, the command, the reason, and that the build needs CMake 3.22 or later, Ninja, and a C++20 compiler |
-| The configure or build step fails, or a `static_assert` of the ABI probe fails | The command, the log `build.log`, and its last 40 lines |
+| `cmake`, `ninja`, or the compiler probe cannot start | The program, the command, the reason, and that the build needs CMake 3.22 or later, Ninja, a C++20 compiler, and the development headers of Xlib, such as those of the Debian package `libx11-dev` |
+| The configure or build step fails, or a `static_assert` of the ABI probe fails | The command, the step, the log `build.log`, and its last 40 lines |
+| The C++ compiler does not find `X11/Xlib.h` | The error of a failed configure step, whose last 40 lines of the log hold the message of RSYS-17 |
 | A library or the configured header is missing after the build | The path |
 | The generator fails | The error of `slang-bindgen` with its sources, and, for an error of kind `Libclang`, that the crate generates its bindings with libclang in every build |
 | An operation on the entry fails | The action, the path, the reason, and that removing the entry when no build runs is safe (SGL-6) |
@@ -378,10 +429,12 @@ The build script exports no `links` metadata, because no crate builds native cod
 
 The crate has one integration-test binary, `tests/rhi_sys/`, which carries the `unsafe_code` expectation on its modules `ffi` and `gpu`. It has these modules:
 
-- `build_script`: pure tests of `build_logic.rs` against a fake host. They cover the arguments and the environment of each CMake run, the order of the link instructions, the instruction of the probe archive, the key of the entry and its use and replacement, the stop for each target of RSYS-13, and every failure of RSYS-15 with its message.
+- `build_script`: pure tests of `build_logic.rs` against a fake host. They cover the arguments and the environment of each CMake run, the order of the link instructions, the instruction of the probe archive, the key of the entry and its use and replacement, the stop for each target of RSYS-13 before any metadata is read or any program runs, and every failure of RSYS-15 with its message.
 - `build_script::ffi`: tests of `system.rs`, which start processes and write files, as for `slang-glslang-sys`.
 - `ffi`: the native-symbol test, which references both C functions of `symbols.rs`, the comparison of every slot offset of the ABI probe with the generated vtable structs (RSYS-11), and a smoke test that calls `rhiGetInstance` and then `IRHI::getDeviceTypeName` for the Vulkan device type through the generated thunk and checks that the result is not null. These tests open no device.
 - `gpu`: one test that opens a Vulkan device on the first adapter with a debug callback implemented in Rust as RSYS-12 states, creates a buffer with initial data, reads it back through `readBuffer` and through `readBuffer_blob`, and compares both with the data. It is the call test of one pair of overloads, and it shows that a device opens on lavapipe.
+
+Until the bindings exist (RSYS-9), `main.rs` declares only the module `build_script` and carries no `unsafe_code` expectation. The pure tests then cover no instruction of the probe archive, and the modules `ffi` and `gpu` and the module `symbols` of RSYS-2 arrive with the bindings.
 
 The pure tests of `build_script` could run under Miri, but no recipe runs Miri on the crate, because `check-miri` leaves it out with the other crates of TOOL-32 (SRCQ-3 of the `slang-src` design). The tests of the safe crate exercise the rest of the compute path (`docs/design/slang-rhi.md`).
 
@@ -392,6 +445,8 @@ The recipe `test-rhi` runs these tests with the nextest profile `gpu`, and the C
 RSYS-16. The crate-level documentation MUST state what the crate builds and links, that it always builds Slang from source through the vendored `slang-compiler-sys`, the build requirements of Section 7.1 and of a vendored build, the platform rule of RSYS-13, the safety contract of RSYS-12, and that it has no Cargo features, in a `# Features` section and a `# Platform support` section. It MUST state the third-party code that a program built with the crate contains, which is VMA under the MIT licence and the runtime of CMakeRC (Section 3.5), and MUST name the shared folder as SRC-20 of the `slang-src` design lists it.
 
 A program that ships a binary built with the crate carries the notices of the code in it, and the package of the crate holds none of that code, so the documentation is where a user learns of it (RSA-8, RSQ-4).
+
+The safety contract arrives in the documentation with the bindings (RSYS-9), because before them the crate has no unsafe item.
 
 ## 11. Security Considerations
 
@@ -408,7 +463,7 @@ Untrusted shader source and file paths. The crate passes nothing to slang-rhi it
 
 Build scripts that run native builds. The build script runs CMake, Ninja, and the compiler, and writes only under `OUT_DIR` and its entries in the shared folder (RSYS-7). The configure step disconnects FetchContent and redirects the Vulkan headers to the tree, so it reaches no network, and RSYS-14 forbids adding a download.
 
-Dependencies. The crate depends on `slang-src` with its exact version, on `slang-compiler-sys`, and on `slang-bindgen` with its exact version and `find-msvc-tools` at build time. slang-rhi, VMA, and CMakeRC come from the gitlink of the recorded commit, so the commit hash fixes their content.
+Dependencies. The crate depends on `slang-src` with its exact version and on `slang-compiler-sys`, on Linux with the GNU C library only, and, once it generates the bindings, on `slang-bindgen` with its exact version at build time (RSYS-1). The build also reads the development headers of Xlib from the system, which the user's package manager provides. slang-rhi, VMA, and CMakeRC come from the gitlink of the recorded commit, so the commit hash fixes their content.
 
 These attacks are out of scope:
 
@@ -440,7 +495,7 @@ This table lists every environment variable that the build script reads or sets,
 | `DEP_SLANG_COMPILER_INCLUDE`, `DEP_SLANG_COMPILER_LIB`, `DEP_SLANG_COMPILER_LINKAGE`, `DEP_SLANG_COMPILER_BUILD_TAG` | The build script | Set by Cargo from the metadata of `slang-compiler-sys` (SCS-54 of the sys design). Absence, or a linkage other than `static`, stops the build |
 | `OUT_DIR`, `CARGO_MANIFEST_DIR`, `TARGET`, `HOST`, `NUM_JOBS` | The build script | Set by Cargo, as for `slang-glslang-sys` (Section 12.2 of that design) |
 | `CARGO_CFG_TARGET_OS`, `CARGO_CFG_TARGET_ENV` | The build script | Set by Cargo. They select the stop of RSYS-13 |
-| `LIBCLANG_PATH` | The generator | As for `slang-compiler-sys` (Section 18.2 of the sys design) |
+| `LIBCLANG_PATH` | The generator, once the build script runs it (RSYS-8) | As for `slang-compiler-sys` (Section 18.2 of the sys design) |
 | `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, `CMAKE_TOOLCHAIN_FILE`, `MACOSX_DEPLOYMENT_TARGET`, `VCINSTALLDIR`, `VCToolsVersion` | CMake, the compiler probe, and the entry key | Passed through unchanged. The build script reruns when one changes (RSYS-8) |
 | `PATH` | The operating system, when the build script starts `cmake`, `ninja`, and the compiler probe | A program that cannot start stops the build (RSYS-15) |
 
@@ -456,6 +511,7 @@ This table lists the failure modes of the crate, how each is reported, and the r
 | --- | --- | --- |
 | A target other than Linux with the GNU C library, or a cross-compilation | The error of the build script (RSYS-13) | Build on Linux. Windows and macOS wait for RSQ-1 |
 | A program of the build cannot start, or the configure or build step fails | The error of the build script, with the log (RSYS-15) | Install CMake, Ninja, or a C++20 compiler, or fix the toolchain that the log names |
+| The C++ compiler does not find `X11/Xlib.h` | The error of the failed configure step, with the message of RSYS-17 in the log | Install the development headers of Xlib, such as the Debian package `libx11-dev`, and build again |
 | The generator refuses a declaration of a slang-rhi other than that of the recorded commit | The error of the generator (SCS-2 of the sys design) | Use the recorded commit, or change the rule set and this design |
 | A `static_assert` of the ABI probe fails, or a slot offset differs in the test | The build step, or the `ffi` test | A defect of the generator or of libclang for the target. Do not use the bindings on that target until it is fixed |
 | No Vulkan loader or driver at run time | The creation of a device fails, through the safe crate (`docs/design/slang-rhi.md`) | Install the Vulkan loader and a driver, such as lavapipe |
@@ -471,12 +527,6 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| RSA-1 | With the options of RSYS-4, the configure step of the wrapper project on Linux reaches no network and succeeds, and FetchContent takes the Vulkan headers from `FETCHCONTENT_SOURCE_DIR_VULKAN_HEADERS` | RSYS-4 | The first code step, with the network blocked for the configure step |
-| RSA-2 | The Vulkan headers of `external/vulkan` compile slang-rhi, as their version, equal to the pin, suggests | RSYS-4 | The first code step |
-| RSA-3 | With `SLANG_RHI_BUILD_FROM_SLANG_REPO` on, slang-rhi needs nothing of Slang's CMake build but the target `slang` and `SLANG_RHI_SLANG_INCLUDE_DIR`, and the missing `prelude` directory next to the include directory of the entry does not matter to the Vulkan backend (`CMakeLists.txt:527-533`) | RSYS-3 | The first code step, by a build and the `gpu` tests |
-| RSA-4 | The wrapper build writes nothing into the source tree | RSYS-3 | The first code step, by `git status --short --ignored` in the tree and in `external/slang-rhi` after a build, as for SGL-2 |
-| RSA-5 | `CMAKE_ARCHIVE_OUTPUT_DIRECTORY` places the four archives of RSYS-6 and RSYS-9 under `OUT_DIR/lib` with those names, and the link order of RSYS-6 with `stdc++`, `dl`, and `pthread` resolves every symbol of a program that creates a device | RSYS-6 | The first code step, by the link of the test binary, and the `gpu` tests |
-| RSA-6 | Clearing `INTERFACE_COMPILE_OPTIONS` of `slang-rhi-warnings-as-errors` removes `-Werror` from every compile command of slang-rhi | RSYS-5 | The first code step, by the compile commands of the build tree |
 | RSA-7 | A method with an out-parameter of an interface pointer returns it with one reference added, as COM convention requires | RSYS-12, the safe crate | The code step of the safe crate, by a reading of `src/` for each method that it calls, recorded in `docs/design/slang-rhi.md` |
 | RSA-8 | `cmake/CMakeRC.cmake` is under the MIT licence of its upstream project, while the file in the tree carries no licence text | RSYS-16 | A reading of the upstream repository of CMakeRC, by the owner or an agent with network access |
 | RSA-9 | `cargo::rustc-link-arg-tests` reaches the integration-test binary of the crate and no other target, so only the tests link the probe | RSYS-6 | The code step that adds the ABI probe |
@@ -505,19 +555,20 @@ This table lists every labelled requirement of this document with a one-line sum
 
 | Label | Section | Summary |
 | --- | --- | --- |
-| RSYS-1 | 4.2 | `links = "slang-rhi"`, no features, the exact `slang-src`, the vendored `slang-compiler-sys`, and `slang-bindgen` and `find-msvc-tools` at build time. |
-| RSYS-2 | 4.3 | The crate root holds the documentation, the `unsafe_code` expectation, the generated module, and its re-export, and nothing hand-written. |
+| RSYS-1 | 4.2 | `links = "slang-rhi"`, no features, the exact `slang-src` and the vendored `slang-compiler-sys` for Linux with the GNU C library only, `slang-bindgen` at build time with the bindings, and no `find-msvc-tools`. |
+| RSYS-2 | 4.3 | The crate root holds the documentation, the `unsafe_code` expectation, the two `use` declarations under the condition of the target, the generated module, and its re-export, and nothing hand-written. |
 | RSYS-3 | 5.1 | A wrapper project builds slang-rhi out of tree from the tree in place, with an INTERFACE `slang` target over the headers of the vendored Slang and `SLANG_STATIC`. |
 | RSYS-4 | 5.2 | The options of the table, FetchContent disconnected, and the Vulkan headers taken from the tree, so the configure step reaches no network. |
 | RSYS-5 | 5.3 | The wrapper removes the warnings as errors of slang-rhi. |
 | RSYS-6 | 5.4 | Three archives checked and linked in order, then `stdc++`, `dl`, and `pthread`, and the probe archive only for the tests. |
 | RSYS-7 | 5.5 | The archives and the configured header live in an entry of the shared folder with the protocol and key of `slang-src`. |
-| RSYS-8 | 5.6 | Rerun instructions for the variables of libclang, CMake, and the lookup of `cl.exe`, and for the stamp file of the used entry. |
+| RSYS-8 | 5.6 | Rerun instructions for the variables of CMake and the lookup of `cl.exe`, for `LIBCLANG_PATH` once the generator runs, and for the stamp file of the used entry. |
 | RSYS-9 | 6.1 | Every run generates the bindings from the headers and the configured header of the build, and a build writes the ABI probe before the build step. |
 | RSYS-10 | 6.2 | The rule set decides each kind of declaration as the table states. |
 | RSYS-11 | 6.3 | The ABI probe compiles with slang-rhi's compiler, and a test compares every slot offset. |
 | RSYS-12 | 6.4 | One shared safety contract, unwinding ABIs for calls into slang-rhi, and a non-unwinding Rust debug callback. |
-| RSYS-13 | 7.1 | Linux with the GNU C library only, no cross-compilation, and a clear stop on every other target. |
+| RSYS-13 | 7.1 | Linux with the GNU C library only, no cross-compilation, and a clear stop on every other target, checked before the metadata of the dependencies is read. |
 | RSYS-14 | 7.2 | A test of Windows and macOS with downloads off, whose result goes to the owner before any design of those builds. |
 | RSYS-15 | 8 | The logic behind `Host`, every exit status checked, and the failures of the table. |
 | RSYS-16 | 10 | The crate documentation states the build, the requirements, the platforms, the contract, the features, and the third-party code in a program. |
+| RSYS-17 | 5.2 | The wrapper project checks that the compiler finds `X11/Xlib.h` before it adds slang-rhi, stops the configure step with a message that names the header and `libx11-dev` otherwise, and bundles no stub. |

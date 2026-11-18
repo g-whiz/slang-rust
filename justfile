@@ -16,6 +16,9 @@ vendored_features := "slang-compiler/vendored"
 # The environment of the vendored recipes: no Vulkan SDK and no loader path, so nothing can load the Slang of an SDK, and their own target directory, so the vendored build does not replace the build of target/
 vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny"
 
+# The packages that build slang-rhi from source, separated by spaces, which check-rhi and test-rhi select with -p
+rhi_packages := "slang-rhi-sys"
+
 # The packages of the next release, separated by spaces, in the order in which they depend on each other, which every recipe of the release reads. Every other member sets publish = false
 release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros"
 
@@ -187,14 +190,14 @@ install-vulkan-sdk VERSION SHA256:
 check-vulkan-sdk:
     @scripts/check-vulkan-sdk
 
-# Print the recorded Slang commit and its build tag of crates/slang-src/recorded.rs as NAME=value lines
+# Print the recorded Slang commit, its build tag, and the name of its clone entry in the shared folder of crates/slang-src/recorded.rs as NAME=value lines
 [group('rust')]
 recorded-slang:
     #!/usr/bin/env bash
     set -euo pipefail
     recorded_file=crates/slang-src/recorded.rs
     pattern='^const ([A-Z_]+): &str = "([^"]+)";$'
-    for name in RECORDED_COMMIT RECORDED_BUILD_TAG; do
+    for name in RECORDED_COMMIT RECORDED_BUILD_TAG RECORDED_CLONE_ENTRY; do
         value=""
         while IFS= read -r line || [[ -n "${line}" ]]; do
             line="${line%$'\r'}"
@@ -237,39 +240,96 @@ check-vendored:
     {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
     {{ vendored_environment }} cargo clippy -p slang-slint --features slang-slint/vendored
 
-# Check that the vendored build kept its Slang clone in the shared folder target/vendored/slang-src and nowhere else under target/vendored, and print where it is, whether Cargo tagged target/vendored, and the size of the folder
+# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, in target/vendored, without VULKAN_SDK and without a loader path, on Linux only, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+[group('rust')]
+test-rhi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{ os() }}" != linux ]]; then
+        printf 'test-rhi: the packages %s build only on Linux, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
+        exit 1
+    fi
+    read -r -a names <<<"{{ rhi_packages }}"
+    packages=()
+    for name in "${names[@]}"; do
+        packages+=(-p "${name}")
+    done
+    {{ vendored_environment }} cargo nextest run "${packages[@]}" --profile gpu --no-tests=fail
+    {{ vendored_environment }} cargo test --doc "${packages[@]}"
+
+# Run Clippy and build the API documentation of the packages of rhi_packages in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux only, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+[group('checks')]
+check-rhi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{ os() }}" != linux ]]; then
+        printf 'check-rhi: the packages %s build only on Linux, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
+        exit 1
+    fi
+    read -r -a names <<<"{{ rhi_packages }}"
+    packages=()
+    for name in "${names[@]}"; do
+        packages+=(-p "${name}")
+    done
+    {{ vendored_environment }} cargo clippy "${packages[@]}" --all-targets
+    {{ vendored_environment }} cargo doc "${packages[@]}" --no-deps
+
+# Check that the shared folder target/vendored/slang-src holds exactly one Slang clone, the directory src/<23 digits of the commit>-<submodules> that recorded-slang prints as RECORDED_CLONE_ENTRY, and no clone in an older layout, src/<commit> or src/<commit>-<submodules> with the full commit, and that no other directory named slang-src under target/vendored holds a clone in any of these layouts, and print where it is, whether Cargo tagged target/vendored, and the sizes of the folder and the clone
 [group('checks')]
 check-vendored-shared-folder:
     #!/usr/bin/env bash
     set -euo pipefail
     target=target/vendored
     shared="${target}/slang-src"
-    commit="$(just recorded-slang | sed -n 's/^RECORDED_COMMIT=//p')"
+    expected="$(just recorded-slang | sed -n 's/^RECORDED_CLONE_ENTRY=//p')"
+    if [[ -z "${expected}" ]]; then
+        printf 'check-vendored-shared-folder: just recorded-slang printed no RECORDED_CLONE_ENTRY\n' >&2
+        exit 1
+    fi
     if [[ -f "${target}/CACHEDIR.TAG" ]]; then
         printf 'Cargo tagged %s with CACHEDIR.TAG\n' "${target}"
     else
         printf 'check-vendored-shared-folder: %s holds no CACHEDIR.TAG, so each build unit kept its own clone\n' "${target}" >&2
         exit 1
     fi
-    entry="${shared}/src/${commit}"
-    if [[ ! -d "${entry}/tree/.git" || ! -f "${entry}/stamp" ]]; then
-        printf 'check-vendored-shared-folder: %s holds no clone entry of the recorded commit %s\n' "${shared}" "${commit}" >&2
+    shopt -s nullglob
+    commit_pattern="$(printf '%.0s[0-9a-f]' {1..40})"
+    prefix_pattern="$(printf '%.0s[0-9a-f]' {1..23})"
+    hash_pattern="$(printf '%.0s[0-9a-f]' {1..16})"
+    clones() {
+        local dir="$1" entry
+        for entry in "${dir}/src/"${commit_pattern} "${dir}/src/"${commit_pattern}-${hash_pattern} "${dir}/src/"${prefix_pattern}-${hash_pattern}; do
+            if [[ -e "${entry}/tree/.git" ]]; then
+                printf '%s\0' "${entry}"
+            fi
+        done
+    }
+    entries=()
+    while IFS= read -r -d '' entry; do
+        entries+=("${entry}")
+    done < <(clones "${shared}")
+    for entry in "${entries[@]}"; do
+        printf 'Clone entry: %s\n' "${entry}"
+    done
+    if [[ "${#entries[@]}" -ne 1 || "${entries[0]}" != "${shared}/src/${expected}" || ! -f "${entries[0]}/stamp" ]]; then
+        printf 'check-vendored-shared-folder: %s must hold exactly one clone entry, the complete entry src/%s, and holds %d, so remove every other entry and build again\n' "${shared}" "${expected}" "${#entries[@]}" >&2
         exit 1
     fi
     printf 'The shared folder is %s\n' "$(cd "${shared}" && pwd)"
-    printf 'The clone entry of %s is %s\n' "${commit}" "${entry}"
+    printf 'The clone entry is %s\n' "${entries[0]}"
     du -sh "${shared}"
+    du -sh "${entries[0]}"
     listing="$(mktemp)"
     trap 'rm -f "${listing}"' EXIT
     find "${target}" -path "${shared}" -prune -o -type d -name slang-src -print0 >"${listing}"
     others=()
     while IFS= read -r -d '' dir; do
-        if [[ -e "${dir}/src/${commit}/tree/.git" ]]; then
-            others+=("${dir}")
-        fi
+        while IFS= read -r -d '' entry; do
+            others+=("${entry}")
+        done < <(clones "${dir}")
     done <"${listing}"
     if [[ "${#others[@]}" -ne 0 ]]; then
-        printf 'check-vendored-shared-folder: another directory named slang-src holds a clone: %s\n' "${others[@]}" >&2
+        printf 'check-vendored-shared-folder: a directory outside the shared folder holds a clone: %s\n' "${others[@]}" >&2
         exit 1
     fi
     printf 'No other directory named slang-src under %s holds a clone\n' "${target}"
@@ -417,32 +477,32 @@ check-fmt:
 # Run Clippy on every target of the workspace, failing on any warning
 [group('checks')]
 check-clippy:
-    CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
+    CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets
 
 # Build the API documentation of the workspace, failing on any rustdoc warning
 [group('checks')]
 check-doc:
-    CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
+    CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-deps
 
 # Run the doctests of the workspace
 [group('checks')]
 check-doctest:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys
 
 # Run the tests of the default tier, which need no GPU adapter
 [group('rust')]
 test:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile default --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile default --no-tests=warn
 
 # Run the tests of the default and GPU tiers, which need any GPU adapter, including lavapipe
 [group('rust')]
 test-gpu:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile gpu --no-tests=warn
 
 # Run every test, including the hardware GPU tier, which needs a hardware GPU
 [group('rust')]
 test-hw-gpu:
-    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile hw-gpu --no-tests=warn
+    {{ slang_library_path }} CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile hw-gpu --no-tests=warn
 
 # Check licences, security advisories, duplicate crates, and crate sources with cargo-deny, which needs network access
 [group('checks')]
@@ -467,25 +527,25 @@ check-unused-deps:
 # Run the tests under Miri on the nightly toolchain to find undefined behaviour
 [group('checks')]
 check-miri:
-    cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
+    cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
 
 # Check that every combination of Cargo features compiles, except slango without a backend, run by CI only
 [group('checks')]
 check-features:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
     CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
 
 # Check that the workspace builds with the toolchain of its declared rust-version, run by CI only
 [group('checks')]
 check-msrv:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets --rust-version
 
 # Check the release packages with a library target, other than slang-src and slang-glslang-sys, for breaking changes against their last release on crates.io, with the default features of each, run by CI only. It fetches each baseline from crates.io, which needs network access, and builds each crate twice
 [group('checks')]
 check-semver:
-    cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --default-features
+    cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --default-features
 
 # Write a test coverage report to target/lcov.info, run by CI only
 [group('rust')]
 coverage:
-    {{ slang_library_path }} cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --profile gpu --no-tests=warn --lcov --output-path target/lcov.info
+    {{ slang_library_path }} cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile gpu --no-tests=warn --lcov --output-path target/lcov.info

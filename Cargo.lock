@@ -3698,6 +3698,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "slang-rhi-sys"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "slang-compiler-sys",
+ "slang-src",
+]
+
+[[package]]
 name = "slang-rust-examples"
 version = "0.1.0-alpha.2"
 dependencies = [

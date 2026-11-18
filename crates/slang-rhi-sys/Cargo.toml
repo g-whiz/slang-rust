@@ -1,0 +1,20 @@
+[package]
+name = "slang-rhi-sys"
+description = "slang-rhi, the render hardware interface of Slang, built statically from the Slang source tree with the vendored Slang."
+keywords = ["slang", "rhi", "vulkan", "gpu", "ffi"]
+categories = ["external-ffi-bindings", "graphics"]
+links = "slang-rhi"
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0 WITH LLVM-exception"
+repository.workspace = true
+
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+slang-compiler-sys = { workspace = true, features = ["vendored"] }
+slang-src.workspace = true
+
+[lints]
+workspace = true

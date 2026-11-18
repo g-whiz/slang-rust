@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -132,9 +132,9 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 
 ### 3.1. Workspace Members
 
-This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`. The rows of `slang-rhi-sys` and `slang-rhi` are planned crates of M9, which their design documents specify (Section 15.12).
+This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`. The rows of `slang-rhi-sys` and `slang-rhi` are the crates of M9, which their design documents specify (Section 15.12), and `slang-rhi` is planned.
 
-`slang-src` and `slang-glslang-sys` exist only for a vendored build, and their build scripts clone and build native code. The planned `slang-rhi-sys` and `slang-rhi` will always build Slang and slang-rhi from source (Section 4.1 of `docs/design/slang-rhi-sys.md`). The workspace leaves these four out of its default members, and every recipe that builds the default excludes them, as `docs/design/tooling.md` specifies.
+`slang-src` and `slang-glslang-sys` exist only for a vendored build, and their build scripts clone and build native code. `slang-rhi-sys` and the planned `slang-rhi` always build Slang and slang-rhi from source (Section 4.1 of `docs/design/slang-rhi-sys.md`). The workspace leaves these four out of its default members, and every recipe that builds the default excludes them, as `docs/design/tooling.md` specifies.
 
 | Member | Directory | Responsibility | Published | Milestone |
 | --- | --- | --- | --- | --- |
@@ -147,7 +147,7 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Yes | M7 |
 | `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Yes | M7 |
 | `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Yes | M1, M7 |
-| `slang-rhi-sys` | `crates/slang-rhi-sys/`, planned | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
+| `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
 | `slang-rhi` | `crates/slang-rhi/`, planned | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
 
@@ -244,7 +244,7 @@ Slang is obtained in exactly one of two ways: the dynamic route by default, and 
 | Route | Selected by | Slang comes from | Linking | The user needs |
 | --- | --- | --- | --- | --- |
 | Dynamic | Default | An installed LunarG Vulkan SDK at `VULKAN_SDK` | Dynamic | libclang and a Vulkan SDK at build time, and the Slang shared library on the library path at run time |
-| Vendored | The Cargo feature `vendored` | The source tree that `slang-src` obtains, which is always a shallow clone of the recorded commit | Static | libclang, git, CMake, Ninja, a C++ compiler, network access for the first build in a target directory, and Python 3 when the build includes slang-glslang. No Slang library at run time |
+| Vendored | The Cargo feature `vendored` | The source tree that `slang-src` obtains, which is always a shallow clone of the recorded commit | Static | libclang, git, CMake, Ninja, a C++ compiler, network access for the first build in a target directory, Python 3 when the build includes slang-glslang, and the development headers of Xlib when the build includes slang-rhi on Linux (Section 7.1 of `docs/design/slang-rhi-sys.md`). No Slang library at run time |
 
 No environment variable selects a route. Every crate between a user and `slang-compiler-sys` forwards the feature under the same name (Section 19.1). On both routes, the build script generates the bindings from the headers of the Slang that it links (Section 6). SCS-50 of `docs/design/slang-compiler-sys.md` decides the selection and gives the reasons.
 
@@ -797,7 +797,7 @@ Several milestones replace requirements of this document that the code satisfies
   - The Vulkan, D3D12, and Metal device backends of slang-rhi are built by default on their platforms. CUDA with OptiX, and the CPU, are opt-in Cargo features, which M15 delivers.
   - On 2026-11-17, the owner decided that `slang-rhi-sys` always uses the vendored Slang, so that the feature `rhi` of `slango` implies `vendored`, which answered Q-39. The owner also decided that M9 delivers `slang-rhi-sys` on Linux with the Vulkan backend first, that a code step tests the builds of Windows and macOS with their downloads off before any download is designed, and that the safe crate wraps the compute path in M9 while the raw bindings cover the whole API wherever the generator can produce them soundly. Section 4.1 of `docs/design/slang-rhi-sys.md` states these decisions.
 - Code steps, in this order, each on its own branch with its own CI run. The first two remove the largest uncertainty, and the second brings the result of Windows and macOS to the owner early:
-  1. The build of slang-rhi: `external/slang-rhi` in the required submodules with the clone entry of SRC-25 of `docs/design/slang-src.md`, the crate `slang-rhi-sys` with its wrapper build and its entry of the shared folder on Linux and no bindings yet, the recipes `check-rhi` and `test-rhi`, and the steps of the CI job `vendored` for them (TOOL-52 of `docs/design/tooling.md`). It confirms RSA-1 to RSA-6 of `docs/design/slang-rhi-sys.md` and measures the build time and the size of the entry.
+  1. The build of slang-rhi: `external/slang-rhi` in the required submodules with the clone entry of SRC-25 of `docs/design/slang-src.md`, the crate `slang-rhi-sys` with its wrapper build and its entry of the shared folder on Linux and no bindings yet, the recipes `check-rhi` and `test-rhi`, and the steps of the CI job `vendored` for them (TOOL-52 of `docs/design/tooling.md`). It confirms the wrapper build of Section 5 of `docs/design/slang-rhi-sys.md` and measures the build time and the size of the entry.
   2. The test of Windows and macOS of Section 7.2 of `docs/design/slang-rhi-sys.md`, on a branch whose result does not reach `main`, with the result brought to the owner.
   3. The generator on the slang-rhi headers (Section 7.8 of `docs/design/slang-compiler-sys.md`), the rule set `SLANG_RHI`, the bindings of `slang-rhi-sys`, and its symbol, ABI probe, smoke, and `gpu` tests.
   4. The additive reflection and the two accessors of Sections 9.6 and 9.7 of `docs/design/slang-compiler.md`. This step depends on no other step and can run beside the first three.

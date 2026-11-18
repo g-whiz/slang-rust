@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-src` |
 
 ## Abstract
@@ -126,6 +126,8 @@ These facts hold for Cargo 1.99.1 on x86_64 Linux. On Windows and macOS, the ven
 
 `git submodule update` stops with a pathspec error when one of its paths has no gitlink in the commit, before it reports anything about the other paths. `git ls-tree HEAD -- <paths>` lists each path of the commit with its mode and type, which are `160000` and `commit` for a gitlink, and reaches no network.
 
+`git ls-files -z --deleted` lists each tracked file that is missing from the work tree, which includes a file that the checkout never created. It reads no file content, so line endings do not change its answer, and it reaches no network. In a superproject, it lists no file of a submodule, so each submodule needs its own run.
+
 A shallow clone holds no tags, so `git describe` fails in it. The build tag of the clone therefore comes from `recorded.rs` (Section 7.1).
 
 git verifies the object ID of every object it receives, so a fetched commit, its trees, and its files are the content that the hash names. Every gitlink records the commit of its submodule by object ID, so the commit of the superproject determines the content of every submodule. git uses a variant of SHA-1 that detects the known collision attacks.
@@ -158,11 +160,21 @@ These are the required submodules of the recorded Slang:
 | `external/spirv-tools` | `slang-glslang-sys` |
 | `external/slang-rhi` | `slang-rhi-sys` |
 
-`external/slang-rhi` joins the list for milestone M9, and `slang-rhi-sys` also reads `external/vulkan` for the Vulkan headers that its build takes from the tree (RSYS-4 of `docs/design/slang-rhi-sys.md`). The submodule holds no submodules of its own and occupies about 8 MB, so it adds little to a clone. The builds of `slang-compiler-sys` and `slang-glslang-sys` do not read it, and the vendored route of `slang-compiler-sys` copies only its own list of submodules (Section 9.3 of the sys design), so the submodule changes neither build. Its addition changes what a clone entry holds, which SRC-25 handles.
+`external/slang-rhi` joins the list for milestone M9, and `slang-rhi-sys` also reads `external/vulkan` for the Vulkan headers that its build takes from the tree (RSYS-4 of `docs/design/slang-rhi-sys.md`). The submodule holds no submodules of its own, and the builds of `slang-compiler-sys` and `slang-glslang-sys` do not read it, because the vendored route of `slang-compiler-sys` copies only its own list of submodules (Section 9.3 of the sys design). Its addition therefore changes neither build and only what a clone entry holds, which SRC-25 handles.
 
 `external/mimalloc` is not required, because the vendored build of `slang-compiler-sys` passes `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF` with the Microsoft toolchain (Section 9.3 of the sys design) and the wrapper project of `slang-glslang-sys` sets both mimalloc options of SPIRV-Tools to `OFF` on every target (SGL-3 of `docs/design/slang-glslang-sys.md`). The vendored CI jobs on macOS and Windows show that the build of Slang of `slang-compiler-sys` needs no other submodule there. Section 16, SRCA-3, records that the build of slang-glslang needs no other submodule on Windows and macOS.
 
 A shallow clone of the recorded commit with these submodules takes about half a minute on a fast connection and occupies under 300 MB.
+
+### 3.5. Path Length on Windows
+
+A Windows program that neither writes the prefix `\\?\` before a path nor opts into long paths is limited to `MAX_PATH`, 260 characters including the terminating NUL character, so to 259 characters for the path itself. The standard library of Rust adds the prefix to a long path itself. git creates a longer path only with its setting `core.longpaths`, and the compilers and CMake that read the tree in place have the same limit.
+
+The checkout writes the tree into the temporary directory of SRC-16, whose name is that of the clone entry followed by `.tmp-` and the process ID, so it is 9 or 10 characters longer than the entry for a process ID of 4 or 5 digits. The longest tracked path of the recorded commit has 141 characters, the same with every required submodule as without them (`git ls-files --recurse-submodules`).
+
+On the hosted Windows runner, the target directory of the vendored CI job is `D:\a\slang-rust\slang-rust\target/vendored`. With a clone entry of 40 characters, that longest path then has 244 characters in the entry and 254 in a temporary directory with a process ID of 5 digits, which leaves 5 characters below the limit.
+
+Clone entries of 40 characters, which were then the full commit hash, have passed the vendored CI job on that runner. A clone entry of 57 characters, the full commit hash followed by a hyphen and the hash of SRC-25, did not: tracked files were absent from its work tree, and the build script of `slang-compiler-sys` failed when it copied one of them with "The system cannot find the file specified. (os error 2)".
 
 ## 4. Crate and Metadata
 
@@ -188,7 +200,7 @@ The licence of the crate is the one that ARCH-36 of the architecture design assi
 The crate has these files:
 
 - `build.rs` includes `recorded.rs`, `source.rs`, and `system.rs`, calls the logic with the real host, prints every instruction, and returns the result from `main`.
-- `recorded.rs` holds the recorded commit and its build tag (Section 7.1).
+- `recorded.rs` holds the recorded commit, its build tag, and the name of its clone entry (Section 7.1, SRC-25).
 - `source.rs` holds the logic, as plain functions behind the trait `Host`.
 - `system.rs` holds the struct `System`, which implements `Host` with the standard library.
 - `src/lib.rs` holds the crate-level documentation (Section 13).
@@ -206,6 +218,12 @@ The gitlinks are checked before the update because `git submodule update` stops 
 
 The list of required submodules is a constant of `source.rs`. A change of the native builds that reads another submodule changes this list and Section 3.4 in the same change. A missing gitlink happens only with a commit whose layout differs from the recorded one, such as the commit of a fork patched in through `[patch]`.
 
+SRC-26. After the checks of SRC-4, the build script MUST run `git ls-files -z --deleted` in the work tree and in each required submodule, and MUST stop the build with the message of Section 11, before it writes the file `build-tag`, when any of these commands lists a path. The message MUST name the longest listed path, the first of them in byte order when several are equally long, with its path in the clone entry and the length of that path in characters. The build script MUST NOT set the git setting `core.longpaths`.
+
+git leaves out a file that it cannot create, most often because its path is longer than the limit of Windows (Section 3.5). A dependent build that reaches such a file fails far from the cause, with an error that names only the file, while this check stops the clone with the length of the path and the advice to use a target directory with a shorter path. The check runs one git command for the tree and one for each required submodule, and none of them reaches the network (Section 3.3).
+
+With `core.longpaths`, git would create the long paths, and the builds that read the tree in place through CMake and the compilers would fail later on the same paths (Section 3.5). A clone that stops at once with the cause costs the user less than a native build that fails after minutes.
+
 ## 6. Obtaining the Tree
 
 ### 6.1. The Clone
@@ -218,13 +236,23 @@ SRC-7. The build script MUST clone with these commands, in this order, in an emp
 4. `git ls-tree -z HEAD -- <path>...`, with the paths of the required submodules of Section 3.4, for the check of the gitlinks of SRC-4.
 5. `git submodule update --init --depth 1 -- <path>...`, with the same paths.
 
-It MUST then check the `.git` entry of each required submodule (SRC-4), write the recorded build tag into the file `build-tag` and then the stamp file, and rename the temporary directory to the clone entry only after every step succeeded, with the entry protocol of SRC-16. A clone entry that exists is therefore complete, and an interrupted clone leaves only a temporary directory, which the next run removes before it clones again.
+It MUST then check the `.git` entry of each required submodule (SRC-4) and the work tree (SRC-26), write the recorded build tag into the file `build-tag` and then the stamp file, and rename the temporary directory to the clone entry only after every step succeeded, with the entry protocol of SRC-16. A clone entry that exists is therefore complete, and an interrupted clone leaves only a temporary directory, which the next run removes before it clones again.
 
-SRC-25. The clone entry MUST be `src/<commit>-<submodules>` in the shared folder, where `<submodules>` is the 16 lowercase hexadecimal digits of the 64-bit FNV-1a hash of the paths of the required submodules of Section 3.4, each followed by a NUL byte, in the order of the constant of `source.rs`. Its lock is `src/<commit>-<submodules>.lock`, and its temporary directories are `src/<commit>-<submodules>.tmp-<process id>`.
+SRC-25. The clone entry MUST be `src/<prefix>-<submodules>` in the shared folder, where `<prefix>` is the first 23 hexadecimal digits of the recorded commit and `<submodules>` is the 16 lowercase hexadecimal digits of the 64-bit FNV-1a hash of the paths of the required submodules of Section 3.4, each followed by a NUL byte, in the order of the constant of `source.rs`. The name MUST NOT be longer than 40 characters. Its lock is `src/<prefix>-<submodules>.lock`, and its temporary directories are `src/<prefix>-<submodules>.tmp-<process id>`.
 
-A clone entry is never changed after it is complete, and the reuse of an entry checks only its `tree` and its commit. Without the second component, a target directory that holds the clone entry of an earlier version of the crate, made without `external/slang-rhi`, would give a later version a tree without the submodule that it requires, and the build of `slang-rhi-sys` would then fail inside CMake with an error that names no cause. With it, a change of the list makes a new clone entry next to the old one, which costs one clone and keeps every rule of SRC-16. The old entry stays in the shared folder until `cargo clean` or a removal by hand, which Section 9.3 permits when no build runs. The hash is that of SRC-17, so the crate needs no second hash function.
+A clone entry is never changed after it is complete, and the reuse of an entry checks only its `tree` and its commit. Without the second component, a target directory that holds the clone entry of an earlier version of the crate, made without `external/slang-rhi`, would give a later version a tree without the submodule that it requires, and the build of `slang-rhi-sys` would then fail inside CMake with an error that names no cause. With it, a change of the list makes a new clone entry next to the old one, which costs one clone and keeps every rule of SRC-16.
 
-Entries named `src/<commit>` without the second component are entries of earlier versions of the crate, which this version neither reads nor removes. The recipe `check-vendored-shared-folder` recognizes a clone by the path of its entry, so the change that implements SRC-25 changes that recipe as well (Section 3.2 of `docs/design/tooling.md`).
+The old entry stays in the shared folder until `cargo clean` or a removal by hand, which Section 9.3 permits when no build runs. The hash is that of SRC-17, so the crate needs no second hash function.
+
+Every path of the tree, of its temporary directory during the checkout, and of the lock grows with the name. The limit of 40 characters is the length of the clone entries that have passed on the hosted Windows runner, where it leaves 5 characters below the limit of Windows (Section 3.5). A longer name leaves tracked files out of the work tree there, which SRC-26 reports.
+
+The prefix of 92 bits only selects the directory and weakens no check of the commit. The clone fetches the full recorded commit (SRC-7), and the reuse of an entry compares the full commit that git reports with `RECORDED_COMMIT`. The hash keeps its 64 bits, so the name still changes with the list of required submodules.
+
+`recorded.rs` MUST hold the name of the clone entry, `<prefix>-<submodules>`, as the constant `RECORDED_CLONE_ENTRY`. The build script MUST compute the name from `RECORDED_COMMIT` and the list of required submodules, and MUST stop the build with the message of Section 11, before it reads any variable or touches the file system, when the constant differs from the computed name.
+
+The constant lets the recipes find the clone entry through `recorded-slang` without computing the hash themselves (SRC-11). The check makes a change of the list of required submodules fail the first build until the constant names the new entry, so the constant and the build cannot name two entries.
+
+Entries named `src/<commit>` or `src/<commit>-<submodules>`, where `<commit>` is the full commit hash, are entries of earlier layouts of the crate, which the build script neither reads nor removes. The recipe `check-vendored-shared-folder` recognizes clone entries of all three layouts and fails while the shared folder holds any entry other than `RECORDED_CLONE_ENTRY`, so a developer removes such an entry when no build runs (Section 3.2 of `docs/design/tooling.md`).
 
 The clone entry has this layout:
 
@@ -260,7 +288,7 @@ The error says that a build without the Cargo feature `vendored` links the Slang
 
 ### 7.1. Recording
 
-SRC-11. The recorded commit and its build tag MUST be recorded in `crates/slang-src/recorded.rs`, as the two constants `RECORDED_COMMIT` and `RECORDED_BUILD_TAG`, in the manifest version of `slang-src`, which encodes the build tag as Section 7.2 defines, and in the crate-level documentation, which states the commit, the build tag, and the version (SRC-20). Tests MUST fail when the constants disagree with the manifest version or when the crate documentation does not state all three. Recipes and scripts that need the recorded commit or build tag MUST read them through the recipe `recorded-slang`, which prints both as `NAME=value` lines.
+SRC-11. The recorded commit and its build tag MUST be recorded in `crates/slang-src/recorded.rs`, as the two constants `RECORDED_COMMIT` and `RECORDED_BUILD_TAG`, in the manifest version of `slang-src`, which encodes the build tag as Section 7.2 defines, and in the crate-level documentation, which states the commit, the build tag, and the version (SRC-20). Tests MUST fail when the constants disagree with the manifest version or when the crate documentation does not state all three. Recipes and scripts that need the recorded commit, the build tag, or the name of the clone entry MUST read them through the recipe `recorded-slang`, which prints `RECORDED_COMMIT`, `RECORDED_BUILD_TAG`, and `RECORDED_CLONE_ENTRY` of `recorded.rs` (SRC-25) as `NAME=value` lines.
 
 Records that can diverge are only safe when a test compares them. Cargo reads the version only from the manifest, the build script needs the full commit, which the version abbreviates, and a reader of the crate documentation needs the commit as text. The recipe keeps every other consumer, such as the check of the Vulkan SDK in CI, from restating either value.
 
@@ -270,6 +298,7 @@ These are the values of the recorded Slang:
 | --- | --- |
 | `RECORDED_COMMIT` | `c7954ebd1f1984ad2bfde15f76248db41dc34aa3` |
 | `RECORDED_BUILD_TAG` | `2026.17-25-gc7954ebd1` |
+| `RECORDED_CLONE_ENTRY` | `c7954ebd1f1984ad2bfde15-076690edef70bf9e` |
 
 The recorded commit is the commit of the Slang in the Vulkan SDK version that CI installs, which the CI configuration records (Section 5.1 of the architecture design). The CI check of the installed SDK compares its build tag with `RECORDED_BUILD_TAG` and fails when they differ, so that every job tests one Slang (Section 7.3 of `docs/design/tooling.md`).
 
@@ -366,8 +395,8 @@ The shared folder has this layout. Each dependent build script owns the director
 
 | Path | Content | Written by |
 | --- | --- | --- |
-| `src/<commit>-<submodules>/` | The clone entry of one commit and one list of required submodules, with `tree`, `build-tag`, and `stamp` (Section 6.1) | `slang-src` |
-| `src/<commit>-<submodules>.lock` | The lock of that clone entry | `slang-src` |
+| `src/<prefix>-<submodules>/` | The clone entry of one commit and one list of required submodules, with `tree`, `build-tag`, and `stamp` (Section 6.1) | `slang-src` |
+| `src/<prefix>-<submodules>.lock` | The lock of that clone entry | `slang-src` |
 | `slang-compiler-sys/<key>/` | The libraries and headers of one build of Slang | `slang-compiler-sys` |
 | `slang-compiler-sys/<key>.lock` | The lock of that entry | `slang-compiler-sys` |
 | `slang-glslang-sys/<key>/` | The libraries of one build of slang-glslang | `slang-glslang-sys` |
@@ -375,7 +404,7 @@ The shared folder has this layout. Each dependent build script owns the director
 | `slang-rhi-sys/<key>/` | The libraries and the configured header of one build of slang-rhi | `slang-rhi-sys` |
 | `slang-rhi-sys/<key>.lock` | The lock of that entry | `slang-rhi-sys` |
 
-`<commit>` is the full commit hash, `<submodules>` is the hash of SRC-25, and `<key>` is the entry key of Section 9.4.
+`<prefix>` is the first 23 hexadecimal digits of the commit hash, `<submodules>` is the hash of SRC-25, and `<key>` is the entry key of Section 9.4.
 
 SRC-16. Every build script that writes an entry, which is the build script of `slang-src` for a clone entry and each dependent build script for an entry of libraries, MUST follow these steps:
 
@@ -417,6 +446,8 @@ The Cargo profile is not an input, because the native builds always use the CMak
 
 The path of `cl.exe` identifies the Microsoft compiler, because it holds the Visual Studio installation and the version directory of the toolset. `cl.exe` has no `--version` option.
 
+The inputs leave out the variables through which GCC and Clang read include and library directories, `CPLUS_INCLUDE_PATH`, `CPATH`, `C_INCLUDE_PATH`, and `LIBRARY_PATH`, and no dependent build script emits a rerun instruction for them. This is a known limit of the entries of `slang-compiler-sys`, `slang-glslang-sys`, and `slang-rhi-sys`: after a change of one of these variables, a build reuses an entry that was built with other headers or libraries. The user removes the entry, which Section 9.3 permits when no build runs, so that the next build builds it with the new paths (Section 17, SRCQ-4).
+
 ## 10. Rerun Instructions
 
 SRC-18. The build script MUST emit `cargo::rerun-if-changed` for the stamp file of the clone entry that it exports, and no other rerun instruction. After the metadata of SRC-1, it MUST emit `cargo::rustc-env=SLANG_SRC_SHARED_DIR=<shared folder>`, with the shared folder that it found. It MUST emit no other instruction.
@@ -435,12 +466,14 @@ In this table, the offline advice is the sentence that says two things: a vendor
 | --- | --- |
 | `RECORDED_COMMIT` is not 40 lowercase hexadecimal digits (SRC-24) | The value in quotation marks, escaped as for `OUT_DIR`, and that the recorded commit has to be a full commit hash of 40 lowercase hexadecimal digits |
 | `RECORDED_BUILD_TAG` has a form that SRC-12 rejects | The value in quotation marks, escaped as for `OUT_DIR`, and the form that a build tag needs |
+| `RECORDED_CLONE_ENTRY` differs from the name that the build script computes (SRC-25) | Both names in quotation marks, and that the computed name is to be recorded as `RECORDED_CLONE_ENTRY` in `recorded.rs`, where the recipes read it |
 | `OUT_DIR` is not an absolute path in UTF-8 without line breaks | The value in quotation marks, with every control character escaped and every byte that is not UTF-8 replaced, and that Cargo sets it |
 | `git` cannot start | The command and the reason that the operating system gives. Only when the operating system does not find the program, it adds that a vendored build needs git on `PATH`, because that advice misleads for any other reason |
 | `CARGO_NET_OFFLINE` is `true` and no clone entry of the recorded commit exists | That the build needs to clone Slang, the commit, and the offline advice |
 | A git command that reaches the network fails | The command, its exit status, its error output, the commit, and the offline advice |
 | Another git command fails | The command, the directory, its exit status, and its error output |
 | A required submodule has no gitlink or is not checked out (SRC-4) | The path of the submodule, the commit, and that the native builds need it, which a commit patched in through `[patch]` may lack |
+| `git ls-files -z --deleted` lists a tracked file after the clone (SRC-26) | The commit, the number of missing files, the temporary work tree, the longest missing path with its path in the clone entry and the length of that path in characters, that git leaves out a file that it cannot create, most often because its path exceeds the limit of 260 characters of a Windows path, which the compilers and CMake that read the tree observe as well, the shared folder, and the advice to set `CARGO_TARGET_DIR` to a directory with a shorter path and build again |
 | A clone entry has no work tree, reports another commit, or git cannot read it | The path of the entry, and the missing work tree, both commits, or the command with its exit status and error output. It also says that another build may be reading the entry, and that removing the entry or running `cargo clean` when no build runs fixes it |
 | A file or directory under `OUT_DIR` or the shared folder cannot be inspected, listed, created, locked, renamed, removed, or written | The action, the path, and the reason that the operating system gives |
 
@@ -458,7 +491,9 @@ The crate has one integration-test binary, `tests/slang_src/`, whose root `main.
   - Every failure of Section 11 with its message, including each file operation that fails and an `OUT_DIR` that is not UTF-8, on Unix and on Windows.
   - The lookup of the base directory and the shared folder that the build script exports (SRC-23).
   - The forms of the recorded commit and the build tag, and the version identifiers that a build tag gives (SRC-12, SRC-13, SRC-24).
-  - The agreement of the constants with the manifest version and with the crate documentation (SRC-11).
+  - The agreement of the constants with the manifest version and with the crate documentation, and of the crate documentation with the list of required submodules (SRC-11, SRC-20).
+  - The name of the clone entry: the values of the hash, the form of the name and its dependence on the list of required submodules, its length of at most 40 characters and its characters, the equality of `RECORDED_CLONE_ENTRY` with the computed name and the failure for a stale name, and the entries `src/<commit>` and `src/<commit>-<submodules>` of the earlier layouts, which the build script neither reads nor removes (SRC-25).
+  - The check of the work tree: the message for files missing from the work tree, a missing file of a submodule, which the message names with the path of the submodule, and a failure of `git ls-files` (SRC-26).
 - `build_script::ffi`: The tests of `system.rs` on the real host. They start git and write files under `CARGO_TARGET_TMPDIR`, so they sit in a module named `ffi`, which Miri skips. They cover these parts:
   - The file operations, the stamp time, and the lock, which `System` holds until it is dropped.
   - The environment and the closed standard input of git, and the list of repository variables against the one that the installed git prints (SRC-8).
@@ -497,6 +532,7 @@ The crate-level documentation also states:
 - That the crate builds nothing and is a dependency of `slang-compiler-sys` under its feature `vendored` and of `slang-glslang-sys`, which exists only for that build and has no feature.
 - The recorded commit, its build tag, and the version of the crate, and that the version of a release names the commit (Section 7.2). The tests of SRC-11 keep them equal to `recorded.rs` and the manifest.
 - How to build another commit through `[patch]`, and that it is best effort (SRC-22).
+- The error for a work tree that git left incomplete, with its advice of a target directory with a shorter path (SRC-26).
 - What the crate fetches and from where, the git settings of SRC-8, that it honours `CARGO_NET_OFFLINE`, and that it runs nothing from the tree (Section 14).
 - What a dependent build script relies on, in a section of its own: that the tree at `root` is shared and read-only, the list of required submodules of SRC-4, that `src/` of the shared folder belongs to `slang-src` and each dependent owns the directory named after its crate (Section 9.2), the entry protocol of SRC-16 in short, and the rerun instruction on the stamp file. A third-party crate that depends on a published `slang-src` sees only the crate documentation, and a change of any of these is a breaking change that no signature shows.
 - `# Features`: the crate has no Cargo features.
@@ -575,6 +611,7 @@ This table lists the failure modes of the crate, how each is reported, and the r
 | The recorded commit or build tag of a fork patched in through `[patch]` has the wrong form | Write the full commit hash and the build tag of that commit into `recorded.rs` (SRC-12, SRC-24) |
 | git is missing | Install git |
 | A clone entry has no work tree, is at another commit, or cannot be read | Remove the entry, or run `cargo clean`, when no build runs |
+| git left tracked files out of the work tree of a new clone, most often because a path exceeds the limit of Windows (SRC-26) | Set `CARGO_TARGET_DIR` to a directory with a shorter path and build again |
 | The shared folder or `OUT_DIR` cannot be written | Free disk space or fix the permissions of the target directory |
 | A commit patched in through `[patch]` builds a Slang that the binding generator or the safe crates do not support | Use the recorded commit, which the crates are tested against |
 
@@ -604,10 +641,11 @@ Each row is a question that this document leaves open. The owner in the third co
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| SRCQ-1 | Do the clone, the copy and build tree of `slang-compiler-sys`, and the build tree of `slang-glslang-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or does a build script need a shorter layout on Windows? The build tree of `slang-glslang-sys` is the deepest, because CMake mirrors the absolute path of each source outside the wrapper project under `CMakeFiles/<target>.dir/` (Section 4 of `docs/design/slang-glslang-sys.md`). | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | M7 |
+| SRCQ-1 | Do the clone, the copy and build tree of `slang-compiler-sys`, and the build tree of `slang-glslang-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or when a later recorded commit tracks a longer path, or does a build script need a shorter layout on Windows? On that runner, the clone leaves 5 characters below the limit, and SRC-26 stops a clone that exceeds it with the length of the path (Section 3.5). The build tree of `slang-glslang-sys` is the deepest, because CMake mirrors the absolute path of each source outside the wrapper project under `CMakeFiles/<target>.dir/` (Section 4 of `docs/design/slang-glslang-sys.md`). | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | M7 |
 | SRCQ-3 | Which recipe runs the pure tests of `slang-src` and of the build script of `slang-glslang-sys` under Miri, and how does it keep the build scripts from cloning and building a second time in the target directory of Miri (Section 12, Section 9 of `docs/design/slang-glslang-sys.md`)? | `docs/design/tooling.md`, with this document | M7 |
+| SRCQ-4 | Should SRC-17 add `CPLUS_INCLUDE_PATH`, `CPATH`, `C_INCLUDE_PATH`, and `LIBRARY_PATH` to the inputs of the entry key, and should each dependent build script emit a rerun instruction for them, so that a changed include or library path no longer reuses an entry built with other headers (Section 9.4)? | This document, with `docs/design/slang-compiler-sys.md`, `docs/design/slang-glslang-sys.md`, and `docs/design/slang-rhi-sys.md` | Not assigned |
 
-The next question takes SRCQ-4.
+The next question takes SRCQ-5.
 
 ## 18. References
 
@@ -622,17 +660,17 @@ The next question takes SRCQ-4.
 
 ## Appendix A. Requirement Summary
 
-This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-26.
+This table lists every labelled requirement of this document with a one-line summary. The labels SRC-3, SRC-5, SRC-6, SRC-10, and SRC-15 belonged to requirements that this design removed, and they are not reused. The next requirement takes SRC-27.
 
 | Label | Section | Summary |
 | --- | --- | --- |
 | SRC-1 | 4 | `links = "slang-src"`, the metadata keys `root`, `commit`, `build_tag`, and `shared_dir`, and direct dependents only. |
 | SRC-2 | 4 | No unsafe code, no dependencies, and the logic behind a host trait in an included file. |
 | SRC-4 | 5 | The required submodules have gitlinks, checked after the checkout, and `.git` entries, checked after the update, or the build stops with the message of Section 11. |
-| SRC-7 | 6.1 | The clone is an init, a depth-1 fetch of the recorded commit, a checkout, a local check of the gitlinks, and a depth-1 update of the required submodules, renamed into place in the shared folder when complete. |
+| SRC-7 | 6.1 | The clone is an init, a depth-1 fetch of the recorded commit, a checkout, a local check of the gitlinks, a depth-1 update of the required submodules, and the checks of SRC-4 and SRC-26, renamed into place in the shared folder when complete. |
 | SRC-8 | 6.1 | git runs with HTTPS only, no prompt, no `GIT_ALLOW_PROTOCOL`, a low-speed limit, no optional locks, and no repository variables, which a constant lists and a test checks against the installed git. |
 | SRC-9 | 6.2 | No network access with `CARGO_NET_OFFLINE=true`, and a failed or impossible clone stops the build with the offline advice and never falls back. |
-| SRC-11 | 7.1 | The recorded commit and build tag live in `recorded.rs`, the manifest version, and the crate documentation, tests compare them, and scripts read them through `recorded-slang`. |
+| SRC-11 | 7.1 | The recorded commit and build tag live in `recorded.rs`, the manifest version, and the crate documentation, tests compare them, and scripts read them and the name of the clone entry through `recorded-slang`. |
 | SRC-12 | 7.2 | A build tag has the form `<major>.<minor>[.<patch>][-<count>-g<hash>]`, or the build stops. |
 | SRC-13 | 7.2 | The version is the version of the release with `slang.<major>.<minor>.<patch>.<count>.g<hash>` as its last pre-release identifiers, such as `0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1`. |
 | SRC-14 | 7.2 | Every dependent requires the exact version with `=`. |
@@ -645,4 +683,5 @@ This table lists every labelled requirement of this document with a one-line sum
 | SRC-22 | 7.3 | Another commit only through `[patch]` with a fork that keeps the manifest version, best effort. |
 | SRC-23 | 9.1 | The shared folder is `slang-src` in the nearest tagged ancestor of `OUT_DIR`, its parent when that ancestor is the directory of `TARGET` under another tag, or `OUT_DIR` without a tag. |
 | SRC-24 | 7.1 | A recorded commit that is not 40 lowercase hexadecimal digits stops the build before anything else. |
-| SRC-25 | 6.1 | The clone entry is named by the commit and the hash of the list of required submodules, so a change of the list makes a new entry. |
+| SRC-25 | 6.1 | The clone entry is named by the first 23 digits of the commit and the hash of the list of required submodules, at most 40 characters, so a change of the list makes a new entry, and `RECORDED_CLONE_ENTRY` records the name, which the build checks before anything else. |
+| SRC-26 | 5 | After the clone, `git ls-files -z --deleted` in the tree and in each required submodule lists nothing, or the build stops before the rename with the longest missing path and its length, and `core.longpaths` stays unset. |

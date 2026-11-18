@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-rhi` |
 
 ## Abstract
@@ -80,6 +80,8 @@ Every descriptor on that path is passed by `const` reference, and no method on i
 `createShaderProgram` takes an optional out-parameter for diagnostics (`:3618`). slang-rhi reports other messages through the debug callback of the device, from the calling thread or from a thread of the driver (`docs/error-handling.md:39-63`).
 
 The `IRHI` instance is one object of the process, which any thread reaches through `rhiGetInstance`, and slang-rhi documents no threading rule for it (Section 3.3 of the sys design).
+
+A device whose `SlangDesc::slangGlobalSession` is null creates a global session of its own (Section 3.3 of the sys design), and that session has no loader of `slang-glslang-sys`. A C++ program outside the repository, linked against the vendored Slang and slang-rhi, created such a device and compiled a compute shader through `IDevice::getSlangSession`. Its debug callback received `error[E00100]: failed to load downstream compiler 'spirv-opt'` with `note[E99996]: failed to load dynamic library 'slang-glslang-2026.17'`, and the SPIR-V, which was not optimized, still ran and gave the expected results.
 
 ### 3.1. Known Upstream Bugs
 
@@ -209,7 +211,7 @@ The name is the text of `AdapterInfo::name` (`include/slang-rhi.h:3076`) up to i
 
 RHI-5. `Device::new(options: &DeviceOptions) -> Result<Device>` MUST pass the global session of the options in `SlangDesc::slangGlobalSession`, and MUST NOT let slang-rhi create a global session of its own. With an adapter, it MUST check that its device type equals the device type of the options, or fail with the kind `InvalidArgument`, and MUST fetch the adapter again by its device type and position for the call, failing with `InvalidArgument` when the position no longer exists.
 
-A global session of slang-rhi's own would have no loader of `slang-glslang-sys` and would emit SPIR-V that is not optimized (Section 4.1). The program of a shader program must come from the device's session (RHI-7), and a global session that the caller holds is the one place where the caller's modules and the device meet.
+A global session of slang-rhi's own has no loader of `slang-glslang-sys` and emits SPIR-V that is not optimized, after an error through the debug callback (Section 3, Section 4.1). The program of a shader program must come from the device's session (RHI-7), and a global session that the caller holds is the one place where the caller's modules and the device meet.
 
 `Device` offers `info(&self) -> DeviceInfo`, a record of the device type, the name of the API, and the name of the adapter, `slang_session(&self) -> &slang_compiler::Session`, and the methods of Sections 6.5 to 6.8. `Device` is `Clone`, and a clone adds a reference to the same device.
 

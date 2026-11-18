@@ -146,16 +146,25 @@
 //! rules, which are part of what this crate promises:
 //!
 //! - `DEP_SLANG_SRC_ROOT` is the work tree of the clone, the directory
-//!   `src/<commit>/tree` of the shared folder, in which `<commit>` is the full
-//!   commit hash. Every build in the target directory reads the same tree, so
+//!   `src/<commit>-<submodules>/tree` of the shared folder, in which
+//!   `<commit>` is the first 23 digits of the commit hash and `<submodules>`
+//!   is the 16 lowercase hexadecimal digits of the 64-bit FNV-1a hash of the
+//!   paths of the required submodules below, each followed by a NUL byte, in
+//!   the order of the list. The name has 40 characters, as many as a full
+//!   commit hash, because every path in the tree grows with it and Windows
+//!   limits a path to 260 characters. The build checks the full commit of the
+//!   tree, not the name. A change of the list makes a new clone next to the
+//!   old one, and a clone entry of an earlier version of this crate, such as
+//!   `src/<full commit hash>`, stays unused. Every build in the target directory reads the same tree, so
 //!   a dependent treats it as read-only. A build that writes into its source
 //!   tree, as the build of Slang does, runs on a copy of the tree, and any
 //!   other build runs outside the tree.
 //! - The tree holds the recorded commit with exactly these submodules checked
 //!   out: `external/cmark`, `external/fast_float`, `external/lua`,
 //!   `external/lz4`, `external/miniz`, `external/spirv-headers`,
-//!   `external/unordered_dense`, `external/vulkan`, `external/glslang`, and
-//!   `external/spirv-tools`. A build that needs another submodule fails.
+//!   `external/unordered_dense`, `external/vulkan`, `external/glslang`,
+//!   `external/spirv-tools`, and `external/slang-rhi`. A build that needs
+//!   another submodule fails.
 //! - In the shared folder, the directory `src` belongs to this crate. Each
 //!   dependent owns the directory named after its crate, such as
 //!   `slang-compiler-sys`, keeps its entries there, and writes nowhere else
@@ -170,7 +179,8 @@
 //!   Nothing changes an entry after the rename, and an entry that has to be
 //!   built again is removed, never edited.
 //! - A build script that uses an entry emits `cargo::rerun-if-changed` for
-//!   its file `stamp`, which for the clone is `src/<commit>/stamp`, so that
+//!   its file `stamp`, which for the clone is
+//!   `src/<commit>-<submodules>/stamp`, so that
 //!   Cargo runs the build script again when someone removed the entry.
 //!
 //! # What the crate fetches
@@ -199,6 +209,13 @@
 //! `--offline` does not set for a build script. It then stops the build with
 //! an error, and it never falls back to an installed Slang. It runs git and
 //! nothing else, and it runs no code of the tree.
+//!
+//! When git leaves a tracked file of the tree or of a required submodule out
+//! of the work tree, the build stops with an error that starts with "the
+//! clone of the Slang commit", names the longest missing path and its length
+//! in the clone entry, and advises a Cargo target directory with a shorter
+//! path, set through `CARGO_TARGET_DIR`. Git leaves out a file that it cannot
+//! create, most often because its path is longer than Windows allows.
 //!
 //! When git cannot start, the build stops with an error that starts with
 //! "cannot start" and says that a vendored build needs git on `PATH`. When a

@@ -5,6 +5,7 @@ members = [
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
     "crates/slang-glslang-sys",
+    "crates/slang-rhi-sys",
     "crates/slang-slint",
     "crates/slang-src",
     "crates/slango",

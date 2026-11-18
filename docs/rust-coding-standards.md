@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -31,7 +31,7 @@ This document applies to every Rust crate, build script, example, test, and tool
 - `slang-bindgen`: the binding generator, a published library crate that parses the Slang headers with libclang and returns the raw bindings as text, with a thin binary.
 - Examples of varying complexity, which double as a testbed.
 
-Bindings for slang-rhi (`slang-rhi-sys` and `slang-rhi`) are planned and do not exist yet (Section 15 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binary of `slang-bindgen` and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. The library of `slang-bindgen` is a library crate, to which every rule for library crates applies. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
+The crate `slang-rhi-sys` builds slang-rhi from source and holds no bindings yet, and its bindings and the safe crate `slang-rhi` are planned (Section 15.12 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binary of `slang-bindgen` and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. The library of `slang-bindgen` is a library crate, to which every rule for library crates applies. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
 
 This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate.
 
@@ -548,24 +548,24 @@ These commands run the checks of the tools from `cargo fmt` to `cargo deny`. In 
 
 ```sh
 cargo fmt --all --check -- <files>
-CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
-CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
-CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
-CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets
+CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
+CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys
+CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-deps
 cargo deny check
 ```
 
-Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
+Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
 
 These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed. The features of `slango` are checked in the second command, without the combination with no features, which stops on purpose with a compile error (TOOL-48 of `docs/design/tooling.md`).
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
 CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets --rust-version
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets --rust-version
 cargo machete
-cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
-cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --no-tests=warn
+cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
+cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
 typos
 taplo fmt --check
 actionlint
@@ -574,7 +574,7 @@ actionlint
 This command runs the check of `cargo semver-checks`, which compares each crate of the release with a library target, except `slang-src` and `slang-glslang-sys`, with its last release on crates.io, with the default features of each crate (TOOL-38 of `docs/design/tooling.md`):
 
 ```sh
-cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --default-features
+cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --default-features
 ```
 
 The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.

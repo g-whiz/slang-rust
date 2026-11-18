@@ -10,7 +10,7 @@ const TARGET: &str = "TARGET";
 const CACHEDIR_TAG: &str = "CACHEDIR.TAG";
 const SHARED_FOLDER: &str = "slang-src";
 
-const REQUIRED_SUBMODULES: [&str; 10] = [
+const REQUIRED_SUBMODULES: [&str; 11] = [
     "external/cmark",
     "external/fast_float",
     "external/lua",
@@ -21,6 +21,7 @@ const REQUIRED_SUBMODULES: [&str; 10] = [
     "external/vulkan",
     "external/glslang",
     "external/spirv-tools",
+    "external/slang-rhi",
 ];
 
 const NETWORK_SETTINGS: [&str; 8] = [
@@ -53,6 +54,11 @@ const GIT_REPOSITORY_VARIABLES: [&str; 15] = [
 ];
 
 const OFFLINE_ADVICE: &str = "A vendored build needs network access for its first build in a target directory, and a build without the Cargo feature `vendored` links the Slang of an installed Vulkan SDK and needs no network access.";
+
+const CLONE_ENTRY_COMMIT_DIGITS: usize = 23;
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 const BUILD_TAG_FORM: &str = "<major>.<minor>, optionally followed by .<patch>, optionally followed by -<count>-g<hash>, in which each number is 0 or a decimal number without a leading zero and <hash> is at least nine lowercase hexadecimal digits";
 
@@ -114,16 +120,17 @@ impl fmt::Debug for BuildError {
 }
 
 fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), BuildError> {
-    check_recorded(RECORDED_COMMIT, RECORDED_BUILD_TAG)?;
+    check_recorded(RECORDED_COMMIT, RECORDED_BUILD_TAG, RECORDED_CLONE_ENTRY)?;
     let out = out_dir(host.var(OUT_DIR).as_deref())?;
     let target = host.var(TARGET);
     let shared = base_dir(host, &out, target.as_deref()).join(SHARED_FOLDER);
     let sources = shared.join("src");
     create_dir(host, &sources)?;
-    let lock = sources.join(format!("{RECORDED_COMMIT}.lock"));
+    let name = clone_entry_name();
+    let lock = sources.join(format!("{name}.lock"));
     host.lock(&lock)
         .map_err(|error| file_error("lock", &lock, &error))?;
-    let entry = sources.join(RECORDED_COMMIT);
+    let entry = sources.join(&name);
     let present = host
         .exists(&entry)
         .map_err(|error| file_error("inspect", &entry, &error))?;
@@ -134,7 +141,7 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
             "the vendored build needs to clone Slang at the commit {RECORDED_COMMIT}, which no earlier build in this target directory cloned, but CARGO_NET_OFFLINE is true, so the build cannot reach the network. {OFFLINE_ADVICE}"
         )));
     } else {
-        clone_entry(host, &sources, &entry)?;
+        clone_entry(host, &shared, &name)?;
     }
     directives.push(format!(
         "cargo::rerun-if-changed={}",
@@ -154,7 +161,7 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
     Ok(())
 }
 
-fn check_recorded(commit: &str, build_tag: &str) -> Result<(), BuildError> {
+fn check_recorded(commit: &str, build_tag: &str, clone_entry: &str) -> Result<(), BuildError> {
     if commit.len() != 40 || !is_lowercase_hex(commit) {
         return Err(BuildError(format!(
             "the recorded commit is {}, which is not a full commit hash of 40 lowercase hexadecimal digits",
@@ -165,6 +172,14 @@ fn check_recorded(commit: &str, build_tag: &str) -> Result<(), BuildError> {
         return Err(BuildError(format!(
             "the recorded build tag is {}, which does not have the form of a build tag: {BUILD_TAG_FORM}",
             quoted(OsStr::new(build_tag))
+        )));
+    }
+    let computed = clone_entry_name();
+    if clone_entry != computed {
+        return Err(BuildError(format!(
+            "the recorded clone entry is {}, but the recorded commit and the required submodules name the clone entry {}. Record that name as RECORDED_CLONE_ENTRY in recorded.rs, where the recipes read it",
+            quoted(OsStr::new(clone_entry)),
+            quoted(OsStr::new(&computed))
         )));
     }
     Ok(())
@@ -270,11 +285,32 @@ fn verify_entry(host: &impl Host, entry: &Path) -> Result<(), BuildError> {
     Ok(())
 }
 
-fn clone_entry(host: &impl Host, sources: &Path, entry: &Path) -> Result<(), BuildError> {
-    let prefix = format!("{RECORDED_COMMIT}.tmp-");
+fn clone_entry_name() -> String {
+    let mut paths = Vec::new();
+    for submodule in REQUIRED_SUBMODULES {
+        paths.extend_from_slice(submodule.as_bytes());
+        paths.push(0);
+    }
+    let commit = RECORDED_COMMIT
+        .get(..CLONE_ENTRY_COMMIT_DIGITS)
+        .unwrap_or(RECORDED_COMMIT);
+    format!("{commit}-{}", fnv1a(&paths))
+}
+
+fn fnv1a(bytes: &[u8]) -> String {
+    let hash = bytes.iter().fold(FNV_OFFSET, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+    });
+    format!("{hash:016x}")
+}
+
+fn clone_entry(host: &impl Host, shared: &Path, name: &str) -> Result<(), BuildError> {
+    let sources = shared.join("src");
+    let prefix = format!("{name}.tmp-");
+    let entry = sources.join(name);
     let names = host
-        .list(sources)
-        .map_err(|error| file_error("list", sources, &error))?;
+        .list(&sources)
+        .map_err(|error| file_error("list", &sources, &error))?;
     for name in names {
         let stale = name
             .to_str()
@@ -320,13 +356,14 @@ fn clone_entry(host: &impl Host, sources: &Path, entry: &Path) -> Result<(), Bui
             return Err(missing_submodule(submodule));
         }
     }
+    check_work_tree(host, &tree, &entry, shared)?;
     let build_tag = temporary.join("build-tag");
     host.write(&build_tag, &format!("{RECORDED_BUILD_TAG}\n"))
         .map_err(|error| file_error("write", &build_tag, &error))?;
     let stamp = temporary.join("stamp");
     host.write_stamp(&stamp)
         .map_err(|error| file_error("write", &stamp, &error))?;
-    host.rename(&temporary, entry).map_err(|error| {
+    host.rename(&temporary, &entry).map_err(|error| {
         BuildError(format!(
             "cannot rename {} to {}: {error}",
             temporary.display(),
@@ -354,6 +391,51 @@ fn check_gitlinks(host: &impl Host, tree: &Path) -> Result<(), BuildError> {
         Some(submodule) => Err(missing_submodule(submodule)),
         None => Ok(()),
     }
+}
+
+fn check_work_tree(
+    host: &impl Host,
+    tree: &Path,
+    entry: &Path,
+    shared: &Path,
+) -> Result<(), BuildError> {
+    let mut missing = Vec::new();
+    for prefix in std::iter::once("").chain(REQUIRED_SUBMODULES) {
+        let dir = if prefix.is_empty() {
+            tree.to_path_buf()
+        } else {
+            tree.join(prefix)
+        };
+        let listing = succeed(host, &git(dir, &["ls-files", "-z", "--deleted"]))?;
+        missing.extend(
+            listing
+                .stdout
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(|path| {
+                    if prefix.is_empty() {
+                        path.to_owned()
+                    } else {
+                        format!("{prefix}/{path}")
+                    }
+                }),
+        );
+    }
+    let Some(longest) = missing
+        .iter()
+        .max_by(|left, right| left.len().cmp(&right.len()).then_with(|| right.cmp(left)))
+    else {
+        return Ok(());
+    };
+    let path = entry.join("tree").join(longest);
+    let length = path.to_string_lossy().chars().count();
+    Err(BuildError(format!(
+        "the clone of the Slang commit {RECORDED_COMMIT} lacks {} of its tracked files, which git did not create in the work tree {}, such as {longest}, whose path in the clone entry {} has {length} characters. Git leaves out a file that it cannot create, most often because its path exceeds the limit of 260 characters of a Windows path, which the compilers and CMake that read the tree observe as well. The clone entry sits in the shared folder {} of the Cargo target directory, so set CARGO_TARGET_DIR to a directory with a shorter path and build again",
+        missing.len(),
+        tree.display(),
+        path.display(),
+        shared.display()
+    )))
 }
 
 fn missing_submodule(submodule: &str) -> BuildError {

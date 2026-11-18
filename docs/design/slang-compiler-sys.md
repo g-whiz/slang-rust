@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -1136,6 +1136,8 @@ The inputs of the key follow SRC-17 of the `slang-src` design, with these values
 
 A failure of `cmake --version` or of the compiler probe stops the build with the message of Section 9.6, because a key with an empty input could match an entry of another compiler.
 
+The variables through which the compiler reads include and library directories are not inputs of the key, which Section 9.4 of the `slang-src` design states as a limit of every entry of libraries.
+
 An entry is complete only when its file `inputs` equals the inputs of the current build byte for byte, each of the six archives exists as a file in its `lib`, every file of the include directory of the source tree exists as a file in its `include`, and its `slang-tag-version.h` defines the build tag of `slang-src`. The build script replaces an entry that fails one of these checks, also one that was damaged after it was stored, because the generation reads the headers and the link reads the archives. An entry that cannot be inspected, other than one that does not exist, and an include directory of the source tree that cannot be listed stop the build with the message of Section 9.6.
 
 SCS-68. With the Microsoft toolchain, the build script MUST find `cl.exe` for the target with the crate `find-msvc-tools` before it computes the entry key, and MUST give the environment that the lookup returns to every `cmake` run, added to the inherited values. It MUST stop the build with the message of Section 9.6 when the lookup finds no compiler. It MUST NOT require a developer command prompt.
@@ -1374,7 +1376,7 @@ These requirements hold for three reasons:
 The `justfile` computes the variable with the `just` functions `os()`, `env()`, and `quote()`, so it holds the assignment as text and no recipe exports anything. This example shows the command that `just test` runs on Linux when `VULKAN_SDK` is `/tmp/vulkan-sdk/x86_64` and `LD_LIBRARY_PATH` is empty:
 
 ```sh
-LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --profile default --no-tests=warn
+LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile default --no-tests=warn
 ```
 
 On Windows, and when `VULKAN_SDK` is unset or empty, the variable is empty and the command starts with `CARGO_BUILD_WARNINGS=deny`.

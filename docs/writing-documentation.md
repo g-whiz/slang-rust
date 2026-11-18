@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -542,9 +542,9 @@ The standards document `docs/rust-coding-standards.md` defines the lint configur
 These commands run the checks in this section:
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --all-targets
-CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --no-deps
-CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets
+CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-deps
+CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys
 ```
 
 `CARGO_BUILD_WARNINGS=deny` makes each command fail on a warning, including a rustdoc lint warning in `cargo doc`. It does not reach the code inside a doctest, which no tool lints (Section 7.5). Section 4.8 of the standards document gives the full set of checks and the limits of these commands.
