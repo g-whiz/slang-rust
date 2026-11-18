@@ -6,6 +6,8 @@ use std::time::{Duration, SystemTime};
 
 const TARGET_OS: &str = "CARGO_CFG_TARGET_OS";
 const TARGET_ENV: &str = "CARGO_CFG_TARGET_ENV";
+const TARGET_ARCH: &str = "CARGO_CFG_TARGET_ARCH";
+const TARGET_FEATURE: &str = "CARGO_CFG_TARGET_FEATURE";
 const TARGET: &str = "TARGET";
 const HOST: &str = "HOST";
 const OUT_DIR: &str = "OUT_DIR";
@@ -35,11 +37,15 @@ const CMAKE_VARIABLES: [&str; 7] = [
 ];
 
 const MSVC_TOOLS_VERSION: &str = "VCToolsVersion";
-const MSVC_VARIABLES: [&str; 2] = ["VCINSTALLDIR", MSVC_TOOLS_VERSION];
+const MSVC_DEVELOPER_PROMPT: &str = "VCINSTALLDIR";
+const MSVC_VARIABLES: [&str; 2] = [MSVC_DEVELOPER_PROMPT, MSVC_TOOLS_VERSION];
 
 const NATIVE_FILES: [(&str, &str); 1] = [("CMakeLists.txt", include_str!("native/CMakeLists.txt"))];
 
-const STATIC_LIBRARIES: [&str; 3] = ["slang-rhi", "slang-rhi-vma", "slang-rhi-resources"];
+const LINUX_STATIC_LIBRARIES: [&str; 3] = ["slang-rhi", "slang-rhi-vma", "slang-rhi-resources"];
+
+const WINDOWS_STATIC_LIBRARIES: [&str; 3] =
+    ["slang-rhi", "slang-rhi-d3d12ma", "slang-rhi-resources"];
 
 const PROBE_LIBRARY: &str = "slang-rhi-sys-abi-probe";
 
@@ -49,9 +55,9 @@ const BINDINGS_FILE: &str = "bindings.rs";
 
 const SYMBOLS_FILE: &str = "symbols.rs";
 
-const RHI_HEADERS: &str = "external/slang-rhi/include";
+const RHI_HEADERS: [&str; 3] = ["external", "slang-rhi", "include"];
 
-const DYNAMIC_LIBRARIES: [&str; 3] = ["stdc++", "dl", "pthread"];
+const LINUX_DYNAMIC_LIBRARIES: [&str; 3] = ["stdc++", "dl", "pthread"];
 
 const CONFIG_HEADER: &str = "slang-rhi-config.h";
 
@@ -59,7 +65,7 @@ const BUILD_TARGETS: [&str; 2] = ["slang-rhi", PROBE_LIBRARY];
 
 const SUBPROJECT_DIR: &str = "slang-rhi";
 
-const VULKAN_HEADERS: &str = "external/vulkan";
+const VULKAN_HEADERS: [&str; 2] = ["external", "vulkan"];
 
 const CONFIGURE_OPTIONS: [&str; 2] = [
     "-DCMAKE_BUILD_TYPE=Release",
@@ -67,6 +73,10 @@ const CONFIGURE_OPTIONS: [&str; 2] = [
 ];
 
 const VULKAN_HEADERS_OPTION: &str = "-DFETCHCONTENT_SOURCE_DIR_VULKAN_HEADERS";
+
+const WINPIX_OPTION: &str = "-DFETCHCONTENT_SOURCE_DIR_WINPIX";
+
+const WINPIX_DIR: &str = "winpix";
 
 const LOG_TAIL_LINES: usize = 40;
 const ENTRY_FOLDER: &str = "slang-rhi-sys";
@@ -89,6 +99,8 @@ trait Host {
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn lock(&self, path: &Path) -> io::Result<()>;
     fn process_id(&self) -> u32;
+    fn create_dir(&self, path: &Path) -> io::Result<()>;
+    fn msvc_compiler(&self, target: &str) -> Option<MsvcCompiler>;
     fn generate(
         &self,
         rhi_headers: &Path,
@@ -128,6 +140,7 @@ enum EntryKind {
 struct Invocation {
     program: String,
     args: Vec<String>,
+    env: Vec<(OsString, OsString)>,
 }
 
 impl fmt::Display for Invocation {
@@ -178,6 +191,43 @@ impl fmt::Debug for BuildError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MsvcCompiler {
+    path: PathBuf,
+    env: Vec<(OsString, OsString)>,
+}
+
+struct Toolchain {
+    identity: String,
+    env: Vec<(OsString, OsString)>,
+}
+
+struct Platform {
+    msvc: bool,
+    static_libraries: &'static [&'static str],
+    dynamic_libraries: &'static [&'static str],
+    configure_options: Vec<String>,
+}
+
+impl Platform {
+    fn archive(&self, library: &str) -> String {
+        if self.msvc {
+            format!("{library}.lib")
+        } else {
+            format!("lib{library}.a")
+        }
+    }
+
+    fn cmake_path(&self, path: &Path) -> String {
+        let text = path.display().to_string();
+        if self.msvc {
+            text.replace('\\', "/")
+        } else {
+            text
+        }
+    }
+}
+
 struct Source {
     root: PathBuf,
     commit: String,
@@ -194,6 +244,7 @@ struct Layout {
     config_header: PathBuf,
     probe: PathBuf,
     log: PathBuf,
+    winpix: PathBuf,
 }
 
 impl Layout {
@@ -208,6 +259,7 @@ impl Layout {
             build,
             lib: out.join("lib"),
             log: out.join("build.log"),
+            winpix: out.join(WINPIX_DIR),
         }
     }
 }
@@ -229,15 +281,24 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
     }
     let target = required(host, TARGET)?;
     let host_triple = required(host, HOST)?;
-    check_platform(host, &target, &host_triple)?;
+    let platform = platform(host, &target, &host_triple)?;
     let source = read_source(host)?;
     let out = cargo_path(host, OUT_DIR, "build slang-rhi")?;
     let native = cargo_path(host, MANIFEST_DIR, "find the wrapper project")?.join("native");
-    check_success(host, &command("ninja", &["--version"]))?;
-    let compiler = compiler_identity(host)?;
-    let cmake_version = first_line(host, &cmake(vec!["--version".to_owned()]))?;
+    check_success(host, &command("ninja", &["--version"]), &platform)?;
+    let toolchain = toolchain(host, &target, &platform)?;
+    let cmake_version = first_line(
+        host,
+        &cmake(vec!["--version".to_owned()], &toolchain),
+        &platform,
+    )?;
     let layout = Layout::new(&out);
-    run_configure_step(host, &layout, &source, &native)?;
+    let build = Build {
+        layout: &layout,
+        platform: &platform,
+        toolchain: &toolchain,
+    };
+    run_configure_step(host, &build, &source, &native)?;
     let generated = generate(host, &source, &layout.config_dir, &target)?;
     let Some(probe) = &generated.abi_probe else {
         return Err(BuildError(format!(
@@ -252,7 +313,8 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
         &EntryInputs {
             source: &source,
             target: &target,
-            compiler: &compiler,
+            platform: &platform,
+            compiler: &toolchain.identity,
             cmake_version: &cmake_version,
             probe,
             config: &config,
@@ -268,14 +330,14 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
         "cargo::rerun-if-changed={}",
         entry.join("stamp").display()
     ));
-    let state = entry_state(host, &entry, &inputs)?;
+    let state = entry_state(host, &entry, &inputs, &platform)?;
     if state != EntryState::Complete {
-        build_libraries(host, &layout, probe)?;
+        build_libraries(host, &build, probe)?;
         store_entry(
             host,
             &entries,
             &key,
-            &layout,
+            &build,
             &inputs,
             state == EntryState::Unusable,
         )?;
@@ -284,15 +346,15 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
     write_file(host, &layout.out.join(SYMBOLS_FILE), &generated.symbols)?;
     let lib = entry.join("lib");
     directives.push(format!("cargo::rustc-link-search=native={}", lib.display()));
-    for library in STATIC_LIBRARIES {
+    for library in platform.static_libraries {
         directives.push(format!("cargo::rustc-link-lib=static={library}"));
     }
-    for library in DYNAMIC_LIBRARIES {
+    for library in platform.dynamic_libraries {
         directives.push(format!("cargo::rustc-link-lib=dylib={library}"));
     }
     directives.push(format!(
         "cargo::rustc-link-arg-tests={}",
-        lib.join(format!("lib{PROBE_LIBRARY}.a")).display()
+        lib.join(platform.archive(PROBE_LIBRARY)).display()
     ));
     Ok(())
 }
@@ -303,7 +365,7 @@ fn generate(
     config_dir: &Path,
     target: &str,
 ) -> Result<Generated, BuildError> {
-    let rhi_headers = source.root.join(RHI_HEADERS);
+    let rhi_headers = tree_path(&source.root, &RHI_HEADERS);
     host.generate(&rhi_headers, config_dir, &source.slang_include, target)
         .map_err(|error| {
             let advice = match error.kind {
@@ -318,6 +380,12 @@ fn generate(
                 error.message
             ))
         })
+}
+
+fn tree_path(root: &Path, parts: &[&str]) -> PathBuf {
+    parts
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 fn directive_safe_path(value: &OsStr) -> Option<PathBuf> {
@@ -425,40 +493,76 @@ fn required(host: &impl Host, name: &str) -> Result<String, BuildError> {
         })
 }
 
-fn check_platform(host: &impl Host, target: &str, host_triple: &str) -> Result<(), BuildError> {
+fn platform(host: &impl Host, target: &str, host_triple: &str) -> Result<Platform, BuildError> {
     let text = |name: &str| {
         host.var(name)
             .map_or_default(|value| value.to_string_lossy().into_owned())
     };
-    if (text(TARGET_OS).as_str(), text(TARGET_ENV).as_str()) != ("linux", "gnu") {
-        return Err(BuildError(format!(
-            "the target {target} is not Linux with the GNU C library, and slang-rhi-sys builds only the Vulkan backend of slang-rhi, for Linux with the GNU C library. Build on Linux with the GNU C library."
-        )));
-    }
+    let platform = match (
+        text(TARGET_OS).as_str(),
+        text(TARGET_ENV).as_str(),
+        text(TARGET_ARCH).as_str(),
+    ) {
+        ("linux", "gnu", _) => Platform {
+            msvc: false,
+            static_libraries: &LINUX_STATIC_LIBRARIES,
+            dynamic_libraries: &LINUX_DYNAMIC_LIBRARIES,
+            configure_options: Vec::new(),
+        },
+        ("windows", "msvc", "x86_64") => {
+            let crt_static = text(TARGET_FEATURE)
+                .split(',')
+                .any(|feature| feature == "crt-static");
+            Platform {
+                msvc: true,
+                static_libraries: &WINDOWS_STATIC_LIBRARIES,
+                dynamic_libraries: &[],
+                configure_options: vec![format!(
+                    "-DCMAKE_MSVC_RUNTIME_LIBRARY={}",
+                    if crt_static {
+                        "MultiThreaded"
+                    } else {
+                        "MultiThreadedDLL"
+                    }
+                )],
+            }
+        }
+        _ => {
+            return Err(BuildError(format!(
+                "the target {target} is neither Linux with the GNU C library nor x86_64 Windows with the Microsoft toolchain, and slang-rhi-sys builds slang-rhi only for these: its Vulkan backend for Linux with the GNU C library and its Direct3D 12 backend for x86_64 Windows with the Microsoft toolchain. Build for one of these targets."
+            )));
+        }
+    };
     if target != host_triple {
         return Err(BuildError(format!(
             "the target {target} differs from the host {host_triple}, and the build of slang-rhi cannot cross-compile, because the Slang that it links is built from source for the host only. Build on a host of the target."
         )));
     }
-    Ok(())
+    Ok(platform)
 }
 
 fn command(program: &str, args: &[&str]) -> Invocation {
     Invocation {
         program: program.to_owned(),
         args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+        env: Vec::new(),
     }
 }
 
-fn cmake(args: Vec<String>) -> Invocation {
+fn cmake(args: Vec<String>, toolchain: &Toolchain) -> Invocation {
     Invocation {
         program: "cmake".to_owned(),
         args,
+        env: toolchain.env.clone(),
     }
 }
 
-fn first_line(host: &impl Host, invocation: &Invocation) -> Result<String, BuildError> {
-    let finished = check_success(host, invocation)?;
+fn first_line(
+    host: &impl Host,
+    invocation: &Invocation,
+    platform: &Platform,
+) -> Result<String, BuildError> {
+    let finished = check_success(host, invocation, platform)?;
     Ok(finished
         .stdout
         .lines()
@@ -468,11 +572,35 @@ fn first_line(host: &impl Host, invocation: &Invocation) -> Result<String, Build
         .to_owned())
 }
 
-fn compiler_identity(host: &impl Host) -> Result<String, BuildError> {
+fn toolchain(host: &impl Host, target: &str, platform: &Platform) -> Result<Toolchain, BuildError> {
+    if platform.msvc {
+        let compiler = host
+            .msvc_compiler(target)
+            .ok_or_else(|| msvc_error(host, target))?;
+        return Ok(Toolchain {
+            identity: compiler.path.display().to_string(),
+            env: compiler.env,
+        });
+    }
     let value = host
         .var(CXX)
         .map_or_default(|value| value.to_string_lossy().into_owned());
-    first_line(host, &compiler_probe(host, &value))
+    Ok(Toolchain {
+        identity: first_line(host, &compiler_probe(host, &value), platform)?,
+        env: Vec::new(),
+    })
+}
+
+fn msvc_error(host: &impl Host, target: &str) -> BuildError {
+    let shown = |name: &str| {
+        host.var(name)
+            .map_or_else(|| "not set".to_owned(), |value| quoted(&value))
+    };
+    BuildError(format!(
+        "cannot find the Microsoft C++ compiler cl.exe for the target {target}. The build of slang-rhi runs CMake with Ninja, which needs the environment of the Microsoft toolchain, so the build script looked for cl.exe first in the environment of a developer command prompt, which VCINSTALLDIR marks and which is {}, and then in every installation of Visual Studio 2015 or later that the Visual Studio setup configuration or the registry lists, limited to the toolset that VCToolsVersion names, which is {}, and found none. Install Visual Studio or its Build Tools with the workload for desktop development with C++.",
+        shown(MSVC_DEVELOPER_PROMPT),
+        shown(MSVC_TOOLS_VERSION)
+    ))
 }
 
 fn compiler_probe(host: &impl Host, value: &str) -> Invocation {
@@ -500,18 +628,26 @@ fn native_files_hash() -> String {
     fnv1a(&bytes)
 }
 
-fn key_options() -> Vec<String> {
+fn key_options(platform: &Platform) -> Vec<String> {
     let mut options: Vec<String> = CONFIGURE_OPTIONS
         .iter()
         .map(|option| (*option).to_owned())
         .collect();
-    options.push(format!("{VULKAN_HEADERS_OPTION}={VULKAN_HEADERS}"));
+    options.push(format!(
+        "{VULKAN_HEADERS_OPTION}={}",
+        VULKAN_HEADERS.join("/")
+    ));
+    if platform.msvc {
+        options.push(format!("{WINPIX_OPTION}=<empty directory>"));
+    }
+    options.extend(platform.configure_options.iter().cloned());
     options
 }
 
 struct EntryInputs<'a> {
     source: &'a Source,
     target: &'a str,
+    platform: &'a Platform,
     compiler: &'a str,
     cmake_version: &'a str,
     probe: &'a str,
@@ -528,7 +664,7 @@ fn entry_inputs(host: &impl Host, inputs: &EntryInputs<'_>) -> String {
         format!("cmake={}", inputs.cmake_version),
     ];
     lines.extend(
-        key_options()
+        key_options(inputs.platform)
             .iter()
             .map(|option| format!("configure={option}")),
     );
@@ -551,17 +687,26 @@ fn fnv1a(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-fn entry_libraries() -> impl Iterator<Item = &'static str> {
-    STATIC_LIBRARIES.into_iter().chain([PROBE_LIBRARY])
+fn entry_libraries(platform: &Platform) -> impl Iterator<Item = &'static str> {
+    platform
+        .static_libraries
+        .iter()
+        .copied()
+        .chain([PROBE_LIBRARY])
 }
 
-fn entry_files() -> impl Iterator<Item = PathBuf> {
-    entry_libraries()
-        .map(|library| Path::new("lib").join(format!("lib{library}.a")))
+fn entry_files(platform: &Platform) -> impl Iterator<Item = PathBuf> {
+    entry_libraries(platform)
+        .map(|library| Path::new("lib").join(platform.archive(library)))
         .chain([Path::new("include").join(CONFIG_HEADER)])
 }
 
-fn entry_state(host: &impl Host, entry: &Path, inputs: &str) -> Result<EntryState, BuildError> {
+fn entry_state(
+    host: &impl Host,
+    entry: &Path,
+    inputs: &str,
+    platform: &Platform,
+) -> Result<EntryState, BuildError> {
     match host.kind(entry) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(EntryState::Missing),
         Err(error) => return Err(shared_error("inspect", entry, &error)),
@@ -571,7 +716,8 @@ fn entry_state(host: &impl Host, entry: &Path, inputs: &str) -> Result<EntryStat
         .read(&entry.join("inputs"))
         .is_ok_and(|text| text == inputs);
     let complete = same_inputs
-        && entry_files().all(|file| matches!(host.kind(&entry.join(file)), Ok(EntryKind::File)));
+        && entry_files(platform)
+            .all(|file| matches!(host.kind(&entry.join(file)), Ok(EntryKind::File)));
     Ok(if complete {
         EntryState::Complete
     } else {
@@ -579,12 +725,23 @@ fn entry_state(host: &impl Host, entry: &Path, inputs: &str) -> Result<EntryStat
     })
 }
 
+struct Build<'a> {
+    layout: &'a Layout,
+    platform: &'a Platform,
+    toolchain: &'a Toolchain,
+}
+
 fn run_configure_step(
     host: &impl Host,
-    layout: &Layout,
+    build: &Build<'_>,
     source: &Source,
     native: &Path,
 ) -> Result<(), BuildError> {
+    let Build {
+        layout,
+        platform,
+        toolchain,
+    } = build;
     write_file(host, &layout.log, "")?;
     remove_if_present(host, &layout.build.join("CMakeCache.txt"))?;
     let mut configure_args = vec![
@@ -598,21 +755,50 @@ fn run_configure_step(
     configure_args.extend(CONFIGURE_OPTIONS.iter().map(|option| (*option).to_owned()));
     configure_args.push(format!(
         "{VULKAN_HEADERS_OPTION}={}",
-        source.root.join(VULKAN_HEADERS).display()
+        platform.cmake_path(&tree_path(&source.root, &VULKAN_HEADERS))
     ));
-    configure_args.push(format!("-DSLANG_TREE_DIR={}", source.root.display()));
+    if platform.msvc {
+        match host.remove_dir_all(&layout.winpix) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                return Err(file_error("remove", &layout.winpix, &error));
+            }
+            _ => {}
+        }
+        host.create_dir(&layout.winpix)
+            .map_err(|error| file_error("create", &layout.winpix, &error))?;
+        configure_args.push(format!(
+            "{WINPIX_OPTION}={}",
+            platform.cmake_path(&layout.winpix)
+        ));
+    }
+    configure_args.extend(platform.configure_options.iter().cloned());
+    configure_args.push(format!(
+        "-DSLANG_TREE_DIR={}",
+        platform.cmake_path(&source.root)
+    ));
     configure_args.push(format!(
         "-DSLANG_INCLUDE_DIR={}",
-        source.slang_include.display()
+        platform.cmake_path(&source.slang_include)
     ));
     configure_args.push(format!(
         "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={}",
-        layout.lib.display()
+        platform.cmake_path(&layout.lib)
     ));
-    run_logged(host, &cmake(configure_args), &layout.log, "configure")
+    run_logged(
+        host,
+        &cmake(configure_args, toolchain),
+        &layout.log,
+        "configure",
+        platform,
+    )
 }
 
-fn build_libraries(host: &impl Host, layout: &Layout, probe: &str) -> Result<(), BuildError> {
+fn build_libraries(host: &impl Host, build: &Build<'_>, probe: &str) -> Result<(), BuildError> {
+    let Build {
+        layout,
+        platform,
+        toolchain,
+    } = build;
     write_file(host, &layout.probe, probe)?;
     let mut build_args = vec![
         "--build".to_owned(),
@@ -626,8 +812,14 @@ fn build_libraries(host: &impl Host, layout: &Layout, probe: &str) -> Result<(),
     {
         build_args.extend(["--parallel".to_owned(), jobs.to_string()]);
     }
-    run_logged(host, &cmake(build_args), &layout.log, "build")?;
-    for file in built_files(layout) {
+    run_logged(
+        host,
+        &cmake(build_args, toolchain),
+        &layout.log,
+        "build",
+        platform,
+    )?;
+    for file in built_files(layout, platform) {
         match host.kind(&file) {
             Ok(EntryKind::File) => {}
             Ok(_) => return Err(layout_error(&format!("{} is not a file", file.display()))),
@@ -642,9 +834,9 @@ fn build_libraries(host: &impl Host, layout: &Layout, probe: &str) -> Result<(),
     Ok(())
 }
 
-fn built_files(layout: &Layout) -> Vec<PathBuf> {
-    entry_libraries()
-        .map(|library| layout.lib.join(format!("lib{library}.a")))
+fn built_files(layout: &Layout, platform: &Platform) -> Vec<PathBuf> {
+    entry_libraries(platform)
+        .map(|library| layout.lib.join(platform.archive(library)))
         .chain([layout.config_header.clone()])
         .collect()
 }
@@ -653,10 +845,13 @@ fn store_entry(
     host: &impl Host,
     entries: &Path,
     key: &str,
-    layout: &Layout,
+    build: &Build<'_>,
     inputs: &str,
     replace: bool,
 ) -> Result<(), BuildError> {
+    let Build {
+        layout, platform, ..
+    } = build;
     let prefix = format!("{key}.tmp-");
     let names = host
         .list(entries)
@@ -675,7 +870,10 @@ fn store_entry(
         }
     }
     let temporary = entries.join(format!("{prefix}{}", host.process_id()));
-    for (from, to) in built_files(layout).into_iter().zip(entry_files()) {
+    for (from, to) in built_files(layout, platform)
+        .into_iter()
+        .zip(entry_files(platform))
+    {
         let to = temporary.join(to);
         host.copy_file(&from, &to)
             .map_err(|error| shared_error(&format!("copy {} to", from.display()), &to, &error))?;
@@ -707,12 +905,13 @@ fn run_logged(
     invocation: &Invocation,
     log: &Path,
     step: &str,
+    platform: &Platform,
 ) -> Result<(), BuildError> {
     let exit = host
         .run_to_log(invocation, log)
         .map_err(|error| match error {
             LoggedRunError::Log(error) => file_error("open the log", log, &error),
-            LoggedRunError::Start(error) => start_error(invocation, &error),
+            LoggedRunError::Start(error) => start_error(invocation, &error, platform),
         })?;
     if exit.success() {
         return Ok(());
@@ -731,10 +930,14 @@ fn run_logged(
     )))
 }
 
-fn check_success(host: &impl Host, invocation: &Invocation) -> Result<Finished, BuildError> {
+fn check_success(
+    host: &impl Host,
+    invocation: &Invocation,
+    platform: &Platform,
+) -> Result<Finished, BuildError> {
     let finished = host
         .run(invocation)
-        .map_err(|error| start_error(invocation, &error))?;
+        .map_err(|error| start_error(invocation, &error, platform))?;
     if finished.exit.success() {
         return Ok(finished);
     }
@@ -745,9 +948,14 @@ fn check_success(host: &impl Host, invocation: &Invocation) -> Result<Finished, 
     )))
 }
 
-fn start_error(invocation: &Invocation, error: &io::Error) -> BuildError {
+fn start_error(invocation: &Invocation, error: &io::Error, platform: &Platform) -> BuildError {
+    let needs = if platform.msvc {
+        "CMake 3.22 or later, Ninja, and the Microsoft C++ compiler with the Windows SDK"
+    } else {
+        "CMake 3.22 or later, Ninja, a C++20 compiler, and the development headers of Xlib, such as those of the Debian package libx11-dev"
+    };
     BuildError(format!(
-        "cannot start {} for `{invocation}`: {error}. The build of slang-rhi needs CMake 3.22 or later, Ninja, a C++20 compiler, and the development headers of Xlib, such as those of the Debian package libx11-dev. Install the missing program.",
+        "cannot start {} for `{invocation}`: {error}. The build of slang-rhi needs {needs}. Install the missing program.",
         invocation.program
     ))
 }

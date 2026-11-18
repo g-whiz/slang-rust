@@ -219,7 +219,7 @@ jobs:
   vendored:
     name: Test the vendored build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -228,7 +228,7 @@ jobs:
       - *checkout
       - name: Install the stable Rust toolchain
         env:
-          COMPONENTS: ${{ matrix.os == 'ubuntu-latest' && 'clippy' || '' }}
+          COMPONENTS: ${{ matrix.os != 'macos-latest' && 'clippy' || '' }}
         run: |
           if [[ -n "${COMPONENTS}" ]]; then
             rustup toolchain install stable --profile minimal --component "${COMPONENTS}"
@@ -293,13 +293,26 @@ jobs:
       - name: Run Clippy and the documentation build of the vendored build, and show how long it took
         if: matrix.os == 'ubuntu-latest'
         run: time just check-vendored
-      - name: Run Clippy and the documentation build of slang-rhi-sys, and show how long it took
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run Clippy and the documentation build of slang-rhi-sys and slang-rhi, and show how long it took
+        if: matrix.os != 'macos-latest'
         run: time just check-rhi
       - name: Run the tests of the vendored build, and show how long it took
         run: time just test-vendored
-      - name: Run the tests of slang-rhi-sys, and show how long it took
-        if: matrix.os == 'ubuntu-latest'
+      - name: Put the directory of the dxcompiler.dll of the newest Windows SDK on PATH, through which the tests of slang-rhi on Direct3D 12 compile their kernels to DXIL
+        if: matrix.os == 'windows-latest'
+        run: |
+          kits="$(cygpath --unix 'C:\Program Files (x86)\Windows Kits\10\bin')"
+          shopt -s nullglob
+          candidates=("${kits}"/10.*/x64/dxcompiler.dll)
+          if [[ "${#candidates[@]}" -eq 0 ]]; then
+            printf '::error::The runner image provides no dxcompiler.dll at %s/10.*/x64/dxcompiler.dll in a versioned Windows SDK directory, which the tests of slang-rhi on Direct3D 12 need\n' "${kits}"
+            exit 1
+          fi
+          found="$(printf '%s\n' "${candidates[@]}" | sort --version-sort | tail -n 1)"
+          printf 'dxcompiler.dll of the highest Windows SDK version: %s\n' "${found}"
+          cygpath --windows "$(dirname "${found}")" >>"${GITHUB_PATH}"
+      - name: Run the tests of slang-rhi-sys and slang-rhi, and show how long it took
+        if: matrix.os != 'macos-latest'
         run: time just test-rhi
       - name: Check where the vendored build kept its Slang clone
         run: just check-vendored-shared-folder

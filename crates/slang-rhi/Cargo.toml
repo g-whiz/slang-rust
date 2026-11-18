@@ -15,7 +15,7 @@ repository.workspace = true
 bitflags.workspace = true
 slang-rhi-sys.workspace = true
 
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+[target.'cfg(any(all(target_os = "linux", target_env = "gnu"), all(target_os = "windows", target_env = "msvc", target_arch = "x86_64")))'.dependencies]
 slang-compiler = { workspace = true, features = ["vendored"] }
 slang-compiler-sys.workspace = true
 

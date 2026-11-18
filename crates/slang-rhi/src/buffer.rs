@@ -18,7 +18,9 @@ bitflags::bitflags! {
     /// needs [`BufferUsage::SHADER_RESOURCE`] or
     /// [`BufferUsage::UNORDERED_ACCESS`], and a buffer that
     /// [`Device::read_buffer`] reads needs [`BufferUsage::COPY_SOURCE`].
-    /// Initial data needs no use of its own.
+    /// Initial data needs no use of its own. A buffer in
+    /// [`MemoryType::Upload`] or [`MemoryType::ReadBack`] memory cannot have
+    /// [`BufferUsage::UNORDERED_ACCESS`].
     ///
     /// # Examples
     ///
@@ -65,9 +67,17 @@ bitflags::bitflags! {
 pub enum MemoryType {
     /// Memory of the device, which shaders read and write fastest.
     DeviceLocal,
-    /// Memory that the program writes and the device reads.
+    /// Memory that the program writes and the device reads. A shader cannot
+    /// write a buffer in this memory, because Direct3D 12 allows no unordered
+    /// access to it.
     Upload,
-    /// Memory that the device writes and the program reads.
+    /// Memory that the device writes and the program reads. A buffer in this
+    /// memory has no use through this crate. A shader cannot write it,
+    /// because Direct3D 12 allows no unordered access to this memory, it
+    /// takes no initial data, and the crate has no command that copies into
+    /// it and does not map it. On Direct3D 12, slang-rhi also creates such a
+    /// buffer only with the use [`BufferUsage::COPY_DESTINATION`] alone, so
+    /// [`Device::read_buffer`] cannot read it there.
     ReadBack,
 }
 
@@ -164,8 +174,9 @@ impl BufferDesc {
     }
 }
 
-/// Checks that a description has a size and at least one use, and no bit of
-/// a use that this crate does not define.
+/// Checks that a description has a size and at least one use, no bit of a use
+/// that this crate does not define, and no unordered access to memory that
+/// the program maps.
 fn check_desc(desc: &BufferDesc) -> Result<()> {
     if desc.size == 0 {
         return Err(Error::invalid(
@@ -186,7 +197,29 @@ fn check_desc(desc: &BufferDesc) -> Result<()> {
             format!("the uses of the buffer hold the unknown bits {unknown:#x}"),
         ));
     }
+    if desc.memory != MemoryType::DeviceLocal && desc.usage.contains(BufferUsage::UNORDERED_ACCESS)
+    {
+        return Err(Error::invalid(
+            Operation::CreateBuffer,
+            format!(
+                "a buffer in {:?} memory cannot have the use UNORDERED_ACCESS, because not every graphics API allows unordered access to that memory",
+                desc.memory
+            ),
+        ));
+    }
     Ok(())
+}
+
+/// Checks that a buffer in `memory` can take initial data.
+fn check_initial_memory(memory: MemoryType) -> Result<()> {
+    if memory == MemoryType::ReadBack {
+        Err(Error::invalid(
+            Operation::CreateBuffer,
+            "a buffer in ReadBack memory takes no initial data",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Checks that a buffer with the uses `usage` can be read back.
@@ -296,7 +329,7 @@ impl Device {
     /// # Examples
     ///
     /// This example creates a buffer of four `float` values and reads it
-    /// back. It needs a Vulkan driver at run time, so it is compiled but not
+    /// back. It needs a GPU driver at run time, so it is compiled but not
     /// run:
     ///
     /// ```no_run
@@ -323,12 +356,16 @@ impl Device {
     /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
     /// before any call into slang-rhi, when the size of the description is 0,
     /// when its uses are empty or hold a bit that [`BufferUsage`] does not
-    /// define, or when `initial` is given and its length differs from the
-    /// size of the description. Returns the error that slang-rhi reports for
+    /// define, when its memory is [`MemoryType::Upload`] or
+    /// [`MemoryType::ReadBack`] and its uses hold
+    /// [`BufferUsage::UNORDERED_ACCESS`], or when `initial` is given and the
+    /// memory is [`MemoryType::ReadBack`] or its length differs from the size
+    /// of the description. Returns the error that slang-rhi reports for
     /// the creation.
     pub fn create_buffer(&self, desc: &BufferDesc, initial: Option<&[u8]>) -> Result<Buffer> {
         check_desc(desc)?;
         if let Some(initial) = initial {
+            check_initial_memory(desc.memory)?;
             check_initial(initial.len(), desc.size)?;
         }
         let raw_desc = desc.to_raw()?;
@@ -400,7 +437,8 @@ impl Device {
 #[cfg(test)]
 mod tests {
     use super::{
-        BufferDesc, BufferUsage, MemoryType, check_desc, check_initial, check_read, check_readable,
+        BufferDesc, BufferUsage, MemoryType, check_desc, check_initial, check_initial_memory,
+        check_read, check_readable,
     };
     use crate::error::Operation;
     use crate::{ErrorKind, ShaderOffset};
@@ -446,11 +484,35 @@ mod tests {
                 4,
                 BufferUsage::UNORDERED_ACCESS | BufferUsage::from_bits_retain(1 << 31),
             ),
+            BufferDesc::new(4, BufferUsage::UNORDERED_ACCESS).with_memory(MemoryType::Upload),
+            BufferDesc::new(4, BufferUsage::UNORDERED_ACCESS | BufferUsage::COPY_SOURCE)
+                .with_memory(MemoryType::ReadBack),
         ] {
             let error = check_desc(&desc).expect_err("the description is refused");
             assert_eq!(error.kind(), ErrorKind::InvalidArgument, "{desc:?}");
             assert_eq!(error.operation(), Operation::CreateBuffer);
         }
+    }
+
+    #[test]
+    fn check_desc_accepts_read_only_uses_of_memory_that_the_program_maps() {
+        for memory in [MemoryType::Upload, MemoryType::ReadBack] {
+            check_desc(
+                &BufferDesc::new(4, BufferUsage::SHADER_RESOURCE | BufferUsage::COPY_SOURCE)
+                    .with_memory(memory),
+            )
+            .expect("the description is valid");
+        }
+    }
+
+    #[test]
+    fn check_initial_memory_refuses_initial_data_only_for_read_back_memory() {
+        check_initial_memory(MemoryType::DeviceLocal).expect("device memory takes data");
+        check_initial_memory(MemoryType::Upload).expect("upload memory takes data");
+        let error =
+            check_initial_memory(MemoryType::ReadBack).expect_err("read-back memory takes none");
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(error.operation(), Operation::CreateBuffer);
     }
 
     #[test]

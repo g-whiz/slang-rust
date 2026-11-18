@@ -422,9 +422,10 @@ impl ShaderObject<'_> {
     /// format, which this crate does not create.
     ///
     /// Bind a buffer to every buffer parameter that the kernel uses before
-    /// the dispatch. A parameter left without a buffer works only on a device
-    /// whose Vulkan driver offers the feature `nullDescriptor`, which reads
-    /// zeros and drops writes, and this crate does not check it.
+    /// the dispatch. A parameter left without a buffer reads zeros and drops
+    /// writes on Direct3D 12, where slang-rhi binds a null descriptor, and on
+    /// Vulkan, where it works only on a device whose driver offers the feature
+    /// `nullDescriptor`, which this crate does not check.
     ///
     /// # Examples
     ///

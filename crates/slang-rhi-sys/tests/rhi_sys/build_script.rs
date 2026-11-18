@@ -27,6 +27,7 @@ enum FileOp {
     SetModified,
     Rename,
     Lock,
+    CreateDir,
 }
 
 struct FakeHost {
@@ -44,6 +45,8 @@ struct FakeHost {
     events: RefCell<Vec<String>>,
     generated: Result<Generated, GenerationError>,
     generations: RefCell<Vec<(PathBuf, PathBuf, PathBuf, String)>>,
+    msvc: Option<MsvcCompiler>,
+    msvc_lookups: RefCell<Vec<String>>,
 }
 
 impl FakeHost {
@@ -163,6 +166,15 @@ impl Host for FakeHost {
         PROCESS_ID
     }
 
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        self.attempt(FileOp::CreateDir, path)
+    }
+
+    fn msvc_compiler(&self, target: &str) -> Option<MsvcCompiler> {
+        self.msvc_lookups.borrow_mut().push(target.to_owned());
+        self.msvc.clone()
+    }
+
     fn generate(
         &self,
         rhi_headers: &Path,
@@ -245,7 +257,9 @@ fn happy(invocation: &Invocation) -> Finished {
 }
 
 fn archives() -> Vec<String> {
-    entry_libraries()
+    LINUX_STATIC_LIBRARIES
+        .into_iter()
+        .chain([PROBE_LIBRARY])
         .map(|library| format!("lib{library}.a"))
         .collect()
 }
@@ -283,6 +297,10 @@ fn host_for(triple: &str, os: &str, env: &str) -> FakeHost {
             (HOST, OsString::from(triple)),
             (TARGET_OS, OsString::from(os)),
             (TARGET_ENV, OsString::from(env)),
+            (
+                TARGET_ARCH,
+                OsString::from(triple.split('-').next().unwrap_or_default()),
+            ),
         ],
         files: vec![(built_header(), CONFIG_TEXT.to_owned())],
         entries: built,
@@ -297,6 +315,8 @@ fn host_for(triple: &str, os: &str, env: &str) -> FakeHost {
         events: RefCell::default(),
         generated: Ok(fake_generated()),
         generations: RefCell::default(),
+        msvc: None,
+        msvc_lookups: RefCell::default(),
     }
 }
 
@@ -393,7 +413,7 @@ fn links(entry: &Path) -> Vec<String> {
         entry.join("lib").display()
     )];
     links.extend(
-        STATIC_LIBRARIES
+        LINUX_STATIC_LIBRARIES
             .iter()
             .map(|library| format!("cargo::rustc-link-lib=static={library}")),
     );
@@ -665,9 +685,9 @@ fn configure_on_another_architecture_of_linux_with_glibc_builds() {
 }
 
 #[test]
-fn configure_refuses_every_target_that_is_not_linux_with_glibc() {
+fn configure_refuses_every_target_that_is_not_linux_with_glibc_or_x86_64_windows_with_msvc() {
     for (triple, os, env) in [
-        ("x86_64-pc-windows-msvc", "windows", "msvc"),
+        ("aarch64-pc-windows-msvc", "windows", "msvc"),
         ("x86_64-pc-windows-gnu", "windows", "gnu"),
         ("aarch64-apple-darwin", "macos", ""),
         ("x86_64-unknown-linux-musl", "linux", "musl"),
@@ -677,13 +697,235 @@ fn configure_refuses_every_target_that_is_not_linux_with_glibc() {
         failure(
             &host,
             &[
-                &format!("the target {triple} is not Linux with the GNU C library"),
-                "slang-rhi-sys builds only the Vulkan backend of slang-rhi, for Linux with the GNU C library",
-                "Build on Linux with the GNU C library",
+                &format!(
+                    "the target {triple} is neither Linux with the GNU C library nor x86_64 Windows with the Microsoft toolchain"
+                ),
+                "its Vulkan backend for Linux with the GNU C library and its Direct3D 12 backend for x86_64 Windows with the Microsoft toolchain",
+                "Build for one of these targets",
             ],
         );
         assert!(host.runs.borrow().is_empty(), "{triple}");
+        assert!(host.msvc_lookups.borrow().is_empty(), "{triple}");
     }
+}
+
+const WINDOWS: &str = "x86_64-pc-windows-msvc";
+const MSVC_TOOLSET: &str = "14.44.35207";
+
+fn msvc_compiler() -> MsvcCompiler {
+    MsvcCompiler {
+        path: root().join("msvc").join("bin").join("cl.exe"),
+        env: vec![(OsString::from("INCLUDE"), OsString::from("C:/msvc/include"))],
+    }
+}
+
+fn windows_host(feature: &str) -> FakeHost {
+    let mut host = host_for(WINDOWS, "windows", "msvc");
+    host.entries = WINDOWS_STATIC_LIBRARIES
+        .into_iter()
+        .chain([PROBE_LIBRARY])
+        .map(|library| {
+            (
+                out_dir().join("lib").join(format!("{library}.lib")),
+                Ok(EntryKind::File),
+            )
+        })
+        .chain([(built_header(), Ok(EntryKind::File))])
+        .collect();
+    host.msvc = Some(msvc_compiler());
+    host.vars.push((TARGET_FEATURE, OsString::from(feature)));
+    host.vars
+        .push((MSVC_TOOLS_VERSION, OsString::from(MSVC_TOOLSET)));
+    host
+}
+
+fn windows_inputs(runtime: &str) -> String {
+    let linux = expected_inputs(
+        WINDOWS,
+        &[(MSVC_TOOLS_VERSION, MSVC_TOOLSET)],
+        &msvc_compiler().path.display().to_string(),
+    );
+    let last_option = format!("configure={}\n", KEY_OPTIONS[KEY_OPTIONS.len() - 1]);
+    linux.replacen(
+        &last_option,
+        &format!(
+            "{last_option}configure=-DFETCHCONTENT_SOURCE_DIR_WINPIX=<empty directory>\nconfigure=-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}\n"
+        ),
+        1,
+    )
+}
+
+fn windows_configure_args(runtime: &str) -> Vec<String> {
+    let winpix = out_dir().join("winpix");
+    let mut configure: Vec<String> = configure_args()
+        .into_iter()
+        .map(|arg| {
+            if arg.starts_with("-D") {
+                arg.replace('\\', "/")
+            } else {
+                arg
+            }
+        })
+        .collect();
+    let tree = configure.len() - 3;
+    assert!(configure[tree].starts_with("-DSLANG_TREE_DIR="));
+    configure.insert(tree, format!("-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}"));
+    configure.insert(
+        tree,
+        format!(
+            "-DFETCHCONTENT_SOURCE_DIR_WINPIX={}",
+            winpix.display().to_string().replace('\\', "/")
+        ),
+    );
+    configure
+}
+
+#[test]
+fn configure_builds_and_links_the_direct3d_12_libraries_with_the_microsoft_toolchain_on_windows() {
+    for (feature, runtime) in [
+        ("fxsr,sse,sse2", "MultiThreadedDLL"),
+        ("crt-static,fxsr,sse,sse2", "MultiThreaded"),
+    ] {
+        let host = windows_host(feature);
+        let (directives, result) = run(&host);
+        result.expect("the build succeeds");
+        assert_eq!(host.msvc_lookups.borrow().as_slice(), [WINDOWS]);
+        let inputs = windows_inputs(runtime);
+        let entry = entry_for(&inputs);
+        let lib = entry.join("lib");
+        let mut expected = reruns();
+        expected.push(format!(
+            "cargo::rerun-if-changed={}",
+            entry.join("stamp").display()
+        ));
+        expected.extend([
+            format!("cargo::rustc-link-search=native={}", lib.display()),
+            "cargo::rustc-link-lib=static=slang-rhi".to_owned(),
+            "cargo::rustc-link-lib=static=slang-rhi-d3d12ma".to_owned(),
+            "cargo::rustc-link-lib=static=slang-rhi-resources".to_owned(),
+            format!(
+                "cargo::rustc-link-arg-tests={}",
+                lib.join("slang-rhi-sys-abi-probe.lib").display()
+            ),
+        ]);
+        assert_eq!(directives, expected, "{feature}");
+        let runs = host.runs.borrow();
+        let commands: Vec<String> = runs
+            .iter()
+            .map(|(invocation, _)| invocation.to_string())
+            .collect();
+        let winpix = out_dir().join("winpix");
+        let configure = windows_configure_args(runtime);
+        let build_dir = out_dir().join("build").display().to_string();
+        assert_eq!(
+            commands,
+            [
+                "ninja --version".to_owned(),
+                "cmake --version".to_owned(),
+                format!("cmake {}", configure.join(" ")),
+                format!("cmake --build {build_dir} --target slang-rhi slang-rhi-sys-abi-probe"),
+            ],
+            "{feature}"
+        );
+        for (invocation, _) in runs
+            .iter()
+            .filter(|(invocation, _)| invocation.program == "cmake")
+        {
+            assert_eq!(invocation.env, msvc_compiler().env, "{invocation}");
+        }
+        let events = host.events.borrow();
+        let removed = events
+            .iter()
+            .position(|event| *event == format!("RemoveDir {}", winpix.display()))
+            .unwrap_or_else(|| panic!("the empty directory is not cleared: {events:?}"));
+        let created = events
+            .iter()
+            .position(|event| *event == format!("CreateDir {}", winpix.display()))
+            .unwrap_or_else(|| panic!("the empty directory is not created: {events:?}"));
+        let configured = events
+            .iter()
+            .position(|event| event.starts_with("Run cmake -S"))
+            .unwrap_or_else(|| panic!("no configure step: {events:?}"));
+        assert!(removed < created && created < configured, "{events:?}");
+        let copied: Vec<PathBuf> = host
+            .copied
+            .borrow()
+            .iter()
+            .map(|(from, _)| from.clone())
+            .collect();
+        assert_eq!(
+            copied,
+            [
+                out_dir().join("lib").join("slang-rhi.lib"),
+                out_dir().join("lib").join("slang-rhi-d3d12ma.lib"),
+                out_dir().join("lib").join("slang-rhi-resources.lib"),
+                out_dir().join("lib").join("slang-rhi-sys-abi-probe.lib"),
+                built_header(),
+            ],
+            "{feature}"
+        );
+    }
+}
+
+#[test]
+fn configure_on_windows_reports_a_missing_microsoft_compiler_with_where_it_looked() {
+    let mut host = windows_host("");
+    host.msvc = None;
+    set_var(&mut host, "VCINSTALLDIR", None);
+    failure(
+        &host,
+        &[
+            "cannot find the Microsoft C++ compiler cl.exe for the target x86_64-pc-windows-msvc",
+            "VCINSTALLDIR marks and which is not set",
+            &format!("VCToolsVersion names, which is \"{MSVC_TOOLSET}\""),
+            "Install Visual Studio or its Build Tools",
+        ],
+    );
+    let runs: Vec<String> = host
+        .runs
+        .borrow()
+        .iter()
+        .map(|(invocation, _)| invocation.to_string())
+        .collect();
+    assert_eq!(runs, ["ninja --version"]);
+}
+
+#[test]
+fn configure_on_windows_names_the_microsoft_toolchain_when_a_program_cannot_start() {
+    let mut host = windows_host("");
+    host.respond = Box::new(|invocation| {
+        if invocation.program == "cmake" {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        } else {
+            Ok(happy(invocation))
+        }
+    });
+    failure(
+        &host,
+        &[
+            "cannot start cmake for `cmake --version`",
+            "needs CMake 3.22 or later, Ninja, and the Microsoft C++ compiler with the Windows SDK",
+        ],
+    );
+}
+
+#[test]
+fn configure_on_windows_reports_an_empty_directory_that_it_cannot_create() {
+    let mut host = windows_host("");
+    let winpix = out_dir().join("winpix");
+    host.failures.push((
+        FileOp::CreateDir,
+        winpix.clone(),
+        io::ErrorKind::PermissionDenied,
+    ));
+    failure(&host, &[&format!("cannot create {}", winpix.display())]);
+    let mut host = windows_host("");
+    host.failures.push((
+        FileOp::RemoveDir,
+        winpix.clone(),
+        io::ErrorKind::PermissionDenied,
+    ));
+    failure(&host, &[&format!("cannot remove {}", winpix.display())]);
 }
 
 #[test]
@@ -703,7 +945,7 @@ fn configure_refuses_another_target_before_it_reads_the_metadata_of_its_dependen
     }
     failure(
         &host,
-        &["the target aarch64-apple-darwin is not Linux with the GNU C library"],
+        &["the target aarch64-apple-darwin is neither Linux with the GNU C library"],
     );
     let read = host.read_vars.borrow();
     assert!(
@@ -888,27 +1130,28 @@ fn configure_keys_the_entry_by_every_variable_that_cmake_reads() {
 
 #[test]
 fn configure_keys_the_entry_by_no_path_of_the_build() {
+    let elsewhere = root().join("elsewhere");
+    let out = elsewhere.join("out");
+    let header = out
+        .join("build")
+        .join("slang-rhi")
+        .join("include")
+        .join("slang-rhi-config.h");
     let mut host = linux_host();
-    set_var(&mut host, OUT_DIR, Some("/elsewhere/out"));
-    set_var(&mut host, SRC_ROOT, Some("/elsewhere/tree"));
-    set_var(&mut host, SLANG_INCLUDE, Some("/elsewhere/include"));
+    for (name, path) in [
+        (OUT_DIR, out.clone()),
+        (SRC_ROOT, elsewhere.join("tree")),
+        (SLANG_INCLUDE, elsewhere.join("include")),
+    ] {
+        host.vars.retain(|(key, _)| *key != name);
+        host.vars.push((name, path.into_os_string()));
+    }
     host.entries = archives()
         .into_iter()
-        .map(|name| {
-            (
-                PathBuf::from("/elsewhere/out/lib").join(name),
-                Ok(EntryKind::File),
-            )
-        })
-        .chain([(
-            PathBuf::from("/elsewhere/out/build/slang-rhi/include/slang-rhi-config.h"),
-            Ok(EntryKind::File),
-        )])
+        .map(|name| (out.join("lib").join(name), Ok(EntryKind::File)))
+        .chain([(header.clone(), Ok(EntryKind::File))])
         .collect();
-    host.files = vec![(
-        PathBuf::from("/elsewhere/out/build/slang-rhi/include/slang-rhi-config.h"),
-        CONFIG_TEXT.to_owned(),
-    )];
+    host.files = vec![(header, CONFIG_TEXT.to_owned())];
     let (directives, result) = run(&host);
     result.expect("the build succeeds");
     assert_eq!(directives, expected_directives(&entry_for(&linux_inputs())));

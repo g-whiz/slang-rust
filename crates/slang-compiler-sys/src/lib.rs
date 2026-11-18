@@ -367,6 +367,17 @@
 //! it generates only when the environment variable
 //! `SLANG_RUN_SPIRV_VALIDATION` is `1`.
 //!
+//! With the Microsoft toolchain, the vendored Slang is built with its support
+//! for DXIL, the shader format of Direct3D 12, and on every other target
+//! without it. Slang compiles to DXIL through `dxcompiler.dll`, the library of
+//! the DirectX Shader Compiler, which it loads at run time, and the build
+//! neither downloads nor bundles that library. A program on Windows that
+//! compiles a shader to DXIL therefore needs `dxcompiler.dll` on its `PATH`
+//! or beside its executable, and providing it is the responsibility of the
+//! program. The Windows SDK ships it in its `bin` directory. Without it, the
+//! compilation fails, and Slang reports `failed to load downstream compiler
+//! 'dxc'`.
+//!
 //! ## Metadata for build scripts
 //!
 //! The manifest key `links` of this crate is `slang-compiler`, so the build

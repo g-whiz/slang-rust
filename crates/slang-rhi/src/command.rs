@@ -504,9 +504,10 @@ impl ComputePass<'_> {
     /// 0 along any axis runs nothing.
     ///
     /// Bind a buffer to every buffer parameter that the kernel uses before the
-    /// dispatch. A parameter left without a buffer works only on a device
-    /// whose Vulkan driver offers the feature `nullDescriptor`, and this
-    /// crate does not check it.
+    /// dispatch. A parameter left without a buffer works on Direct3D 12, where
+    /// slang-rhi binds a null descriptor, and on Vulkan only on a device whose
+    /// driver offers the feature `nullDescriptor`, which this crate does not
+    /// check.
     ///
     /// # Examples
     ///
@@ -518,7 +519,8 @@ impl ComputePass<'_> {
     /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
     /// before any call into slang-rhi, when no pipeline is bound in the pass,
     /// or when a count is larger than the device allows along its axis, which
-    /// the Vulkan limit `maxComputeWorkGroupCount` gives.
+    /// the Vulkan limit `maxComputeWorkGroupCount` gives, and which is 65535
+    /// on Direct3D 12.
     pub fn dispatch(&mut self, thread_groups: [u32; 3]) -> Result<()> {
         if !self.bound {
             return Err(Error::invalid(

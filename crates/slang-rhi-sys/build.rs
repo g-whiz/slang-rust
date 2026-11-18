@@ -1,6 +1,7 @@
-//! Builds slang-rhi with its Vulkan backend as static libraries from the Slang
-//! source tree of `slang-src`, keeps them and the configured header in the
-//! shared folder of the Cargo target directory, and links them.
+//! Builds slang-rhi with its Vulkan backend on Linux and its Direct3D 12
+//! backend on Windows as static libraries from the Slang source tree of
+//! `slang-src`, keeps them and the configured header in the shared folder of
+//! the Cargo target directory, and links them.
 
 include!("build_logic.rs");
 include!("system.rs");

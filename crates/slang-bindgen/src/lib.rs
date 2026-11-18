@@ -190,11 +190,14 @@ pub fn generate(header_dir: impl AsRef<Path>, target: &str) -> Result<Generated>
 ///
 /// [`Generated::abi_probe`] holds a C++ translation unit for the compiler
 /// that builds slang-rhi. It asserts the size, the alignment, and the offset
-/// of each field of every generated struct. On a target of the Itanium C++
-/// ABI, which is every target that libclang does not resolve to Windows with
-/// the `msvc` environment, it also defines the C function `slang_rhi_sys_abi_probe_slots`, which writes the
-/// byte offset of the vtable slot of every generated method into an array of
-/// `size_t` of the given capacity and returns their number.
+/// of each field of every generated struct. It also defines the C function
+/// `slang_rhi_sys_abi_probe_slots`, which writes the byte offset of the vtable
+/// slot of every generated method into an array of `size_t` of the given
+/// capacity and returns their number. With the Microsoft compiler on `x86_64`
+/// Windows, it reads each offset from the code of the thunk that the compiler
+/// generates for a pointer to the virtual method, and it writes `SIZE_MAX`
+/// for a thunk whose code it does not recognize, as it does on every other
+/// architecture of that compiler.
 /// [`Generated::symbols`] then also holds the declaration of that function and
 /// the constant `VTABLE_SLOTS`, which pairs each method with the offset of
 /// its field in the generated vtable struct, in the same order.
@@ -225,11 +228,15 @@ pub fn generate(header_dir: impl AsRef<Path>, target: &str) -> Result<Generated>
 ///   in the first, cannot be read.
 /// - [`ErrorKind::Unsupported`] when a declaration of slang-rhi refers to a
 ///   Slang type that the bindings of [`generate`] do not declare in the form
-///   that the reference needs, and when virtual methods share a name on a
-///   target that libclang resolves to Windows with the `msvc` environment,
-///   such as `x86_64-pc-windows-msvc` or `x86_64-pc-win32`, whose Microsoft
-///   C++ ABI orders such methods in a vtable in a way that is not
-///   established.
+///   that the reference needs, and when the bindings cannot follow the
+///   vtable order of the Microsoft C++ ABI on a target that libclang resolves
+///   to Windows with the `msvc` environment, such as `x86_64-pc-windows-msvc`
+///   or `x86_64-pc-win32`. That ABI gives the virtual methods of one name
+///   adjacent slots in reverse declaration order, at the place where the
+///   class first declares any member of that name, such as a method that is
+///   not virtual or a nested type. The bindings follow that order only when
+///   the virtual methods of one name are declared next to each other and no
+///   other member of that name declared before them changes their place.
 pub fn generate_slang_rhi(
     rhi_header_dir: impl AsRef<Path>,
     config_dir: impl AsRef<Path>,

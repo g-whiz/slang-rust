@@ -1,5 +1,6 @@
-//! The tests that open a device on a Vulkan adapter, which fail, and never
-//! skip, when no Vulkan adapter exists.
+//! The tests that open a device on an adapter of the graphics API of the
+//! platform, Vulkan on Linux and Direct3D 12 on Windows, which fail, and
+//! never skip, when no such adapter exists.
 
 use std::thread;
 
@@ -10,18 +11,19 @@ use slang_rhi::{
 };
 
 use crate::common::{
-    DOUBLE, Message, bytes, double, float_buffer, link, open, options, pipeline, read,
+    API, DEVICE_TYPE, DOUBLE, Message, assert_uniform_data_of_a_block_is_refused, bytes, double,
+    float_buffer, link, open, options, pipeline, read,
 };
 
 #[test]
-fn adapters_lists_a_vulkan_adapter_and_a_device_opens_on_each() {
-    let adapters = slang_rhi::adapters(DeviceType::Vulkan).expect("slang-rhi lists the adapters");
-    assert!(!adapters.is_empty(), "slang-rhi finds no Vulkan adapter");
+fn adapters_lists_an_adapter_and_a_device_opens_on_each() {
+    let adapters = slang_rhi::adapters(DEVICE_TYPE).expect("slang-rhi lists the adapters");
+    assert!(!adapters.is_empty(), "slang-rhi finds no {API} adapter");
     let (mut options, messages) = options(Toggle::Off);
     for adapter in &adapters {
-        assert_eq!(adapter.device_type(), DeviceType::Vulkan);
+        assert_eq!(adapter.device_type(), DEVICE_TYPE);
         let device = Device::new(options.adapter(adapter)).expect("a device opens on the adapter");
-        assert_eq!(device.info().device_type(), DeviceType::Vulkan);
+        assert_eq!(device.info().device_type(), DEVICE_TYPE);
         assert_eq!(device.info().adapter_name(), adapter.name());
     }
     assert_eq!(messages.errors(), []);
@@ -29,11 +31,11 @@ fn adapters_lists_a_vulkan_adapter_and_a_device_opens_on_each() {
 
 #[test]
 fn an_adapter_of_another_device_type_than_the_options_is_refused() {
-    let adapter = slang_rhi::adapters(DeviceType::Vulkan)
+    let adapter = slang_rhi::adapters(DEVICE_TYPE)
         .expect("slang-rhi lists the adapters")
         .into_iter()
         .next()
-        .expect("slang-rhi finds a Vulkan adapter");
+        .expect("slang-rhi finds an adapter");
     let (mut options, _) = options(Toggle::Off);
     options.device_type(DeviceType::Default).adapter(&adapter);
     let error = Device::new(&options).expect_err("the device types differ");
@@ -42,10 +44,10 @@ fn an_adapter_of_another_device_type_than_the_options_is_refused() {
 }
 
 #[test]
-fn the_compute_path_doubles_a_buffer_with_optimized_spirv_and_no_message() {
+fn the_compute_path_doubles_a_buffer_with_optimized_code_and_no_message() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
-    assert_eq!(device.info().api_name(), "Vulkan");
+    assert_eq!(device.info().api_name(), API);
     assert_eq!(double(&device), [2.0, 4.0, 6.0, 8.0]);
     let all = messages.all();
     assert!(
@@ -256,7 +258,7 @@ void main(uint3 thread : SV_DispatchThreadID)
         .expect("slang-rhi creates the shader program, which generates no code");
     let error = device
         .create_compute_pipeline(&program)
-        .expect_err("Slang cannot generate SPIR-V for the kernel");
+        .expect_err("Slang cannot generate code for the kernel");
     assert_eq!(error.kind(), ErrorKind::Compile);
     let diagnostics = error.diagnostics().expect("Slang reported why");
     assert!(diagnostics.contains("recursion"), "{diagnostics}");
@@ -297,7 +299,7 @@ void main(uint3 thread : SV_DispatchThreadID)
 "#;
     let mut options =
         DeviceOptions::new(GlobalSession::new().expect("Slang creates a global session"));
-    options.device_type(DeviceType::Vulkan);
+    options.device_type(DEVICE_TYPE);
     let device = open(&options);
     let linked = link(device.slang_session(), "broken", BROKEN);
     let program = device
@@ -305,7 +307,7 @@ void main(uint3 thread : SV_DispatchThreadID)
         .expect("slang-rhi creates the shader program");
     let error = device
         .create_compute_pipeline(&program)
-        .expect_err("Slang cannot generate SPIR-V for the kernel");
+        .expect_err("Slang cannot generate code for the kernel");
     assert_eq!(error.kind(), ErrorKind::Compile);
     assert!(
         error
@@ -486,11 +488,28 @@ fn buffer_descriptions_without_a_size_or_a_use_or_with_an_unknown_use_are_refuse
     for memory in [MemoryType::Upload, MemoryType::ReadBack] {
         let desc = BufferDesc::new(16, BufferUsage::UNORDERED_ACCESS | BufferUsage::COPY_SOURCE)
             .with_memory(memory);
-        let buffer = device
-            .create_buffer(&desc, Some(&bytes(&[1.0, 2.0, 3.0, 4.0])))
-            .expect("slang-rhi creates a buffer in host memory");
-        assert_eq!(read(&device, &buffer), [1.0, 2.0, 3.0, 4.0]);
+        let error = device
+            .create_buffer(&desc, None)
+            .expect_err("memory that the program maps allows no unordered access");
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument, "{memory:?}");
+        assert_eq!(error.operation(), Operation::CreateBuffer);
     }
+    let read_back =
+        BufferDesc::new(16, BufferUsage::COPY_DESTINATION).with_memory(MemoryType::ReadBack);
+    let error = device
+        .create_buffer(&read_back, Some(&bytes(&[1.0, 2.0, 3.0, 4.0])))
+        .expect_err("read-back memory takes no initial data");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    assert_eq!(error.operation(), Operation::CreateBuffer);
+    device
+        .create_buffer(&read_back, None)
+        .expect("slang-rhi creates a buffer in read-back memory");
+    let upload = BufferDesc::new(16, BufferUsage::SHADER_RESOURCE | BufferUsage::COPY_SOURCE)
+        .with_memory(MemoryType::Upload);
+    let buffer = device
+        .create_buffer(&upload, Some(&bytes(&[1.0, 2.0, 3.0, 4.0])))
+        .expect("slang-rhi creates a buffer in upload memory");
+    assert_eq!(read(&device, &buffer), [1.0, 2.0, 3.0, 4.0]);
     assert_eq!(messages.errors(), []);
 }
 
@@ -622,13 +641,32 @@ fn a_dispatch_past_the_limit_of_the_device_is_refused_and_one_of_zero_runs_nothi
 }
 
 #[test]
-fn the_fields_of_a_constant_buffer_or_a_parameter_block_cannot_be_set_as_uniform_data() {
-    const BLOCKS: &str = r#"
+fn the_fields_of_a_constant_buffer_cannot_be_set_as_uniform_data() {
+    const CONSTANTS: &str = r#"
 struct Params
 {
     float4 value;
 };
 ConstantBuffer<Params> constants;
+RWStructuredBuffer<float> values;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main(uint3 thread : SV_DispatchThreadID)
+{
+    values[0] = constants.value.x;
+}
+"#;
+    assert_uniform_data_of_a_block_is_refused("constants", CONSTANTS, "constants");
+}
+
+#[test]
+fn the_fields_of_a_parameter_block_cannot_be_set_as_uniform_data() {
+    const BLOCK: &str = r#"
+struct Params
+{
+    float4 value;
+};
 ParameterBlock<Params> block;
 uniform float scale;
 RWStructuredBuffer<float> values;
@@ -637,34 +675,10 @@ RWStructuredBuffer<float> values;
 [numthreads(1, 1, 1)]
 void main(uint3 thread : SV_DispatchThreadID)
 {
-    values[0] = constants.value.x + block.value.x + scale;
+    values[0] = block.value.x + scale;
 }
 "#;
-    let (options, messages) = options(Toggle::Off);
-    let device = open(&options);
-    let pipeline = pipeline(&device, "blocks", BLOCKS);
-    let queue = device.queue().expect("the device has a queue");
-    let mut encoder = queue.encoder().expect("slang-rhi creates an encoder");
-    let results = encoder
-        .compute_pass(|pass| {
-            let mut root = pass.bind_pipeline(&pipeline)?;
-            let mut results = Vec::new();
-            for name in ["constants", "block"] {
-                let offset = root.offset_of(name)?.expect("the kernel declares it");
-                results.push((
-                    offset.uniform_size(),
-                    root.set_data(offset, &[0; 4]).map_err(|error| error.kind()),
-                ));
-            }
-            let scale = root.offset_of("scale")?.expect("scale");
-            assert_eq!(scale.uniform_size(), 4);
-            root.set_data(scale, &1.0_f32.to_le_bytes())?;
-            Ok(results)
-        })
-        .expect("the pass records");
-    assert_eq!(results, [(0, Err(ErrorKind::InvalidArgument)); 2]);
-    drop(encoder);
-    assert_eq!(messages.errors(), []);
+    assert_uniform_data_of_a_block_is_refused("block", BLOCK, "block");
 }
 
 #[test]

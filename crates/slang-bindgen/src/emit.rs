@@ -56,18 +56,16 @@ pub(crate) fn emit(selection: &Selection, rules: &RuleSet, target: &str) -> Resu
         rules.library
     );
     bindings.push_str(&emitter.out);
-    let probe = rules.abi_probe.then_some(!selection.microsoft_abi);
     let mut symbols = symbols(rules.own_crate, &emitter.functions);
-    if probe == Some(true) {
+    let abi_probe = if rules.abi_probe {
         symbols.push_str(&slot_list(rules.own_crate, &emitter.slots));
-    }
-    let abi_probe = match probe {
-        Some(slots) => Some(crate::probe::probe(
+        Some(crate::probe::probe(
             selection,
             rules,
-            slots.then_some(emitter.slots.as_slice()),
-        )?),
-        None => None,
+            Some(emitter.slots.as_slice()),
+        )?)
+    } else {
+        None
     };
     let opaque = emitter.opaque_names;
     let included = emitter

@@ -35,7 +35,7 @@ This document covers the crate and its dependencies, the ownership model, the pu
 This document does not cover, in M9:
 
 - Rendering, textures, samplers, fences, mapped buffers, copy commands, and every other part of the API of slang-rhi that the compute path does not need, which M10 adds as `slango` needs them (Section 11).
-- Backends other than Vulkan, which follow the platforms of Section 7 of `docs/design/slang-rhi-sys.md`.
+- Backends other than Vulkan on Linux and D3D12 on Windows, which follow the platforms of Section 7 of `docs/design/slang-rhi-sys.md`.
 - A version of the API whose types are `Send` or `Sync`, which slang-rhi's missing threading rules forbid (Section 7).
 - The raw bindings and the native build, which `docs/design/slang-rhi-sys.md` specifies.
 
@@ -104,6 +104,17 @@ The facts that the checks of the buffers and of the dispatch rely on are these:
 - With the linking style `SingleProgram` and no separate entry points, `ShaderProgram::_isSpecializable` checks the specialization parameter count of the global scope (`src/shader.h:132-146`). For a specializable program, `createComputePipeline` creates a virtual pipeline whose code slang-rhi generates at the first dispatch (`src/device.cpp:758-764`, `src/pipeline-resolver.cpp:96-106`).
 - The Vulkan backend of `createComputePipeline` asserts that the program has an entry point, and the failed assertion aborts the process (`src/vulkan/vk-pipeline.cpp:836`, Section 3.3 of the sys design).
 
+The D3D12 backend differs from the Vulkan backend on the compute path in these facts, which a reading of the D3D12 backend established:
+
+- On the heaps of the memory types `Upload` and `ReadBack`, `createBuffer` clears the resource flags, which drops `ALLOW_UNORDERED_ACCESS` (`src/d3d12/d3d12-device.cpp:1311-1324`). A buffer with `UnorderedAccess` in such memory is then created, and a later unordered access view of it is not valid use of D3D12.
+- `createBuffer` asserts that a `ReadBack` buffer gets no initial data, and the assertion is compiled into every build type and aborts the process (`src/d3d12/d3d12-device.cpp:1314`).
+- On D3D12, slang-rhi creates a `ReadBack` buffer only with the state of a copy destination, so a `ReadBack` buffer with `CopySource` fails at creation, and `readBuffer` cannot read any `ReadBack` buffer that the crate can create. The call fails with an error.
+- `readBuffer` copies a buffer in another memory type into a staging buffer in `ReadBack` memory and needs no usage flag of the buffer (`src/d3d12/d3d12-device.cpp:1739-1765`). It records no transition of the source buffer into the copy source state. Whether that breaks valid use of D3D12, or the implicit promotion of a buffer from the common state covers it, is not verified.
+- slang-rhi never transitions a buffer in `Upload` or `ReadBack` memory (`src/core/state-tracking.h:41-46`).
+- A buffer parameter without a bound buffer gets a null descriptor, which reads zeros and drops writes (`src/d3d12/d3d12-shader-object.cpp:456-459`).
+- `DeviceInfo::limits.maxComputeDispatchThreadGroups` is 65535 along each axis, the limit of D3D12 (`src/d3d12/d3d12-device.cpp:812-814`).
+- On a device of shader model 6 or later, which WARP is, the device compiles every program to DXIL through Slang, which loads `dxcompiler.dll` (Section 7.3 of the sys design). The crate forces no target, and the device's session holds the DXIL target that slang-rhi chose.
+
 The raw types of the compute path in `slang-rhi-sys` have these shapes (RSYS-10 of the sys design), and a `gpu` test of that crate runs the whole compute path through them (Section 9 of the sys design):
 
 - `DeviceDesc`, `BufferDesc`, `SubmitDesc`, and the other descriptors of the compute path implement `Default` with the C++ defaults, so the crate writes `..T::default()` for every field that it does not set. The default `cudaStream` of `SubmitDesc` is `kInvalidCUDAStream`.
@@ -121,6 +132,9 @@ The crate does not guard against these defects, as Hard Rule 14 of `AGENTS.md` r
 | Identifier | Defect and smallest input | Call | Outcome | Source | Report |
 | --- | --- | --- | --- | --- | --- |
 | RKB-1 | The range check of `readBuffer` adds `offset` and `size` with no guard against overflow, so a sum that wraps lets a range past the end of the buffer pass. By a reading, the smallest input is a buffer of any size read with `offset` set to `SIZE_MAX` and `size` set to 1, whose sum wraps to 0 | `IDevice::readBuffer` | Not observed, because the defect was read in the source and not reproduced. By the reading, the check passes and the backend reads from `offset` bytes past the start of the buffer, as the CPU backend does with `memcpy` (`src/cpu/cpu-buffer.cpp:61`) | `if (offset + size > bufferImpl->m_desc.size)` in the Vulkan backend (`src/vulkan/vk-device.cpp:1872`), where `Offset` and `Size` are `size_t` (`include/slang-rhi.h:57-58`) and `m_desc` is a `BufferDesc` (`src/rhi-shared.h:95`) whose `size` is `uint64_t` (`include/slang-rhi.h:745`). The CPU, WebGPU, CUDA, Metal, D3D12, and D3D11 backends have the same check (`src/cpu/cpu-buffer.cpp:57`, `src/wgpu/wgpu-device.cpp:470`, `src/cuda/cuda-device.cpp:534`, `src/metal/metal-device.cpp:377`, `src/d3d12/d3d12-device.cpp:1730`, `src/d3d11/d3d11-device.cpp:567`), and so does the debug layer (`src/debug-layer/debug-device.cpp:1221`) | Not reported |
+| RKB-2 | A compute pipeline of a kernel with a constant buffer and a global uniform fails on D3D12. The smallest input is a module with `struct Params { float4 value; };`, `ConstantBuffer<Params> constants;`, `uniform float scale;`, and `RWStructuredBuffer<float> values;`, and a compute entry point with `[numthreads(1, 1, 1)]` whose body is `values[0] = constants.value.x + scale;`. The same kernel with `ParameterBlock<Params>` in place of `ConstantBuffer<Params>`, and the kernel without the global uniform, both work on D3D12, and all three work on Vulkan | `IDevice::createComputePipeline`, through `Device::create_compute_pipeline`, on a D3D12 device on WARP on x86_64 Windows, with the vendored Slang built with DXIL support and `dxcompiler.dll` 10.0.26100.0 | `SLANG_FAIL` (-2147467259), with no diagnostics and no message of the debug callback, while the debug device of slang-rhi was off. Observed in CI run 44282421547. The failing `HRESULT` and the message of the D3D12 debug layer are not captured. Whether the root signature of slang-rhi or the DXIL layout of Slang is at fault is not established. slang-rhi chooses the DXIL target and its options, because the crate accepts only a program of the device's own session (RHI-7) | `DeviceImpl::createComputePipeline2` turns any failing `HRESULT` of `CreateComputePipelineState` into `SLANG_FAIL` with no report (`src/d3d12/d3d12-pipeline.cpp:489`, `:535-536`) | Not reported |
+| RKB-3 | An exhausted GPU descriptor heap on D3D12 gives out descriptor handles built from null. By a reading, the smallest input is about 7,800 finished command buffers that each recorded one dispatch and that the program keeps, or a very large number of dispatches in one pass. The heap holds 1,000,000 descriptors (`src/d3d12/d3d12-device.cpp:696-699`), and the arena of each command buffer takes chunks of 128 (`src/d3d12/d3d12-command.cpp:2272`) | Every call that binds a shader object on D3D12, such as `IComputePassEncoder::dispatchCompute` | Not observed, because the defect was read in the source and not reproduced, which needs Windows. By the reading, `GPUDescriptorHeap::allocate` returns an empty range when the heap is full, `GPUDescriptorArena::allocate` does not check it and hands out handles made of a null base and an offset, the shader object writes descriptors through them, and the reset of the arena then fails the assertion of `GPUDescriptorHeap::free`, which aborts the process | `src/d3d12/d3d12-descriptor-heap.cpp:193-209` for the allocation, `:250-262` for the arena, and `:211-219` for the assertion, and `src/d3d12/d3d12-shader-object.cpp:189` for the write | Not reported |
+| RKB-4 | `readBuffer` on D3D12 ignores `offset` for a buffer in `ReadBack` memory. By a reading, the smallest input is a `ReadBack` buffer of 8 bytes read with `offset` 4 and `size` 4, which returns its first 4 bytes | `IDevice::readBuffer` on D3D12 | Not observed, because the defect was read in the source and not reproduced. `slang-rhi` cannot reach it, because a `ReadBack` buffer has no use through the crate (Section 6.6) | For a `ReadBack` buffer, the backend maps the buffer itself and copies from its start, with the range `{0, size}` (`src/d3d12/d3d12-device.cpp:1767-1780`), while the copy for other memory types starts at `offset` (`:1761`) | Not reported |
 
 ## 4. Crate Structure
 
@@ -132,7 +146,7 @@ RHI-1. The crate MUST depend on `slang-rhi-sys`, on `slang-compiler-sys`, on `sl
 
 The crate calls the reflection functions of `slang-compiler-sys` for the lookup of Section 6.7, so it depends on that crate directly. `bitflags` represents the usage flags of a buffer, which a caller combines, as TYPE-8 of the coding standard requires. It is in `[workspace.dependencies]` under DEP-2.
 
-The manifest declares `slang-rhi-sys` and `bitflags` for every target, and `slang-compiler` and `slang-compiler-sys` for Linux with the GNU C library only, as `slang-rhi-sys` declares its own dependencies (Section 7.1 of the sys design). On another target, the build script of `slang-rhi-sys` stops the build at once, before anything is cloned, so the crate root carries no `cfg` of its own.
+The manifest declares `slang-rhi-sys` and `bitflags` for every target, and `slang-compiler` and `slang-compiler-sys` for Linux with the GNU C library and x86_64 Windows with the Microsoft toolchain only, with the condition of the target table of `slang-rhi-sys` (RSYS-1 of the sys design). On another target, the build script of `slang-rhi-sys` stops the build at once, before anything is cloned, so the crate root carries no `cfg` of its own.
 
 The crate takes the licence `MIT OR Apache-2.0` of the workspace (ARCH-36 of the architecture design), sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`), and stays out of `default-members` and of every recipe that passes `--workspace`, because building it builds Slang and slang-rhi from source (TOOL-32).
 
@@ -288,13 +302,17 @@ slang-rhi aborts the process on a compute pipeline of a program without an entry
 
 `BufferUsage` is a set of flags of `bitflags` with eight flags: `VERTEX_BUFFER`, `INDEX_BUFFER`, `CONSTANT_BUFFER`, `SHADER_RESOURCE`, `UNORDERED_ACCESS`, `INDIRECT_ARGUMENT`, `COPY_SOURCE`, and `COPY_DESTINATION`. Each maps to a buffer usage bit of core Vulkan 1.0, which is valid on every device. The flags `ACCELERATION_STRUCTURE`, `ACCELERATION_STRUCTURE_BUILD_INPUT`, `SHADER_TABLE`, and `SHARED` of `rhi::BufferUsage` are left out, because each needs an extension or external memory that a plain compute device need not enable (Section 3).
 
-RHI-8. `Device::create_buffer(&self, desc: &BufferDesc, initial: Option<&[u8]>) -> Result<Buffer>` MUST fail with the kind `InvalidArgument` when the size of the descriptor is 0, when its usage is empty or holds a bit outside `BufferUsage::all()`, or when `initial` is given and its length differs from the size of the descriptor. `Device::read_buffer(&self, buffer: &Buffer, offset: u64, out: &mut [u8]) -> Result<()>` MUST fail with `InvalidArgument` when the buffer belongs to another device, when its usage lacks `COPY_SOURCE`, or when `offset` plus the length of `out` exceeds the size of the buffer, with checked arithmetic, before it calls `readBuffer`.
+RHI-8. `Device::create_buffer(&self, desc: &BufferDesc, initial: Option<&[u8]>) -> Result<Buffer>` MUST fail with the kind `InvalidArgument` when the size of the descriptor is 0, when its usage is empty or holds a bit outside `BufferUsage::all()`, when its memory type is `Upload` or `ReadBack` and its usage holds `UNORDERED_ACCESS`, or when `initial` is given and either its length differs from the size of the descriptor or the memory type is `ReadBack`. `Device::read_buffer(&self, buffer: &Buffer, offset: u64, out: &mut [u8]) -> Result<()>` MUST fail with `InvalidArgument` when the buffer belongs to another device, when its usage lacks `COPY_SOURCE`, or when `offset` plus the length of `out` exceeds the size of the buffer, with checked arithmetic, before it calls `readBuffer`.
 
 `createBuffer` receives no length for the initial data (`include/slang-rhi.h:3456-3460`), and the Vulkan backend copies the size of the descriptor from it (`src/vulkan/vk-buffer.cpp:390-396`, `:443-447`, `:457`), so a short slice is a read out of bounds in native code. Without the check, creating a buffer of size 0 crashes the process, and a buffer without a usage breaks valid use of Vulkan.
 
 `readBuffer` copies with `vkCmdCopyBuffer` (Section 3), which needs `COPY_SOURCE`, and writes the requested range into the caller's pointer (`include/slang-rhi.h:3704`). The range check of slang-rhi can wrap (RKB-1 in Section 3.1), and the crate checks the range itself in any case, as a safe interface does.
 
-Initial data needs no `COPY_DESTINATION`, because slang-rhi adds the transfer bit itself, and the memory type adds no condition that the crate checks (Section 3).
+Initial data needs no `COPY_DESTINATION`, because slang-rhi adds the transfer bit itself (Section 3).
+
+D3D12 allows no unordered access to `Upload` and `ReadBack` memory, and slang-rhi aborts the process on initial data for a `ReadBack` buffer on D3D12 (Section 3). The crate refuses both on every backend, so that a program behaves the same on Vulkan and on D3D12.
+
+A `ReadBack` buffer therefore has no use through the crate: a shader cannot write it, it takes no initial data, the crate has no command that copies into it and does not map it, and on D3D12 `read_buffer` cannot read it, because slang-rhi creates it there without `CopySource` (Section 3). Its API documentation states this. Whether the checks should depend on the backend, or the crate should gain a copy command that gives such a buffer a use, is RHQ-10.
 
 `create_buffer` does not check the size against the largest buffer that the device allows. Whether it does is RHQ-8.
 
@@ -312,7 +330,7 @@ slang-rhi recycles the native command buffer once the queue has run it (Section 
 
 `ComputePass` offers `bind_pipeline(&mut self, pipeline: &ComputePipeline) -> Result<ShaderObject<'_>>` and `dispatch(&mut self, thread_groups: [u32; 3]) -> Result<()>`. `bind_pipeline` fails with the kind `InvalidArgument` when the pipeline belongs to another device, and with `Failed` when slang-rhi returns null. It marks the pass as unbound before the native call and as bound only after a root object is returned, so after a failed bind the pass refuses to dispatch until a bind succeeds.
 
-`dispatch` fails with `InvalidArgument` when no pipeline is bound in the pass, and when a count is larger than the limit of the device along its axis, which `Device::new` read. A count of 0 runs nothing and is valid.
+`dispatch` fails with `InvalidArgument` when no pipeline is bound in the pass, and when a count is larger than the limit of the device along its axis, which `Device::new` read and which is 65535 on D3D12 (Section 3). A count of 0 runs nothing and is valid.
 
 `ShaderObject<'p>` offers `offset_of(&self, name: &str) -> Result<Option<ShaderOffset>>`, `set_data(&mut self, offset: ShaderOffset, data: &[u8]) -> Result<()>`, `set_buffer(&mut self, offset: ShaderOffset, buffer: &Buffer) -> Result<()>`, and `entry_point(&mut self, index: usize) -> Result<ShaderObject<'_>>`.
 
@@ -332,7 +350,7 @@ A `ConstantBuffer` or `ParameterBlock` parameter has a uniform size of 0 at the 
 
 `set_buffer` builds a `Binding` of `slang-rhi-sys` with the type of a buffer, the buffer's interface pointer in `resource`, a null `resource2`, and the range of the whole buffer, which is the offset 0 and the size `u64::MAX` (Section 3), and passes it by pointer while the `Buffer` that it borrows keeps its own reference (Section 6.4 of the sys design).
 
-A buffer parameter that the kernel uses and that has no buffer bound reads a null descriptor, which works only on a device whose Vulkan driver offers the feature `nullDescriptor`. The documentation of `set_buffer` and `dispatch` states this limit, and the crate does not check it. Whether it should is RHQ-7.
+A buffer parameter that the kernel uses and that has no buffer bound reads a null descriptor. On D3D12, slang-rhi binds a null descriptor, which reads zeros and drops writes (Section 3). On Vulkan, it works only on a device whose driver offers the feature `nullDescriptor`. The documentation of `set_buffer` and `dispatch` states this limit, and the crate does not check it. Whether it should is RHQ-7.
 
 ### 6.8. Errors
 
@@ -408,7 +426,7 @@ RHI-20. Before each call into slang-rhi, the crate MUST check every condition of
 
 slang-rhi checks nothing unless its debug device is on (Section 3), and the debug device checks slang-rhi's own rules, not every condition of valid use. A call that breaks valid use has undefined behaviour by the specification of the graphics API, so a safe call must not reach the driver with one. These checks keep the safe interface within valid use, as the bounds checks of RHI-11 do, and they are not guards against defects of slang-rhi under Hard Rule 14 of `AGENTS.md`.
 
-The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7, and the ownership of `submit` (RHI-21). Conditions that the crate does not check yet are RHQ-7 and RHQ-8.
+The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of unordered access to `Upload` and `ReadBack` memory and of initial data for `ReadBack` memory of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7, and the ownership of `submit` (RHI-21). Conditions that the crate does not check yet are RHQ-7 and RHQ-8.
 
 ### 9.2. Invariants
 
@@ -432,7 +450,7 @@ These are the invariants on which the unsafe code of the crate relies, each with
 
 ### 10.1. Layout and Tiers
 
-The crate has unit tests in its modules and one integration-test binary, `tests/rhi/`, whose module `gpu` holds the tests that need an adapter (ARCH-22 of the architecture design). The recipe `test-rhi` runs them with the nextest profile `gpu`, which the CI job `vendored` runs on Linux on lavapipe, and `check-miri-rhi` runs the unit tests under Miri (TOOL-52 and Section 7.4 of `docs/design/tooling.md`). The crate has no `ffi` tier of its own, because every call of the crate into slang-rhi needs a device, which needs an adapter.
+The crate has unit tests in its modules and one integration-test binary, `tests/rhi/`, whose module `gpu` holds the tests that need an adapter (ARCH-22 of the architecture design). The recipe `test-rhi` runs them with the nextest profile `gpu`, which the CI job `vendored` runs on Linux on lavapipe and on Windows on a D3D12 device on WARP, and `check-miri-rhi` runs the unit tests under Miri (TOOL-52 and Section 7.4 of `docs/design/tooling.md`). The crate has no `ffi` tier of its own, because every call of the crate into slang-rhi needs a device, which needs an adapter.
 
 ### 10.2. The Fake for Miri
 
@@ -442,10 +460,10 @@ TEST-7 of the coding standard asks for a fake of the interfaces, and the fake of
 
 ### 10.3. GPU Tests
 
-The `gpu` tests run on any adapter, which is lavapipe in CI and the development container's NVIDIA RTX 4070 or lavapipe locally. Each test fails, and never skips, when it finds no Vulkan adapter (ARCH-23). They cover:
+The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 19 tests, and they cover:
 
-- `adapters(DeviceType::Vulkan)` returns at least one adapter, and a device opens on each. An adapter of another device type than the options is refused.
-- The compute path of Section 6.2 doubles a buffer with optimized SPIR-V and no message of the debug callback.
+- `adapters` for the device type of the platform returns at least one adapter, and a device opens on each. An adapter of another device type than the options is refused.
+- The compute path of Section 6.2 doubles a buffer with optimized code and no message of the debug callback.
 - Uniform parameters at distinct offsets, buffers in distinct ranges, and a uniform parameter of an entry point, set through `entry_point(0)`, land where `offset_of` finds them. A name of an entry point is not found at the root.
 - A shader program from a program of another session, offsets past the uniform data, past the binding ranges, or of another object, and initial data of the wrong length fail with `InvalidArgument`.
 - A kernel that does not generate code for the device fails with `Compile` and holds the diagnostics, also on a device without a debug callback, which keeps working afterwards.
@@ -454,18 +472,20 @@ The `gpu` tests run on any adapter, which is lavapipe in CI and the development 
 - A panic in a compute pass ends the pass, and the encoder still finishes.
 - The objects of a device keep it alive after every `Device` handle is dropped.
 - A submitted dispatch runs exactly once.
-- Buffer descriptions of size 0, without a usage, or with an unknown usage are refused, each use of a buffer needs its usage flag, and buffers in the memory types `Upload` and `ReadBack` with initial data read back correctly.
+- Buffer descriptions of size 0, without a usage, or with an unknown usage are refused, each use of a buffer needs its usage flag, `UNORDERED_ACCESS` in `Upload` or `ReadBack` memory and initial data for `ReadBack` memory are refused, and a buffer in `Upload` memory with `SHADER_RESOURCE` and `COPY_SOURCE` and initial data reads back correctly.
 - A typed buffer parameter is refused, and the buffer stays unchanged.
 - A dispatch past the limit of the device is refused, and a dispatch of 0 groups runs nothing.
-- The fields of a `ConstantBuffer` or a `ParameterBlock` cannot be set as uniform data.
+- The fields of a `ConstantBuffer` cannot be set as uniform data, in a kernel without a global uniform, which avoids RKB-2 on D3D12.
+- The fields of a `ParameterBlock` cannot be set as uniform data.
 
 The tests compile their kernels with the global session of `slang-compiler`, so they also show that the loader of `slang-glslang-sys` serves a device of slang-rhi.
 
 ### 10.4. What the Tests Do Not Cover
 
-The tests run under the debug device of slang-rhi only, and none runs under the validation layer of Vulkan, which the crate does not turn on (RHQ-6). These are not verified:
+The tests run under the debug device of slang-rhi only, and none runs under the validation layer of Vulkan or the debug layer of D3D12, which the crate does not turn on (RHQ-6). These are not verified:
 
-- Valid use on the NVIDIA adapter under the Khronos validation layer.
+- Valid use on the NVIDIA adapter under the Khronos validation layer, and valid use on D3D12 under its debug layer.
+- A hardware D3D12 adapter, ARM64 Windows, and a program on Windows without `dxcompiler.dll` (Section 7.3 of the sys design).
 - A device whose Vulkan driver lacks `nullDescriptor` (RHQ-7).
 - What slang-rhi and a driver do with a buffer larger than the device allows (RHQ-8).
 - The path of a failed rebind, after which slang-rhi returns no root object, which was read in the source and not run.
@@ -487,7 +507,7 @@ A user who needs one of them in M9 reaches it through `slang-rhi-sys` under its 
 
 ## 12. Crate Documentation
 
-RHI-17. The crate-level documentation MUST state the compute path with a runnable example of the `gpu` tier marked `no_run`, that the crate always builds Slang and slang-rhi from source and what that build needs, the platforms of Section 7 of the sys design, that no type that holds a native object is `Send` or `Sync` and why, that the debug callback object of a device is never freed, that a panic in the debug callback or a C++ exception that escapes slang-rhi aborts the process, and a `# Features` section that says that the crate has no Cargo features. The methods of the compute path point to that example instead of repeating it.
+RHI-17. The crate-level documentation MUST state the compute path with a runnable example of the `gpu` tier marked `no_run`, that the crate always builds Slang and slang-rhi from source and what that build needs, the platforms of Section 7 of the sys design with the need of a program on Windows for `dxcompiler.dll`, that no type that holds a native object is `Send` or `Sync` and why, that the debug callback object of a device is never freed, that a panic in the debug callback or a C++ exception that escapes slang-rhi aborts the process, and a `# Features` section that says that the crate has no Cargo features. The methods of the compute path point to that example instead of repeating it.
 
 ## 13. Security Considerations
 
@@ -532,19 +552,21 @@ The crate reads no environment variable. Its dependencies read those of Section 
 
 ### 14.3. Platforms and Minimum Supported Rust Version
 
-The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C library until the code step for Windows of M9 (Section 7.3 of the sys design), and is tested on x86_64 Linux on lavapipe and on an NVIDIA adapter. It uses the workspace's `rust-version`.
+The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C library with the Vulkan backend and x86_64 Windows with the Microsoft toolchain with the D3D12 backend (RSYS-13 of the sys design). It is tested on x86_64 Linux on lavapipe and on an NVIDIA adapter, and on x86_64 Windows on WARP. A program on Windows that creates a pipeline needs `dxcompiler.dll` on its `PATH` or beside its executable, which the Windows SDK ships and which the program provides, by the owner's decision of 2026-11-18 (Section 4.1 of the sys design). The crate documentation states this. It uses the workspace's `rust-version`.
 
 ### 14.4. Failure Modes
 
 | Failure | Reported by | Recovery |
 | --- | --- | --- |
-| No Vulkan loader, driver, or adapter | `ErrorKind::NoDevice` from `Device::new` | Install the Vulkan loader and a driver, such as lavapipe |
+| No Vulkan loader, driver, or adapter on Linux, or no D3D12 adapter on Windows | `ErrorKind::NoDevice` from `Device::new` | Install the Vulkan loader and a driver, such as lavapipe, or use a Windows with D3D12 |
+| No `dxcompiler.dll` on Windows | `ErrorKind::Compile` from `create_compute_pipeline`, by a reading of the source (Section 7.3 of the sys design) | Put the directory of `dxcompiler.dll` of the Windows SDK on `PATH`, or copy the DLL beside the executable |
 | An adapter of another device type, or one that slang-rhi no longer lists | `ErrorKind::InvalidArgument` from `Device::new` | Pass an adapter of `adapters` for the device type of the options |
 | A program of another session | `ErrorKind::InvalidArgument` from `create_shader_program` | Load and link the program through `Device::slang_session` |
 | A program with a specialization parameter left | `ErrorKind::InvalidArgument` from `create_shader_program` | Specialize the program before it is linked |
 | A program without exactly one compute entry point, or a shader program of another device | `ErrorKind::InvalidArgument` from `create_compute_pipeline` | Link one compute entry point on the same device |
 | A shader that does not compile for the device | `ErrorKind::Compile` with the diagnostics | Fix the shader source that the diagnostics name |
 | A buffer of size 0, without a usage, or with an unknown usage | `ErrorKind::InvalidArgument` from `create_buffer` | Give a size and the usage flags of each use |
+| `UNORDERED_ACCESS` in `Upload` or `ReadBack` memory, or initial data for `ReadBack` memory | `ErrorKind::InvalidArgument` from `create_buffer` | Use `DeviceLocal` memory for a buffer that a shader writes, and `Upload` or `DeviceLocal` memory for initial data |
 | A read of a buffer without `COPY_SOURCE` | `ErrorKind::InvalidArgument` from `read_buffer` | Create the buffer with `COPY_SOURCE` |
 | A buffer without the usage that its range needs, a typed buffer range, or a parameter without a binding range | `ErrorKind::InvalidArgument` from `set_buffer` | Add `UNORDERED_ACCESS` or `SHADER_RESOURCE`, declare a structured or raw buffer, or use the offset of a buffer parameter |
 | A parameter without uniform data, or data longer than the parameter | `ErrorKind::InvalidArgument` from `set_data` | Use the offset of a uniform parameter and data of its size |
@@ -575,9 +597,10 @@ Each row is a question that this document leaves open. The owner in the third co
 | RHQ-4 | Should `create_shader_program` and `create_compute_pipeline` return the warnings of Slang on success, as `slang-compiler` does with `Compiled`? | This document | M10 |
 | RHQ-5 | Should the wrappers get the raw accessors `from_raw`, `into_raw`, and `as_raw` that COM-11 of the coding standard asks of every interface wrapper? The crate has none, so a program that combines it with other native code cannot hand over or adopt an object (Section 5.1) | The owner of the project, by a decision | Not assigned |
 | RHQ-6 | Should the crate offer the validation layer of the graphics API through `IRHI::enableDebugLayers`, which affects the whole process and cannot be turned off again? The crate does not call it, so the `gpu` tests run under the debug device of slang-rhi only, and no test has the Khronos layer check valid use (Section 10.4) | The owner of the project, by a decision | Not assigned |
-| RHQ-7 | Should `Device::new` require the Vulkan feature `nullDescriptor`, on which a buffer parameter without a bound buffer relies? The crate documents the limit and does not check it (Section 6.7) | The owner of the project, by a decision | Not assigned |
+| RHQ-7 | Should `Device::new` require the Vulkan feature `nullDescriptor`, on which a buffer parameter without a bound buffer relies? The crate documents the limit and does not check it. D3D12 binds a null descriptor without a feature, so the question concerns Vulkan only (Section 6.7) | The owner of the project, by a decision | Not assigned |
 | RHQ-8 | Should `create_buffer` check the size against the largest buffer that the device allows? The crate does not, and what slang-rhi and a driver do with a larger size, such as `u64::MAX`, is not verified (Section 6.6) | The owner of the project, by a decision | Not assigned |
 | RHQ-9 | Should CI run `check-miri-rhi`? It clones Slang a second time and builds it natively for the build scripts, which took 8 min 33 s on its first run in the development container (TOOL-52 of `docs/design/tooling.md`) | The owner of the project, by a decision | Not assigned |
+| RHQ-10 | Should the memory checks of RHI-8 depend on the backend, or should the crate gain a copy command, so that a buffer in `ReadBack` memory gets a use? The crate refuses unordered access and initial data for that memory on every backend, and on D3D12 `read_buffer` cannot read it, so such a buffer has no use through the crate (Section 6.6) | The owner of the project, by a decision | Not assigned |
 
 ## 17. References
 
@@ -599,7 +622,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | RHI-5 | 6.4 | A device always gets the caller's global session and serial pipeline compilation, and an adapter is checked against the device type and fetched again. |
 | RHI-6 | 6.4 | Every device gets a leaked, non-unwinding callback object that feeds the collector and lends each message to the user's closure for one call. |
 | RHI-7 | 6.5 | A shader program takes only a linked, fully specialized program of the device's session, a compute pipeline only one compute entry point, and both collect diagnostics. |
-| RHI-8 | 6.6 | Buffer size, usage, initial data, and read-back ranges are checked before any native call. |
+| RHI-8 | 6.6 | Buffer size, usage, memory type, initial data, and read-back ranges are checked before any native call. |
 | RHI-9 | 6.7 | A compute pass exists only inside a closure that begins it and ends it on every path, including a panic. |
 | RHI-10 | 6.7 | `offset_of` finds a top-level field by name as `ShaderCursor` does, with its uniform size and range count. |
 | RHI-11 | 6.7 | `set_data` and `set_buffer` check the parameter, offsets, ranges, binding types, buffer usage, and the device before each call. |

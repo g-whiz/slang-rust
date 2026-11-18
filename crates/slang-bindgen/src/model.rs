@@ -40,6 +40,7 @@ pub(crate) struct Interface {
     pub(crate) uuid: Option<Guid>,
     pub(crate) methods: Vec<Method>,
     pub(crate) members: Vec<Member>,
+    pub(crate) declarations: Vec<String>,
     pub(crate) has_fields: bool,
     pub(crate) has_virtual_destructor: bool,
 }

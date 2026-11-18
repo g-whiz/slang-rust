@@ -1087,6 +1087,25 @@ fn no_variables() -> &'static str {
     "CC=\nCXX=\nCFLAGS=\nCXXFLAGS=\nLDFLAGS=\nCMAKE_TOOLCHAIN_FILE=\nMACOSX_DEPLOYMENT_TARGET=\nVCToolsVersion=\n"
 }
 
+fn target_configure(msvc_runtime: Option<&str>) -> Vec<String> {
+    let Some(runtime) = msvc_runtime else {
+        return linux_configure();
+    };
+    let mut configure: Vec<String> = linux_configure()
+        .into_iter()
+        .map(|arg| {
+            if arg == "-DSLANG_ENABLE_DXIL=OFF" {
+                "-DSLANG_ENABLE_DXIL=ON".to_owned()
+            } else {
+                arg
+            }
+        })
+        .collect();
+    configure.push(format!("-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}"));
+    configure.push("-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF".to_owned());
+    configure
+}
+
 fn linux_configure() -> Vec<String> {
     let mut args = vec![
         format!("-DSLANG_VERSION_FULL={BUILD_TAG}"),
@@ -1803,11 +1822,7 @@ fn vendored_route_links_the_archives_cxx_and_system_libraries_of_each_kind_of_ta
         );
         let (directives, result) = run(&host);
         assert_eq!(result, Ok(()), "{triple}");
-        let mut configure = linux_configure();
-        if let Some(runtime) = runtime {
-            configure.push(format!("-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}"));
-            configure.push("-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF".to_owned());
-        }
+        let configure = target_configure(runtime);
         let msvc_path = msvc_compiler().path.display().to_string();
         let compiler = if runtime.is_some() {
             msvc_path.as_str()

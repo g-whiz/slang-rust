@@ -40,6 +40,9 @@ Each identifier is a row of the list that Section 2 names for the entry's upstre
 | KB-6 | Slang, `shader-slang/slang` | `spReflectionType_GetElementCount` returns 0 instead of `SLANG_UNBOUNDED_SIZE` for an array without a length | Draft not written |
 | KB-7 | Slang, `shader-slang/slang` | `spReflection_getGlobalConstantBufferBinding` returns 0 on SPIR-V when the global constant buffer is at another binding | Draft written in Section 4, not posted |
 | RKB-1 | slang-rhi, `shader-slang/slang-rhi` | The range check of `readBuffer` can overflow, so a range past the end of a buffer passes it | Draft not written. The defect was read in the source and is not reproduced yet |
+| RKB-2 | slang-rhi, `shader-slang/slang-rhi` | `createComputePipeline` fails on D3D12 with `SLANG_FAIL` and no diagnostics for a kernel with a `ConstantBuffer` and a global uniform | Draft not written. Before a draft, the failing `HRESULT` of `CreateComputePipelineState` and the message of the D3D12 debug layer have to be captured on Windows, because the row records neither |
+| RKB-3 | slang-rhi, `shader-slang/slang-rhi` | An exhausted GPU descriptor heap on D3D12 gives out null descriptor handles and then aborts the process in an assertion | Draft not written. The defect was read in the source and is not reproduced yet |
+| RKB-4 | slang-rhi, `shader-slang/slang-rhi` | `readBuffer` on D3D12 ignores `offset` for a buffer in `ReadBack` memory | Owner to decide. The defect was read in the source and is not reproduced, and `slang-rhi` cannot reach it, so the owner decides whether it is worth an issue |
 | REQ-1 | Slang, `shader-slang/slang` | Update the submodule `external/metal-cpp` to the metal-cpp for macOS 15.2 that slang-rhi pins, so that slang-rhi builds its Metal backend from the Slang tree | Draft not written. Its record is Section 7.4 of `docs/design/slang-rhi-sys.md` |
 
 The status of an entry is one of these values:

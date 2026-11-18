@@ -475,14 +475,77 @@ fn generate_slang_rhi_refuses_overloads_without_a_rule() {
     );
 }
 
+const ADJACENT_OVERLOAD_HEADER: &str = r"
+namespace rhi
+{
+struct IReader : public IRoot
+{
+    TEST_UUID
+    virtual void other() = 0;
+    virtual SlangResult read(int32_t index, void* out) = 0;
+    virtual SlangResult read(int32_t index, IRoot** out) = 0;
+};
+}
+";
+
 #[test]
-fn generate_slang_rhi_refuses_every_overload_for_a_target_of_the_microsoft_abi() {
+fn generate_slang_rhi_reverses_a_run_of_overloads_for_a_target_of_the_microsoft_abi() {
+    const RULES: RuleSet = rhi_rules(Extra {
+        overloads: OVERLOADS,
+        ..NO_EXTRA
+    });
+    let generated = run(
+        "overloads_msvc",
+        ADJACENT_OVERLOAD_HEADER,
+        &RULES,
+        "x86_64-pc-windows-msvc",
+    )
+    .unwrap_or_else(|error| panic!("generation failed: {error}"));
+    assert_contains(
+        &generated.bindings,
+        "pub struct IReaderVtbl {
+    pub base: ::slang_compiler_sys::IRootVtbl,
+    pub other: unsafe extern \"system-unwind\" fn(this: *mut IReader),
+    pub read_root: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut *mut ::slang_compiler_sys::IRoot) -> ::slang_compiler_sys::SlangResult,
+    pub read: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut ::core::ffi::c_void) -> ::slang_compiler_sys::SlangResult,
+}",
+    );
+    let probe = generated.abi_probe.unwrap_or_default();
+    assert_contains(
+        &probe,
+        "slang_rhi_sys_slot(static_cast<void (rhi::IReader::*)()>(&rhi::IReader::other)),
+        slang_rhi_sys_slot(static_cast<int (rhi::IReader::*)(int, IRoot **)>(&rhi::IReader::read)),
+        slang_rhi_sys_slot(static_cast<int (rhi::IReader::*)(int, void *)>(&rhi::IReader::read)),",
+    );
+    assert_contains(&probe, "slang_rhi_sys_vcall_offset");
+    assert_contains(
+        &generated.symbols,
+        "(\"IReader::read_root\", ::core::mem::offset_of!(slang_rhi_sys::IReaderVtbl, read_root)),",
+    );
+}
+
+#[test]
+fn generate_slang_rhi_keeps_declaration_order_of_a_run_of_overloads_on_the_itanium_abi() {
+    const RULES: RuleSet = rhi_rules(Extra {
+        overloads: OVERLOADS,
+        ..NO_EXTRA
+    });
+    let generated = generate("overloads_adjacent", ADJACENT_OVERLOAD_HEADER, &RULES);
+    assert_contains(
+        &generated.bindings,
+        "    pub read: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut ::core::ffi::c_void) -> ::slang_compiler_sys::SlangResult,
+    pub read_root: unsafe extern",
+    );
+}
+
+#[test]
+fn generate_slang_rhi_refuses_scattered_overloads_for_a_target_of_the_microsoft_abi() {
     const RULES: RuleSet = rhi_rules(Extra {
         overloads: OVERLOADS,
         ..NO_EXTRA
     });
     let error = run(
-        "overloads_msvc",
+        "overloads_scattered_msvc",
         OVERLOAD_HEADER,
         &RULES,
         "x86_64-pc-windows-msvc",
@@ -492,15 +555,126 @@ fn generate_slang_rhi_refuses_every_overload_for_a_target_of_the_microsoft_abi()
         &error,
         ErrorKind::Unsupported,
         &[
-            "virtual methods share a name on target x86_64-pc-windows-msvc",
+            "virtual methods share a name but are not declared next to each other on target x86_64-pc-windows-msvc",
             "rhi::IReader::read(int32_t, void *)",
             "rhi::IReader::read(int32_t, IRoot **)",
         ],
     );
 }
 
+const EARLY_HELPER_HEADER: &str = r"
+namespace rhi
+{
+struct IReader : public IRoot
+{
+    TEST_UUID
+    void other(int32_t) {}
+    virtual SlangResult read(int32_t index, void* out) = 0;
+    virtual void other() = 0;
+};
+}
+";
+
+const LATE_HELPER_HEADER: &str = r"
+namespace rhi
+{
+struct IReader : public IRoot
+{
+    TEST_UUID
+    virtual SlangResult read(int32_t index, void* out) = 0;
+    virtual void other() = 0;
+    void other(int32_t) {}
+};
+}
+";
+
+const EARLY_TYPE_HEADER: &str = r"
+namespace rhi
+{
+struct IReader : public IRoot
+{
+    TEST_UUID
+    struct other
+    {
+        int32_t value;
+    };
+    virtual SlangResult read(int32_t index, void* out) = 0;
+    virtual void other() = 0;
+};
+}
+";
+
+const HELPER_RULES: RuleSet = rhi_rules(Extra {
+    members: &[name_rule("rhi::IReader::other")],
+    ..NO_EXTRA
+});
+
 #[test]
-fn generate_slang_rhi_writes_no_slot_function_for_a_target_of_the_microsoft_abi() {
+fn generate_slang_rhi_refuses_a_virtual_method_after_a_member_of_its_name_for_a_target_of_the_microsoft_abi()
+ {
+    let error = run(
+        "early_helper_msvc",
+        EARLY_HELPER_HEADER,
+        &HELPER_RULES,
+        "x86_64-pc-windows-msvc",
+    )
+    .expect_err("generation fails");
+    assert_failure(
+        &error,
+        ErrorKind::Unsupported,
+        &[
+            "virtual methods share a name with a member that the class declares before them on target x86_64-pc-windows-msvc",
+            "rhi::IReader::read(int32_t, void *)",
+            "rhi::IReader::other()",
+        ],
+    );
+    let generated = generate("early_helper_itanium", EARLY_HELPER_HEADER, &HELPER_RULES);
+    assert_contains(
+        &generated.bindings,
+        "    pub read: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut ::core::ffi::c_void) -> ::slang_compiler_sys::SlangResult,
+    pub other: unsafe extern \"system-unwind\" fn(this: *mut IReader),",
+    );
+}
+
+#[test]
+fn generate_slang_rhi_refuses_a_virtual_method_after_a_nested_type_of_its_name_for_a_target_of_the_microsoft_abi()
+ {
+    let error = run(
+        "early_type_msvc",
+        EARLY_TYPE_HEADER,
+        &rhi_rules(NO_EXTRA),
+        "x86_64-pc-windows-msvc",
+    )
+    .expect_err("generation fails");
+    assert_failure(
+        &error,
+        ErrorKind::Unsupported,
+        &[
+            "virtual methods share a name with a member that the class declares before them",
+            "rhi::IReader::other()",
+        ],
+    );
+}
+
+#[test]
+fn generate_slang_rhi_accepts_a_member_after_the_virtual_methods_of_its_name_for_a_target_of_the_microsoft_abi()
+ {
+    let generated = run(
+        "late_helper_msvc",
+        LATE_HELPER_HEADER,
+        &HELPER_RULES,
+        "x86_64-pc-windows-msvc",
+    )
+    .unwrap_or_else(|error| panic!("generation failed: {error}"));
+    assert_contains(
+        &generated.bindings,
+        "    pub read: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut ::core::ffi::c_void) -> ::slang_compiler_sys::SlangResult,
+    pub other: unsafe extern \"system-unwind\" fn(this: *mut IReader),",
+    );
+}
+
+#[test]
+fn generate_slang_rhi_writes_the_slot_function_for_a_target_of_the_microsoft_abi() {
     let generated = run(
         "msvc_probe",
         RHI_INTERFACE,
@@ -513,8 +687,8 @@ fn generate_slang_rhi_writes_no_slot_function_for_a_target_of_the_microsoft_abi(
         &probe,
         "static_assert(sizeof(rhi::Holder) == 24, \"the size of rhi::Holder\");",
     );
-    assert!(!probe.contains("slang_rhi_sys_abi_probe_slots"), "{probe}");
-    assert!(!generated.symbols.contains("VTABLE_SLOTS"));
+    assert_contains(&probe, "slang_rhi_sys_abi_probe_slots");
+    assert_contains(&generated.symbols, "VTABLE_SLOTS");
 }
 
 const MICROSOFT_ABI_SPELLINGS: [&str; 4] = [
@@ -541,18 +715,22 @@ fn generate_slang_rhi_takes_the_microsoft_abi_from_the_target_that_libclang_reso
         assert_failure(
             &error,
             ErrorKind::Unsupported,
-            &[&format!("virtual methods share a name on target {target},")],
+            &[&format!(
+                "virtual methods share a name but are not declared next to each other on target {target},"
+            )],
         );
         let generated = run(
-            &format!("msvc_probe_spelling_{position}"),
-            RHI_INTERFACE,
-            &rhi_rules(NO_EXTRA),
+            &format!("msvc_reversed_spelling_{position}"),
+            ADJACENT_OVERLOAD_HEADER,
+            &RULES,
             target,
         )
         .unwrap_or_else(|error| panic!("generation for {target} failed: {error}"));
-        let probe = generated.abi_probe.unwrap_or_default();
-        assert!(!probe.contains("slang_rhi_sys_abi_probe_slots"), "{target}");
-        assert!(!generated.symbols.contains("VTABLE_SLOTS"), "{target}");
+        assert_contains(
+            &generated.bindings,
+            "    pub read_root: unsafe extern \"system-unwind\" fn(this: *mut IReader, index: i32, out: *mut *mut ::slang_compiler_sys::IRoot) -> ::slang_compiler_sys::SlangResult,
+    pub read: unsafe extern",
+        );
     }
 }
 

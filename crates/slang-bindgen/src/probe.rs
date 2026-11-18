@@ -9,6 +9,70 @@ use crate::rules::RuleSet;
 const SLOT_FUNCTION: &str = "slang_rhi_sys_abi_probe_slots";
 
 const SLOT_HELPER: &str = r#"namespace {
+#if defined(_MSC_VER) && defined(_WIN32)
+std::size_t slang_rhi_sys_vcall_offset(const unsigned char* code)
+{
+    for (int hop = 0; hop < 8 && code[0] == 0xE9; ++hop)
+    {
+        std::int32_t relative;
+        std::memcpy(&relative, code + 1, sizeof relative);
+        code += 5 + static_cast<std::ptrdiff_t>(relative);
+    }
+#if defined(_M_X64) || defined(__x86_64__)
+    if (code[0] != 0x48 || code[1] != 0x8B || code[2] != 0x01)
+        return SIZE_MAX;
+    const unsigned char* next = code + 3;
+    if (next[0] == 0x48 && next[1] == 0xFF)
+        ++next;
+    const unsigned char* modrm;
+    unsigned char reg;
+    if (next[0] == 0xFF)
+    {
+        modrm = next + 1;
+        reg = 4;
+    }
+    else if (next[0] == 0x48 && next[1] == 0x8B)
+    {
+        modrm = next + 2;
+        reg = 0;
+    }
+    else
+        return SIZE_MAX;
+    if ((*modrm & 0x07) != 0 || ((*modrm >> 3) & 0x07) != reg)
+        return SIZE_MAX;
+    switch (*modrm & 0xC0)
+    {
+    case 0x00:
+        return 0;
+    case 0x40:
+    {
+        const std::int8_t small = static_cast<std::int8_t>(modrm[1]);
+        return small < 0 ? SIZE_MAX : static_cast<std::size_t>(small);
+    }
+    case 0x80:
+    {
+        std::int32_t large;
+        std::memcpy(&large, modrm + 1, sizeof large);
+        return large < 0 ? SIZE_MAX : static_cast<std::size_t>(large);
+    }
+    default:
+        return SIZE_MAX;
+    }
+#else
+    (void)code;
+    return SIZE_MAX;
+#endif
+}
+
+template <typename Method>
+std::size_t slang_rhi_sys_slot(Method method)
+{
+    static_assert(sizeof(Method) == sizeof(void*), "a pointer to a member function of a class with single inheritance is one code pointer");
+    const unsigned char* code;
+    std::memcpy(&code, &method, sizeof code);
+    return slang_rhi_sys_vcall_offset(code);
+}
+#else
 template <typename Method>
 std::size_t slang_rhi_sys_slot(Method method)
 {
@@ -30,6 +94,7 @@ std::size_t slang_rhi_sys_slot(Method method)
     return representation.pointer - 1;
 #endif
 }
+#endif
 }
 
 "#;

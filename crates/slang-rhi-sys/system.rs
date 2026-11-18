@@ -109,6 +109,17 @@ impl Host for System {
         std::process::id()
     }
 
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)
+    }
+
+    fn msvc_compiler(&self, target: &str) -> Option<MsvcCompiler> {
+        find_msvc_tools::find_tool(target, "cl.exe").map(|tool| MsvcCompiler {
+            path: tool.path().to_path_buf(),
+            env: tool.env().into_iter().cloned().collect(),
+        })
+    }
+
     fn generate(
         &self,
         rhi_headers: &Path,
@@ -146,5 +157,8 @@ fn generation_failure(error: &slang_bindgen::Error) -> GenerationError {
 fn system_command(invocation: &Invocation) -> Command {
     let mut command = Command::new(&invocation.program);
     command.args(&invocation.args).stdin(Stdio::null());
+    for (name, value) in &invocation.env {
+        command.env(name, value);
+    }
     command
 }

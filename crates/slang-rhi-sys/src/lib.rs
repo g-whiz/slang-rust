@@ -3,7 +3,8 @@
 //!
 //! slang-rhi is the C++ library of the Slang source tree that gives one API
 //! over several graphics and compute APIs. This crate builds it with its
-//! Vulkan backend from the Slang source tree that `slang-src` clones, and
+//! Vulkan backend on Linux and its Direct3D 12 backend on Windows from the
+//! Slang source tree that `slang-src` clones, and
 //! links it into the program, together with the Slang that
 //! `slang-compiler-sys` builds from the same tree with its feature
 //! `vendored`. Slang and slang-rhi therefore always come from one Slang
@@ -36,7 +37,10 @@
 //!
 //! - Virtual methods that share a name get one Rust name each. The first
 //!   declared keeps the C++ name, and the later one gets a suffix, such as
-//!   [`IDevice::readBuffer_blob`] next to [`IDevice::readBuffer`].
+//!   [`IDevice::readBuffer_blob`] next to [`IDevice::readBuffer`]. Their
+//!   fields in the vtable struct follow the vtable of the target: in
+//!   declaration order on Linux, and in reverse declaration order on Windows,
+//!   where the Microsoft C++ ABI places a run of such methods in reverse.
 //! - A virtual method that takes or returns a struct by value keeps its place
 //!   in the vtable struct as a field of type `*const c_void` with the name of
 //!   the method, and has no associated function, because the calling
@@ -76,8 +80,10 @@
 //! project of the crate, which adds slang-rhi from the source tree and builds
 //! three static libraries outside the tree:
 //!
-//! - `slang-rhi`, the library with its Vulkan backend.
-//! - `slang-rhi-vma`, the Vulkan Memory Allocator.
+//! - `slang-rhi`, the library with its Vulkan backend on Linux and its
+//!   Direct3D 12 backend on Windows.
+//! - On Linux, `slang-rhi-vma`, the Vulkan Memory Allocator, and on Windows,
+//!   `slang-rhi-d3d12ma`, the Direct3D 12 Memory Allocator.
 //! - `slang-rhi-resources`, the files that slang-rhi embeds.
 //!
 //! It also builds the library `slang-rhi-sys-abi-probe` from a C++ file that
@@ -88,16 +94,27 @@
 //! disagreement of a struct stops the build. Only the tests link this
 //! library.
 //!
-//! The build links the first three libraries in that order, followed by the
-//! C++ standard library
-//! `stdc++` and the system libraries `dl` and `pthread`. slang-rhi loads the
-//! Vulkan loader `libvulkan.so.1` when it creates a device, so the build
-//! links no graphics library.
+//! The build links the first three libraries in that order. On Linux, it
+//! follows them with the C++ standard library `stdc++` and the system
+//! libraries `dl` and `pthread`. On Windows, the runtime library that the
+//! target feature `crt-static` selects provides the C++ standard library, and
+//! `slang-compiler-sys` links the system libraries. slang-rhi loads the
+//! Vulkan loader `libvulkan.so.1`, or `d3d12.dll` and DXGI on Windows, when
+//! it creates a device, so the build links no graphics library.
 //!
 //! The build reaches no network. It turns off every download that the build
-//! files of slang-rhi make by default, such as that of a prebuilt Slang, and
-//! takes the Vulkan headers from the directory `external/vulkan` of the
-//! source tree. slang-rhi treats every compiler warning of its own sources as
+//! files of slang-rhi make by default, such as that of a prebuilt Slang, of
+//! the DirectX Shader Compiler, of the Agility SDK, and of NVAPI, and takes
+//! the Vulkan headers from the directory `external/vulkan` of the source
+//! tree. On Windows, it gives the build of slang-rhi an empty directory in
+//! place of `WinPixEventRuntime`, the runtime of the markers of the PIX tool,
+//! which slang-rhi loads at run time only when the program provides it, so
+//! the markers are not available. On Windows, the build finds the Microsoft
+//! C++ compiler `cl.exe` as `slang-compiler-sys` does, so it needs no
+//! developer command prompt, and takes the Direct3D 12 headers from the
+//! Windows SDK of that toolchain.
+//!
+//! slang-rhi treats every compiler warning of its own sources as
 //! an error, and the wrapper project turns that off, so that a compiler that
 //! slang-rhi was never tested with does not stop the build. The warnings stay
 //! in the log of the build.
@@ -105,9 +122,11 @@
 //! A build needs everything that a vendored build of `slang-compiler-sys`
 //! needs, including libclang, with which it generates the bindings, which the
 //! [documentation of slang-src](https://g-whiz.github.io/slang-rust/slang_src/#what-a-vendored-build-needs)
-//! lists, and the development headers of Xlib, the C library of the X Window
-//! System, such as those of the Debian package `libx11-dev`. The Vulkan
-//! backend of slang-rhi includes `X11/Xlib.h` on Linux. The first build in a
+//! lists. On Linux, it also needs the development headers of Xlib, the C
+//! library of the X Window System, such as those of the Debian package
+//! `libx11-dev`, because the Vulkan backend of slang-rhi includes
+//! `X11/Xlib.h` there. On Windows, it needs an installation of Visual Studio
+//! or its Build Tools with the C++ tools and a Windows SDK. The first build in a
 //! Cargo target directory clones Slang and builds Slang and slang-rhi from
 //! source, which takes minutes.
 //!
@@ -129,8 +148,11 @@
 //!
 //! When a program of the build cannot start, the build stops with an error
 //! that starts with "cannot start" and says that the build needs `cmake`
-//! 3.22 or later, Ninja, a C++20 compiler, and the development headers of
-//! Xlib. When the configure or build step fails, the error names the command
+//! 3.22 or later, Ninja, and a C++20 compiler with, on Linux, the development
+//! headers of Xlib, or, on Windows, the Microsoft C++ compiler with the
+//! Windows SDK. On Windows, when no `cl.exe` is found, the error starts with
+//! "cannot find the Microsoft C++ compiler cl.exe" and says where the build
+//! script looked. When the configure or build step fails, the error names the command
 //! and the log `build.log` in the output directory of the build script, and
 //! ends with the last 40 lines of that log.
 //!
@@ -147,7 +169,8 @@
 //! # Third-party code in a program
 //!
 //! A program built with this crate contains, besides slang-rhi and Slang,
-//! the Vulkan Memory Allocator, under the MIT licence, and the runtime of
+//! the Vulkan Memory Allocator on Linux or the Direct3D 12 Memory Allocator
+//! on Windows, each under the MIT licence, and the runtime of
 //! the `cmake` module `CMakeRC`, which embeds files in slang-rhi. A program
 //! that ships a binary carries their notices.
 //!
@@ -241,32 +264,48 @@
 //!
 //! # Platform support
 //!
-//! The crate builds only for Linux with the GNU C library, on a host of the
-//! target. On every other target, the crate has no dependencies, and its
-//! build stops at once with an error that names the target, before anything
-//! is cloned or built. The crate builds only the Vulkan backend of slang-rhi
-//! and supports no other target.
+//! The crate builds for Linux with the GNU C library, with the Vulkan backend
+//! of slang-rhi, and for `x86_64` Windows with the Microsoft toolchain, with
+//! its Direct3D 12 backend, on a host of the target. On every other target,
+//! including macOS, the crate has no dependencies, and its build stops at once
+//! with an error that names the target, before anything is cloned or built.
 //!
-//! A cross-compilation from one Linux target with the GNU C library to
-//! another keeps the dependencies, so the build of `slang-src` clones Slang
-//! first, and the build of `slang-compiler-sys` then stops with its own error
-//! that it cannot cross-compile. When it gets that far, the build of this
-//! crate stops with an error that names both triples. The crate is tested on
-//! `x86_64` Linux, and another architecture of Linux with the GNU C library is
-//! untested.
+//! A cross-compilation between two supported targets keeps the dependencies,
+//! so the build of `slang-src` clones Slang first, and the build of
+//! `slang-compiler-sys` then stops with its own error that it cannot
+//! cross-compile. When it gets that far, the build of this crate stops with
+//! an error that names both triples. The crate is tested on `x86_64` Linux
+//! and on `x86_64` Windows with WARP, the software adapter of Direct3D 12, and
+//! another architecture of Linux with the GNU C library is untested.
 //!
-//! A program that creates a device needs the Vulkan loader `libvulkan.so.1`
-//! and a Vulkan driver at run time, such as lavapipe, the software driver of
-//! Mesa.
+//! On Linux, a program that creates a device needs the Vulkan loader
+//! `libvulkan.so.1` and a Vulkan driver at run time, such as lavapipe, the
+//! software driver of Mesa.
+//!
+//! On Windows, slang-rhi compiles every shader for a device of shader model
+//! 6 or later, which WARP is, to DXIL through Slang, which loads
+//! `dxcompiler.dll` of the DirectX Shader Compiler at run time. The build
+//! neither downloads nor bundles it, so a program that creates a pipeline
+//! needs `dxcompiler.dll` on its `PATH` or beside its executable, and
+//! providing it is the responsibility of the program. The Windows SDK ships
+//! it in its `bin` directory. Without it, the creation of a pipeline fails,
+//! and the debug callback receives the messages `failed to load downstream
+//! compiler 'dxc'` and `pass-through compiler not found`.
 
 #![expect(
     unsafe_code,
     reason = "the generated bindings declare foreign functions and call through vtables, which only unsafe code can do"
 )]
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86_64")
+))]
 use slang_compiler_sys as _;
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(any(
+    all(target_os = "linux", target_env = "gnu"),
+    all(target_os = "windows", target_env = "msvc", target_arch = "x86_64")
+))]
 use slang_src as _;
 
 #[expect(

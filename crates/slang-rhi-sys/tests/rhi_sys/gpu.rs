@@ -15,6 +15,16 @@ use slang_rhi_sys::{
     ShaderProgramDesc, SubmitDesc, kInvalidCUDAStream, rhiGetInstance,
 };
 
+#[cfg(windows)]
+const DEVICE_TYPE: DeviceType = DeviceType::D3D12;
+#[cfg(not(windows))]
+const DEVICE_TYPE: DeviceType = DeviceType::Vulkan;
+
+#[cfg(windows)]
+const API: &str = "D3D12";
+#[cfg(not(windows))]
+const API: &str = "Vulkan";
+
 #[repr(C)]
 struct Callback {
     base: IDebugCallback,
@@ -94,7 +104,7 @@ static CALLBACK_VTABLE: IDebugCallbackVtbl = IDebugCallbackVtbl {
     ffi_unwind_calls,
     reason = "the test calls the C function of slang-rhi directly, and an exception that escaped it would unwind into the test, which is defined and fails it"
 )]
-fn a_vulkan_device_reads_back_a_buffer_through_both_overloads_of_read_buffer() {
+fn a_device_reads_back_a_buffer_through_both_overloads_of_read_buffer() {
     let callback = Callback {
         base: IDebugCallback {
             vtable: &raw const CALLBACK_VTABLE,
@@ -108,8 +118,8 @@ fn a_vulkan_device_reads_back_a_buffer_through_both_overloads_of_read_buffer() {
     // SAFETY: `rhi` is the live instance. The adapter that it returns carries
     // no reference and stays valid until `rhiDestroyInstance`, which no test
     // calls.
-    let adapter = unsafe { IRHI::getAdapter(rhi, DeviceType::Vulkan, 0) };
-    assert!(!adapter.is_null(), "slang-rhi finds no Vulkan adapter");
+    let adapter = unsafe { IRHI::getAdapter(rhi, DEVICE_TYPE, 0) };
+    assert!(!adapter.is_null(), "slang-rhi finds no {API} adapter");
     // SAFETY: `adapter` is the live adapter above.
     let info = unsafe { IAdapter::getInfo(adapter) };
     assert!(!info.is_null());
@@ -121,12 +131,12 @@ fn a_vulkan_device_reads_back_a_buffer_through_both_overloads_of_read_buffer() {
     let name = unsafe { CStr::from_ptr(info.name.as_ptr()) };
     let _ignored = writeln!(
         std::io::stderr(),
-        "the test runs on the Vulkan adapter {}",
+        "the test runs on the {API} adapter {}",
         name.to_string_lossy()
     );
 
     let desc = DeviceDesc {
-        deviceType: DeviceType::Vulkan,
+        deviceType: DEVICE_TYPE,
         adapter,
         debugCallback: (&raw const callback).cast::<IDebugCallback>().cast_mut(),
         ..DeviceDesc::default()
@@ -253,7 +263,7 @@ fn release_blob(blob: *mut ISlangBlob) {
     clippy::too_many_lines,
     reason = "the test walks the whole compute path through the raw bindings in the order that a caller follows"
 )]
-fn a_vulkan_device_dispatches_a_kernel_and_submits_it_with_the_default_submit_desc() {
+fn a_device_dispatches_a_kernel_and_submits_it_with_the_default_submit_desc() {
     let callback = Callback {
         base: IDebugCallback {
             vtable: &raw const CALLBACK_VTABLE,
@@ -265,7 +275,7 @@ fn a_vulkan_device_dispatches_a_kernel_and_submits_it_with_the_default_submit_de
     let rhi: *mut IRHI = unsafe { rhiGetInstance() };
     assert!(!rhi.is_null());
     let desc = DeviceDesc {
-        deviceType: DeviceType::Vulkan,
+        deviceType: DEVICE_TYPE,
         debugCallback: (&raw const callback).cast::<IDebugCallback>().cast_mut(),
         ..DeviceDesc::default()
     };
@@ -291,7 +301,7 @@ fn a_vulkan_device_dispatches_a_kernel_and_submits_it_with_the_default_submit_de
     let name = unsafe { CStr::from_ptr(info.adapterName) };
     let _ignored = writeln!(
         std::io::stderr(),
-        "the dispatch runs on the Vulkan adapter {}",
+        "the dispatch runs on the {API} adapter {}",
         name.to_string_lossy()
     );
 
@@ -461,7 +471,7 @@ fn a_vulkan_device_dispatches_a_kernel_and_submits_it_with_the_default_submit_de
     assert_eq!(submit.cudaStream, kInvalidCUDAStream);
     // SAFETY: `queue` is live, and `submit` names one live command buffer of
     // the queue, no fence, and the CUDA stream that the header gives as the
-    // default, which a Vulkan queue ignores.
+    // default, which a Vulkan or Direct3D 12 queue ignores.
     let result = unsafe { ICommandQueue::submit(queue, &raw const submit) };
     assert_ok(result, "submit", ptr::null_mut());
     // SAFETY: `queue` is live.

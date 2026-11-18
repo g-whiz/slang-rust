@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use super::{
     EntryKind, Exit, Finished, Generated, GenerationError, GenerationErrorKind, Host, Invocation,
-    LoggedRunError, command,
+    LoggedRunError, MsvcCompiler, command,
 };
 
 include!("../../../system.rs");
@@ -46,14 +46,27 @@ fn system_reads_variables_files_and_kinds() -> io::Result<()> {
 }
 
 #[test]
-fn system_runs_a_program_with_closed_input_and_reports_its_output() -> io::Result<()> {
+fn system_runs_a_program_with_closed_input_and_its_environment_and_reports_its_output()
+-> io::Result<()> {
     let system = System::default();
     let finished: Finished = system.run(&command("cmake", &["-E", "echo", "printed"]))?;
     assert_eq!(finished.exit, Exit { code: Some(0) });
-    assert_eq!(finished.stdout, "printed\n");
-    let reader = system.run(&command("cmake", &["-E", "cat", "/dev/stdin"]))?;
-    assert!(reader.exit.success(), "{}", reader.stderr);
-    assert_eq!(reader.stdout, "");
+    assert_eq!(finished.stdout.trim_end(), "printed");
+    if cfg!(unix) {
+        let reader = system.run(&command("cmake", &["-E", "cat", "/dev/stdin"]))?;
+        assert!(reader.exit.success(), "{}", reader.stderr);
+        assert_eq!(reader.stdout, "");
+    }
+    let invocation = Invocation {
+        env: vec![(OsString::from("SLANG_RHI_SYS_PROBE"), OsString::from("set"))],
+        ..command("cmake", &["-E", "environment"])
+    };
+    let environment = system.run(&invocation)?;
+    assert!(
+        environment.stdout.contains("SLANG_RHI_SYS_PROBE=set"),
+        "{}",
+        environment.stdout
+    );
     let failed = system.run(&command("cmake", &["-E", "false"]))?;
     assert!(!failed.exit.success());
     assert_eq!(
@@ -180,4 +193,23 @@ fn system_generate_reports_a_libclang_that_cannot_be_loaded() -> io::Result<()> 
     assert!(output.status.success(), "{output:?}");
     assert!(stdout.contains("1 passed"), "{stdout}");
     fs::remove_dir_all(&dir)
+}
+
+#[test]
+fn system_finds_the_microsoft_compiler_as_find_msvc_tools_does() {
+    let target = "x86_64-pc-windows-msvc";
+    let expected = find_msvc_tools::find_tool(target, "cl.exe").map(|tool| MsvcCompiler {
+        path: tool.path().to_path_buf(),
+        env: tool.env().into_iter().cloned().collect(),
+    });
+    assert_eq!(System::default().msvc_compiler(target), expected);
+}
+
+#[test]
+fn system_creates_a_directory_with_its_parents_and_accepts_an_existing_one() -> io::Result<()> {
+    let dir = scratch("create")?.join("parent").join("empty");
+    System::default().create_dir(&dir)?;
+    System::default().create_dir(&dir)?;
+    assert!(fs::read_dir(&dir)?.next().is_none());
+    Ok(())
 }

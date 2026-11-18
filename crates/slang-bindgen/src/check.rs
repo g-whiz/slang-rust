@@ -84,7 +84,8 @@ fn apply_class_rules(selection: &mut Selection, rules: &RuleSet, target: &str) -
         called_callbacks: vec![false; rules.called_callbacks.len()],
     };
     let mut unmatched_members = Vec::new();
-    let mut microsoft_overloads = Vec::new();
+    let mut scattered_overloads = Vec::new();
+    let mut moved_methods = Vec::new();
     let microsoft_abi = selection.microsoft_abi;
     for item in &mut selection.items {
         let name = item.name.cxx.clone();
@@ -96,13 +97,17 @@ fn apply_class_rules(selection: &mut Selection, rules: &RuleSet, target: &str) -
                     used.uuidless[position] = true;
                 }
                 match_members(rules, &interface.members, &mut used, &mut unmatched_members);
+                let mut order = microsoft_abi.then(|| MicrosoftOrder {
+                    declarations: &interface.declarations,
+                    scattered: &mut scattered_overloads,
+                    moved: &mut moved_methods,
+                });
                 name_overloads(
                     &name,
                     &mut interface.methods,
                     rules,
-                    microsoft_abi,
                     &mut used,
-                    &mut microsoft_overloads,
+                    order.as_mut(),
                 );
                 for method in &mut interface.methods {
                     let qualified = format!("{name}::{}", method.rust_name());
@@ -122,8 +127,8 @@ fn apply_class_rules(selection: &mut Selection, rules: &RuleSet, target: &str) -
             _ => {}
         }
     }
-    if let Some((location, _)) = microsoft_overloads.first() {
-        let names: Vec<&str> = microsoft_overloads
+    if let Some((location, _)) = scattered_overloads.first() {
+        let names: Vec<&str> = scattered_overloads
             .iter()
             .map(|(_, name)| name.as_str())
             .collect();
@@ -131,7 +136,21 @@ fn apply_class_rules(selection: &mut Selection, rules: &RuleSet, target: &str) -
             ErrorKind::Unsupported,
             location,
             format!(
-                "virtual methods share a name on target {target}, whose C++ ABI orders such methods in a vtable in a way that is not established, so the bindings cannot place them: {}",
+                "virtual methods share a name but are not declared next to each other on target {target}, whose C++ ABI places such methods in a vtable in reverse declaration order only when they are declared next to each other, so the bindings cannot place them: {}",
+                names.join(", ")
+            ),
+        ));
+    }
+    if let Some((location, _)) = moved_methods.first() {
+        let names: Vec<&str> = moved_methods
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect();
+        return Err(Error::at(
+            ErrorKind::Unsupported,
+            location,
+            format!(
+                "virtual methods share a name with a member that the class declares before them on target {target}, whose C++ ABI places the virtual methods of one name in a vtable where any member of that name is first declared, so the bindings cannot place them in declaration order: {}",
                 names.join(", ")
             ),
         ));
@@ -184,34 +203,22 @@ fn mark_templates(ty: &Ty, rules: &RuleSet, used: &mut ClassRulesUsed) {
     }
 }
 
+struct MicrosoftOrder<'a> {
+    declarations: &'a [String],
+    scattered: &'a mut Vec<(Location, String)>,
+    moved: &'a mut Vec<(Location, String)>,
+}
+
 fn name_overloads(
     owner: &str,
     methods: &mut [Method],
     rules: &RuleSet,
-    microsoft_abi: bool,
     used: &mut ClassRulesUsed,
-    microsoft: &mut Vec<(Location, String)>,
+    microsoft_order: Option<&mut MicrosoftOrder<'_>>,
 ) {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for method in methods.iter() {
         *counts.entry(method.name.clone()).or_default() += 1;
-    }
-    if microsoft_abi {
-        for method in methods
-            .iter()
-            .filter(|method| counts.get(&method.name).copied().unwrap_or_default() > 1)
-        {
-            microsoft.push((
-                method.location.clone(),
-                format!(
-                    "{owner}::{}({}) ({})",
-                    method.name,
-                    method.spelled_params.join(", "),
-                    method.location
-                ),
-            ));
-        }
-        return;
     }
     for method in methods.iter_mut() {
         if counts.get(&method.name).copied().unwrap_or_default() < 2 {
@@ -231,6 +238,86 @@ fn name_overloads(
             method.rust = Some(rules.overloads[position].rust.to_owned());
         }
     }
+    if let Some(order) = microsoft_order {
+        reverse_overload_runs(owner, methods, &counts, order);
+    }
+}
+
+fn reverse_overload_runs(
+    owner: &str,
+    methods: &mut [Method],
+    counts: &HashMap<String, usize>,
+    order: &mut MicrosoftOrder<'_>,
+) {
+    let describe = |method: &Method| {
+        (
+            method.location.clone(),
+            format!(
+                "{owner}::{}({}) ({})",
+                method.name,
+                method.spelled_params.join(", "),
+                method.location
+            ),
+        )
+    };
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < methods.len() {
+        let name = &methods[start].name;
+        let run = methods[start..]
+            .iter()
+            .take_while(|method| &method.name == name)
+            .count();
+        let total = counts.get(name).copied().unwrap_or_default();
+        if total > 1 && run < total {
+            order.scattered.extend(
+                methods
+                    .iter()
+                    .filter(|method| &method.name == name)
+                    .map(describe),
+            );
+            return;
+        }
+        runs.push(start..start + run);
+        start += run;
+    }
+    let emitted: Vec<usize> = runs.iter().flat_map(|run| run.clone().rev()).collect();
+    let expected = microsoft_slots(methods, order.declarations);
+    if emitted != expected {
+        order.moved.extend(
+            emitted
+                .iter()
+                .zip(&expected)
+                .filter(|(emitted, expected)| emitted != expected)
+                .map(|(emitted, _)| describe(&methods[*emitted])),
+        );
+        return;
+    }
+    for run in runs {
+        methods[run].reverse();
+    }
+}
+
+fn microsoft_slots(methods: &[Method], declarations: &[String]) -> Vec<usize> {
+    let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
+    let names = declarations
+        .iter()
+        .map(String::as_str)
+        .chain(methods.iter().map(|method| method.name.as_str()));
+    for name in names {
+        if !groups.iter().any(|(group, _)| *group == name) {
+            groups.push((name, Vec::new()));
+        }
+    }
+    for (index, method) in methods.iter().enumerate() {
+        if let Some((_, group)) = groups.iter_mut().find(|(group, _)| *group == method.name) {
+            group.push(index);
+        }
+    }
+    groups
+        .into_iter()
+        .flat_map(|(_, group)| group.into_iter().rev())
+        .collect()
 }
 
 fn mark_called_callbacks(
@@ -1880,6 +1967,7 @@ mod tests {
                 uuid: None,
                 methods,
                 members,
+                declarations: Vec::new(),
                 has_fields: false,
                 has_virtual_destructor: false,
             }),
@@ -1951,7 +2039,8 @@ mod tests {
     }
 
     #[test]
-    fn apply_class_rules_refuses_a_member_without_a_rule_and_overloads_on_the_microsoft_abi() {
+    fn apply_class_rules_refuses_a_member_without_a_rule_and_orders_overloads_on_the_microsoft_abi()
+    {
         let mut members = selection(vec![rhi_interface(
             vec![member("rhi::IThing::helper"), member("rhi::IThing::other")],
             vec![method("read", &["int"]), method("read", &["const char *"])],
@@ -1963,13 +2052,53 @@ mod tests {
             error.message(),
             "1 members of included records and interfaces are not data and not virtual methods, and no rule ignores them: rhi::IThing::other (Method, slang-rhi.h:2)"
         );
-        let mut overloads = selection(vec![rhi_interface(
+        let mut adjacent = selection(vec![rhi_interface(
             vec![member("rhi::IThing::helper")],
-            vec![method("read", &["int"]), method("read", &["const char *"])],
+            vec![
+                method("first", &[]),
+                method("read", &["int"]),
+                method("read", &["const char *"]),
+                method("last", &[]),
+            ],
         )]);
-        overloads.microsoft_abi = true;
-        let error = apply_class_rules(&mut overloads, &TEST_RHI, "x86_64-pc-windows-msvc")
-            .expect_err("the Microsoft ABI refuses overloads");
+        adjacent.microsoft_abi = true;
+        apply_class_rules(&mut adjacent, &TEST_RHI, "x86_64-pc-windows-msvc")
+            .expect("the Microsoft ABI reverses a run of overloads");
+        let ItemKind::Interface(interface) = &adjacent.items[0].kind else {
+            panic!("the item is an interface");
+        };
+        let order: Vec<(&str, &str)> = interface
+            .methods
+            .iter()
+            .map(|method| {
+                (
+                    method.rust_name(),
+                    method.spelled_params.first().map_or("", String::as_str),
+                )
+            })
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("first", ""),
+                ("read_name", "const char *"),
+                ("read", "int"),
+                ("last", ""),
+            ]
+        );
+        let mut scattered = selection(vec![rhi_interface(
+            vec![member("rhi::IThing::helper")],
+            vec![
+                method("read", &["int"]),
+                method("other", &[]),
+                method("read", &["const char *"]),
+            ],
+        )]);
+        scattered.microsoft_abi = true;
+        let error = apply_class_rules(&mut scattered, &TEST_RHI, "x86_64-pc-windows-msvc")
+            .expect_err(
+                "the Microsoft ABI refuses overloads that are not declared next to each other",
+            );
         assert_eq!(error.kind(), ErrorKind::Unsupported);
         assert!(
             error
@@ -1977,6 +2106,56 @@ mod tests {
                 .ends_with("rhi::IThing::read(int) (slang-rhi.h:1), rhi::IThing::read(const char *) (slang-rhi.h:1)"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn apply_class_rules_refuses_a_virtual_method_whose_name_a_member_declares_earlier_on_the_microsoft_abi()
+     {
+        let interface = |declarations: &[&str]| {
+            let mut item = rhi_interface(
+                vec![member("rhi::IThing::helper")],
+                vec![
+                    method("first", &[]),
+                    method("read", &["int"]),
+                    method("read", &["const char *"]),
+                ],
+            );
+            if let ItemKind::Interface(interface) = &mut item.kind {
+                interface.declarations =
+                    declarations.iter().map(|name| (*name).to_owned()).collect();
+            }
+            let mut selection = selection(vec![item]);
+            selection.microsoft_abi = true;
+            selection
+        };
+        let mut late = interface(&["getTypeGuid", "first", "read", "read", "helper", "first"]);
+        apply_class_rules(&mut late, &TEST_RHI, "x86_64-pc-windows-msvc")
+            .expect("a member after the virtual methods of its name moves nothing");
+        let ItemKind::Interface(ordered) = &late.items[0].kind else {
+            panic!("the item is an interface");
+        };
+        let order: Vec<&str> = ordered.methods.iter().map(Method::rust_name).collect();
+        assert_eq!(order, ["first", "read_name", "read"]);
+        let mut early = interface(&["read", "first", "read", "read"]);
+        let error = apply_class_rules(&mut early, &TEST_RHI, "x86_64-pc-windows-msvc")
+            .expect_err("a member before the virtual methods of its name moves them");
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert!(
+            error.message().starts_with(
+                "virtual methods share a name with a member that the class declares before them on target x86_64-pc-windows-msvc"
+            ),
+            "{error}"
+        );
+        assert!(
+            error.message().ends_with(
+                "rhi::IThing::first() (slang-rhi.h:1), rhi::IThing::read(const char *) (slang-rhi.h:1), rhi::IThing::read(int) (slang-rhi.h:1)"
+            ),
+            "{error}"
+        );
+        let mut itanium = interface(&["read", "first", "read", "read"]);
+        itanium.microsoft_abi = false;
+        apply_class_rules(&mut itanium, &TEST_RHI, "x86_64-unknown-linux-gnu")
+            .expect("the Itanium C++ ABI keeps declaration order");
     }
 
     #[test]

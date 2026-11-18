@@ -472,8 +472,8 @@ const fn called_callback(pattern: &'static str) -> NameRule {
     }
 }
 
-const FIRST_OVERLOAD: &str = "the first declared of virtual methods that share a name, which keeps the C++ name and its slot in declaration order on the Itanium C++ ABI";
-const LATER_OVERLOAD: &str = "a later declared of virtual methods that share a name, which gets a suffix and its slot in declaration order on the Itanium C++ ABI";
+const FIRST_OVERLOAD: &str = "the first declared of virtual methods that share a name, which keeps the C++ name, and whose slot follows declaration order on the Itanium C++ ABI, while the Microsoft C++ ABI gives the virtual methods of one name adjacent slots in reverse declaration order at the place where the class first declares any member of that name";
+const LATER_OVERLOAD: &str = "a later declared of virtual methods that share a name, which gets a suffix, and whose slot follows declaration order on the Itanium C++ ABI, while the Microsoft C++ ABI gives the virtual methods of one name adjacent slots in reverse declaration order at the place where the class first declares any member of that name";
 
 const fn overload(
     method: &'static str,

@@ -16,7 +16,8 @@
 //!
 //! This example doubles four `float` values with a compute kernel, a function
 //! that the GPU runs once for each thread. It needs a Vulkan driver at run
-//! time, so it is compiled but not run:
+//! time, so it is compiled but not run. On Windows, a program names
+//! [`DeviceType::D3d12`] instead:
 //!
 //! ```no_run
 //! use slang_compiler::{Component, GlobalSession};
@@ -128,12 +129,17 @@
 //! in a Cargo target directory clones the Slang source tree, which needs git
 //! and network access, and builds Slang, its SPIR-V optimizer, and slang-rhi,
 //! which takes minutes. The build needs libclang, `cmake` 3.22 or later,
-//! Ninja, a C++20 compiler, Python 3, and the development headers of Xlib,
-//! such as those of the Debian package `libx11-dev`, as the documentation of
-//! `slang-rhi-sys` states.
+//! Ninja, a C++20 compiler, and Python 3, and on Linux the development headers
+//! of Xlib, such as those of the Debian package `libx11-dev`, as the
+//! documentation of `slang-rhi-sys` states.
 //!
-//! A program that opens a device needs the Vulkan loader `libvulkan.so.1` and
-//! a Vulkan driver at run time, such as lavapipe, the software driver of Mesa.
+//! On Linux, a program that opens a device needs the Vulkan loader
+//! `libvulkan.so.1` and a Vulkan driver at run time, such as lavapipe, the
+//! software driver of Mesa. On Windows, a program that creates a pipeline
+//! needs `dxcompiler.dll` of the DirectX Shader Compiler on its `PATH` or
+//! beside its executable, through which Slang compiles the kernels to DXIL,
+//! and providing it is the responsibility of the program. The Windows SDK
+//! ships it.
 //!
 //! # Features
 //!
@@ -142,10 +148,12 @@
 //! # Platform support
 //!
 //! The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU
-//! C library, with the Vulkan backend of slang-rhi only. On every other
+//! C library, with the Vulkan backend of slang-rhi, and `x86_64` Windows with
+//! the Microsoft toolchain, with its Direct3D 12 backend. On every other
 //! target, the build of `slang-rhi-sys` stops at once with an error that
 //! names the target, before anything is cloned or built. The crate is tested
-//! on `x86_64` Linux, on lavapipe and on a hardware GPU.
+//! on `x86_64` Linux, on lavapipe and on a hardware GPU, and on `x86_64`
+//! Windows on WARP, the software adapter of Direct3D 12.
 
 #![expect(
     unsafe_code,

@@ -35,18 +35,23 @@ fn every_vtable_slot_of_the_bindings_has_the_offset_that_the_compiler_of_slang_r
     ffi_unwind_calls,
     reason = "the smoke test calls the C function of slang-rhi directly, and an exception that escaped it would unwind into the test, which is defined and fails it"
 )]
-fn the_instance_names_the_vulkan_device_type_without_a_device() {
+fn the_instance_names_the_device_type_of_the_platform_without_a_device() {
     // SAFETY: `rhiGetInstance` takes no argument and returns the process-wide
     // instance, which it creates once under a mutex.
     let rhi: *mut IRHI = unsafe { rhiGetInstance() };
     assert!(!rhi.is_null());
+    let (device_type, expected) = if cfg!(windows) {
+        (DeviceType::D3D12, "D3D12")
+    } else {
+        (DeviceType::Vulkan, "Vulkan")
+    };
     // SAFETY: `rhi` is the live process-wide instance, which slang-rhi never
     // frees while no test calls `rhiDestroyInstance`, and the call reads only
     // its argument.
-    let name = unsafe { IRHI::getDeviceTypeName(rhi, DeviceType::Vulkan) };
+    let name = unsafe { IRHI::getDeviceTypeName(rhi, device_type) };
     assert!(!name.is_null());
     // SAFETY: `name` is non-null and points to a null-terminated string
     // literal of slang-rhi, which lives as long as the program.
     let name = unsafe { CStr::from_ptr(name) };
-    assert_eq!(name.to_str(), Ok("Vulkan"));
+    assert_eq!(name.to_str(), Ok(expected));
 }

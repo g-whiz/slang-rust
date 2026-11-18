@@ -76,7 +76,7 @@ const SLANG_OPTIONS: [&str; 27] = [
     "-DSLANG_EMBED_CORE_MODULE=ON",
     "-DSLANG_EMBED_CORE_MODULE_SOURCE=ON",
     "-DSLANG_SLANG_LLVM_FLAVOR=DISABLE",
-    "-DSLANG_ENABLE_DXIL=OFF",
+    DXIL_OFF,
     "-DSLANG_ENABLE_TESTS=OFF",
     "-DSLANG_ENABLE_EXAMPLES=OFF",
     "-DSLANG_ENABLE_GFX=OFF",
@@ -99,6 +99,10 @@ const SLANG_OPTIONS: [&str; 27] = [
     "-DSLANG_ENABLE_SPLIT_DEBUG_INFO=OFF",
     "-DSLANG_USE_SCCACHE=OFF",
 ];
+
+const DXIL_OFF: &str = "-DSLANG_ENABLE_DXIL=OFF";
+
+const DXIL_ON: &str = "-DSLANG_ENABLE_DXIL=ON";
 
 const LINUX_SYSTEM_LIBRARIES: [&str; 2] = ["pthread", "dl"];
 
@@ -870,7 +874,13 @@ fn configure_arguments(layout: &Layout, platform: &Platform, build_tag: &str) ->
         format!("-DSLANG_VERSION_NUMERIC={}", numeric_version(build_tag)),
         "-DFETCHCONTENT_FULLY_DISCONNECTED=ON".to_owned(),
     ];
-    args.extend(SLANG_OPTIONS.iter().map(|option| (*option).to_owned()));
+    args.extend(SLANG_OPTIONS.iter().map(|&option| {
+        if platform.msvc && option == DXIL_OFF {
+            DXIL_ON.to_owned()
+        } else {
+            option.to_owned()
+        }
+    }));
     args.extend(platform.configure_options.iter().cloned());
     args
 }

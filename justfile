@@ -240,15 +240,18 @@ check-vendored:
     {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
     {{ vendored_environment }} cargo clippy -p slang-slint --features slang-slint/vendored
 
-# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, in target/vendored, without VULKAN_SDK and without a loader path, on Linux only, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, in target/vendored, without VULKAN_SDK and without a loader path, on Linux and on x86_64 Windows, where the crates build. On Windows, the tests compile shaders with dxcompiler.dll, which has to be on PATH. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('rust')]
 test-rhi:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ "{{ os() }}" != linux ]]; then
-        printf 'test-rhi: the packages %s build only on Linux, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
-        exit 1
-    fi
+    case "{{ os() }}-{{ arch() }}" in
+        linux-* | windows-x86_64) ;;
+        *)
+            printf 'test-rhi: the packages %s build only on Linux and on x86_64 Windows, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
+            exit 1
+            ;;
+    esac
     read -r -a names <<<"{{ rhi_packages }}"
     packages=()
     for name in "${names[@]}"; do
@@ -257,15 +260,18 @@ test-rhi:
     {{ vendored_environment }} cargo nextest run "${packages[@]}" --profile gpu --no-tests=fail
     {{ vendored_environment }} cargo test --doc "${packages[@]}"
 
-# Run Clippy and build the API documentation of the packages of rhi_packages in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux only, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+# Run Clippy and build the API documentation of the packages of rhi_packages in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux and on x86_64 Windows, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('checks')]
 check-rhi:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ "{{ os() }}" != linux ]]; then
-        printf 'check-rhi: the packages %s build only on Linux, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
-        exit 1
-    fi
+    case "{{ os() }}-{{ arch() }}" in
+        linux-* | windows-x86_64) ;;
+        *)
+            printf 'check-rhi: the packages %s build only on Linux and on x86_64 Windows, so the recipe runs only there\n' "{{ rhi_packages }}" >&2
+            exit 1
+            ;;
+    esac
     read -r -a names <<<"{{ rhi_packages }}"
     packages=()
     for name in "${names[@]}"; do

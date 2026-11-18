@@ -17,8 +17,8 @@ use crate::owned::Owned;
 ///
 /// The enumeration is non-exhaustive, so a later version can add device
 /// types, and a `match` on it needs a wildcard arm. This crate builds only
-/// the Vulkan backend of slang-rhi, so a device of any other type fails to
-/// open.
+/// the Vulkan backend of slang-rhi on Linux and only its Direct3D 12 backend
+/// on Windows, so a device of any other type fails to open.
 ///
 /// # Examples
 ///
@@ -26,7 +26,8 @@ use crate::owned::Owned;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DeviceType {
-    /// The default graphics API of the platform, which is Vulkan on Linux.
+    /// The default graphics API of the platform, which is Vulkan on Linux and
+    /// Direct3D 12 on Windows.
     Default,
     /// Direct3D 11.
     D3d11,
@@ -403,8 +404,9 @@ impl DeviceOptions {
     /// each call into slang-rhi against the rules of slang-rhi and reports
     /// each violation through the debug callback. It makes every call slower.
     /// It does not turn on a validation layer of the graphics API, such as
-    /// the Khronos validation layer of Vulkan, so it does not check the calls
-    /// that slang-rhi makes into the graphics API.
+    /// the Khronos validation layer of Vulkan or the debug layer of
+    /// Direct3D 12, so it does not check the calls that slang-rhi makes into
+    /// the graphics API.
     ///
     /// # Examples
     ///
@@ -505,7 +507,7 @@ impl DeviceInfo {
         self.device_type
     }
 
-    /// Returns the name of the graphics API, such as `Vulkan`.
+    /// Returns the name of the graphics API, such as `Vulkan` or `D3D12`.
     ///
     /// # Examples
     ///
@@ -605,7 +607,7 @@ impl Device {
     /// device type of the options, or one that slang-rhi no longer lists. Returns
     /// an error of kind [`ErrorKind::NoDevice`](crate::ErrorKind::NoDevice)
     /// when slang-rhi cannot open the device, such as when no Vulkan loader or
-    /// driver is installed, and an error of kind
+    /// driver is installed on Linux, and an error of kind
     /// [`ErrorKind::Failed`](crate::ErrorKind::Failed) or
     /// [`ErrorKind::Unrecognized`](crate::ErrorKind::Unrecognized) when the
     /// opened device reports no information or information that this crate

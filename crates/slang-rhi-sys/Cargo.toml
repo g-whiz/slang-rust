@@ -12,14 +12,16 @@ rust-version.workspace = true
 license = "Apache-2.0 WITH LLVM-exception"
 repository.workspace = true
 
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+[target.'cfg(any(all(target_os = "linux", target_env = "gnu"), all(target_os = "windows", target_env = "msvc", target_arch = "x86_64")))'.dependencies]
 slang-compiler-sys = { workspace = true, features = ["vendored"] }
 slang-src.workspace = true
 
 [build-dependencies]
+find-msvc-tools.workspace = true
 slang-bindgen.workspace = true
 
 [dev-dependencies]
+find-msvc-tools.workspace = true
 slang-bindgen.workspace = true
 
 [lints]

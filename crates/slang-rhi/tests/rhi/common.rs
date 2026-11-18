@@ -1,4 +1,5 @@
-//! Helpers of the tests on a Vulkan adapter: devices whose debug callback
+//! Helpers of the tests on an adapter of the graphics API of the platform,
+//! Vulkan on Linux and Direct3D 12 on Windows: devices whose debug callback
 //! records every message, the linking of a kernel, buffers of `float`
 //! values, and the kernel that doubles four values.
 
@@ -8,8 +9,22 @@ use std::sync::{Arc, Mutex, PoisonError};
 use slang_compiler::{Component, GlobalSession, LinkedProgram, Session, Toggle};
 use slang_rhi::{
     Buffer, BufferDesc, BufferUsage, ComputePipeline, DebugMessageSource, DebugMessageType, Device,
-    DeviceOptions, DeviceType,
+    DeviceOptions, DeviceType, ErrorKind,
 };
+
+/// The device type of the platform, whose backend `slang-rhi-sys` builds.
+#[cfg(windows)]
+pub(crate) const DEVICE_TYPE: DeviceType = DeviceType::D3d12;
+/// The device type of the platform, whose backend `slang-rhi-sys` builds.
+#[cfg(not(windows))]
+pub(crate) const DEVICE_TYPE: DeviceType = DeviceType::Vulkan;
+
+/// The name that slang-rhi gives the graphics API of [`DEVICE_TYPE`].
+#[cfg(windows)]
+pub(crate) const API: &str = "D3D12";
+/// The name that slang-rhi gives the graphics API of [`DEVICE_TYPE`].
+#[cfg(not(windows))]
+pub(crate) const API: &str = "Vulkan";
 
 /// One message that a debug callback received.
 pub(crate) type Message = (DebugMessageType, DebugMessageSource, String);
@@ -34,7 +49,7 @@ impl Messages {
     }
 }
 
-/// Returns the options of a Vulkan device whose debug callback records every
+/// Returns the options of a device of [`DEVICE_TYPE`] whose debug callback records every
 /// message in the returned list.
 pub(crate) fn options(validation: Toggle) -> (DeviceOptions, Messages) {
     let messages = Messages::default();
@@ -42,7 +57,7 @@ pub(crate) fn options(validation: Toggle) -> (DeviceOptions, Messages) {
     let mut options =
         DeviceOptions::new(GlobalSession::new().expect("Slang creates a global session"));
     options
-        .device_type(DeviceType::Vulkan)
+        .device_type(DEVICE_TYPE)
         .validation(validation)
         .debug_callback(move |message| {
             let entry = (
@@ -60,12 +75,12 @@ pub(crate) fn options(validation: Toggle) -> (DeviceOptions, Messages) {
     (options, messages)
 }
 
-/// Opens a Vulkan device and prints its adapter.
+/// Opens a device and prints its adapter.
 pub(crate) fn open(options: &DeviceOptions) -> Device {
-    let device = Device::new(options).expect("slang-rhi opens a Vulkan device");
+    let device = Device::new(options).expect("slang-rhi opens a device");
     let _ignored = writeln!(
         std::io::stderr(),
-        "the test runs on the Vulkan adapter {}",
+        "the test runs on the {API} adapter {}",
         device.info().adapter_name()
     );
     device
@@ -179,4 +194,33 @@ pub(crate) fn double(device: &Device) -> Vec<f32> {
         .expect("the queue receives the work");
     queue.wait_on_host().expect("the queue finishes the work");
     read(device, &values)
+}
+
+/// Checks that `set_data` refuses the parameter `name` of the kernel
+/// `source`, whose uniform data lives in a buffer of its own, and accepts the
+/// uniform `scale` next to it when the kernel declares one.
+pub(crate) fn assert_uniform_data_of_a_block_is_refused(module: &str, source: &str, name: &str) {
+    let (options, messages) = options(Toggle::Off);
+    let device = open(&options);
+    let pipeline = pipeline(&device, module, source);
+    let queue = device.queue().expect("the device has a queue");
+    let mut encoder = queue.encoder().expect("slang-rhi creates an encoder");
+    let result = encoder
+        .compute_pass(|pass| {
+            let mut root = pass.bind_pipeline(&pipeline)?;
+            let offset = root.offset_of(name)?.expect("the kernel declares it");
+            let result = (
+                offset.uniform_size(),
+                root.set_data(offset, &[0; 4]).map_err(|error| error.kind()),
+            );
+            if let Some(scale) = root.offset_of("scale")? {
+                assert_eq!(scale.uniform_size(), 4);
+                root.set_data(scale, &1.0_f32.to_le_bytes())?;
+            }
+            Ok(result)
+        })
+        .expect("the pass records");
+    assert_eq!(result, (0, Err(ErrorKind::InvalidArgument)));
+    drop(encoder);
+    assert_eq!(messages.errors(), []);
 }

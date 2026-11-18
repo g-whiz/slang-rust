@@ -360,10 +360,17 @@ impl Extractor<'_> {
             uuid: None,
             methods: Vec::new(),
             members: Vec::new(),
+            declarations: Vec::new(),
             has_fields: false,
             has_virtual_destructor: false,
         };
         for child in children {
+            if child.is_declaration()
+                && child.get_kind() != EntityKind::FriendDecl
+                && let Some(name) = child.get_name().filter(|name| !name.is_empty())
+            {
+                interface.declarations.push(name);
+            }
             match child.get_kind() {
                 EntityKind::BaseSpecifier => {
                     let base = child

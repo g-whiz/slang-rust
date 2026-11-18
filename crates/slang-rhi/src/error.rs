@@ -198,8 +198,9 @@ pub enum ErrorKind {
     /// slang-rhi reported an invalid argument. Correct the call.
     InvalidArgument,
     /// slang-rhi could not create a device, such as when no Vulkan loader or
-    /// driver is installed. Install the Vulkan loader and a driver, such as
-    /// lavapipe, the software driver of Mesa.
+    /// driver is installed on Linux. Install the Vulkan loader and a driver,
+    /// such as lavapipe, the software driver of Mesa, or on Windows a driver
+    /// of Direct3D 12.
     NoDevice,
     /// slang-rhi could not create a shader program or a compute pipeline,
     /// such as when Slang cannot generate code for the device. The
