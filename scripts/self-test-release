@@ -5,9 +5,11 @@ usage() {
     printf '%s\n' "usage: self-test-release" "" \
         "Runs scripts/check-package, check-release, check-doc-site, publish-dry-run," \
         "publish, tag-release, and yank against stubs of cargo, git, gh, curl, sleep," \
-        "and date in a temporary directory, and runs the recipes publish-dry-run, publish," \
-        "and tag-release through just on a copy of the justfile and those scripts in" \
-        "that directory. It fails unless each case gives its expected exit status," \
+        "and date in a temporary directory, and runs the recipes doc-site," \
+        "publish-dry-run, publish, and tag-release through just on a copy of the justfile" \
+        "and those scripts in that directory. The stub of cargo refuses a feature of a" \
+        "package that the command does not select, as cargo does. It fails unless each" \
+        "case gives its expected exit status," \
         "message, and calls of the stubs. It resolves just to its absolute path first" \
         "and calls it by that path, because just can be installed in a directory that" \
         "also holds the real cargo. PATH then holds only the stubs, /usr/bin, and /bin," \
@@ -34,8 +36,29 @@ cat >"${stubs}/cargo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'cargo %s\n' "$*" >>"${STUB_LOG}"
+selected=()
+features=()
+arguments=("$@")
+for ((position = 0; position < ${#arguments[@]}; position++)); do
+    case "${arguments[position]}" in
+        -p | --package) selected+=("${arguments[position + 1]:-}") ;;
+        --features) IFS=', ' read -r -a listed <<<"${arguments[position + 1]:-}"; features+=("${listed[@]}") ;;
+    esac
+done
+for feature in "${features[@]}"; do
+    if [[ "${feature}" == */* && "${#selected[@]}" -gt 0 && " ${selected[*]} " != *" ${feature%%/*} "* ]]; then
+        printf 'error: none of the selected packages contains this feature: %s\n' "${feature}" >&2
+        exit 101
+    fi
+done
 case "$1" in
     metadata) cat "${STUB_METADATA}" ;;
+    doc)
+        for name in "${selected[@]}"; do
+            mkdir -p "${CARGO_TARGET_DIR:-target}/doc/${name//-/_}"
+            printf '<html></html>\n' >"${CARGO_TARGET_DIR:-target}/doc/${name//-/_}/index.html"
+        done
+        ;;
     package)
         if [[ "$2" == "--list" ]]; then
             printf 'files of %s\n' "$4"
@@ -824,7 +847,7 @@ expect "check-doc-site with a limit that is not a number" 2 "is not a number of 
 repo="${work}/repo"
 mkdir -p "${repo}/scripts"
 cp "${scripts}/../justfile" "${repo}/justfile"
-cp "${scripts}/publish" "${scripts}/publish-dry-run" "${scripts}/tag-release" "${repo}/scripts/"
+cp "${scripts}/publish" "${scripts}/publish-dry-run" "${scripts}/tag-release" "${scripts}/check-doc-site" "${repo}/scripts/"
 if ! release_packages="$("${just_program}" --justfile "${repo}/justfile" --evaluate release_packages)" || [[ -z "${release_packages}" ]]; then
     printf 'self-test-release: just cannot evaluate release_packages\n' >&2
     exit 2
@@ -853,6 +876,28 @@ CARGO_REGISTRY_TOKEN=fake-token-for-the-stub expect "the recipe publish without 
 for name in "${release_names[@]}"; do
     check_call "the recipe publish without arguments publishes ${name}" "cargo publish --no-verify -p ${name}"
 done
+
+new_case
+rm -rf "${repo}/target"
+{
+    printf '{"target_directory": "%s", "packages": [' "${repo}/target"
+    for name in "${release_names[@]}"; do
+        printf '{"name": "%s", "features": {"vendored": [], "other": []}}, ' "${name}"
+    done
+    printf '{"name": "not-released", "features": {"vendored": []}}]}\n'
+} >"${STUB_METADATA}"
+expect "the recipe doc-site" 0 "" "" "${just_program}" --justfile "${repo}/justfile" doc-site
+for name in "${release_names[@]}"; do
+    if ! grep -qE -- "^cargo doc .*--features [^ ]*${name}/vendored" "${case_dir}/log"; then
+        failures=$((failures + 1))
+        printf 'FAIL the recipe doc-site\n    cargo doc did not get the feature vendored of %s\n' "${name}"
+    fi
+done
+expect_no_call "the recipe doc-site passes no feature of a package that it does not select" 'not-released/'
+
+new_case
+rm -rf "${repo}/target"
+expect "the stub of cargo refuses a feature of a package that the command does not select" 101 "none of the selected packages contains this feature: c/vendored" "" cargo doc -p a -p b --features a/vendored,c/vendored
 
 new_case
 metadata "${release_entries[@]}"

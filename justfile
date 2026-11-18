@@ -20,7 +20,7 @@ vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PA
 rhi_packages := "slang-rhi-sys slang-rhi"
 
 # The packages of the next release, separated by spaces, in the order in which they depend on each other, which every recipe of the release reads. Every other member sets publish = false
-release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros"
+release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler"
 
 # The address of the hosted documentation, which holds the documentation of each released crate in a directory named after the crate with each hyphen replaced by an underscore
 documentation_site := "https://g-whiz.github.io/slang-rust"
@@ -240,7 +240,7 @@ check-vendored:
     {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
     {{ vendored_environment }} cargo clippy -p slang-slint --features slang-slint/vendored
 
-# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, in target/vendored, without VULKAN_SDK and without a loader path, on Linux and on x86_64 Windows, where the crates build. On Windows, the tests compile shaders with dxcompiler.dll, which has to be on PATH. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, then the tests of slango with its feature rhi in place of wgpu, which skip the tests of textures, samplers, render pipelines, and precompiled modules that need what that build lacks, and its doctests, in target/vendored, without VULKAN_SDK and without a loader path, on Linux and on x86_64 Windows, where the crates build. On Windows, the tests compile shaders with dxcompiler.dll, which has to be on PATH. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('rust')]
 test-rhi:
     #!/usr/bin/env bash
@@ -259,8 +259,10 @@ test-rhi:
     done
     {{ vendored_environment }} cargo nextest run "${packages[@]}" --profile gpu --no-tests=fail
     {{ vendored_environment }} cargo test --doc "${packages[@]}"
+    {{ vendored_environment }} cargo nextest run -p slango --no-default-features --features rhi --profile gpu --no-tests=fail
+    {{ vendored_environment }} cargo test --doc -p slango --no-default-features --features rhi
 
-# Run Clippy and build the API documentation of the packages of rhi_packages in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux and on x86_64 Windows, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+# Run Clippy and build the API documentation of the packages of rhi_packages, then of slango with its feature rhi in place of wgpu, in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux and on x86_64 Windows, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('checks')]
 check-rhi:
     #!/usr/bin/env bash
@@ -279,6 +281,8 @@ check-rhi:
     done
     {{ vendored_environment }} cargo clippy "${packages[@]}" --all-targets
     {{ vendored_environment }} cargo doc "${packages[@]}" --no-deps
+    {{ vendored_environment }} cargo clippy -p slango --no-default-features --features rhi --all-targets
+    {{ vendored_environment }} cargo doc -p slango --no-deps --no-default-features --features rhi
 
 # Run the tests of slang-rhi under Miri on the nightly toolchain, without VULKAN_SDK and without a loader path, in target/miri-rhi, on Linux only, where the crate builds. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source for the build scripts, which takes several minutes
 [group('checks')]
@@ -368,7 +372,7 @@ check-release:
     read -r -a packages <<<"{{ release_packages }}"
     scripts/check-release "{{ documentation_site }}" "${packages[@]}"
 
-# Build the hosted documentation of the release packages in target/vendored/doc on the vendored build, without VULKAN_SDK and without a loader path, failing on any warning, check that it holds the index page of each of them, write its own index page, and check that it holds no symbolic link and is at most 1 GB. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-glslang from source, which takes several minutes
+# Build the hosted documentation of the release packages in target/vendored/doc on the vendored build, with the feature vendored of each release package that declares one, without VULKAN_SDK and without a loader path, failing on any warning, check that it holds the index page of each of them, write its own index page, and check that it holds no symbolic link and is at most 1 GB. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-glslang from source, which takes several minutes
 [group('release')]
 doc-site:
     #!/usr/bin/env bash
@@ -378,7 +382,8 @@ doc-site:
     for name in "${names[@]}"; do
         packages+=(-p "${name}")
     done
-    {{ vendored_environment }} cargo doc --no-deps "${packages[@]}" --features slang-compiler/vendored,slango-macros/vendored
+    features="$(cargo metadata --no-deps --format-version 1 | python3 -I -c 'import json, sys; selected = set(sys.argv[1:]); print(",".join(package["name"] + "/vendored" for package in json.load(sys.stdin)["packages"] if package["name"] in selected and "vendored" in package["features"]))' "${names[@]}")"
+    {{ vendored_environment }} cargo doc --no-deps "${packages[@]}" ${features:+--features "${features}"}
     scripts/check-doc-site target/vendored/doc 976562 "${names[@]}"
 
 # Run cargo publish --dry-run for the given packages, or for every release package when none are given, which packages and compiles each against the packages of the others and uploads nothing, then record the commit and the packages in target/publish-dry-run.commit. Cargo refuses uncommitted changes to a packaged file, and the recipe needs VULKAN_SDK, libclang, network access, and the tools of the vendored build
@@ -546,11 +551,11 @@ check-unused-deps:
 check-miri:
     cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
 
-# Check that every combination of Cargo features compiles, except slango and the examples package without a backend, run by CI only
+# Check that every combination of Cargo features compiles, except slango and the examples package without a backend and every combination with vendored or rhi, which build Slang from source, run by CI only
 [group('checks')]
 check-features:
     CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --exclude slang-rust-examples --all-targets --feature-powerset --exclude-features vendored
-    CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
+    CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored,rhi --exclude-no-default-features
 
 # Check that the workspace builds with the toolchain of its declared rust-version, run by CI only
 [group('checks')]

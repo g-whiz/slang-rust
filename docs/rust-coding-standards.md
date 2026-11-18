@@ -561,7 +561,7 @@ These commands run the checks of the tools from `cargo hack` to Miri. The first 
 
 ```sh
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --exclude slang-rust-examples --all-targets --feature-powerset --exclude-features vendored
-CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
+CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored,rhi --exclude-no-default-features
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets --rust-version
 cargo machete
 cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
@@ -1384,7 +1384,9 @@ Reason: predictions of future needs rarely hold, and an abstraction built on a p
 
 Give each public type that holds an object of the backend a crate-private type of that module with the same name, and add no public trait and no private enumeration over the backends.
 
-Reason: a build has exactly one backend, so nothing chooses between backends while the program runs, and a trait or an enumeration would have no second case to serve. A public trait would also freeze the shape of the boundary and invite an implementation outside the crate. One module for each backend under the same name keeps the public API one set of concrete types in every build. [IR-81] [IR-93]
+When a backend does not offer the operations of such a type, give its backend module the crate-private type all the same, as an uninhabited type with the functions that the shared code calls: a struct whose one field is of the type `std::convert::Infallible`, as `slango` writes it, or an enumeration without variants. Either form has no value. Its constructors return the error kind `Unsupported`, and each of its methods matches on the value with `match` and no arm, so the shared code calls it without a `cfg` and the compiler proves that no such method runs.
+
+Reason: a build has exactly one backend, so nothing chooses between backends while the program runs, and a trait or an enumeration would have no second case to serve. A public trait would also freeze the shape of the boundary and invite an implementation outside the crate. One module for each backend under the same name keeps the public API one set of concrete types in every build. An uninhabited type keeps that structure for a backend that lacks a type, because `Infallible` is the standard library's enumeration without variants, whose value can never exist, so a method with such a receiver can never be called. [IR-81] [IR-93] [S-13]
 
 **SIMP-3.** Write the examples of a new public API from the caller's side before implementing it, and rework the API until the common case is short and obvious. Reason: an API that is merely functional produces long and awkward examples, and the examples show the problem before other code depends on the API. [IR-63] [IR-44] [IR-93]
 
@@ -1617,6 +1619,6 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |
 | SIMP-1 | Concrete types first, and abstractions only for two implementations that exist now. |
-| SIMP-2 | Each backend of `slango` sits in one private module under the `cfg` of its feature, with no trait or enumeration over the backends, and only the crate root, `slango::wgpu`, and tests hold backend code or a backend `cfg` besides it. |
+| SIMP-2 | Each backend of `slango` sits in one private module under the `cfg` of its feature, with no trait or enumeration over the backends, and only the crate root, `slango::wgpu`, and tests hold backend code or a backend `cfg` besides it. A backend without the operations of a type gives it an uninhabited crate-private type, a struct with a field of type `Infallible` or an enumeration without variants, whose constructors return `Unsupported`. |
 | SIMP-3 | Examples of a new API are written first and the API is reworked until they are clean. |
 | SIMP-4 | Plain code over macros, and optimization only after measurement. |

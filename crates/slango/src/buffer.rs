@@ -84,9 +84,9 @@ impl<T: VertexElement> Buffer<T> {
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::InvalidArgument`] when the
     /// element type has a size of zero bytes or the buffer would be larger
-    /// than the device allows, and of kind [`ErrorKind::Backend`] when wgpu
-    /// reports an error, such as a lack of memory, while it creates the
-    /// buffer.
+    /// than the device allows, and of kind [`ErrorKind::Backend`] when the
+    /// backend reports an error, such as a lack of memory, while it creates
+    /// the buffer.
     pub fn from_slice(device: &Device, elements: &[T]) -> Result<Self> {
         let size = checked_size(device, elements.len(), T::STRIDE)?;
         if elements.is_empty() {
@@ -121,7 +121,7 @@ impl<T: VertexElement> Buffer<T> {
     /// type has a size of zero bytes.
     pub fn zeroed(device: &Device, len: usize) -> Result<Self> {
         let size = checked_size(device, len, T::STRIDE)?;
-        let inner = backend::Buffer::zeroed(device.backend(), size)?;
+        let inner = backend::Buffer::zeroed(device.backend(), size, T::STRIDE)?;
         Ok(Self::created(device, inner, len))
     }
 
@@ -149,8 +149,9 @@ impl<T: VertexElement> Buffer<T> {
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`] of kind [`ErrorKind::Backend`] when wgpu reports
-    /// an error while it copies the buffer or maps the copy for reading.
+    /// Returns an [`Error`] of kind [`ErrorKind::Backend`] when the backend
+    /// reports an error while it waits for the work of the device or copies
+    /// the buffer for reading.
     pub fn read(&self) -> Result<Vec<T>> {
         if self.len == 0 {
             return Ok(Vec::new());
@@ -163,7 +164,7 @@ impl<T: VertexElement> Buffer<T> {
             .filter(|elements| elements.len() == self.len);
         elements.ok_or_else(|| {
             Error::new(ErrorKind::Backend, READ).with_detail(format!(
-                "wgpu mapped {} bytes, which are not {} elements of {} bytes",
+                "the backend read {} bytes, which are not {} elements of {} bytes",
                 bytes.len(),
                 self.len,
                 T::STRIDE

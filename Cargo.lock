@@ -3751,6 +3751,7 @@ dependencies = [
  "insta",
  "pollster",
  "slang-compiler",
+ "slang-rhi",
  "wgpu",
 ]
 

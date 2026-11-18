@@ -12,13 +12,16 @@ fn is_on_tells_the_devices_of_two_buffers_apart() {
     assert!(!on_first.is_on(&second));
     assert!(on_second.is_on(&second));
     assert!(!on_second.is_on(&first));
-    let rewrapped = crate::wgpu::from_device_and_queue(
-        crate::wgpu::device(&first)
-            .expect("the wgpu device of a device")
-            .clone(),
-        crate::wgpu::queue(&first)
-            .expect("the wgpu queue of a device")
-            .clone(),
-    );
-    assert!(!on_first.is_on(&rewrapped));
+    #[cfg(feature = "wgpu")]
+    {
+        let rewrapped = crate::wgpu::from_device_and_queue(
+            crate::wgpu::device(&first)
+                .expect("the wgpu device of a device")
+                .clone(),
+            crate::wgpu::queue(&first)
+                .expect("the wgpu queue of a device")
+                .clone(),
+        );
+        assert!(!on_first.is_on(&rewrapped));
+    }
 }

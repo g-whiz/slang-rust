@@ -1,3 +1,4 @@
+#[cfg(feature = "wgpu")]
 use std::error::Error as _;
 
 use slango::{
@@ -73,6 +74,7 @@ impl Setup {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_vertex_buffers_and_counts_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -169,6 +171,7 @@ fn mistakes_of_vertex_buffers_and_counts_are_rejected_before_any_work() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_index_buffers_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -205,6 +208,7 @@ fn mistakes_of_index_buffers_are_rejected_before_any_work() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_targets_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -243,31 +247,34 @@ fn mistakes_of_targets_are_rejected_before_any_work() {
         draw(flat, Some(&foreign), None),
         "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` belongs to another device",
     );
-    let sampled_only = slango::wgpu::device(device)
-        .expect("the wgpu device of a device")
-        .create_texture(&wgpu::TextureDescriptor {
-            label: Some("a texture that cannot be drawn into"),
-            size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-    let wrapped = slango::wgpu::texture_from_view(
-        device,
-        &sampled_only.create_view(&wgpu::TextureViewDescriptor::default()),
-    )
-    .expect("the wrapped texture");
-    setup.assert_invalid(
-        draw(flat, Some(&wrapped), None),
-        "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` lacks the usage RENDER_ATTACHMENT, which a draw needs to draw into it",
-    );
+    #[cfg(feature = "wgpu")]
+    {
+        let sampled_only = slango::wgpu::device(device)
+            .expect("the wgpu device of a device")
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("a texture that cannot be drawn into"),
+                size: wgpu::Extent3d {
+                    width: SIZE,
+                    height: SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+        let wrapped = slango::wgpu::texture_from_view(
+            device,
+            &sampled_only.create_view(&wgpu::TextureViewDescriptor::default()),
+        )
+        .expect("the wrapped texture");
+        setup.assert_invalid(
+            draw(flat, Some(&wrapped), None),
+            "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` lacks the usage RENDER_ATTACHMENT, which a draw needs to draw into it",
+        );
+    }
     let depth = texture(device, [SIZE, SIZE], TextureFormat::Depth32Float);
     setup.assert_invalid(
         draw(flat, Some(target), Some(&depth)),
@@ -295,6 +302,7 @@ fn mistakes_of_targets_are_rejected_before_any_work() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_parameters_are_rejected_as_for_a_call() {
     let setup = Setup::new();
     let Setup {
@@ -361,6 +369,7 @@ fn mistakes_of_parameters_are_rejected_as_for_a_call() {
     );
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_texture_both_sampled_and_the_target_of_one_draw_is_rejected_by_wgpu_as_a_backend_error() {
     let setup = Setup::new();
@@ -405,6 +414,7 @@ fn a_texture_both_sampled_and_the_target_of_one_draw_is_rejected_by_wgpu_as_a_ba
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_depth_clear_value_outside_zero_to_one_is_rejected_before_any_work() {
     let setup = Setup::new();
     let depth = texture(&setup.device, [SIZE, SIZE], TextureFormat::Depth32Float);
@@ -445,6 +455,7 @@ float4 fsMain() : SV_Target
 "#;
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_vertex_or_index_buffer_also_written_by_a_parameter_is_rejected_and_also_read_is_drawn() {
     let setup = Setup::new();
     let Setup { device, target, .. } = &setup;

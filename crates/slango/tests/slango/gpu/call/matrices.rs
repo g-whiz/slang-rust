@@ -96,3 +96,62 @@ fn matrices_reach_the_kernel_row_by_row_at_the_reflected_row_stride_in_each_kind
     assert_eq!(results.read()?, numbers.expected);
     Ok(())
 }
+
+/// A kernel that copies the elements of matrices of two columns, which the
+/// backend `rhi` takes in uniform buffers, from a constant buffer, a
+/// parameter block, and the `uniform` parameters of its entry point into a
+/// buffer, row by row.
+#[cfg(feature = "rhi")]
+const TWO_COLUMNS: &str = r#"
+struct Narrow { float2x2 m22; float3x2 m32; float4x2 m42; };
+
+ConstantBuffer<Narrow> cb;
+ParameterBlock<Narrow> pb;
+RWStructuredBuffer<float> results;
+
+void putNarrow(Narrow m, inout uint next)
+{
+    for (int r = 0; r < 2; r++) { for (int c = 0; c < 2; c++) { results[next] = m.m22[r][c]; next++; } }
+    for (int r = 0; r < 3; r++) { for (int c = 0; c < 2; c++) { results[next] = m.m32[r][c]; next++; } }
+    for (int r = 0; r < 4; r++) { for (int c = 0; c < 2; c++) { results[next] = m.m42[r][c]; next++; } }
+}
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void readNarrow(uniform float2x2 u22, uniform float4x2 u42)
+{
+    uint next = 0;
+    putNarrow(cb, next);
+    putNarrow(pb, next);
+    for (int r = 0; r < 2; r++) { for (int c = 0; c < 2; c++) { results[next] = u22[r][c]; next++; } }
+    for (int r = 0; r < 4; r++) { for (int c = 0; c < 2; c++) { results[next] = u42[r][c]; next++; } }
+}
+"#;
+
+#[cfg(feature = "rhi")]
+#[test]
+fn matrices_of_two_columns_reach_the_kernel_row_by_row_in_each_kind_of_uniform()
+-> slango::Result<()> {
+    let device = device();
+    let kernel = kernel(&device, TWO_COLUMNS, "readNarrow");
+    let mut numbers = Numbers {
+        next: 1.0,
+        expected: Vec::new(),
+    };
+    let mut call = kernel.call();
+    for [m22, m32, m42] in [
+        ["cb.m22", "cb.m32", "cb.m42"],
+        ["pb.m22", "pb.m32", "pb.m42"],
+    ] {
+        call.set(m22, numbers.matrix::<2, 2>())
+            .set(m32, numbers.matrix::<3, 2>())
+            .set(m42, numbers.matrix::<4, 2>());
+    }
+    call.set("u22", numbers.matrix::<2, 2>())
+        .set("u42", numbers.matrix::<4, 2>());
+    let results = Buffer::<f32>::zeroed(&device, numbers.expected.len())?;
+    call.bind("results", &results);
+    call.dispatch([1, 1, 1])?;
+    assert_eq!(results.read()?, numbers.expected);
+    Ok(())
+}

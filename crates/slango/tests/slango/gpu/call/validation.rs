@@ -186,10 +186,14 @@ fn an_empty_buffer_is_rejected() -> slango::Result<()> {
 #[test]
 fn workgroup_counts_over_the_limit_of_the_device_are_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
-    let limit = slango::wgpu::device(&fixture.device)
+    #[cfg(feature = "wgpu")]
+    let limits = [slango::wgpu::device(&fixture.device)
         .expect("the wgpu device of a device")
         .limits()
-        .max_compute_workgroups_per_dimension;
+        .max_compute_workgroups_per_dimension; 3];
+    #[cfg(feature = "rhi")]
+    let limits = crate::common::rhi_device_info().max_compute_dispatch_thread_groups();
+    let limit = limits[1];
     let call = fixture.call_without("");
     let error = call
         .dispatch_groups([1, limit + 1, 1])
@@ -203,13 +207,16 @@ fn workgroup_counts_over_the_limit_of_the_device_are_rejected() -> slango::Resul
         )
     );
     let groups = u32::MAX / 64 + 1;
-    let error = call.dispatch([u32::MAX, 1, 1]).expect_err("over the limit");
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "cannot call a kernel: the dispatch of the kernel `offset` needs {groups} thread groups along the x axis, and the device allows {limit}"
-        )
-    );
+    if groups > limits[0] {
+        let error = call.dispatch([u32::MAX, 1, 1]).expect_err("over the limit");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "cannot call a kernel: the dispatch of the kernel `offset` needs {groups} thread groups along the x axis, and the device allows {}",
+                limits[0]
+            )
+        );
+    }
     assert_eq!(fixture.output.read()?, SENTINEL);
     Ok(())
 }
@@ -236,5 +243,34 @@ fn a_clone_of_the_output_bound_as_the_input_is_rejected_as_the_same_buffer() -> 
     let outcome = call.dispatch([4, 1, 1]).map_err(|error| error.kind());
     assert_eq!(outcome, Err(ErrorKind::InvalidArgument));
     assert_eq!(fixture.output.read()?, SENTINEL);
+    Ok(())
+}
+
+#[test]
+fn one_buffer_bound_to_two_read_write_parameters_is_written_through_both() -> slango::Result<()> {
+    let device = device_with(AdapterSelection::Default);
+    let kernel = kernel(
+        &device,
+        r#"
+RWStructuredBuffer<uint> first;
+RWStructuredBuffer<uint> second;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void writeBoth()
+{
+    first[0] = 1;
+    second[1] = 2;
+}
+"#,
+        "writeBoth",
+    );
+    let shared = Buffer::<u32>::zeroed(&device, 2)?;
+    kernel
+        .call()
+        .bind("first", &shared)
+        .bind("second", &shared)
+        .dispatch([1, 1, 1])?;
+    assert_eq!(shared.read()?, [1, 2]);
     Ok(())
 }

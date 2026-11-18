@@ -69,8 +69,10 @@ impl Sampler {
     /// # Errors
     ///
     /// Returns an [`Error`](crate::Error) of kind
-    /// [`ErrorKind::Backend`](crate::ErrorKind::Backend) when wgpu reports an
-    /// error while it creates the sampler.
+    /// [`ErrorKind::Backend`](crate::ErrorKind::Backend) when the backend
+    /// reports an error while it creates the sampler. With the feature `rhi`, it returns
+    /// an [`Error`](crate::Error) of kind
+    /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported).
     pub fn new(device: &Device, options: &SamplerOptions) -> Result<Self> {
         let inner = backend::Sampler::new(device.backend(), options)?;
         Ok(Self {

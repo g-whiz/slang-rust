@@ -5,10 +5,12 @@
 //! that run on a graphics processing unit (GPU). This crate is the
 //! high-level library of this repository. It compiles Slang through
 //! [`slang-compiler`](slang_compiler), the safe wrappers over the Slang
-//! compiler, and runs the result through [wgpu](https://wgpu.rs), a graphics
-//! library for Vulkan, Direct3D 12, and Metal. Use this crate to run compute
-//! kernels and to draw triangles into a texture, and `slang-compiler` alone
-//! to compile or inspect shaders without a GPU.
+//! compiler, and runs the result on the GPU through one of two backends:
+//! [wgpu](https://wgpu.rs), a graphics library for Vulkan, Direct3D 12, and
+//! Metal, by default, or slang-rhi, the render hardware interface of Slang,
+//! with the feature `rhi`. Use this crate
+//! to run compute kernels and to draw triangles into a texture, and
+//! `slang-compiler` alone to compile or inspect shaders without a GPU.
 //!
 //! [`Device::new`] creates a [`Device`], the connection to one adapter, a
 //! GPU or a software implementation of one, on the adapter that
@@ -32,14 +34,15 @@
 //! threads as plain data. An [`Error`], an [`ErrorKind`], the options
 //! structs, and the enumerations are [`Send`] and [`Sync`], and a [`Device`],
 //! a [`Module`], a [`Kernel`], a [`RenderPipeline`], a [`Buffer`], a
-//! [`Texture`], and a [`Sampler`] are cheap to clone. The crate loads every
-//! shader through wgpu's validated path and contains no unsafe code.
+//! [`Texture`], and a [`Sampler`] are cheap to clone. With the feature
+//! `wgpu`, the crate loads every shader through wgpu's validated path. It
+//! contains no unsafe code.
 //!
 //! # Examples
 //!
-//! This example creates a device on the adapter that wgpu chooses, loads the
-//! module in `scale.slang`, and runs its kernel `scale` over a buffer of four
-//! numbers. The file holds this Slang source:
+//! This example creates a device on the adapter that the backend chooses,
+//! loads the module in `scale.slang`, and runs its kernel `scale` over a
+//! buffer of four numbers. The file holds this Slang source:
 //!
 //! ```slang
 //! RWStructuredBuffer<float> data;
@@ -250,23 +253,41 @@
 //! with `mul(transform, position)` in Slang. A math library that stores a
 //! matrix as its columns needs `mul(position, transform)` or a transpose.
 //!
-//! # Drawing into a window
-//!
-//! The crate draws into a texture and owns no window, surface, or frame
-//! loop. A program that draws into a window creates the window, the wgpu
-//! surface, and the wgpu device itself, and hands the device and its queue
-//! to this crate with [`wgpu::from_device_and_queue`]. In each frame, it
-//! wraps the view of the surface texture as a [`Texture`] with
-//! [`wgpu::texture_from_view`], draws into it, and presents the frame with
-//! wgpu. The example `windowed-renderer` does this with winit.
+#![cfg_attr(
+    all(feature = "wgpu", not(feature = "rhi")),
+    doc = r"
+# Drawing into a window
+
+The crate draws into a texture and owns no window, surface, or frame
+loop. A program that draws into a window creates the window, the wgpu
+surface, and the wgpu device itself, and hands the device and its queue
+to this crate with [`wgpu::from_device_and_queue`]. In each frame, it
+wraps the view of the surface texture as a [`Texture`] with
+[`wgpu::texture_from_view`], draws into it, and presents the frame with
+wgpu. The example `windowed-renderer` does this with winit.
+"
+)]
 //!
 //! # Features
 //!
+//! The crate needs exactly one backend, so a build with neither `wgpu` nor
+//! `rhi`, or with both, stops with a compile error that says so.
+//!
 //! - `wgpu`, on by default: runs every kernel and every draw on wgpu 30, and
-//!   provides the module [`wgpu`], the boundary to wgpu code of your own.
-//!   wgpu is the only backend of the crate, and the crate needs a backend,
-//!   so a build without this feature stops with a compile error that names
-//!   it.
+//!   provides the module `wgpu`, the boundary to wgpu code of your own.
+//! - `rhi`, off by default: runs every kernel on slang-rhi, with Vulkan on
+//!   Linux and Direct3D 12 on Windows on x86-64. It excludes `wgpu`, so a
+//!   program turns the default features off to enable it, and it implies
+//!   `vendored`. It builds Slang and slang-rhi from source, with the tools
+//!   that the crate slang-rhi-sys names, and the build stops on every
+//!   other target. A program on Windows needs `dxcompiler.dll` on its `PATH`
+//!   at run time. The module `wgpu` does not exist in this build, which
+//!   creates no texture, sampler, or render pipeline and loads no
+//!   precompiled module of slango-macros, and returns an error of kind
+//!   [`ErrorKind::Unsupported`] for each. It runs some kernels that wgpu
+//!   rejects, such as kernels that use 64-bit integers or half-precision
+//!   floats, because it hands the code that Slang generates to the driver
+//!   without the validation of wgpu.
 //! - `vendored`, off by default: enables the feature `vendored` of
 //!   slang-compiler, so that a program that depends on this crate alone
 //!   links a Slang built from source statically, in place of the Slang shared
@@ -297,67 +318,151 @@
 //! the macro links its own copy of Slang, as the crate documentation of
 //! `slango-macros` explains.
 
-#[cfg(not(feature = "wgpu"))]
-compile_error!("slango needs a backend: enable its Cargo feature `wgpu`, which is on by default");
+#[cfg(not(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+)))]
+compile_error!(
+    "slango needs exactly one backend: keep its default Cargo feature `wgpu`, or turn the default features off and enable its Cargo feature `rhi`, but not both"
+);
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 #[doc(hidden)]
 pub mod __private;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod buffer;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod call;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod device;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod draw;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod encoding;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod error;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod kernel;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod layout;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod marshal;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod module;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod render;
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "rhi", not(feature = "wgpu")))]
+mod rhi_backend;
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod sampler;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 mod texture;
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "wgpu", not(feature = "rhi")))]
 pub mod wgpu;
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "wgpu", not(feature = "rhi")))]
 mod wgpu_backend;
 
-#[cfg(feature = "wgpu")]
+#[cfg(all(feature = "rhi", not(feature = "wgpu")))]
+use rhi_backend as backend;
+#[cfg(all(feature = "wgpu", not(feature = "rhi")))]
 use wgpu_backend as backend;
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use buffer::Buffer;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use call::Call;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use device::{AdapterSelection, Device, DeviceOptions};
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use draw::Draw;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use error::{Error, ErrorKind, Result};
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use kernel::Kernel;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use marshal::{Element, Value, VertexElement};
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use module::Module;
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use render::{Blend, CullMode, RenderPipeline, RenderPipelineOptions};
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use sampler::{AddressMode, FilterMode, Sampler, SamplerOptions};
-#[cfg(feature = "wgpu")]
+#[cfg(any(
+    all(feature = "wgpu", not(feature = "rhi")),
+    all(feature = "rhi", not(feature = "wgpu"))
+))]
 pub use texture::{Texture, TextureFormat};
 
 #[cfg(doctest)]

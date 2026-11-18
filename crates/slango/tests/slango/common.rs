@@ -5,20 +5,57 @@ use slango::{
     RenderPipelineOptions, Sampler, SamplerOptions, Texture, TextureFormat, VertexElement,
 };
 
+/// The name of the backend of the build, which every device of the tests
+/// runs on and the output of every test names.
+#[cfg(feature = "wgpu")]
+pub(crate) const BACKEND: &str = "wgpu";
+#[cfg(feature = "rhi")]
+pub(crate) const BACKEND: &str = "rhi";
+
+/// Creates a device of the backend of the build on the selected adapter and
+/// prints the backend and the adapter, which the output of a failed test then
+/// shows.
 pub(crate) fn device_with(adapter: AdapterSelection) -> Device {
     let mut options = DeviceOptions::default();
     options.adapter = adapter;
-    let device = Device::new(&options).expect("a device on the selected adapter");
-    let wgpu_device = slango::wgpu::device(&device).expect("the wgpu device of a device");
+    let device = Device::new(&options)
+        .unwrap_or_else(|error| panic!("a device of the backend {BACKEND}: {error:?}"));
     println!(
-        "slango gpu test adapter: {:?}, immediates: {}, max immediate size: {}",
-        wgpu_device.adapter_info(),
-        wgpu_device.features().contains(wgpu::Features::IMMEDIATES),
-        wgpu_device.limits().max_immediate_size
+        "slango gpu test backend: {BACKEND}, adapter: {}",
+        device.adapter_name()
     );
+    #[cfg(feature = "wgpu")]
+    {
+        let wgpu_device = slango::wgpu::device(&device).expect("the wgpu device of a device");
+        println!(
+            "slango gpu test adapter: {:?}, immediates: {}, max immediate size: {}",
+            wgpu_device.adapter_info(),
+            wgpu_device.features().contains(wgpu::Features::IMMEDIATES),
+            wgpu_device.limits().max_immediate_size
+        );
+    }
     device
 }
 
+/// Returns the information of a device of slang-rhi of the platform's
+/// graphics API on the adapter that slang-rhi chooses, which the devices of
+/// the tests also use, with the limits that the crate checks.
+#[cfg(feature = "rhi")]
+pub(crate) fn rhi_device_info() -> slang_rhi::DeviceInfo {
+    let mut options = slang_rhi::DeviceOptions::new(
+        slang_compiler::GlobalSession::new().expect("a global session of Slang"),
+    );
+    options.device_type(if cfg!(target_os = "windows") {
+        slang_rhi::DeviceType::D3d12
+    } else {
+        slang_rhi::DeviceType::Vulkan
+    });
+    slang_rhi::Device::new(&options)
+        .expect("a device of slang-rhi")
+        .info()
+}
+
+#[cfg(feature = "wgpu")]
 pub(crate) fn instance() -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
@@ -26,6 +63,7 @@ pub(crate) fn instance() -> wgpu::Instance {
     })
 }
 
+#[cfg(feature = "wgpu")]
 pub(crate) fn assert_immediates_follow_the_adapter(device: &Device) {
     let wgpu_device = slango::wgpu::device(device).expect("the wgpu device of a device");
     let info = wgpu_device.adapter_info();
@@ -46,6 +84,7 @@ pub(crate) fn assert_immediates_follow_the_adapter(device: &Device) {
     assert_eq!(wgpu_device.limits().max_immediate_size, expected_size);
 }
 
+#[cfg(feature = "wgpu")]
 pub(crate) fn device_without_immediates() -> Device {
     let adapter =
         pollster::block_on(instance().request_adapter(&wgpu::RequestAdapterOptions::default()))

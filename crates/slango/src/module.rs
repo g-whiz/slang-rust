@@ -4,9 +4,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::Device;
+use crate::backend;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{self, Compilation, Compiled, CompiledRender, Source};
+use crate::layout::{self, Compilation, Compiled, CompiledRender, KernelLayout, Source};
 use crate::render::{RenderPipeline, RenderPipelineOptions};
 
 const READ: &str = "read a Slang file";
@@ -20,8 +21,9 @@ const READ: &str = "read a Slang file";
 /// fragment entry point with [`Module::render_pipeline`].
 ///
 /// Cloning a module is cheap and returns another handle to the same module.
-/// A module keeps its [`Device`] alive and holds no object of the Slang
-/// compiler.
+/// A module keeps its [`Device`] alive. With the feature `wgpu`, it holds no
+/// object of the Slang compiler, and with the feature `rhi`, it keeps the
+/// Slang session of its load alive.
 ///
 /// A module is neither [`Send`] nor [`Sync`]: it stays on the thread that
 /// created its [`Device`], because the crate keeps all the GPU objects of a
@@ -50,7 +52,17 @@ pub struct Module {
     device: Device,
     kernels: Arc<[Kernel]>,
     render: Arc<[CompiledRender]>,
+    _inner: backend::Module,
     thread_bound: PhantomData<*const ()>,
+}
+
+/// What the backend created on a device for one load of a module: its own
+/// objects of the module, each kernel with its layout snapshot, and the
+/// records of the vertex and fragment entry points.
+pub(crate) struct Loaded {
+    pub(crate) module: backend::Module,
+    pub(crate) kernels: Vec<(KernelLayout, backend::Kernel)>,
+    pub(crate) render: Vec<CompiledRender>,
 }
 
 impl Module {
@@ -167,8 +179,10 @@ impl Module {
     ///   when the outputs of the vertex entry point do not match the inputs
     ///   of the fragment entry point. The source error carries the backend's
     ///   text.
-    /// - [`ErrorKind::Backend`] when wgpu reports another error while it
-    ///   creates the pipeline.
+    /// - [`ErrorKind::Backend`] when the backend reports another error while
+    ///   it creates the pipeline.
+    /// - [`ErrorKind::Unsupported`] with the feature `rhi`, which creates no
+    ///   render pipeline, for every pair of entry points of the module.
     pub fn render_pipeline(
         &self,
         vertex: &str,
@@ -232,10 +246,20 @@ impl Device {
     /// - [`ErrorKind::UnsupportedShader`] when the backend rejects the
     ///   compiled form of a kernel. The source error carries the backend's
     ///   text, which names the construct to avoid.
-    /// - [`ErrorKind::Backend`] when wgpu reports another error while it
+    /// - [`ErrorKind::Backend`] when the backend reports another error while
+    ///   it creates a kernel, such as for a thread group larger than the
+    ///   device allows.
+    ///
+    /// With the feature `rhi`, the load compiles the module for the device,
+    /// SPIR-V on Vulkan and DXIL on Direct3D 12, and also returns these kinds:
+    ///
+    /// - [`ErrorKind::Compile`] when Slang or slang-rhi cannot generate the
+    ///   code of a kernel for the device.
+    /// - [`ErrorKind::Backend`] when slang-rhi reports another error while it
     ///   creates a kernel.
     pub fn load_module(&self, path: impl AsRef<Path>) -> Result<Module> {
-        self.load(compile_file(path.as_ref())?.compiled)
+        let file = SourceFile::read(path.as_ref())?;
+        self.load_source(&file.source())
     }
 
     /// Loads a Slang module from source text and prepares each of its compute
@@ -255,62 +279,108 @@ impl Device {
     /// returns, except that no file is read.
     pub fn load_module_from_source(&self, name: &str, source: &str) -> Result<Module> {
         let path = format!("{name}.slang");
-        let compilation = layout::compile(&Source {
+        self.load_source(&Source {
             name,
             path: &path,
             text: source,
             search_path: None,
-        })?;
-        self.load(compilation.compiled)
+        })
     }
 
-    /// Creates a module on this device from the snapshot of a compilation,
-    /// with no call into Slang. Every load of a module ends here, whether it
-    /// compiled the module itself or decoded a precompiled snapshot.
+    /// Compiles the module of `source` for the backend of this device and
+    /// creates it on the device.
+    fn load_source(&self, source: &Source<'_>) -> Result<Module> {
+        let loaded = backend::Module::load(self.backend(), source)?;
+        Ok(self.module(loaded))
+    }
+
+    /// Creates a module on this device from the snapshot of a precompiled
+    /// module.
     pub(crate) fn load(&self, compiled: Compiled) -> Result<Module> {
-        let kernels = compiled
-            .kernels
+        let loaded = backend::Module::load_compiled(self.backend(), compiled)?;
+        Ok(self.module(loaded))
+    }
+
+    /// Wraps what the backend created for one load as a module of this
+    /// device.
+    fn module(&self, loaded: Loaded) -> Module {
+        let Loaded {
+            module,
+            kernels,
+            render,
+        } = loaded;
+        let kernels: Vec<Kernel> = kernels
             .into_iter()
-            .map(|compiled| Kernel::create(self, compiled))
-            .collect::<Result<Vec<Kernel>>>()?;
-        Ok(Module {
+            .map(|(layout, inner)| Kernel::from_backend(self, layout, inner))
+            .collect();
+        Module {
             device: self.clone(),
             kernels: kernels.into(),
-            render: compiled.render.into(),
+            render: render.into(),
+            _inner: module,
             thread_bound: PhantomData,
-        })
+        }
     }
 }
 
-/// Compiles the Slang module in a file as [`Device::load_module`] does, with
-/// the directory of the file, or `.` when the path has none, as a search
-/// path.
+/// The Slang source of a module read from a file, with the name and the
+/// search path that a load of the file gives Slang.
+pub(crate) struct SourceFile<'p> {
+    name: String,
+    path: &'p str,
+    text: String,
+    directory: &'p Path,
+}
+
+impl<'p> SourceFile<'p> {
+    /// Reads the Slang source in a file, with the file stem as the module
+    /// name and the directory of the file, or `.` when the path has none, as
+    /// the search path.
+    pub(crate) fn read(path: &'p Path) -> Result<Self> {
+        let Some(path_text) = path.to_str() else {
+            return Err(
+                Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
+                    "the path `{}` is not valid UTF-8, which Slang needs",
+                    path.display()
+                )),
+            );
+        };
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            Error::new(ErrorKind::InvalidArgument, READ)
+                .with_detail(format!("`{}`", path.display()))
+                .with_source(error)
+        })?;
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(path_text)
+            .to_owned();
+        let directory = path
+            .parent()
+            .filter(|directory| !directory.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        Ok(Self {
+            name,
+            path: path_text,
+            text,
+            directory,
+        })
+    }
+
+    /// Returns the source of the file for a compilation.
+    pub(crate) fn source(&self) -> Source<'_> {
+        Source {
+            name: &self.name,
+            path: self.path,
+            text: &self.text,
+            search_path: Some(self.directory),
+        }
+    }
+}
+
+/// Compiles the Slang module in a file for SPIR-V as [`Device::load_module`]
+/// does on the backend wgpu, with the directory of the file, or `.` when the
+/// path has none, as a search path.
 pub(crate) fn compile_file(path: &Path) -> Result<Compilation> {
-    let Some(path_text) = path.to_str() else {
-        return Err(
-            Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
-                "the path `{}` is not valid UTF-8, which Slang needs",
-                path.display()
-            )),
-        );
-    };
-    let text = std::fs::read_to_string(path).map_err(|error| {
-        Error::new(ErrorKind::InvalidArgument, READ)
-            .with_detail(format!("`{}`", path.display()))
-            .with_source(error)
-    })?;
-    let name = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(path_text);
-    let directory = path
-        .parent()
-        .filter(|directory| !directory.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    layout::compile(&Source {
-        name,
-        path: path_text,
-        text: &text,
-        search_path: Some(directory),
-    })
+    layout::compile(&SourceFile::read(path)?.source())
 }

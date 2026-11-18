@@ -28,6 +28,7 @@ pub(crate) fn distinct_pixels(count: usize) -> Vec<[u8; 4]> {
 
 /// Writes pixels, given as the bytes of the texture's format in rows from
 /// the top, into a texture through wgpu.
+#[cfg(feature = "wgpu")]
 #[expect(
     clippy::expect_used,
     reason = "the helper fails the test when the device or the texture has no wgpu object"
@@ -56,6 +57,10 @@ pub(crate) fn write_pixels(device: &Device, texture: &Texture, pixels: &[[u8; 4]
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_texture_from_pixels_reads_back_its_pixels() -> slango::Result<()> {
     let device = device();
     for size in [[1, 1], [3, 2], [5, 3], [64, 2], [65, 3]] {
@@ -70,6 +75,7 @@ fn a_texture_from_pixels_reads_back_its_pixels() -> slango::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_texture_of_each_colour_format_reads_back_the_bytes_written_into_it() -> slango::Result<()> {
     let device = device();
@@ -87,6 +93,10 @@ fn a_texture_of_each_colour_format_reads_back_the_bytes_written_into_it() -> sla
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn an_empty_texture_of_each_colour_format_reads_back_zeros() -> slango::Result<()> {
     let device = device();
     for format in COLOUR_FORMATS {
@@ -98,10 +108,15 @@ fn an_empty_texture_of_each_colour_format_reads_back_zeros() -> slango::Result<(
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_depth_texture_is_created_and_cannot_be_read() -> slango::Result<()> {
     let device = device();
     let depth = Texture::new(&device, [4, 4], TextureFormat::Depth32Float)?;
     assert_eq!(depth.format(), TextureFormat::Depth32Float);
+    #[cfg(feature = "wgpu")]
     assert_eq!(
         slango::wgpu::texture(&depth)
             .expect("the wgpu texture of a texture")
@@ -140,10 +155,13 @@ fn a_size_without_pixels_is_an_invalid_argument() {
 #[test]
 fn a_size_over_the_limit_of_the_device_is_an_invalid_argument() {
     let device = device();
+    #[cfg(feature = "wgpu")]
     let limit = slango::wgpu::device(&device)
         .expect("the wgpu device of a device")
         .limits()
         .max_texture_dimension_2d;
+    #[cfg(feature = "rhi")]
+    let limit = crate::common::rhi_device_info().max_texture_dimension_2d();
     let over = limit + 1;
     assert_invalid(
         Texture::new(&device, [over, 1], TextureFormat::Bgra8Unorm),
@@ -172,6 +190,7 @@ fn pixels_that_do_not_fill_the_size_are_an_invalid_argument() {
     );
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn the_wgpu_texture_of_a_texture_has_its_size_format_and_usages() -> slango::Result<()> {
     let device = device();
@@ -193,6 +212,7 @@ fn the_wgpu_texture_of_a_texture_has_its_size_format_and_usages() -> slango::Res
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[expect(
     clippy::expect_used,
     reason = "the helper fails the test when the device has no wgpu device"
@@ -221,6 +241,7 @@ pub(crate) fn wgpu_texture(
         })
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_wrapped_view_has_the_size_and_format_of_its_texture_and_reads_with_copy_src()
 -> slango::Result<()> {
@@ -242,6 +263,7 @@ fn a_wrapped_view_has_the_size_and_format_of_its_texture_and_reads_with_copy_src
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_wrapped_view_without_copy_src_cannot_be_read() -> slango::Result<()> {
     let device = device();
@@ -263,6 +285,7 @@ fn a_wrapped_view_without_copy_src_cannot_be_read() -> slango::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_view_of_a_format_that_slango_lacks_is_an_invalid_argument() {
     let device = device();
@@ -281,6 +304,7 @@ fn a_view_of_a_format_that_slango_lacks_is_an_invalid_argument() {
     );
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_view_of_a_texture_with_several_mip_levels_layers_or_samples_is_an_invalid_argument() {
     let device = device();
@@ -339,6 +363,10 @@ fn a_view_of_a_texture_with_several_mip_levels_layers_or_samples_is_an_invalid_a
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_sampler_is_created_with_every_combination_of_options() -> slango::Result<()> {
     let device = device();
     for filter in [FilterMode::Nearest, FilterMode::Linear] {

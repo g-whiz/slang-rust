@@ -40,8 +40,9 @@ impl Buffer {
         Ok(buffer)
     }
 
-    /// Creates a buffer of `size` bytes, all zero.
-    pub(crate) fn zeroed(device: &Device, size: u64) -> Result<Self> {
+    /// Creates a buffer of `size` bytes, all zero, for elements of
+    /// `_element_size` bytes, which a wgpu buffer does not record.
+    pub(crate) fn zeroed(device: &Device, size: u64, _element_size: usize) -> Result<Self> {
         let wgpu_device = device.wgpu_device();
         let (buffer, error) = scoped(wgpu_device, || {
             wgpu_device.create_buffer(&::wgpu::BufferDescriptor {

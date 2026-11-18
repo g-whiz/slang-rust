@@ -3,7 +3,7 @@
 slango runs [Slang](https://shader-slang.org) compute kernels and draws with Slang render pipelines on the graphics processing unit (GPU) from Rust, through [wgpu](https://wgpu.rs). It builds on [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), which a program uses instead to compile or reflect shaders without a GPU, and [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md) generates typed bindings to its kernels while a crate builds.
 
 > [!WARNING]
-> This crate is an alpha release, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
+> This version of the crate is an alpha that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
 
 ## Installation
 

@@ -3,7 +3,9 @@ use slango::{
     Texture, TextureFormat,
 };
 
-use super::texture::{device, wgpu_texture, write_pixels};
+use super::texture::device;
+#[cfg(feature = "wgpu")]
+use super::texture::{wgpu_texture, write_pixels};
 use crate::common::kernel;
 
 /// Samples each pixel of `image` at its centre and writes it, scaled back to
@@ -73,6 +75,10 @@ const ASYMMETRIC: [[u8; 4]; 6] = [
 ];
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_kernel_samples_each_pixel_of_a_texture_from_pixels_at_its_centre() -> slango::Result<()> {
     let device = device();
     let image = Texture::from_pixels(&device, [3, 2], &ASYMMETRIC)?;
@@ -80,6 +86,7 @@ fn a_kernel_samples_each_pixel_of_a_texture_from_pixels_at_its_centre() -> slang
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_kernel_reads_a_bgra_texture_as_red_green_blue_and_alpha() -> slango::Result<()> {
     let device = device();
@@ -94,6 +101,7 @@ fn a_kernel_reads_a_bgra_texture_as_red_green_blue_and_alpha() -> slango::Result
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_kernel_reads_the_channels_of_an_srgb_texture_in_the_order_of_its_format() -> slango::Result<()>
 {
@@ -127,6 +135,7 @@ fn a_kernel_reads_the_channels_of_an_srgb_texture_in_the_order_of_its_format() -
 /// Returns the linear value of an sRGB-encoded byte, by the sRGB transfer
 /// function: `c / 12.92` up to 0.04045, and `((c + 0.055) / 1.055)^2.4`
 /// above it, with `c` the byte over 255.
+#[cfg(feature = "wgpu")]
 fn srgb_to_linear(byte: u8) -> f32 {
     let encoded = f32::from(byte) / 255.0;
     if encoded <= 0.040_45 {
@@ -136,6 +145,7 @@ fn srgb_to_linear(byte: u8) -> f32 {
     }
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_kernel_decodes_a_mid_range_channel_of_an_srgb_texture_and_not_of_a_unorm_one()
 -> slango::Result<()> {
@@ -189,6 +199,10 @@ void centre() { output[0] = image.SampleLevel(pick, float2(0.5, 0.5), 0); }
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_linear_sampler_blends_two_pixels_by_their_distance() -> slango::Result<()> {
     let device = device();
     let blend = kernel(
@@ -236,6 +250,10 @@ const LEFT: [u8; 4] = [255, 0, 0, 255];
 const RIGHT: [u8; 4] = [0, 0, 255, 255];
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn each_address_mode_reads_its_own_pixels_outside_the_unit_square() -> slango::Result<()> {
     let device = device();
     let edges = kernel(
@@ -281,6 +299,10 @@ void edges(uint3 id : SV_DispatchThreadID)
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn two_textures_and_two_samplers_reach_their_own_parameters() -> slango::Result<()> {
     let device = device();
     let pairs = kernel(
@@ -330,6 +352,10 @@ void pairs()
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_kernel_loads_a_pixel_of_a_texture_without_a_sampler() -> slango::Result<()> {
     let device = device();
     let load = kernel(
@@ -418,6 +444,10 @@ impl Fixture {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn the_complete_call_of_the_fixture_runs() -> slango::Result<()> {
     let fixture = fixture()?;
     fixture.call_without("").dispatch([6, 1, 1])?;
@@ -426,6 +456,10 @@ fn the_complete_call_of_the_fixture_runs() -> slango::Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_missing_texture_or_sampler_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     fixture.assert_rejected(
@@ -439,6 +473,10 @@ fn a_missing_texture_or_sampler_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn an_unknown_path_of_a_texture_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let mut call = fixture.call_without("");
@@ -450,6 +488,10 @@ fn an_unknown_path_of_a_texture_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_texture_or_sampler_for_a_parameter_of_another_kind_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let mut call = fixture.call_without("image");
@@ -479,6 +521,10 @@ fn a_texture_or_sampler_for_a_parameter_of_another_kind_is_rejected() -> slango:
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_texture_or_sampler_of_another_device_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let other = device();
@@ -499,6 +545,10 @@ fn a_texture_or_sampler_of_another_device_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or sampler"
+)]
 fn a_depth_texture_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let depth = Texture::new(&fixture.device, [3, 2], TextureFormat::Depth32Float)?;
@@ -510,6 +560,7 @@ fn a_depth_texture_is_rejected() -> slango::Result<()> {
     )
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_wrapped_view_is_sampled_with_texture_binding_and_rejected_without() -> slango::Result<()> {
     let fixture = fixture()?;

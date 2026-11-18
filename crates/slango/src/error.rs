@@ -140,12 +140,12 @@ pub enum ErrorKind {
     /// returns, has as its source error an error whose text is the text of
     /// the error of `slang-compiler`, with the messages that Slang printed.
     Compile,
-    /// wgpu found no adapter, a GPU or a software implementation of one, that
-    /// matches the options. Install a GPU driver or a software driver such as
+    /// The backend found no adapter, a GPU or a software implementation of
+    /// one, that matches the options. Install a GPU driver or a software driver such as
     /// lavapipe, or choose another adapter.
     NoAdapter,
     /// The adapter refused the device that the options request. The source
-    /// error is the error of wgpu.
+    /// error is the error of wgpu, or of slang-rhi with the feature `rhi`.
     DeviceRequest,
     /// naga, the shader translator inside wgpu, or the backend of wgpu
     /// rejected the SPIR-V of a kernel or of the entry points of a render
@@ -181,7 +181,14 @@ pub enum ErrorKind {
     /// arguments that no check of this crate rejects, such as one texture
     /// that a draw both samples and draws into. Report any other validation
     /// error as a defect of this crate.
+    ///
+    /// With the feature `rhi`, slang-rhi reported such an error. The source
+    /// error is the error of slang-rhi.
     Backend,
+    /// The backend of the build does not offer the operation. With the
+    /// feature `rhi`, this crate creates no texture, sampler, or render
+    /// pipeline, and loads no precompiled module of `slango-macros`.
+    Unsupported,
 }
 
 #[cfg(test)]
@@ -190,7 +197,7 @@ mod tests {
     use std::error::Error as StdError;
     use std::io;
 
-    const KINDS: [ErrorKind; 8] = [
+    const KINDS: [ErrorKind; 9] = [
         ErrorKind::Compile,
         ErrorKind::NoAdapter,
         ErrorKind::DeviceRequest,
@@ -199,6 +206,7 @@ mod tests {
         ErrorKind::MissingFeature,
         ErrorKind::InvalidArgument,
         ErrorKind::Backend,
+        ErrorKind::Unsupported,
     ];
 
     #[test]

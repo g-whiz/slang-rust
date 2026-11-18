@@ -3,7 +3,7 @@
 slango-codegen is the generator of [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md), which turns the compute kernels of a [Slang](https://shader-slang.org) file into typed Rust bindings for [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md). A program uses the macro `shader!` of slango-macros instead, and calls this crate directly only to work with the generated code outside a macro call, such as to print it.
 
 > [!WARNING]
-> This crate is an alpha release, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
+> This version of the crate is an alpha that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
 
 ## Installation
 

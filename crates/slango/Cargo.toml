@@ -4,6 +4,7 @@ description = "Run Slang compute kernels and draw with Slang render pipelines on
 keywords = ["slang", "shader", "gpu", "wgpu", "compute"]
 categories = ["graphics", "rendering::graphics-api"]
 documentation = "https://g-whiz.github.io/slang-rust/slango/"
+publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -14,12 +15,14 @@ readme = "README.md"
 
 [features]
 default = ["wgpu"]
+rhi = ["dep:slang-rhi", "vendored"]
 vendored = ["slang-compiler/vendored"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 
 [dependencies]
 pollster = { workspace = true, optional = true }
 slang-compiler.workspace = true
+slang-rhi = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]

@@ -54,6 +54,9 @@ fn the_information_of_a_device_holds_limits_within_the_minimums_of_both_apis() {
             .all(|count| *count >= 65_535),
         "{info:?}"
     );
+    let [x, y, z] = info.max_compute_thread_group_size();
+    assert!(x >= 1024 && y >= 1024 && z >= 64, "{info:?}");
+    assert!(info.max_compute_threads_per_group() >= 1024, "{info:?}");
     assert!(info.max_buffer_size() > 0, "{info:?}");
     assert!(info.max_texture_dimension_2d() >= 4096, "{info:?}");
     assert!(info.max_vertex_streams() >= 16, "{info:?}");
@@ -704,5 +707,55 @@ void main<T : IValue>(uint3 thread : SV_DispatchThreadID)
     assert_eq!(error.kind(), ErrorKind::InvalidArgument);
     assert_eq!(error.operation(), Operation::CreateShaderProgram);
     assert!(error.to_string().contains("specialization"), "{error}");
+    assert_eq!(messages.errors(), []);
+}
+
+#[test]
+fn a_kernel_whose_thread_group_exceeds_the_device_is_refused_and_the_device_keeps_working() {
+    let (options, messages) = options(Toggle::Off);
+    let device = open(&options);
+    let info = device.info();
+    let [max_x, _, max_z] = info.max_compute_thread_group_size();
+    let shapes = [
+        (
+            format!("[numthreads({}, 1, 1)]", max_x + 1),
+            format!(
+                "{} threads along the axis x, more than the {max_x}",
+                max_x + 1
+            ),
+        ),
+        (
+            format!("[numthreads(1, 1, {})]", max_z + 1),
+            format!(
+                "{} threads along the axis z, more than the {max_z}",
+                max_z + 1
+            ),
+        ),
+        (
+            format!(
+                "[numthreads({}, 2, 1)]",
+                info.max_compute_threads_per_group().min(max_x)
+            ),
+            format!(
+                "more than the {} threads of one group",
+                info.max_compute_threads_per_group()
+            ),
+        ),
+    ];
+    for (position, (attribute, expected)) in shapes.into_iter().enumerate() {
+        let source = format!(
+            "RWStructuredBuffer<uint> values;\n[shader(\"compute\")]\n{attribute}\nvoid main(uint3 thread : SV_DispatchThreadID) {{ values[thread.x] = 1; }}\n"
+        );
+        let linked = link(device.slang_session(), &format!("large{position}"), &source);
+        let program = device
+            .create_shader_program(&linked)
+            .expect("slang-rhi creates the program");
+        let error = device
+            .create_compute_pipeline(&program)
+            .expect_err("the thread group exceeds the device");
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument, "{error}");
+        assert!(error.to_string().contains(&expected), "{error}");
+    }
+    assert_eq!(double(&device), [2.0, 4.0, 6.0, 8.0]);
     assert_eq!(messages.errors(), []);
 }

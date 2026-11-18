@@ -11,7 +11,7 @@ use crate::error::Result;
 /// A device is the connection of a program to one adapter, which is a GPU or
 /// a software implementation of one, such as lavapipe. Create one with
 /// [`Device::new`], or from a device that the program already holds with
-/// [`wgpu::from_device_and_queue`](crate::wgpu::from_device_and_queue).
+/// `wgpu::from_device_and_queue`.
 ///
 /// Cloning a device is cheap and returns another handle to the same device.
 ///
@@ -163,9 +163,10 @@ pub struct DeviceOptions {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AdapterSelection {
-    /// The adapter that wgpu chooses when a program states no preference,
-    /// which is the first adapter that wgpu finds, a GPU or a software
-    /// adapter.
+    /// The adapter that the backend chooses when a program states no
+    /// preference, a GPU or a software adapter. With the feature `wgpu`, it
+    /// is the first adapter that wgpu finds, and with the feature `rhi`, the
+    /// adapter that slang-rhi opens a device on when it is given none.
     #[default]
     Default,
     /// A software adapter, an implementation of a GPU that runs on the

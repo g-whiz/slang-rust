@@ -18,6 +18,10 @@ fn both(device: &Device, name: &str) -> slango::Result<[Module; 2]> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi loads no precompiled module"
+)]
 fn a_precompiled_kernel_gives_the_results_of_the_kernel_that_a_load_compiles() -> slango::Result<()>
 {
     let device = device();
@@ -40,6 +44,10 @@ fn a_precompiled_kernel_gives_the_results_of_the_kernel_that_a_load_compiles() -
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi loads no precompiled module"
+)]
 fn a_precompiled_shader_with_an_import_runs_both_kernels_as_a_loaded_one() -> slango::Result<()> {
     let device = device();
     let mut results = Vec::new();
@@ -123,6 +131,10 @@ fn advanced(particle: Particle, step: f32) -> Particle {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi loads no precompiled module"
+)]
 fn a_precompiled_kernel_runs_over_a_buffer_of_a_struct_element() -> slango::Result<()> {
     let device = device();
     let particles: Vec<Particle> = (0_u8..5)
@@ -158,6 +170,10 @@ fn a_precompiled_kernel_runs_over_a_buffer_of_a_struct_element() -> slango::Resu
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi loads no precompiled module"
+)]
 fn a_struct_element_is_rejected_as_a_plain_value_before_any_work() -> slango::Result<()> {
     let device = device();
     let [_, module] = both(&device, "particles.slang")?;
@@ -208,6 +224,10 @@ impl StructElement for Pair {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi loads no precompiled module"
+)]
 fn a_buffer_of_a_struct_element_of_another_stride_is_rejected_before_any_work() -> slango::Result<()>
 {
     let device = device();

@@ -5,7 +5,9 @@ use slango::{AdapterSelection, Buffer, Device, Element};
 use crate::common::{device_with, kernel, load, shader};
 
 mod elements;
+mod entry_point;
 mod matrices;
+mod structures;
 mod validation;
 
 fn device() -> Device {
@@ -476,6 +478,7 @@ fn a_dispatch_of_zero_elements_runs_no_thread() -> slango::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_dispatch_with_plain_values_on_a_destroyed_device_is_a_backend_error() -> slango::Result<()> {
     let device = device();

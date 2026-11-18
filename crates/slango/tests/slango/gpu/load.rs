@@ -2,7 +2,9 @@ use std::error::Error as _;
 
 use slango::{AdapterSelection, Buffer, Device, ErrorKind};
 
-use crate::common::{device_with, device_without_immediates, load, shader};
+#[cfg(feature = "wgpu")]
+use crate::common::device_without_immediates;
+use crate::common::{device_with, load, shader};
 
 fn device() -> Device {
     device_with(AdapterSelection::Default)
@@ -26,6 +28,10 @@ fn a_module_file_with_two_kernels_and_an_import_loads_both_by_name() {
 }
 
 #[test]
+#[cfg_attr(
+    all(feature = "rhi", target_os = "windows"),
+    ignore = "slang-rhi fails to create the compute pipeline of a kernel with a constant buffer and a global uniform on Direct3D 12"
+)]
 fn a_kernel_with_buffers_a_global_uniform_a_constant_buffer_and_a_parameter_block_loads() {
     let module = load(
         &device(),
@@ -91,6 +97,7 @@ void amplify(uint3 id : SV_DispatchThreadID, uniform float factor, uniform Run r
 #[test]
 fn a_kernel_with_uniform_parameters_of_its_entry_point_loads_with_immediates() {
     let device = device();
+    #[cfg(feature = "wgpu")]
     assert!(
         slango::wgpu::device(&device)
             .expect("the wgpu device of a device")
@@ -102,6 +109,7 @@ fn a_kernel_with_uniform_parameters_of_its_entry_point_loads_with_immediates() {
     module.kernel("amplify").expect("the kernel");
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_kernel_with_uniform_parameters_of_its_entry_point_needs_immediates() {
     let error = device_without_immediates()
@@ -111,6 +119,7 @@ fn a_kernel_with_uniform_parameters_of_its_entry_point_needs_immediates() {
     assert!(error.to_string().contains("`amplify`"), "{error}");
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn uniform_parameters_of_an_entry_point_over_the_immediate_limit_are_a_missing_feature() {
     let device = device();
@@ -214,6 +223,7 @@ fn source_that_does_not_compile_is_a_compile_error_with_slangs_diagnostics() {
     );
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
 fn a_shader_that_the_backend_rejects_is_unsupported_with_the_backends_text() {
     let error = device()
@@ -287,5 +297,108 @@ void double_each(uint3 id : SV_DispatchThreadID)
         .bind("data", &data)
         .dispatch([3, 1, 1])?;
     assert_eq!(data.read()?, [2.0, 4.0, 6.0]);
+    Ok(())
+}
+
+/// Writes a module with the kernel `mark`, which writes `value` to its
+/// buffer, to the file `name` in the directory `directory`.
+fn write_marker(
+    directory: &std::path::Path,
+    name: &str,
+    value: u32,
+) -> std::io::Result<std::path::PathBuf> {
+    std::fs::create_dir_all(directory)?;
+    let path = directory.join(name);
+    std::fs::write(
+        &path,
+        format!(
+            "RWStructuredBuffer<uint> marks;\n[shader(\"compute\")]\n[numthreads(1, 1, 1)]\nvoid mark() {{ marks[0] = {value}; }}\n"
+        ),
+    )?;
+    Ok(path)
+}
+
+/// Runs the kernel `mark` of the module at `path` on `device` and returns
+/// the value that it writes.
+fn mark_of(device: &Device, path: &std::path::Path) -> slango::Result<u32> {
+    let module = device.load_module(path)?;
+    let marks = Buffer::<u32>::zeroed(device, 1)?;
+    module
+        .kernel("mark")?
+        .call()
+        .bind("marks", &marks)
+        .dispatch([1, 1, 1])?;
+    Ok(marks.read()?[0])
+}
+
+#[test]
+fn a_changed_file_loads_again_under_the_same_name_on_one_device()
+-> Result<(), Box<dyn std::error::Error>> {
+    let device = device();
+    let directory = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("slango-reload")
+        .join(crate::common::BACKEND);
+    let path = write_marker(&directory, "marker.slang", 1)?;
+    assert_eq!(mark_of(&device, &path)?, 1);
+    write_marker(&directory, "marker.slang", 2)?;
+    assert_eq!(mark_of(&device, &path)?, 2);
+    Ok(())
+}
+
+#[test]
+fn two_files_of_the_same_stem_load_on_one_device() -> Result<(), Box<dyn std::error::Error>> {
+    let device = device();
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("slango-same-stem")
+        .join(crate::common::BACKEND);
+    let first = write_marker(&root.join("first"), "marker.slang", 3)?;
+    let second = write_marker(&root.join("second"), "marker.slang", 4)?;
+    assert_eq!(mark_of(&device, &first)?, 3);
+    assert_eq!(mark_of(&device, &second)?, 4);
+    Ok(())
+}
+
+#[test]
+fn a_kernel_whose_thread_group_exceeds_the_device_fails_to_load_and_the_device_keeps_working()
+-> slango::Result<()> {
+    let device = device();
+    let error = device
+        .load_module_from_source(
+            "large_group",
+            r#"
+RWStructuredBuffer<uint> values;
+
+[shader("compute")]
+[numthreads(2048, 1, 1)]
+void fill(uint3 id : SV_DispatchThreadID)
+{
+    values[id.x] = 1;
+}
+"#,
+        )
+        .expect_err("the thread group exceeds the device");
+    let expected = if cfg!(all(feature = "rhi", windows)) {
+        ErrorKind::Compile
+    } else {
+        ErrorKind::Backend
+    };
+    assert_eq!(error.kind(), expected, "{error}");
+    #[cfg(all(feature = "rhi", not(windows)))]
+    assert!(
+        error.source().is_some_and(|source| source
+            .to_string()
+            .contains("the thread group of the kernel has 2048 threads along the axis x")),
+        "{error:?}"
+    );
+    let data = Buffer::from_slice(&device, &[1.0_f32, 2.0])?;
+    device
+        .load_module(shader("scale.slang"))?
+        .kernel("scale")?
+        .call()
+        .set("factor", 2.0_f32)
+        .set("count", 2_u32)
+        .bind("data", &data)
+        .dispatch([2, 1, 1])?;
+    assert_eq!(data.read()?, [2.0, 4.0]);
     Ok(())
 }

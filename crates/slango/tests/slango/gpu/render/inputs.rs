@@ -50,6 +50,7 @@ fn left_and_right(target: &Texture) -> [[u8; 4]; 2] {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn float_attributes_of_one_to_four_components_arrive_at_their_locations() {
     let device = device();
     let pipeline = pipeline(
@@ -94,6 +95,7 @@ float4 fsMain(VOut input) : SV_Target { return input.colour; }
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn int_attributes_of_one_to_four_components_arrive_unchanged_through_nointerpolation() {
     let device = device();
     let pipeline = pipeline(
@@ -156,6 +158,7 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn uint_attributes_of_one_to_four_components_arrive_unchanged_through_nointerpolation() {
     let device = device();
     let pipeline = pipeline(
@@ -218,6 +221,7 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn an_indexed_draw_of_four_vertices_and_six_indices_fills_a_quad() {
     let device = device();
     let pipeline = pipeline(&device, FLAT, &RenderPipelineOptions::default());
@@ -262,6 +266,7 @@ fn an_indexed_draw_of_four_vertices_and_six_indices_fills_a_quad() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn an_instanced_draw_places_each_instance_by_its_own_attributes() {
     let device = device();
     let mut options = RenderPipelineOptions::default();

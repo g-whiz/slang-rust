@@ -312,9 +312,11 @@ The crate reads the specialization parameter count through `IComponentType::getS
 
 A failure has the kind `Compile` and holds as its diagnostics the text of the out-parameter, when slang-rhi fills it, or else the collected messages of Slang. Warnings on success are dropped, because the result type carries no diagnostics. This answers RHQ-4 by a choice of the design of M10: the one user of the crate, the backend `rhi` of `slango`, returns no warning of Slang on either backend (SLO-42 of `docs/design/slango.md`), so a result type with warnings would carry data that no caller reads. Returning them later is an additive change of the result type of new methods, so the simplest answer costs nothing now.
 
-`Device::create_compute_pipeline(&self, program: &ShaderProgram) -> Result<ComputePipeline>` MUST fail with the kind `InvalidArgument`, before any call into slang-rhi, when the shader program belongs to another device, or when its linked program does not have exactly one entry point, whose stage is compute. Otherwise it creates the pipeline with the default compilation policy and collects the messages of Slang during the call.
+`Device::create_compute_pipeline(&self, program: &ShaderProgram) -> Result<ComputePipeline>` MUST fail with the kind `InvalidArgument`, before any call into slang-rhi, when the shader program belongs to another device, when its linked program does not have exactly one entry point, whose stage is compute, or when the thread group of that entry point exceeds the limits of the device, along an axis or in its number of threads (RHI-29). Otherwise it creates the pipeline with the default compilation policy and collects the messages of Slang during the call.
 
 slang-rhi aborts the process on a compute pipeline of a program without an entry point (Section 3), and a stage other than compute in a compute pipeline breaks valid use of Vulkan (Section 9.1). `createShaderProgram` generates no code (`src/vulkan/vk-device.cpp:2521-2538`). With the default policy and the pipeline compilation mode `Serial`, `createComputePipeline` generates the code of the program at this call (`src/device.cpp:755-769`, `src/shader.cpp:110`, `src/device.cpp:447`), so a failure of that compile has the kind `Compile` with the collected messages.
+
+`create_shader_program` reads the thread group size of the one compute entry point through the reflection of `slang-compiler` and keeps it in the `ShaderProgram`, and `create_compute_pipeline` compares it with `max_compute_thread_group_size` and `max_compute_threads_per_group` of `DeviceInfo`, with a checked product of the three sizes, so an overflow is refused as well. The two messages name the axis and the limit, or the number of threads and the limit. slang-rhi checks neither limit without its debug device, and a dispatch of a pipeline over them broke the device so that every later read failed (observed through `slango` on 2026-11-18), so this is a check of RHI-20.
 
 ### 6.6. Buffers
 
@@ -450,7 +452,7 @@ RHI-20. Before each call into slang-rhi, the crate MUST check every condition of
 
 slang-rhi checks nothing unless its debug device is on (Section 3), and the debug device checks slang-rhi's own rules, not every condition of valid use. A call that breaks valid use has undefined behaviour by the specification of the graphics API, so a safe call must not reach the driver with one. These checks keep the safe interface within valid use, as the bounds checks of RHI-11 do, and they are not guards against defects of slang-rhi under Hard Rule 14 of `AGENTS.md`.
 
-The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of unordered access to `Upload` and `ReadBack` memory and of initial data for `ReadBack` memory of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7, and the ownership of `submit` (RHI-21). Conditions that the crate does not check yet are RHQ-7 and RHQ-8.
+The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of unordered access to `Upload` and `ReadBack` memory and of initial data for `ReadBack` memory of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7 and the limits of its thread group, and the ownership of `submit` (RHI-21). Conditions that the crate does not check yet are RHQ-7 and RHQ-8.
 
 ### 9.2. Invariants
 
@@ -486,7 +488,7 @@ TEST-7 of the coding standard asks for a fake of the interfaces, and the fake of
 
 ### 10.3. GPU Tests
 
-The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 32 tests, 19 in `gpu.rs`, 7 in `gpu/objects.rs`, and 6 in `gpu/compile_session.rs`, and they cover:
+The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 33 tests, 20 in `gpu.rs`, 7 in `gpu/objects.rs`, and 6 in `gpu/compile_session.rs`, and they cover:
 
 - `adapters` for the device type of the platform returns at least one adapter, and a device opens on each. An adapter of another device type than the options is refused.
 - A device of the type `Default` opens on the graphics API of the platform.
@@ -502,9 +504,10 @@ The `gpu` tests run on an adapter of the device type of the platform, which is V
 - Buffer descriptions of size 0, without a usage, or with an unknown usage are refused, each use of a buffer needs its usage flag, `UNORDERED_ACCESS` in `Upload` or `ReadBack` memory and initial data for `ReadBack` memory are refused, and a buffer in `Upload` memory with `SHADER_RESOURCE` and `COPY_SOURCE` and initial data reads back correctly.
 - A typed buffer parameter is refused, and the buffer stays unchanged.
 - A dispatch past the limit of the device is refused, and a dispatch of 0 groups runs nothing.
+- A kernel whose thread group exceeds the device is refused by `create_compute_pipeline`, and the device keeps working.
 - The limits of `DeviceInfo` are at least the minimums that both Vulkan and D3D12 guarantee, and the size of a buffer is above 0 (RHI-29).
 - The fields of a `ConstantBuffer`, a `cbuffer`, and a `ParameterBlock` are set through `object`, and `set_data` and `set_buffer` on the parameter, `object` past its array, and `object` on a buffer or a uniform field are refused. Only the kernel of the `ParameterBlock` has a global uniform, which avoids RKB-2 on D3D12.
-- Nested parameter blocks and constant buffers are reached one object at a time, without a uniform field beside the nested `ConstantBuffer`, once with the debug device off and once with it on. A third test has a uniform field beside it, which has the shape of RKB-2 one level down, and has not run on D3D12.
+- Nested parameter blocks and constant buffers are reached one object at a time, without a uniform field beside the nested `ConstantBuffer`, once with the debug device off and once with it on. A third test has a uniform field beside it, which has the shape of RKB-2 one level down, and it passed on WARP (Section 10.4).
 - A structure of several resources is refused by `object` and by `set_buffer`.
 - A `CompileSession` gives the same layouts and code as the device session for the test shaders of `slango` and a kernel with a matrix in a `ConstantBuffer` and a `ParameterBlock` and a branch on the macro of the backend, and a session without the device's settings gives a different result (RHI-30).
 - A shader program of a `CompileSession` loads a module by name from a search path, sees the macro of the backend, and runs when the linked program and the `CompileSession` are dropped before the pipeline is created and the shader program before the dispatch.
@@ -518,14 +521,18 @@ The tests run under the debug device of slang-rhi only, and none runs under the 
 
 - Valid use on the NVIDIA adapter under the Khronos validation layer, and valid use on D3D12 under its debug layer.
 - A hardware D3D12 adapter, ARM64 Windows, and a program on Windows without `dxcompiler.dll` (Section 7.3 of the sys design).
-- That a device of the type `Default` opens on D3D12 on Windows. The test of it has run on Vulkan only.
 - A device whose Vulkan driver lacks `nullDescriptor` (RHQ-7).
 - What slang-rhi and a driver do with a buffer larger than the device allows (RHQ-8).
-- On D3D12, the target and profile that `create_slang_session` chooses on a real device, the comparison of RHA-8 with DXIL, the objects of RHI-22, and the limits of RHI-29, which run first in CI on WARP.
 - Arrays of `ParameterBlock` parameters.
 - The path of a failed rebind, after which slang-rhi returns no root object, which was read in the source and not run.
 - A message of the debug callback from a thread of the driver.
 - That the SPIR-V that the device runs is optimized, beyond the absence of a message about `spirv-opt`.
+
+In CI run 44388142812 of 2026-11-18, `test-rhi` ran all 143 tests of both crates on WARP and passed them, at the code of the compute phase of Section 11.1 before the limits of the thread group. So on D3D12 a device of the type `Default` opens, `create_slang_session` chooses a target and profile that the device runs, RHA-8 holds with DXIL, and the objects of RHI-22 and the limits of RHI-29 behave as on Vulkan, including the nested test with a uniform field.
+
+In CI run 44407500494 of the same day, `test-rhi` ran all 148 tests of both crates on WARP and passed them, with the limits of the thread group. Among them, the `gpu` test of those limits reads both limits from the D3D12 device, links a kernel over each of them, and creates its shader program, which succeeds. `create_compute_pipeline` then refuses each kernel with the kind `InvalidArgument` and the message that names the limit, so the check of RHI-7 runs on D3D12.
+
+The test generates no code before that call, so the DXIL compiler does not see the oversized kernel first, as it does in a load of `slango` (Section 7.6 of `docs/design/slango.md`). The run does not print the values of the two limits.
 
 ## 11. Additions for M10
 
@@ -547,7 +554,7 @@ On D3D12, it chooses DXIL with the profile `sm_X_Y` of the highest feature `SM_6
 
 Settings that slang-rhi repeats from its source, rather than reporting them, need the reproduction changed when a newer slang-rhi changes them, which the test of RHA-8 shows.
 
-On Vulkan, the `gpu` test of RHA-8 compared the layouts and the code of every entry point of the test shaders of `slango` and of a kernel with a `float3x4` in a `ConstantBuffer` and in a `ParameterBlock` and a branch on the macro of the backend, byte for byte, and found them equal on the NVIDIA RTX 4070 and on lavapipe. Without the capability options, with a column-major matrix layout, without the scalar layout, or with another macro, the code differs. A review compared 13 further shaders on both adapters with the same result.
+The `gpu` test of RHA-8 compared the layouts and the code of every entry point of the test shaders of `slango` and of a kernel with a `float3x4` in a `ConstantBuffer` and in a `ParameterBlock` and a branch on the macro of the backend, byte for byte, and found them equal on Vulkan on the NVIDIA RTX 4070 and on lavapipe, and with DXIL on WARP in CI run 44388142812. This confirmed the former assumption RHA-8 on both backends. Without the capability options, with a column-major matrix layout, without the scalar layout, or with another macro, the code differs. A review compared 13 further shaders on both adapters with the same result.
 
 RHI-22. `ShaderObject::object(&mut self, offset: ShaderOffset) -> Result<ShaderObject<'_>>` MUST return the object of a `ConstantBuffer`, `cbuffer`, or `ParameterBlock` parameter through `IShaderObject::getObject`. Before the call, it MUST check that the parameter of the offset has exactly one binding range, that this range is a range of sub-objects of the object and that the array index is below the binding count of that range, and MUST fail with the kind `InvalidArgument` otherwise. A null object from `getObject` MUST give an error of the kind `Failed` instead of a value, because `getObject` itself checks neither the kind of the range nor the array index and returns a null entry for some ranges (`src/shader-object.cpp:121-130`). The returned value MUST own its reference and borrow its parent mutably, as the value of `entry_point` does.
 
@@ -557,13 +564,13 @@ A range of `ExistentialValue` is refused, because slang-rhi creates no object fo
 
 slang-rhi creates the object of each such parameter, at the root and below it, when the pipeline is bound, so `getObject` returns it without a prior `setObject` (Section 3). The `gpu` tests of `object` at the root and two levels down show this on Vulkan. On D3D12, a binding range that is a root parameter by `D3D12DeviceExtendedDesc::rootParameterShaderAttributeName` gets no sub-object index (`src/d3d12/d3d12-shader-object-layout.cpp:96-140`), and the crate never sets that name, whose default is null (`src/d3d12/d3d12-device.h:41`).
 
-So the null object that RHI-22 turns into the kind `Failed` arises only for a range without a layout, which the crate refuses before the call. Under the debug device of slang-rhi, which `DeviceOptions::validation` turns on, such a missing object is wrapped in a live object of the debug device, so `object` could not return its error there. The documentation of `object` states this limit.
+So the null object that RHI-22 turns into the kind `Failed` arises only for a range without a layout, which the crate refuses before the call. Under the debug device of slang-rhi, which `DeviceOptions::validation` turns on, a missing object would be wrapped in a live object of the debug device, so `object` cannot report it there. That is the one limit of `object` under the debug device, and it has no effect while the crate refuses, before the call, every range for which slang-rhi leaves the object missing. The documentation of `object` states this limit.
 
-RHI-29. `DeviceInfo` MUST offer the limits of the device that the checks of the crate use, which are the maximum thread group counts of a dispatch, the maximum size of a buffer, the maximum width and height of a two-dimensional texture, the maximum number of vertex streams, and the maximum number of vertex input elements, read once by `Device::new` from `DeviceInfo::limits` of slang-rhi (`maxComputeDispatchThreadGroups`, `maxBufferSize`, `maxTextureDimension2D`, `maxVertexStreams`, and `maxVertexInputElements` of `include/slang-rhi.h`).
+RHI-29. `DeviceInfo` MUST offer the limits of the device that the checks of the crate use, which are the maximum thread group counts of a dispatch, the maximum size of a thread group along each axis, the maximum number of threads of a thread group, the maximum size of a buffer, the maximum width and height of a two-dimensional texture, the maximum number of vertex streams, and the maximum number of vertex input elements, read once by `Device::new` from `DeviceInfo::limits` of slang-rhi (`maxComputeDispatchThreadGroups`, `maxComputeThreadGroupSize`, `maxComputeThreadsPerGroup`, `maxBufferSize`, `maxTextureDimension2D`, `maxVertexStreams`, and `maxVertexInputElements` of `include/slang-rhi.h`).
 
-`slango` runs the checks of a dispatch, a buffer, and a draw before it calls the crate, with the same limits, so that a mistake gets the text and the kind of `slango` on both of its backends (SLO-39 and SLO-40 of `docs/design/slango.md`). The accessors are `max_compute_dispatch_thread_groups`, `max_buffer_size`, `max_texture_dimension_2d`, `max_vertex_streams`, and `max_vertex_input_elements`, after the fields of slang-rhi.
+`slango` runs the checks of a dispatch, a buffer, and a draw before it calls the crate, with the same limits, so that a mistake gets the text and the kind of `slango` on both of its backends (SLO-39 and SLO-40 of `docs/design/slango.md`). The crate itself checks the thread group of a compute pipeline against its two limits (RHI-7). The seven accessors are `max_compute_dispatch_thread_groups`, `max_compute_thread_group_size`, which returns `[u32; 3]`, `max_compute_threads_per_group`, which returns `u32`, `max_buffer_size`, `max_texture_dimension_2d`, `max_vertex_streams`, and `max_vertex_input_elements`, after the fields of slang-rhi.
 
-The four limits other than the size of a buffer come from the driver on Vulkan and are constants of the API on D3D12. `maxBufferSize` is the 2 GiB that slang-rhi assumes on both backends, not a value of the device (Section 3), and the documentation of `max_buffer_size` says so. The crate does not check the size of a buffer against it (RHQ-8).
+The six limits other than the size of a buffer come from the driver on Vulkan and are constants of the API on D3D12, which are 1024 threads for each group and 1024, 1024, and 64 along the three axes for a thread group. `maxBufferSize` is the 2 GiB that slang-rhi assumes on both backends, not a value of the device (Section 3), and the documentation of `max_buffer_size` says so. The crate does not check the size of a buffer against it (RHQ-8).
 
 A kernel with a `ConstantBuffer` and a global `uniform` fails on D3D12 (RKB-2). On Vulkan, an array of `ConstantBuffer` parameters is bound as if it had one element (RKB-5), and a kernel with a push-constant buffer aborts the process at its dispatch (RKB-6). The crate does not guard against these defects (Section 3.1), and its crate documentation states them among the limits of the crate.
 
@@ -625,7 +632,8 @@ A user who needs one of them reaches it through `slang-rhi-sys` under its safety
 The additions follow the tiers of Section 10:
 
 - The fake for Miri gains `IRenderPassEncoder`, so that the unit tests cover the closure of RHI-27 with a panic of `f`, and the pure checks of RHI-22 to RHI-28 run under Miri as those of RHI-11 do (RHI-16).
-- The `gpu` tests cover `create_slang_session` with the comparison of RHA-8, a shader program of a `CompileSession`, and the refusal of a program of another session by both `create_shader_program` methods (RHI-30).
+- The `gpu` tests cover `create_slang_session` with the comparison of the layouts and code of both sessions (Section 11.1), a shader program of a `CompileSession`, and the refusal of a program of another session by both `create_shader_program` methods (RHI-30).
+- The `gpu` tests cover a kernel whose thread group exceeds the limits of the device, and four unit tests cover the check of RHI-7 for each limit and for an overflow of the number of threads.
 - The `gpu` tests on lavapipe and WARP cover the fields of a `ConstantBuffer`, a `cbuffer`, and nested parameter blocks set through `object`, a texture created with initial data and read back, each check of RHI-23 to RHI-28, a draw with and without indices into a texture with a depth target, a sampled texture, and the refusal of a texture that a pass both samples and draws into.
 - The test of the fields of a `ConstantBuffer` checks that `object` sets them instead of `set_data`, in a kernel without a global `uniform`, which avoids RKB-2 on D3D12.
 - A unit test compares the fields that the crate writes into `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment` with the C++ defaults that the generated documentation of each field states.
@@ -710,14 +718,12 @@ The crate emits no logs and has no logging dependency. slang-rhi reports its mes
 
 Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in the section that relies on it, and removes the row. An identifier is never reused.
 
-RHA-1 to RHA-4 were confirmed, and Sections 3, 6.4, 6.5, 6.7, and 7 state the results. RHA-5 was confirmed, and Sections 3 and 11.1 state the result.
+RHA-1 to RHA-4 were confirmed, and Sections 3, 6.4, 6.5, 6.7, and 7 state the results. RHA-5 was confirmed, and Sections 3 and 11.1 state the result. RHA-8 was confirmed on Vulkan and with DXIL on WARP, and Section 11.1 states the result.
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | RHA-6 | The Vulkan backend of slang-rhi gives each input element the location of its index in `InputLayoutDesc`, and the D3D12 backend matches each element by its semantic name and index, so an input layout that lists one element for each location from 0 to the highest used location, with the semantic of the shader's input there, matches the shader on both | RHI-26 | A reading of the input layouts of both backends and a `gpu` test of a vertex entry point with an unused attribute between two used ones, on lavapipe and on WARP, in the code step of the rendering phase |
 | RHA-7 | A device of slang-rhi on Vulkan enables `robustBufferAccess`, so a vertex fetch past the end of a vertex buffer reads within the buffer or zero | Section 11.2 | A reading of the device creation of the Vulkan backend, in the code step of the rendering phase. If it does not hold, the case joins the conditions that the crate does not check, as RHQ-7 and RHQ-8 do |
-| RHA-8 | The settings that `create_slang_session` reproduces are all the settings with which slang-rhi creates the device session, so a program of a `CompileSession` gets the same layouts and the same code as the same program of the device session | RHI-30, and SLO-37 of `docs/design/slango.md` | A `gpu` test that compiles the test shaders of `slango` in the device session and in a `CompileSession` of the same device, on lavapipe and on WARP, and compares the reflected layouts and the code of each entry point byte for byte. If they differ, the crate reproduces the missing setting. Section 11.1 gives the result on Vulkan on the NVIDIA RTX 4070 and on lavapipe. The result with DXIL on WARP is not verified |
-
 ## 16. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused.
@@ -733,6 +739,7 @@ Each row is a question that this document leaves open. The owner in the third co
 | RHQ-8 | Should `create_buffer` check the size against the largest buffer that the device allows? The crate does not, and what slang-rhi and a driver do with a larger size, such as `u64::MAX`, is not verified (Section 6.6). `DeviceInfo::max_buffer_size` cannot answer it alone, because it is the 2 GiB that slang-rhi assumes and not a value of the device (RHI-29) | The owner of the project, by a decision | Not assigned |
 | RHQ-9 | Should CI run `check-miri-rhi`? It clones Slang a second time and builds it natively for the build scripts, which took 8 min 33 s on its first run in the development container (TOOL-52 of `docs/design/tooling.md`) | The owner of the project, by a decision | Not assigned |
 | RHQ-10 | Should the memory checks of RHI-8 depend on the backend, or should the crate gain a copy command, so that a buffer in `ReadBack` memory gets a use? The crate refuses unordered access and initial data for that memory on every backend, and on D3D12 `read_buffer` cannot read it, so such a buffer has no use through the crate (Section 6.6) | The owner of the project, by a decision | Not assigned |
+| RHQ-11 | Should the crate add a way to set a resource inside a structure that is a plain parameter, or a field of one, and to write the whole uniform data of a sub-object, such as that of a constant buffer whose element is not a structure? slang-rhi addresses neither by name, and `ShaderOffset` has no constructor for the second, so the backend `rhi` of `slango` refuses such used parameters at load (Section 6.5 and SOQ-11 of `docs/design/slango.md`). This is a missing feature of the crate, not a defect of slang-rhi | The owner of the project, by a decision | Not assigned |
 
 ## 17. References
 
@@ -753,7 +760,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | RHI-4 | 5.2 | Every wrapper holds its `Device`, the device holds its global session and session, and every unowned pointer lives in a value that borrows its owner. |
 | RHI-5 | 6.4 | A device always gets the caller's global session and serial pipeline compilation, and an adapter is checked against the device type and fetched again. |
 | RHI-6 | 6.4 | Every device gets a leaked, non-unwinding callback object that feeds the collector and lends each message to the user's closure for one call. |
-| RHI-7 | 6.5 | A shader program takes only a linked, fully specialized program of the device's session, a compute pipeline only one compute entry point, and both collect diagnostics. |
+| RHI-7 | 6.5 | A shader program takes only a linked, fully specialized program of the device's session, a compute pipeline only one compute entry point whose thread group is within the limits of the device, and both collect diagnostics. |
 | RHI-8 | 6.6 | Buffer size, usage, memory type, initial data, and read-back ranges are checked before any native call. |
 | RHI-9 | 6.7 | A compute pass exists only inside a closure that begins it and ends it on every path, including a panic. |
 | RHI-10 | 6.7 | `offset_of` finds a top-level field by name as `ShaderCursor` does, with its uniform size and range count. |
@@ -775,5 +782,5 @@ This table lists every labelled requirement of this document with a one-line sum
 | RHI-26 | 11.2 | `create_render_pipeline` checks the program, formats, semantics, vertex streams, and input elements, and creates a pipeline of triangles with one colour target. |
 | RHI-27 | 11.2 | A render pass exists only inside a closure that ends it on every path, may hold a depth target alone, and each draw checks its pipeline, buffers, counts, and targets against one record of the pass. |
 | RHI-28 | 11.2 | `read_texture` checks the texture and the output, reads `sizeInBytes` at the default alignment, and returns the rows without padding. |
-| RHI-29 | 11.1 | `DeviceInfo` offers the limits of dispatches, buffers, textures, vertex streams, and vertex input elements that the checks use. |
+| RHI-29 | 11.1 | `DeviceInfo` offers the seven limits of dispatches, thread groups, buffers, textures, vertex streams, and vertex input elements that the checks use. |
 | RHI-30 | 11.1 | `create_slang_session` returns a `CompileSession` that reproduces the device session, whose own `create_shader_program` accepts programs of its session. |

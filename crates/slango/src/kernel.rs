@@ -4,10 +4,7 @@ use std::sync::Arc;
 
 use crate::Device;
 use crate::backend;
-use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{CompiledKernel, KernelLayout};
-
-const LOAD: &str = "load a Slang module";
+use crate::layout::KernelLayout;
 
 /// One compute kernel of a loaded [`Module`](crate::Module), ready to run on
 /// its device.
@@ -19,8 +16,9 @@ const LOAD: &str = "load a Slang module";
 /// always has its compiled form on the device. [`Kernel::call`] runs it.
 ///
 /// Cloning a kernel is cheap and returns another handle to the same kernel. A
-/// kernel keeps its [`Device`] alive and holds no object of the Slang
-/// compiler.
+/// kernel keeps its [`Device`] alive. With the feature `wgpu`, it holds no
+/// object of the Slang compiler, and with the feature `rhi`, it keeps the
+/// Slang session of its load alive.
 ///
 /// A kernel is neither [`Send`] nor [`Sync`]: it stays on the thread that
 /// created its [`Device`], because the crate keeps all the GPU objects of a
@@ -78,16 +76,19 @@ impl Kernel {
         self.layout.thread_group_size
     }
 
-    /// Creates the kernel on the device from one compiled kernel.
-    pub(crate) fn create(device: &Device, compiled: CompiledKernel) -> Result<Self> {
-        let CompiledKernel { layout, spirv } = compiled;
-        let inner = backend::Kernel::create(device.backend(), &layout, spirv)?;
-        Ok(Self {
+    /// Wraps the kernel `inner` that the backend created on `device` from
+    /// the layout snapshot `layout`.
+    pub(crate) fn from_backend(
+        device: &Device,
+        layout: KernelLayout,
+        inner: backend::Kernel,
+    ) -> Self {
+        Self {
             device: device.clone(),
             inner,
             layout: Arc::new(layout),
             thread_bound: PhantomData,
-        })
+        }
     }
 }
 
@@ -97,28 +98,6 @@ impl fmt::Debug for Kernel {
             .field("name", &self.name())
             .field("thread_group_size", &self.thread_group_size())
             .finish_non_exhaustive()
-    }
-}
-
-/// Returns `size` as the size of the immediates of the kernel `name`, and
-/// fails with [`ErrorKind::MissingFeature`] when the device lacks the feature
-/// or `size` exceeds the device's `limit`.
-pub(crate) fn checked_immediate_size(
-    name: &str,
-    has_feature: bool,
-    limit: u32,
-    size: u64,
-) -> Result<u32> {
-    if !has_feature {
-        return Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
-            "the kernel `{name}` has `uniform` parameters, which need the feature IMMEDIATES that the device lacks"
-        )));
-    }
-    match u32::try_from(size) {
-        Ok(size) if size <= limit => Ok(size),
-        _ => Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
-            "the `uniform` parameters of the kernel `{name}` take {size} bytes of immediates, and the device allows {limit}"
-        ))),
     }
 }
 

@@ -47,7 +47,10 @@ pub struct ShaderProgram {
     raw: Owned<IShaderProgram>,
     _session: Option<Session>,
     device: Device,
-    one_compute_entry_point: bool,
+    /// The thread group size of the one compute entry point of the program,
+    /// or `None` when it does not have exactly one entry point that is a
+    /// compute kernel.
+    thread_group_size: Option<[usize; 3]>,
 }
 
 /// A compute pipeline of a device, which holds the compiled code of the
@@ -107,20 +110,62 @@ fn diagnostics(messages: &[String]) -> Option<String> {
     }
 }
 
-/// Returns whether a linked program of `session` has exactly one entry point,
-/// and that entry point is a compute kernel.
-fn has_one_compute_entry_point(program: &LinkedProgram, session: &Session) -> Result<bool> {
+/// Returns the thread group size of the entry point of a linked program of
+/// `session` when the program has exactly one entry point and that entry
+/// point is a compute kernel, and `None` otherwise.
+fn compute_thread_group_size(
+    program: &LinkedProgram,
+    session: &Session,
+) -> Result<Option<[usize; 3]>> {
     if program.entry_point_count() != 1 {
-        return Ok(false);
+        return Ok(None);
     }
     let slang = |error| Error::slang(Operation::CreateShaderProgram, error);
     let target = session.target_index(0).map_err(slang)?;
     let layout = program.layout(target).map_err(slang)?.into_value();
-    let mut stages = Vec::new();
+    let mut kernels = Vec::new();
     for entry_point in layout.entry_point_layouts() {
-        stages.push(entry_point.stage().map_err(slang)?);
+        let stage = entry_point.stage().map_err(slang)?;
+        kernels
+            .push((stage == Some(Stage::Compute)).then(|| entry_point.compute_thread_group_size()));
     }
-    Ok(stages == [Some(Stage::Compute)])
+    Ok(match kernels.as_slice() {
+        [Some(size)] => Some(*size),
+        _ => None,
+    })
+}
+
+/// Checks that a thread group of `size` threads along the three axes fits
+/// the largest size along each axis, `max_size`, and the largest number of
+/// threads of one group, `max_threads`.
+///
+/// slang-rhi checks neither without its debug device, and a dispatch of a
+/// larger group can break the device for every later call.
+fn check_thread_group_size(size: [usize; 3], max_size: [u32; 3], max_threads: u32) -> Result<()> {
+    let [x, y, z] = size;
+    let fits =
+        |value: usize, max: u32| u64::try_from(value).is_ok_and(|value| value <= u64::from(max));
+    let axes = ['x', 'y', 'z'];
+    for ((axis, value), max) in axes.into_iter().zip(size).zip(max_size) {
+        if !fits(value, max) {
+            return Err(Error::invalid(
+                Operation::CreateComputePipeline,
+                format!(
+                    "the thread group of the kernel has {value} threads along the axis {axis}, more than the {max} that the device allows"
+                ),
+            ));
+        }
+    }
+    let threads = x.checked_mul(y).and_then(|xy| xy.checked_mul(z));
+    if !threads.is_some_and(|threads| fits(threads, max_threads)) {
+        return Err(Error::invalid(
+            Operation::CreateComputePipeline,
+            format!(
+                "the thread group of the kernel has {x} by {y} by {z} threads, more than the {max_threads} threads of one group that the device allows"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Checks that a linked program has no specialization parameter left, which
@@ -199,7 +244,7 @@ impl Device {
         compile_session: Option<Session>,
     ) -> Result<ShaderProgram> {
         check_specialized(program)?;
-        let one_compute_entry_point = has_one_compute_entry_point(program, session)?;
+        let thread_group_size = compute_thread_group_size(program, session)?;
         let desc = slang_rhi_sys::ShaderProgramDesc {
             linkingStyle: slang_rhi_sys::LinkingStyle::SingleProgram,
             slangGlobalScope: program.as_raw().as_ptr(),
@@ -242,7 +287,7 @@ impl Device {
             raw,
             _session: compile_session,
             device: self.clone(),
-            one_compute_entry_point,
+            thread_group_size,
         })
     }
 
@@ -272,8 +317,13 @@ impl Device {
     /// Returns an error of kind
     /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
     /// before any call into slang-rhi, when `program` belongs to another
-    /// device, or when its linked program does not have exactly one entry
-    /// point that is a compute kernel. Returns an error of kind
+    /// device, when its linked program does not have exactly one entry point
+    /// that is a compute kernel, or when the thread group of that kernel is
+    /// larger along an axis than
+    /// [`DeviceInfo::max_compute_thread_group_size`](crate::DeviceInfo::max_compute_thread_group_size)
+    /// or has more threads than
+    /// [`DeviceInfo::max_compute_threads_per_group`](crate::DeviceInfo::max_compute_threads_per_group).
+    /// Returns an error of kind
     /// [`ErrorKind::Compile`](crate::ErrorKind::Compile), with the messages of
     /// Slang as its diagnostics, when slang-rhi cannot compile the program or
     /// create the pipeline.
@@ -284,12 +334,14 @@ impl Device {
                 "the shader program belongs to another device",
             ));
         }
-        if !program.one_compute_entry_point {
+        let Some(size) = program.thread_group_size else {
             return Err(Error::invalid(
                 Operation::CreateComputePipeline,
                 "the shader program does not have exactly one entry point that is a compute kernel",
             ));
-        }
+        };
+        let (max_size, max_threads) = self.thread_group_limits();
+        check_thread_group_size(size, max_size, max_threads)?;
         let desc = slang_rhi_sys::ComputePipelineDesc {
             program: program.raw.as_ptr(),
             ..slang_rhi_sys::ComputePipelineDesc::default()
@@ -321,7 +373,41 @@ impl Device {
 
 #[cfg(test)]
 mod tests {
-    use super::diagnostics;
+    use super::{check_thread_group_size, diagnostics};
+    use crate::ErrorKind;
+
+    #[test]
+    fn a_thread_group_within_the_limits_is_accepted() {
+        assert!(check_thread_group_size([1024, 1, 1], [1024, 1024, 64], 1024).is_ok());
+        assert!(check_thread_group_size([8, 8, 16], [1024, 1024, 64], 1024).is_ok());
+    }
+
+    #[test]
+    fn a_thread_group_over_the_limit_of_an_axis_names_the_axis_and_the_limit() {
+        let error = check_thread_group_size([1, 1, 65], [1024, 1024, 64], 1024).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(
+            error.to_string(),
+            "cannot create a compute pipeline: the thread group of the kernel has 65 threads along the axis z, more than the 64 that the device allows"
+        );
+    }
+
+    #[test]
+    fn a_thread_group_over_the_threads_of_one_group_names_its_size_and_the_limit() {
+        let error = check_thread_group_size([64, 32, 1], [1024, 1024, 64], 1024).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(
+            error.to_string(),
+            "cannot create a compute pipeline: the thread group of the kernel has 64 by 32 by 1 threads, more than the 1024 threads of one group that the device allows"
+        );
+    }
+
+    #[test]
+    fn a_thread_group_whose_thread_count_overflows_is_refused() {
+        let side = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
+        let error = check_thread_group_size([side, side, 2], [u32::MAX; 3], u32::MAX).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    }
 
     #[test]
     fn diagnostics_joins_the_messages_with_new_lines_and_is_none_without_any() {

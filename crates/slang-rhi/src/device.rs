@@ -498,6 +498,8 @@ pub struct DeviceInfo {
     api_name: String,
     adapter_name: String,
     max_compute_dispatch_thread_groups: [u32; 3],
+    max_compute_thread_group_size: [u32; 3],
+    max_compute_threads_per_group: u32,
     max_buffer_size: u64,
     max_texture_dimension_2d: u32,
     max_vertex_streams: u32,
@@ -548,6 +550,38 @@ impl DeviceInfo {
     #[must_use]
     pub fn max_compute_dispatch_thread_groups(&self) -> [u32; 3] {
         self.max_compute_dispatch_thread_groups
+    }
+
+    /// Returns the largest number of threads of one thread group along each
+    /// of the three axes, which
+    /// [`Device::create_compute_pipeline`] checks against the thread group
+    /// size that a kernel declares.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_compute_thread_group_size(&self) -> [u32; 3] {
+        self.max_compute_thread_group_size
+    }
+
+    /// Returns the largest number of threads of one thread group, the product
+    /// of its sizes along the three axes, which
+    /// [`Device::create_compute_pipeline`] checks against the thread group
+    /// size that a kernel declares.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_compute_threads_per_group(&self) -> u32 {
+        self.max_compute_threads_per_group
     }
 
     /// Returns the largest size of a buffer in bytes that slang-rhi assumes,
@@ -773,6 +807,8 @@ impl Device {
             // SAFETY: as stated above for the names.
             adapter_name: unsafe { copy_text(info.adapterName) },
             max_compute_dispatch_thread_groups: limits.maxComputeDispatchThreadGroups,
+            max_compute_thread_group_size: limits.maxComputeThreadGroupSize,
+            max_compute_threads_per_group: limits.maxComputeThreadsPerGroup,
             max_buffer_size: limits.maxBufferSize,
             max_texture_dimension_2d: limits.maxTextureDimension2D,
             max_vertex_streams: limits.maxVertexStreams,
@@ -815,8 +851,10 @@ impl Device {
     /// let info = device.info();
     /// println!("{} on {} ({:?})", info.api_name(), info.adapter_name(), info.device_type());
     /// println!(
-    ///     "at most {:?} thread groups, buffers of {} bytes, textures of {} texels, {} vertex streams, and {} vertex attributes",
+    ///     "at most {:?} thread groups of {:?} and {} threads, buffers of {} bytes, textures of {} texels, {} vertex streams, and {} vertex attributes",
     ///     info.max_compute_dispatch_thread_groups(),
+    ///     info.max_compute_thread_group_size(),
+    ///     info.max_compute_threads_per_group(),
     ///     info.max_buffer_size(),
     ///     info.max_texture_dimension_2d(),
     ///     info.max_vertex_streams(),
@@ -850,6 +888,13 @@ impl Device {
 
     pub(crate) fn as_non_null(&self) -> NonNull<IDevice> {
         self.raw.as_non_null()
+    }
+
+    pub(crate) fn thread_group_limits(&self) -> ([u32; 3], u32) {
+        (
+            self.info.max_compute_thread_group_size,
+            self.info.max_compute_threads_per_group,
+        )
     }
 
     pub(crate) fn max_thread_groups(&self) -> [u32; 3] {

@@ -89,8 +89,10 @@ impl Texture {
     /// Returns an [`Error`] of kind [`ErrorKind::InvalidArgument`] when the
     /// width or the height is zero or exceeds the largest texture that the
     /// device allows, or when the number of pixels is not the width times the
-    /// height, and of kind [`ErrorKind::Backend`] when wgpu reports an error,
-    /// such as a lack of memory, while it creates the texture.
+    /// height, and of kind [`ErrorKind::Backend`] when the backend reports an
+    /// error, such as a lack of memory, while it creates the texture. With the
+    /// feature `rhi`, it returns an [`Error`] of kind
+    /// [`ErrorKind::Unsupported`] after these checks.
     pub fn from_pixels(device: &Device, size: [u32; 2], pixels: &[[u8; 4]]) -> Result<Self> {
         check_size(size, device.backend().max_texture_dimension())?;
         check_pixel_count(size, pixels.len())?;
@@ -126,8 +128,11 @@ impl Texture {
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::InvalidArgument`] when the
     /// width or the height is zero or exceeds the largest texture that the
-    /// device allows, and of kind [`ErrorKind::Backend`] when wgpu reports an
-    /// error, such as a lack of memory, while it creates the texture.
+    /// device allows, and of kind [`ErrorKind::Backend`] when the backend
+    /// reports an error, such as a lack of memory, while it creates the
+    /// texture. With
+    /// the feature `rhi`, it returns an [`Error`] of kind
+    /// [`ErrorKind::Unsupported`] after these checks.
     pub fn new(device: &Device, size: [u32; 2], format: TextureFormat) -> Result<Self> {
         check_size(size, device.backend().max_texture_dimension())?;
         let inner = backend::Texture::zeroed(device.backend(), size, format)?;
@@ -188,8 +193,7 @@ impl Texture {
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::InvalidArgument`] when the
     /// texture has the depth format [`TextureFormat::Depth32Float`], or was
-    /// made from a wgpu texture view by
-    /// [`wgpu::texture_from_view`](crate::wgpu::texture_from_view) and its
+    /// made from a wgpu texture view by `wgpu::texture_from_view` and its
     /// wgpu texture lacks the usage `COPY_SRC`, and of kind
     /// [`ErrorKind::Backend`] when wgpu reports an error while it copies the
     /// texture or maps the copy for reading.

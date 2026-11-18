@@ -1522,3 +1522,5 @@ float4 fsMain(VOut input, uniform Sampler2D image) : SV_Target
         "the SPIR-V of `vsMain` names its entry point"
     );
 }
+
+mod targets;

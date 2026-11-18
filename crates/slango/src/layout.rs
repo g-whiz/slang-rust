@@ -59,6 +59,20 @@ impl AsRef<Self> for Binding {
     }
 }
 
+/// Where a binding of a kernel sits among the parameters of its program,
+/// which the walk records beside the layout snapshot of the kernel for the
+/// backend that sets each parameter by its place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Place {
+    /// Whether the binding belongs to the parameters of the entry point,
+    /// rather than to the global parameters.
+    pub(crate) in_entry_point: bool,
+    /// Whether the path of the binding passes through a structure that is
+    /// a plain parameter, or a field of one, rather than the element of a
+    /// constant buffer or a parameter block.
+    pub(crate) in_structure: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Usage {
     Used,
@@ -244,6 +258,26 @@ pub(crate) struct Offsets {
     pub(crate) byte: u64,
     pub(crate) register_space: u64,
     pub(crate) location: u64,
+    pub(crate) registers: Registers,
+}
+
+/// The parameter categories of the register classes of a target that places
+/// each resource in a register of its class, such as DXIL, in the order of
+/// the arrays of [`Registers`].
+const REGISTER_CLASSES: [ParameterCategory; 4] = [
+    ParameterCategory::ShaderResource,
+    ParameterCategory::UnorderedAccess,
+    ParameterCategory::ConstantBuffer,
+    ParameterCategory::SamplerState,
+];
+
+/// The register index and the register space in each register class of
+/// [`REGISTER_CLASSES`], which a target such as DXIL reports in place of a
+/// set and a binding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Registers {
+    pub(crate) index: [u64; 4],
+    pub(crate) space: [u64; 4],
 }
 
 /// The running sums of a walk at one variable.
@@ -255,25 +289,39 @@ pub(crate) struct Position {
     pub(crate) register_space: u64,
     /// The location of a varying input.
     pub(crate) location: u64,
+    pub(crate) registers: Registers,
 }
 
 impl Position {
     pub(crate) fn descend(self, offsets: Offsets) -> Self {
+        let mut registers = self.registers;
+        for (sum, offset) in registers.index.iter_mut().zip(offsets.registers.index) {
+            *sum += offset;
+        }
+        for (sum, offset) in registers.space.iter_mut().zip(offsets.registers.space) {
+            *sum += offset;
+        }
         Self {
             set: self.set + offsets.set,
             binding: self.binding + offsets.binding,
             byte: self.byte + offsets.byte,
             register_space: self.register_space + offsets.register_space,
             location: self.location + offsets.location,
+            registers,
         }
     }
 
-    /// The position inside a parameter block, whose set is the running sum
-    /// of the register-space offsets and whose bindings restart at 0.
+    /// The position inside a parameter block, whose set and register spaces
+    /// are the running sum of the register-space offsets and whose bindings
+    /// and registers restart at 0.
     pub(crate) fn parameter_block(self) -> Self {
         Self {
             set: self.register_space,
             binding: 0,
+            registers: Registers {
+                index: [0; 4],
+                space: [self.register_space; 4],
+            },
             ..self
         }
     }
@@ -383,42 +431,35 @@ impl Role {
 /// or its SPIR-V, becomes the rejection of its record.
 pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
     let (program, target, dependencies) = link(source)?;
-    let layout = program.layout(target).map_err(Error::compile)?.into_value();
-    let mut compiled = Compiled {
-        kernels: Vec::new(),
-        render: Vec::new(),
-    };
-    for (index, entry_point) in layout.entry_point_layouts().enumerate() {
-        let Some(role) = role_of(entry_point)? else {
-            continue;
-        };
-        let Some(name) = entry_point_name(entry_point, role)? else {
-            continue;
-        };
-        let at = LinkedEntryPoint {
-            program: &program,
-            layout,
-            entry_point,
-            index,
-            target,
-        };
-        match role {
-            Role::Kernel => compiled.kernels.push(kernel_record(&at, name)?),
-            Role::Vertex | Role::Fragment => compiled.render.push(render_entry(&at, name, role)),
-        }
-    }
+    let (kernels, render) = walk_program(
+        &program,
+        target,
+        |at, layout, _| {
+            let spirv = spirv(at.program, at.index, at.target, &layout.name)?;
+            Ok(CompiledKernel { layout, spirv })
+        },
+        |at, name, stage| {
+            let role = match stage {
+                RenderStage::Vertex => Role::Vertex,
+                RenderStage::Fragment => Role::Fragment,
+            };
+            render_entry(at, name, role)
+        },
+    )?;
     Ok(Compilation {
-        compiled,
+        compiled: Compiled { kernels, render },
         dependencies,
     })
 }
 
 /// One entry point of a linked program, with what its records read.
-struct LinkedEntryPoint<'p> {
+pub(crate) struct LinkedEntryPoint<'p> {
     program: &'p LinkedProgram,
     layout: ProgramLayout<'p>,
     entry_point: EntryPointLayout<'p>,
-    index: usize,
+    /// The position of the entry point among the entry points of the
+    /// program.
+    pub(crate) index: usize,
     target: TargetIndex,
 }
 
@@ -493,8 +534,9 @@ fn metadata(at: &LinkedEntryPoint<'_>) -> Result<Metadata> {
         .map(slang_compiler::Compiled::into_value)
 }
 
-/// Returns the record of the kernel `at`, whose name is `name`.
-fn kernel_record(at: &LinkedEntryPoint<'_>, name: String) -> Result<CompiledKernel> {
+/// Returns the layout snapshot of the kernel `at`, whose name is `name`, and
+/// the place of each of its bindings, in the order of the bindings.
+fn kernel_layout(at: &LinkedEntryPoint<'_>, name: String) -> Result<(KernelLayout, Vec<Place>)> {
     let metadata = metadata(at)?;
     let walk = walk(at.layout, at.entry_point, &metadata, &name, Role::Kernel)?;
     let [x, y, z] = at.entry_point.compute_thread_group_size();
@@ -503,17 +545,61 @@ fn kernel_record(at: &LinkedEntryPoint<'_>, name: String) -> Result<CompiledKern
         walk.narrow(y, "", "a thread group size")?,
         walk.narrow(z, "", "a thread group size")?,
     ];
-    let spirv = spirv(at.program, at.index, at.target, &name)?;
-    Ok(CompiledKernel {
-        layout: KernelLayout {
-            thread_group_size,
-            bindings: walk.bindings,
-            immediates: walk.immediates,
-            structures: walk.structures,
-            name,
-        },
-        spirv,
-    })
+    let places = walk.places;
+    let layout = KernelLayout {
+        thread_group_size,
+        bindings: walk.bindings,
+        immediates: walk.immediates,
+        structures: walk.structures,
+        name,
+    };
+    Ok((layout, places))
+}
+
+/// Walks each entry point of `program`, a module linked with all its entry
+/// points in the order of the module, for the target `target` of its
+/// session, and returns what `kernel` makes of each kernel and its layout
+/// snapshot and what `render` makes of each vertex and fragment entry point,
+/// its name, and its stage, in the order of the module. `kernel` also gets
+/// the place of each binding of the snapshot, in the order of the bindings.
+///
+/// Every offset, size, and stride of a snapshot is that of the target, and
+/// the usage of each binding is the one that the metadata of the target
+/// reports. The walk generates the code of each kernel for the target, which
+/// its metadata needs. A failure of a kernel fails the walk.
+pub(crate) fn walk_program<K, R>(
+    program: &LinkedProgram,
+    target: TargetIndex,
+    mut kernel: impl FnMut(&LinkedEntryPoint<'_>, KernelLayout, Vec<Place>) -> Result<K>,
+    mut render: impl FnMut(&LinkedEntryPoint<'_>, String, RenderStage) -> R,
+) -> Result<(Vec<K>, Vec<R>)> {
+    let layout = program.layout(target).map_err(Error::compile)?.into_value();
+    let mut kernels = Vec::new();
+    let mut records = Vec::new();
+    for (index, entry_point) in layout.entry_point_layouts().enumerate() {
+        let Some(role) = role_of(entry_point)? else {
+            continue;
+        };
+        let Some(name) = entry_point_name(entry_point, role)? else {
+            continue;
+        };
+        let at = LinkedEntryPoint {
+            program,
+            layout,
+            entry_point,
+            index,
+            target,
+        };
+        match role {
+            Role::Kernel => {
+                let (snapshot, places) = kernel_layout(&at, name)?;
+                kernels.push(kernel(&at, snapshot, places)?);
+            }
+            Role::Vertex => records.push(render(&at, name, RenderStage::Vertex)),
+            Role::Fragment => records.push(render(&at, name, RenderStage::Fragment)),
+        }
+    }
+    Ok((kernels, records))
 }
 
 /// Returns the record of the vertex or fragment entry point `at`, whose
@@ -596,15 +682,20 @@ fn walk<'a>(
         role,
         metadata,
         bindings: Vec::new(),
+        places: Vec::new(),
         immediates: None,
         attributes: Vec::new(),
         structures: Vec::new(),
+        in_entry_point: false,
+        structure_depth: 0,
     };
     if let Some(globals) = layout.global_params_var_layout() {
         walk.variable(globals, "", Position::default(), None)?;
     }
     if let Some(parameters) = entry_point.var_layout() {
+        walk.in_entry_point = true;
         walk.variable(parameters, "", Position::default(), None)?;
+        walk.in_entry_point = false;
     }
     if matches!(role, Role::Vertex) {
         for parameter in entry_point.parameter_layouts() {
@@ -612,8 +703,12 @@ fn walk<'a>(
             walk.attribute(parameter, &path, Position::default())?;
         }
     }
-    walk.bindings
-        .sort_by_key(|binding| (binding.set, binding.index));
+    let mut placed: Vec<(Binding, Place)> = std::mem::take(&mut walk.bindings)
+        .into_iter()
+        .zip(std::mem::take(&mut walk.places))
+        .collect();
+    placed.sort_by_key(|(binding, _)| (binding.set, binding.index));
+    (walk.bindings, walk.places) = placed.into_iter().unzip();
     Ok(walk)
 }
 
@@ -659,9 +754,19 @@ struct Walk<'a> {
     role: Role,
     metadata: &'a Metadata,
     bindings: Vec<Binding>,
+    /// The place of each binding, in the order of `bindings`.
+    places: Vec<Place>,
     immediates: Option<UniformBlock>,
     attributes: Vec<Attribute>,
     structures: Vec<UniformStructure>,
+    /// Whether the walk is at the parameters of the entry point, whose
+    /// outermost block holds its `uniform` parameters, which become the
+    /// immediates also on a target that does not place them in push
+    /// constants, such as DXIL.
+    in_entry_point: bool,
+    /// The number of structures that are plain parameters, or fields of
+    /// one, around the current parameter.
+    structure_depth: u32,
 }
 
 impl Walk<'_> {
@@ -685,7 +790,13 @@ impl Walk<'_> {
                         name,
                     });
                 }
-                self.fields(layout, path, here, values)
+                if path.is_empty() {
+                    return self.fields(layout, path, here, values);
+                }
+                self.structure_depth += 1;
+                let walked = self.fields(layout, path, here, values);
+                self.structure_depth -= 1;
+                walked
             }
             kind @ (TypeKind::ConstantBuffer | TypeKind::ParameterBlock) => {
                 self.block(layout, kind, path, here)
@@ -750,11 +861,8 @@ impl Walk<'_> {
             self.variable(element, path, inner.block_element(), Some(&mut values))?;
         }
         let block = UniformBlock { size, values };
-        let is_push_constant = layout
-            .categories()
-            .collect::<slang_compiler::Result<Vec<_>>>()
-            .map_err(Error::compile)?
-            .contains(&ParameterCategory::PushConstantBuffer);
+        let is_push_constant = categories(layout)?.contains(&ParameterCategory::PushConstantBuffer)
+            || (self.in_entry_point && path.is_empty());
         if is_push_constant {
             if self.immediates.is_some() {
                 return Err(self.unsupported(path, "a second block of immediates"));
@@ -762,7 +870,11 @@ impl Walk<'_> {
             self.immediates = Some(block);
         } else if size > 0 {
             let at = inner.descend(offsets(container));
-            self.push_binding(path, at, Resource::UniformBuffer(block))?;
+            let categories = match container.type_layout() {
+                Some(container) => categories(container)?,
+                None => Vec::new(),
+            };
+            self.push_binding(path, at, &categories, Resource::UniformBuffer(block))?;
         }
         Ok(())
     }
@@ -777,7 +889,7 @@ impl Walk<'_> {
             (ResourceBaseShape::StructuredBuffer, ResourceAccess::Read) => Access::ReadOnly,
             (ResourceBaseShape::StructuredBuffer, ResourceAccess::ReadWrite) => Access::ReadWrite,
             (ResourceBaseShape::Texture2d, ResourceAccess::Read) => {
-                return self.texture(ty, path, here);
+                return self.texture(layout, ty, path, here);
             }
             (shape, access) => {
                 return Err(self.unsupported(
@@ -794,6 +906,7 @@ impl Walk<'_> {
         self.push_binding(
             path,
             here,
+            &categories(layout)?,
             Resource::StorageBuffer {
                 access,
                 stride,
@@ -884,7 +997,13 @@ impl Walk<'_> {
 
     /// Records a `Texture2D` with a `float` result, the one texture that the
     /// crate supports.
-    fn texture(&mut self, ty: Type<'_>, path: &str, here: Position) -> Result<()> {
+    fn texture(
+        &mut self,
+        layout: TypeLayout<'_>,
+        ty: Type<'_>,
+        path: &str,
+        here: Position,
+    ) -> Result<()> {
         let shape = ty.resource_shape();
         let flags = [
             (shape.is_combined(), "a texture combined with a sampler"),
@@ -906,7 +1025,7 @@ impl Walk<'_> {
                 &format!("a texture with results of scalar type {scalar:?}"),
             ));
         }
-        self.push_binding(path, here, Resource::SampledTexture)
+        self.push_binding(path, here, &categories(layout)?, Resource::SampledTexture)
     }
 
     fn sampler(&mut self, layout: TypeLayout<'_>, path: &str, here: Position) -> Result<()> {
@@ -920,7 +1039,7 @@ impl Walk<'_> {
             let name = name.unwrap_or("an unnamed sampler type");
             return Err(self.unsupported(path, &format!("a sampler of type {name}")));
         }
-        self.push_binding(path, here, Resource::Sampler)
+        self.push_binding(path, here, &categories(layout)?, Resource::Sampler)
     }
 
     /// Records the vertex attributes of `variable`, a parameter of a vertex
@@ -943,11 +1062,7 @@ impl Walk<'_> {
             }
             return Ok(());
         }
-        let is_varying_input = layout
-            .categories()
-            .collect::<slang_compiler::Result<Vec<_>>>()
-            .map_err(Error::compile)?
-            .contains(&ParameterCategory::VaryingInput);
+        let is_varying_input = categories(layout)?.contains(&ParameterCategory::VaryingInput);
         if !is_varying_input {
             return Ok(());
         }
@@ -1070,13 +1185,20 @@ impl Walk<'_> {
         Ok((scalar, shape))
     }
 
-    fn push_binding(&mut self, path: &str, at: Position, resource: Resource) -> Result<()> {
+    fn push_binding(
+        &mut self,
+        path: &str,
+        at: Position,
+        categories: &[ParameterCategory],
+        resource: Resource,
+    ) -> Result<()> {
+        let (category, space, index) = location_of(categories, at);
         let used = self
             .metadata
             .is_parameter_location_used(
-                ParameterCategory::DescriptorTableSlot,
-                BindingSpace::new(at.set),
-                BindingIndex::new(at.binding),
+                category,
+                BindingSpace::new(space),
+                BindingIndex::new(index),
             )
             .map_err(Error::compile)?;
         self.bindings.push(Binding {
@@ -1085,6 +1207,10 @@ impl Walk<'_> {
             index: self.narrow(at.binding, path, "a binding")?,
             usage: if used { Usage::Used } else { Usage::Unused },
             resource,
+        });
+        self.places.push(Place {
+            in_entry_point: self.in_entry_point,
+            in_structure: self.structure_depth > 0,
         });
         Ok(())
     }
@@ -1146,15 +1272,54 @@ fn offsets(variable: VariableLayout<'_>) -> Offsets {
         LayoutSize::Finite(amount) => amount,
         _ => 0,
     };
+    let space = |category| {
+        variable
+            .binding_space(category)
+            .map_or(0, BindingSpace::get)
+    };
     Offsets {
-        set: variable
-            .binding_space(ParameterCategory::DescriptorTableSlot)
-            .map_or(0, BindingSpace::get),
+        set: space(ParameterCategory::DescriptorTableSlot),
         binding: amount(variable.offset(ParameterCategory::DescriptorTableSlot)),
         byte: amount(variable.offset(ParameterCategory::Uniform)),
         register_space: amount(variable.offset(ParameterCategory::SubElementRegisterSpace)),
         location: amount(variable.offset(ParameterCategory::VaryingInput)),
+        registers: Registers {
+            index: REGISTER_CLASSES.map(|category| amount(variable.offset(category))),
+            space: REGISTER_CLASSES.map(space),
+        },
     }
+}
+
+/// Returns the parameter categories that the type of `layout` uses.
+fn categories(layout: TypeLayout<'_>) -> Result<Vec<ParameterCategory>> {
+    layout
+        .categories()
+        .collect::<slang_compiler::Result<Vec<_>>>()
+        .map_err(Error::compile)
+}
+
+/// Returns the category, the space, and the index at which the metadata of an
+/// entry point reports whether its code uses a binding at `at` whose type
+/// uses the parameter categories `categories`.
+///
+/// A target of descriptor sets, such as SPIR-V, places the binding by its
+/// set and binding. A target of register classes, such as DXIL, places it by
+/// the register space and the index of its class, which the binding's type
+/// names among its categories.
+fn location_of(categories: &[ParameterCategory], at: Position) -> (ParameterCategory, u64, u64) {
+    if !categories.contains(&ParameterCategory::DescriptorTableSlot) {
+        let class = REGISTER_CLASSES
+            .iter()
+            .position(|class| categories.contains(class));
+        if let Some(class) = class {
+            return (
+                REGISTER_CLASSES[class],
+                at.registers.space[class],
+                at.registers.index[class],
+            );
+        }
+    }
+    (ParameterCategory::DescriptorTableSlot, at.set, at.binding)
 }
 
 #[cfg(test)]

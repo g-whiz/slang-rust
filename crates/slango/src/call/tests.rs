@@ -162,22 +162,19 @@ fn a_complete_call_binds_each_used_binding_and_fills_its_blocks() {
     assert_eq!(
         plan,
         Plan {
-            groups: vec![
-                vec![
-                    Entry {
-                        index: 0,
-                        source: Source::Uniform(le(&[2.0_f32.to_le_bytes(), 4_u32.to_le_bytes()])),
-                    },
-                    Entry {
-                        index: 1,
-                        source: Source::Argument(2),
-                    },
-                ],
-                vec![],
-                vec![Entry {
-                    index: 0,
+            entries: vec![
+                Entry {
+                    binding: 0,
+                    source: Source::Uniform(le(&[2.0_f32.to_le_bytes(), 4_u32.to_le_bytes()])),
+                },
+                Entry {
+                    binding: 1,
+                    source: Source::Argument(2),
+                },
+                Entry {
+                    binding: 3,
                     source: Source::Argument(3),
-                }],
+                },
             ],
             immediates: le(&[(-3_i32).to_le_bytes()]),
         }
@@ -314,9 +311,12 @@ fn the_plain_values_of_an_unused_uniform_buffer_may_be_omitted() {
         .collect();
     let plan = plan(&layout, &arguments).expect("the unused values may be omitted");
     assert_eq!(
-        plan.groups.first().map(Vec::len),
-        Some(1),
-        "set 0 binds only `data`"
+        plan.entries
+            .iter()
+            .map(|entry| entry.binding)
+            .collect::<Vec<_>>(),
+        [1, 3],
+        "the plan binds only `data` and `extra.points`"
     );
 }
 
@@ -525,7 +525,7 @@ fn a_kernel_without_parameters_has_no_groups_and_no_immediates() {
     assert_eq!(
         plan::<(), (), ()>(&layout, &[]).expect("nothing to give"),
         Plan {
-            groups: Vec::new(),
+            entries: Vec::new(),
             immediates: Vec::new(),
         }
     );
@@ -554,12 +554,12 @@ fn workgroup_counts_of_a_group_size_of_zero_are_none() {
 
 #[test]
 fn workgroups_up_to_the_limit_pass() -> Result<()> {
-    check_workgroups("scale", [65_535, 1, 0], 65_535)
+    check_workgroups("scale", [65_535, 1, 0], [65_535; 3])
 }
 
 #[test]
 fn workgroups_over_the_limit_are_an_invalid_argument() {
-    let error = check_workgroups("scale", [1, 65_536, 1], 65_535).expect_err("over the limit");
+    let error = check_workgroups("scale", [1, 65_536, 1], [65_535; 3]).expect_err("over the limit");
     assert_eq!(error.kind(), ErrorKind::InvalidArgument);
     assert_eq!(
         error.to_string(),
@@ -651,20 +651,20 @@ fn a_texture_and_a_sampler_are_bound_from_their_arguments() {
     assert_eq!(
         plan,
         Plan {
-            groups: vec![vec![
+            entries: vec![
                 Entry {
-                    index: 0,
+                    binding: 0,
                     source: Source::Argument(2),
                 },
                 Entry {
-                    index: 1,
+                    binding: 1,
                     source: Source::Argument(1),
                 },
                 Entry {
-                    index: 2,
+                    binding: 2,
                     source: Source::Argument(0),
                 },
-            ]],
+            ],
             immediates: Vec::new(),
         }
     );

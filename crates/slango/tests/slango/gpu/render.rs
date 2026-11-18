@@ -29,6 +29,7 @@ fn options_with(
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn the_quad_of_the_illustration_becomes_a_pipeline_with_every_option() {
     let module = device()
         .load_module(shader("quad.slang"))
@@ -58,6 +59,7 @@ fn the_quad_of_the_illustration_becomes_a_pipeline_with_every_option() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn stages_that_share_uniforms_buffers_a_block_a_texture_and_a_sampler_become_a_pipeline() {
     let module = load(
         &device(),
@@ -95,6 +97,7 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_texture_sampled_by_both_stages_becomes_a_pipeline() {
     let module = load(
         &device(),
@@ -127,6 +130,7 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn attributes_of_every_form_become_vertex_buffers() {
     let module = load(
         &device(),
@@ -314,6 +318,7 @@ fn names_that_are_no_entry_point_of_their_stage_are_invalid_arguments() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_rejected_entry_point_returns_its_rejection() {
     let error = checked("vsMain", "fsCombined", &RenderPipelineOptions::default())
         .expect_err("the creation fails");
@@ -328,6 +333,7 @@ fn a_rejected_entry_point_returns_its_rejection() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn uniform_parameters_of_either_entry_point_are_unsupported() {
     let defaults = RenderPipelineOptions::default();
     for (vertex, fragment, stage, name) in [
@@ -346,6 +352,7 @@ fn uniform_parameters_of_either_entry_point_are_unsupported() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn wrong_formats_and_unknown_instance_attributes_are_invalid_arguments() {
     assert_invalid(
         "vsMain",
@@ -370,6 +377,7 @@ fn wrong_formats_and_unknown_instance_attributes_are_invalid_arguments() {
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn varyings_of_another_type_at_one_location_are_an_unsupported_shader() {
     let module = load(
         &device(),
@@ -408,6 +416,7 @@ float4 fsMain(FIn input) : SV_Target { return input.colour * float4(input.uv, 0.
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_vertex_entry_point_that_naga_rejects_is_an_unsupported_shader() {
     let module = load(
         &device(),
@@ -443,6 +452,7 @@ float4 fsMain(VOut input) : SV_Target { return float4(1.0, 1.0, 1.0, 1.0); }
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_kernel_runs_and_a_render_pipeline_is_created_from_one_module() -> slango::Result<()> {
     let device = device();
     let module = load(&device, CHECKED);
@@ -459,6 +469,7 @@ fn a_kernel_runs_and_a_render_pipeline_is_created_from_one_module() -> slango::R
 }
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn one_module_creates_several_pipelines() -> slango::Result<()> {
     let module = load(&device(), CHECKED);
     let first = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;

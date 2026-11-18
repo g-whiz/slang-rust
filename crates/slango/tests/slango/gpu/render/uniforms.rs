@@ -61,6 +61,7 @@ const TRANSLATION: [[f32; 4]; 4] = [
 ];
 
 #[test]
+#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn uniforms_used_by_one_or_both_stages_are_set_by_name_and_unused_ones_may_be_omitted() {
     let device = device_with(AdapterSelection::Default);
     let pipeline = load(&device, UNIFORMS)

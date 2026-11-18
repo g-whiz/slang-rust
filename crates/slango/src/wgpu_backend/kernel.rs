@@ -6,7 +6,6 @@ use super::device::{Device, scoped};
 use super::submit::bind_groups;
 use crate::call::{CallArgument, Plan};
 use crate::error::{Error, ErrorKind, Result};
-use crate::kernel::checked_immediate_size;
 use crate::layout::{Access, Binding, KernelLayout, Resource, Usage};
 
 const LOAD: &str = "load a Slang module";
@@ -88,13 +87,14 @@ impl Kernel {
     pub(crate) fn dispatch(
         &self,
         device: &Device,
-        name: &str,
+        layout: &KernelLayout,
         plan: &Plan,
         arguments: &[(&str, CallArgument<'_>)],
         groups: [u32; 3],
     ) -> Result<()> {
+        let name = layout.name.as_str();
         let ((), error) = scoped(device.wgpu_device(), || {
-            self.submit(device, name, plan, arguments, groups);
+            self.submit(device, layout, plan, arguments, groups);
         });
         match error {
             Some(error) => Err(Error::new(ErrorKind::Backend, CALL)
@@ -107,13 +107,21 @@ impl Kernel {
     fn submit(
         &self,
         device: &Device,
-        name: &str,
+        layout: &KernelLayout,
         plan: &Plan,
         arguments: &[(&str, CallArgument<'_>)],
         groups: [u32; 3],
     ) {
+        let name = layout.name.as_str();
         let wgpu_device = device.wgpu_device();
-        let bind_groups = bind_groups(wgpu_device, name, plan, &self.bind_group_layouts, arguments);
+        let bind_groups = bind_groups(
+            wgpu_device,
+            name,
+            &layout.bindings,
+            plan,
+            &self.bind_group_layouts,
+            arguments,
+        );
         let mut encoder = wgpu_device
             .create_command_encoder(&::wgpu::CommandEncoderDescriptor { label: Some(name) });
         {
@@ -156,6 +164,23 @@ fn immediate_size(layout: &KernelLayout, device: &::wgpu::Device) -> Result<u32>
         device.limits().max_immediate_size,
         immediates.size,
     )
+}
+
+/// Returns `size` as the size of the immediates of the kernel `name`, and
+/// fails with [`ErrorKind::MissingFeature`] when the device lacks the feature
+/// or `size` exceeds the device's `limit`.
+fn checked_immediate_size(name: &str, has_feature: bool, limit: u32, size: u64) -> Result<u32> {
+    if !has_feature {
+        return Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
+            "the kernel `{name}` has `uniform` parameters, which need the feature IMMEDIATES that the device lacks"
+        )));
+    }
+    match u32::try_from(size) {
+        Ok(size) if size <= limit => Ok(size),
+        _ => Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
+            "the `uniform` parameters of the kernel `{name}` take {size} bytes of immediates, and the device allows {limit}"
+        ))),
+    }
 }
 
 /// Returns the entries of the bind group layout of each set of the kernel,

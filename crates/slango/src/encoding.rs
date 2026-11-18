@@ -380,6 +380,7 @@ fn kind_tag(kind: ErrorKind) -> u8 {
         ErrorKind::MissingFeature => 5,
         ErrorKind::InvalidArgument => 6,
         ErrorKind::Backend => 7,
+        ErrorKind::Unsupported => 8,
     }
 }
 
@@ -665,6 +666,7 @@ fn kind_of_tag(tag: u8) -> Option<ErrorKind> {
         5 => ErrorKind::MissingFeature,
         6 => ErrorKind::InvalidArgument,
         7 => ErrorKind::Backend,
+        8 => ErrorKind::Unsupported,
         _ => return None,
     })
 }

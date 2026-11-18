@@ -52,10 +52,10 @@ impl Device {
         self.handle.limits().max_texture_dimension_2d
     }
 
-    /// Returns the largest number of thread groups of one dispatch along an
-    /// axis that the device allows.
-    pub(crate) fn max_workgroups_per_dimension(&self) -> u32 {
-        self.handle.limits().max_compute_workgroups_per_dimension
+    /// Returns the largest number of thread groups of one dispatch along
+    /// each axis that the device allows.
+    pub(crate) fn max_workgroups(&self) -> [u32; 3] {
+        [self.handle.limits().max_compute_workgroups_per_dimension; 3]
     }
 }
 

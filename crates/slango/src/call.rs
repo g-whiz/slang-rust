@@ -118,26 +118,28 @@ pub(crate) struct BoundSampler<S> {
     pub(crate) on_device: bool,
 }
 
-/// What a dispatch binds: the entries of the bind group of each set, from
-/// set 0 to the last set with a used binding, and the bytes of the
-/// immediates, which are empty when the kernel has none.
+/// What a dispatch binds: each used binding with what it holds, in the
+/// order of the bindings, and the bytes of the immediates, which are empty
+/// when the kernel has none.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Plan {
-    pub(crate) groups: Vec<Vec<Entry>>,
+    pub(crate) entries: Vec<Entry>,
     pub(crate) immediates: Vec<u8>,
 }
 
-/// One binding of a bind group of a [`Plan`].
+/// One used binding of a [`Plan`].
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
-    pub(crate) index: u32,
+    /// The index of the binding among the bindings of the kernel or render
+    /// pipeline.
+    pub(crate) binding: usize,
     pub(crate) source: Source,
 }
 
 /// What a binding of a [`Plan`] holds.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Source {
-    /// A uniform buffer that the dispatch creates with these bytes.
+    /// A uniform buffer that the dispatch fills with these bytes.
     Uniform(Vec<u8>),
     /// The buffer, texture, or sampler of the argument at this index.
     Argument(usize),
@@ -330,8 +332,8 @@ impl<'a> Call<'a> {
     ///   an axis exceeds the limit of the device.
     /// - [`ErrorKind::UnsupportedParameter`] when the reflected layout of a
     ///   plain value does not hold the value.
-    /// - [`ErrorKind::Backend`] when wgpu reports an error while it prepares
-    ///   or submits the work.
+    /// - [`ErrorKind::Backend`] when the backend reports an error while it
+    ///   prepares or submits the work.
     pub fn dispatch(&self, elements: [u32; 3]) -> Result<()> {
         let groups =
             workgroup_counts(elements, self.kernel.layout.thread_group_size).ok_or_else(|| {
@@ -383,11 +385,11 @@ impl<'a> Call<'a> {
         check_workgroups(
             &kernel.layout.name,
             groups,
-            kernel.device.backend().max_workgroups_per_dimension(),
+            kernel.device.backend().max_workgroups(),
         )?;
         kernel.inner.dispatch(
             kernel.device.backend(),
-            &kernel.layout.name,
+            &kernel.layout,
             &plan,
             &self.arguments,
             groups,
@@ -469,9 +471,10 @@ pub(crate) fn workgroup_counts(elements: [u32; 3], group_size: [u32; 3]) -> Opti
 }
 
 /// Fails with [`ErrorKind::InvalidArgument`] when the number of thread
-/// groups along an axis exceeds the device's `limit`.
-pub(crate) fn check_workgroups(kernel: &str, groups: [u32; 3], limit: u32) -> Result<()> {
-    for (axis, count) in ["x", "y", "z"].into_iter().zip(groups) {
+/// groups along an axis exceeds the device's limit along that axis in
+/// `limits`.
+pub(crate) fn check_workgroups(kernel: &str, groups: [u32; 3], limits: [u32; 3]) -> Result<()> {
+    for ((axis, count), limit) in ["x", "y", "z"].into_iter().zip(groups).zip(limits) {
         if count > limit {
             return Err(
                 Error::new(ErrorKind::InvalidArgument, CALL).with_detail(format!(
@@ -714,22 +717,23 @@ pub(crate) fn finish<P: AsRef<Binding>, B, V, S>(
     } = checked;
     require_arguments(parameters, &given, &set)?;
     check_shared_buffers(parameters, arguments, &given, reads)?;
-    let groups = group_sets(parameters.bindings)
-        .into_iter()
-        .map(|indexes| {
-            indexes
-                .into_iter()
-                .map(|binding| Entry {
-                    index: parameters.bindings[binding].as_ref().index,
-                    source: match given[binding] {
-                        Some(argument) => Source::Argument(argument),
-                        None => Source::Uniform(mem::take(&mut blocks[binding])),
-                    },
-                })
-                .collect::<Vec<Entry>>()
+    let entries = parameters
+        .bindings
+        .iter()
+        .enumerate()
+        .filter(|(_, binding)| binding.as_ref().usage == Usage::Used)
+        .map(|(binding, _)| Entry {
+            binding,
+            source: match given[binding] {
+                Some(argument) => Source::Argument(argument),
+                None => Source::Uniform(mem::take(&mut blocks[binding])),
+            },
         })
         .collect();
-    Ok(Plan { groups, immediates })
+    Ok(Plan {
+        entries,
+        immediates,
+    })
 }
 
 /// Fails with [`ErrorKind::InvalidArgument`] on the first parameter, in the
@@ -829,30 +833,6 @@ fn check_shared_buffers<P: AsRef<Binding>, B, V, S>(
         )));
     }
     Ok(())
-}
-
-/// Returns the indexes of the used bindings of each set, from set 0 to the
-/// last set with a used binding, which are the bind group layouts that the
-/// load or the creation of the render pipeline created.
-fn group_sets<P: AsRef<Binding>>(bindings: &[P]) -> Vec<Vec<usize>> {
-    let used = || {
-        bindings
-            .iter()
-            .map(AsRef::as_ref)
-            .enumerate()
-            .filter(|(_, binding)| binding.usage == Usage::Used)
-    };
-    let Some(last_set) = used().map(|(_, binding)| binding.set).max() else {
-        return Vec::new();
-    };
-    (0..=last_set)
-        .map(|set| {
-            used()
-                .filter(|(_, binding)| binding.set == set)
-                .map(|(index, _)| index)
-                .collect()
-        })
-        .collect()
 }
 
 fn find<'l, P: AsRef<Binding>>(parameters: Parameters<'l, P>, path: &str) -> Option<Target<'l>> {

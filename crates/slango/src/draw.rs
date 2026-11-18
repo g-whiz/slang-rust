@@ -10,7 +10,7 @@ use crate::call::{
 use crate::error::Result;
 use crate::layout::{Scalar, slang_type};
 use crate::marshal::{self, Element, Value, ValueType, VertexElement};
-use crate::render::{PipelineSnapshot, RenderPipeline, StepMode};
+use crate::render::{PipelineBinding, PipelineSnapshot, RenderPipeline, StepMode};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
 
@@ -85,6 +85,9 @@ pub struct Draw<'a> {
 /// and the arguments, vertex buffers, and targets that it binds.
 pub(crate) struct Recording<'r, 'a> {
     pub(crate) label: &'r str,
+    /// The bindings of the pipeline, ordered by set and binding, which the
+    /// entries of the plan index.
+    pub(crate) bindings: &'r [PipelineBinding],
     pub(crate) plan: &'r DrawPlan,
     pub(crate) arguments: &'r [(&'a str, CallArgument<'a>)],
     pub(crate) vertices: &'r [(&'a str, BoundVertex<&'a backend::Buffer>)],
@@ -354,7 +357,7 @@ impl<'a> Draw<'a> {
     /// The draw checks that the texture belongs to the device of the
     /// pipeline, has the colour format of the pipeline, and can be drawn
     /// into. A texture from
-    /// [`wgpu::texture_from_view`](crate::wgpu::texture_from_view), such as
+    /// `wgpu::texture_from_view`, such as
     /// the texture of a frame of a window, is a target like any other.
     ///
     /// # Examples
@@ -549,6 +552,7 @@ impl<'a> Draw<'a> {
             subject(&pipeline.snapshot),
             &Recording {
                 label: &pipeline.snapshot.vertex,
+                bindings: &pipeline.snapshot.bindings,
                 plan: &plan,
                 arguments: &self.arguments,
                 vertices: &self.vertices,

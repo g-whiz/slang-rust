@@ -1,8 +1,8 @@
 use slang_compiler::reflection::ScalarType;
 
 use super::{
-    Attribute, CompiledRender, KernelLayout, LOAD, Offsets, Position, Rejection, RenderLayout,
-    RenderStage, Role, Scalar, attribute_type, render_record,
+    Attribute, CompiledRender, KernelLayout, LOAD, Offsets, Position, Registers, Rejection,
+    RenderLayout, RenderStage, Role, Scalar, attribute_type, render_record,
 };
 use crate::error::{Error, ErrorKind};
 
@@ -15,6 +15,7 @@ fn offsets(set: u64, binding: u64, byte: u64, register_space: u64) -> Offsets {
         byte,
         register_space,
         location: 0,
+        registers: Registers::default(),
     }
 }
 
@@ -26,6 +27,7 @@ fn descend_adds_every_offset_of_the_variable_to_the_running_sums() {
         byte: 16,
         register_space: 1,
         location: 0,
+        registers: Registers::default(),
     };
     assert_eq!(
         parent.descend(offsets(0, 3, 8, 1)),
@@ -35,6 +37,7 @@ fn descend_adds_every_offset_of_the_variable_to_the_running_sums() {
             byte: 24,
             register_space: 2,
             location: 0,
+            registers: Registers::default(),
         }
     );
 }
@@ -68,6 +71,7 @@ fn the_element_of_a_block_restarts_byte_offsets_and_keeps_its_bindings() {
         byte: 48,
         register_space: 2,
         location: 3,
+        registers: Registers::default(),
     };
     assert_eq!(block.block_element(), Position { byte: 0, ..block });
 }

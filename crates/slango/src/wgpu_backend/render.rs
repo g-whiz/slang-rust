@@ -140,6 +140,7 @@ impl RenderPipeline {
         let bind_groups = bind_groups(
             wgpu_device,
             recording.label,
+            recording.bindings,
             &recording.plan.plan,
             &self.bind_group_layouts,
             recording.arguments,

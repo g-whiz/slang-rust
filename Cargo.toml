@@ -47,6 +47,7 @@ slang-bindgen = { path = "crates/slang-bindgen", version = "=0.1.0-alpha.2" }
 slang-compiler = { path = "crates/slang-compiler", version = "=0.1.0-alpha.2" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "=0.1.0-alpha.2" }
 slang-glslang-sys = { path = "crates/slang-glslang-sys", version = "=0.1.0-alpha.2" }
+slang-rhi = { path = "crates/slang-rhi", version = "=0.1.0-alpha.2" }
 slang-rhi-sys = { path = "crates/slang-rhi-sys", version = "=0.1.0-alpha.2" }
 slang-slint = { path = "crates/slang-slint", version = "=0.1.0-alpha.2" }
 slang-src = { path = "crates/slang-src", version = "=0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1" }

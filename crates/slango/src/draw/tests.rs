@@ -316,20 +316,20 @@ fn a_complete_draw_binds_the_used_bindings_and_each_used_attribute_at_its_slot()
         plan,
         DrawPlan {
             plan: Plan {
-                groups: vec![vec![
+                entries: vec![
                     Entry {
-                        index: 0,
+                        binding: 0,
                         source: Source::Uniform(uniform),
                     },
                     Entry {
-                        index: 1,
+                        binding: 1,
                         source: Source::Argument(2),
                     },
                     Entry {
-                        index: 2,
+                        binding: 2,
                         source: Source::Argument(3),
                     },
-                ]],
+                ],
                 immediates: Vec::new(),
             },
             vertex_buffers: vec![(0, 1), (1, 2), (2, 0)],

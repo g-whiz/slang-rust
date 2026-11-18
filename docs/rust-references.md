@@ -32,7 +32,7 @@ An agent that is about to use a design pattern, or that faces a design question,
 Every source has one identifier, used in this document and in `docs/rust-coding-standards.md` alike:
 
 - `[IR-<n>]`: the entry at zero-based index n of the file `resources.json` in the curated list at <https://github.com/mre/idiomatic-rust>, as of the snapshot that Section 6.2 records.
-- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly, and some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary, and `[S-12]` for compile-time assertions that a type does not implement a trait.
+- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly, and some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary, `[S-12]` for compile-time assertions that a type does not implement a trait, and `[S-13]` for uninhabited types.
 
 An identifier is never reused or renumbered (Section 6). The catalogue in Section 3 holds the entry for every identifier that this document cites, so it takes the place of a References section. Section 21 of `docs/rust-coding-standards.md` points to the catalogue in the same way.
 
@@ -159,8 +159,9 @@ Rules: TYPE-4.
 | [IR-6] | 3 | Matching on a full tuple to remove nesting. |
 | [IR-47] | 3 | `Option` combinators instead of nested `match`. |
 | [IR-31] | 3 | One puzzle solved with match guards. |
+| [S-13] | 1 | `Infallible`, the enumeration without variants whose value cannot exist, and the `match` without arms on it. |
 
-Rules: TYPE-2, TYPE-7, API-9, FFI-10.
+Rules: TYPE-2, TYPE-7, API-9, FFI-10, SIMP-2.
 
 ### 2.7. Error Handling in Libraries
 
@@ -710,7 +711,7 @@ These sources teach Rust and yield few rules. An agent consults them for backgro
 
 ## 3. Catalogue
 
-The catalogue holds 107 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-12]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
+The catalogue holds 108 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-13]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
 
 ### 3.1. Curated List Entries
 
@@ -2146,6 +2147,19 @@ The catalogue holds 107 entries: one for each of the 95 entries of the curated l
 - Consult when: asserting that a type does not implement a trait, or choosing between a compile-fail test with expected compiler output and a compile-time assertion.
 - Cited by: CONC-9.
 
+**[S-13] `std::convert::Infallible`, the Rust standard library documentation**
+
+- Author: the Rust project.
+- Year: not recorded. Stable since Rust 1.34.0. Read on 2026-11-18 in the source of `core` of Rust 1.99.1, `library/core/src/convert/mod.rs`, which the installed component rust-src holds and from which the API documentation is built.
+- URL: <https://doc.rust-lang.org/std/convert/enum.Infallible.html>.
+- Kind: documentation.
+- Tier: 1, assigned here as the documentation of the standard library that the Rust project publishes.
+- Read status: partial. The documentation comment of the item and its definition `pub enum Infallible {}` were read. The trait implementations of the item and the rest of the module were not.
+- Current: yes, for the toolchain of the project. The section "Future compatibility" plans to make `Infallible` an alias of the never type `!` once that type is stable, which keeps the type uninhabited.
+- Relevance: medium. It states that the enumeration has no variant, so a value of the type can never exist, which is what lets a backend of `slango` give a type that it does not offer methods that the compiler proves are never called.
+- Consult when: giving a type a field or a value that cannot exist, choosing between `Infallible` and an enumeration of one's own without variants, or reasoning about a `match` with no arm.
+- Cited by: SIMP-2.
+
 ## 4. Coverage Gaps
 
 This section lists topics that the project needs and that the sources in Section 3 do not cover, or cover weakly. For each gap it states what kind of source would fill it. Until such a source is added (Section 6.1), the rules for the topic in `docs/rust-coding-standards.md` rest on project decisions and on the neighbouring sources named here.
@@ -2246,6 +2260,7 @@ This table lists every entry whose read status is partial or unreachable, with w
 | [S-10] | Partial | Every chapter. The FAQ, the change log, and the agent version were not read. | 25 rules |
 | [S-11] | Partial | Consulted for the `-unwind` ABIs. The sections read in full are not recorded. | FFI-7 |
 | [S-12] | Partial | The manifest, the README, the crate-level documentation, and `src/assert_impl.rs` of version 1.1.0. | CONC-9 |
+| [S-13] | Partial | The documentation comment and the definition of `Infallible` in the source of `core` of Rust 1.99.1. | SIMP-2 |
 
 Section 3 gives the full list of rules that cite each source.
 

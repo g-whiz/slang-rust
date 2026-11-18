@@ -1,0 +1,33 @@
+---
+source: crates/slango/src/layout/tests/ffi/targets.rs
+expression: render(&walked)
+---
+kernel `run` thread group [8, 1, 1]
+  set 0 binding 0 `` Used: uniform buffer
+    size 4
+    +0 4 bytes `factor`: Float32 scalar
+  set 0 binding 1 `gaps` Used: storage buffer ReadOnly, stride 16, element structure Gap of 16 bytes { +0 scale: Float32 scalar, +4 colour: Float32 vector 3 }
+  set 0 binding 2 `results` Used: storage buffer ReadWrite, stride 16, element Float32 x4
+  set 0 binding 3 `params` Used: uniform buffer
+    size 100
+    +0 4 bytes `params.gain`: Float32 scalar
+    +4 36 bytes `params.rotation`: Float32 matrix 3x3 with rows 12 bytes apart
+    +40 24 bytes `params.wide`: Float32 matrix 2x3 with rows 12 bytes apart
+    +64 24 bytes `params.tall`: Float32 matrix 3x2 with rows 8 bytes apart
+    +88 12 bytes `params.flags`: Uint32 array 3 stride 4 of scalar
+  set 0 binding 4 `Named` Used: uniform buffer
+    size 8
+    +0 8 bytes `Named.offset`: Float32 vector 2
+  set 0 binding 5 `spare` Unused: storage buffer ReadWrite, stride 4, element Float32 x1
+  set 1 binding 0 `block` Used: uniform buffer
+    size 4
+    +0 4 bytes `block.weight`: Float32 scalar
+  set 1 binding 1 `block.ids` Used: storage buffer ReadOnly, stride 4, element Uint32 x1
+  set 2 binding 0 `block.inner` Used: uniform buffer
+    size 16
+    +0 16 bytes `block.inner.tint`: Float32 vector 4
+  set 2 binding 1 `block.inner.values` Used: storage buffer ReadWrite, stride 4, element Float32 x1
+  immediates
+    size 28
+    +0 4 bytes `bias`: Float32 scalar
+    +4 24 bytes `shear`: Float32 matrix 2x3 with rows 12 bytes apart
