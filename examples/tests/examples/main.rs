@@ -1,6 +1,6 @@
 //! The integration tests of the examples, which run each example binary.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "wgpu"))]
 mod colour_format;
 #[cfg(test)]
 mod common;

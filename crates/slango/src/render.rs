@@ -1,12 +1,12 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::marker::PhantomData;
+use std::ops::{BitOr, BitOrAssign};
 use std::sync::Arc;
 
 use crate::Device;
-use crate::device::scoped;
+use crate::backend;
 use crate::error::{Error, ErrorKind, Result, SourceText};
-use crate::kernel::{layout_entries, pipeline_error_kind};
 use crate::layout::{Attribute, Binding, CompiledRender, RenderStage, Scalar, UsableRender, Usage};
 use crate::texture::TextureFormat;
 
@@ -25,8 +25,29 @@ const CREATE: &str = "create a render pipeline";
 /// into a [`Texture`](crate::Texture).
 ///
 /// Cloning a render pipeline is cheap and returns another handle to the same
-/// pipeline. A render pipeline keeps its [`Device`] alive, holds no object of
-/// the Slang compiler, and is [`Send`] and [`Sync`], so threads can share it.
+/// pipeline. A render pipeline keeps its [`Device`] alive and holds no object
+/// of the Slang compiler.
+///
+/// A render pipeline is neither [`Send`] nor [`Sync`]: it and every object
+/// created from it stay on the thread that created them, because the crate
+/// keeps all the GPU objects of a device on one thread whatever graphics
+/// library runs them. A program sends results to other threads as plain
+/// data, such as the vector that [`Texture::read`](crate::Texture::read)
+/// returns. This program does not compile, because a render pipeline is not
+/// `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::RenderPipeline>();
+/// ```
+///
+/// This program does not compile either, because a render pipeline is not
+/// `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::RenderPipeline>();
+/// ```
 ///
 /// # Examples
 ///
@@ -36,13 +57,13 @@ const CREATE: &str = "create a render pipeline";
 pub struct RenderPipeline {
     pub(crate) snapshot: Arc<PipelineSnapshot>,
     pub(crate) device: Device,
-    pub(crate) bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
-    pub(crate) pipeline: ::wgpu::RenderPipeline,
+    pub(crate) inner: backend::RenderPipeline,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl RenderPipeline {
-    /// Checks the entry points and the options, then creates both shader
-    /// modules, the layouts, and the render pipeline on the device.
+    /// Checks the entry points and the options, then creates the render
+    /// pipeline on the device.
     pub(crate) fn create(
         device: &Device,
         records: &[CompiledRender],
@@ -53,84 +74,18 @@ impl RenderPipeline {
         let names = Names { vertex, fragment };
         let (vertex_record, fragment_record) = select(records, names)?;
         let snapshot = snapshot(vertex_record, fragment_record, names, options)?;
-        let wgpu_device = device.wgpu_device();
-        let vertex_module = shader_module(wgpu_device, vertex_record, names, RenderStage::Vertex)?;
-        let fragment_module =
-            shader_module(wgpu_device, fragment_record, names, RenderStage::Fragment)?;
-        let label = Some(vertex);
-        let ((bind_group_layouts, pipeline_layout), error) = scoped(wgpu_device, || {
-            let used: Vec<(&Binding, ::wgpu::ShaderStages)> = snapshot
-                .bindings
-                .iter()
-                .filter(|binding| !binding.visibility.is_empty())
-                .map(|binding| (&binding.binding, binding.visibility))
-                .collect();
-            let bind_group_layouts: Vec<::wgpu::BindGroupLayout> = layout_entries(&used)
-                .iter()
-                .map(|entries| {
-                    wgpu_device.create_bind_group_layout(&::wgpu::BindGroupLayoutDescriptor {
-                        label,
-                        entries,
-                    })
-                })
-                .collect();
-            let layout_refs: Vec<Option<&::wgpu::BindGroupLayout>> =
-                bind_group_layouts.iter().map(Some).collect();
-            let pipeline_layout =
-                wgpu_device.create_pipeline_layout(&::wgpu::PipelineLayoutDescriptor {
-                    label,
-                    bind_group_layouts: &layout_refs,
-                    immediate_size: 0,
-                });
-            (bind_group_layouts, pipeline_layout)
-        });
-        if let Some(error) = error {
-            return Err(names
-                .error(
-                    pipeline_error_kind(&error),
-                    "the backend failed to create the layouts of the pipeline",
-                )
-                .with_source(error));
-        }
-        let buffers = vertex_buffers(&snapshot.inputs);
-        let buffer_layouts = vertex_buffer_layouts(&buffers);
-        let targets = [Some(colour_target(&snapshot.options))];
-        let (pipeline, error) = scoped(wgpu_device, || {
-            wgpu_device.create_render_pipeline(&::wgpu::RenderPipelineDescriptor {
-                label,
-                layout: Some(&pipeline_layout),
-                vertex: ::wgpu::VertexState {
-                    module: &vertex_module,
-                    entry_point: Some(vertex),
-                    compilation_options: ::wgpu::PipelineCompilationOptions::default(),
-                    buffers: &buffer_layouts,
-                },
-                primitive: primitive(&snapshot.options),
-                depth_stencil: depth_stencil(snapshot.options.depth_format),
-                multisample: ::wgpu::MultisampleState::default(),
-                fragment: Some(::wgpu::FragmentState {
-                    module: &fragment_module,
-                    entry_point: Some(fragment),
-                    compilation_options: ::wgpu::PipelineCompilationOptions::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
-        if let Some(error) = error {
-            return Err(names
-                .error(
-                    render_pipeline_error_kind(&error),
-                    "the backend rejected the render pipeline",
-                )
-                .with_source(error));
-        }
+        let inner = backend::RenderPipeline::create(
+            device.backend(),
+            vertex_record,
+            fragment_record,
+            names,
+            &snapshot,
+        )?;
         Ok(Self {
             snapshot: Arc::new(snapshot),
             device: device.clone(),
-            bind_group_layouts: bind_group_layouts.into(),
-            pipeline,
+            inner,
+            thread_bound: PhantomData,
         })
     }
 }
@@ -261,7 +216,57 @@ pub(crate) struct PipelineSnapshot {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PipelineBinding {
     pub(crate) binding: Binding,
-    pub(crate) visibility: ::wgpu::ShaderStages,
+    pub(crate) visibility: Stages,
+}
+
+/// The shader stages of a render pipeline that use a binding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Stages {
+    pub(crate) vertex: bool,
+    pub(crate) fragment: bool,
+}
+
+impl Stages {
+    pub(crate) const NONE: Self = Self {
+        vertex: false,
+        fragment: false,
+    };
+    pub(crate) const VERTEX: Self = Self {
+        vertex: true,
+        fragment: false,
+    };
+    pub(crate) const FRAGMENT: Self = Self {
+        vertex: false,
+        fragment: true,
+    };
+
+    pub(crate) fn is_empty(self) -> bool {
+        self == Self::NONE
+    }
+}
+
+impl BitOr for Stages {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self {
+            vertex: self.vertex || other.vertex,
+            fragment: self.fragment || other.fragment,
+        }
+    }
+}
+
+impl BitOrAssign for Stages {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = *self | other;
+    }
+}
+
+/// How often a vertex attribute advances in its vertex buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StepMode {
+    Vertex,
+    Instance,
 }
 
 impl AsRef<Binding> for PipelineBinding {
@@ -270,33 +275,25 @@ impl AsRef<Binding> for PipelineBinding {
     }
 }
 
-/// One vertex attribute of a render pipeline, with its vertex format, its
-/// step mode, and its vertex buffer slot, which only a used attribute has.
+/// One vertex attribute of a render pipeline, with its step mode and its
+/// vertex buffer slot, which only a used attribute has.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct VertexInput {
     pub(crate) attribute: Attribute,
-    pub(crate) format: ::wgpu::VertexFormat,
-    pub(crate) step_mode: ::wgpu::VertexStepMode,
+    pub(crate) step_mode: StepMode,
     pub(crate) slot: Option<u32>,
-}
-
-/// The vertex buffer of one used attribute, at the position of its slot.
-#[derive(Debug, PartialEq)]
-struct VertexBuffer {
-    attribute: ::wgpu::VertexAttribute,
-    step_mode: ::wgpu::VertexStepMode,
 }
 
 /// The names of the two entry points of a render pipeline, which every error
 /// of its creation names.
 #[derive(Clone, Copy)]
-struct Names<'a> {
-    vertex: &'a str,
-    fragment: &'a str,
+pub(crate) struct Names<'a> {
+    pub(crate) vertex: &'a str,
+    pub(crate) fragment: &'a str,
 }
 
 impl Names<'_> {
-    fn error(self, kind: ErrorKind, problem: &str) -> Error {
+    pub(crate) fn error(self, kind: ErrorKind, problem: &str) -> Error {
         Error::new(kind, CREATE).with_detail(format!(
             "for `{}` and `{}`, {problem}",
             self.vertex, self.fragment
@@ -304,7 +301,7 @@ impl Names<'_> {
     }
 }
 
-fn stage_word(stage: RenderStage) -> &'static str {
+pub(crate) fn stage_word(stage: RenderStage) -> &'static str {
     match stage {
         RenderStage::Vertex => "vertex",
         RenderStage::Fragment => "fragment",
@@ -411,15 +408,12 @@ fn merge_bindings(
     names: Names<'_>,
 ) -> Result<Vec<PipelineBinding>> {
     let mut merged: BTreeMap<(u32, u32), PipelineBinding> = BTreeMap::new();
-    for (bindings, stage) in [
-        (vertex, ::wgpu::ShaderStages::VERTEX),
-        (fragment, ::wgpu::ShaderStages::FRAGMENT),
-    ] {
+    for (bindings, stage) in [(vertex, Stages::VERTEX), (fragment, Stages::FRAGMENT)] {
         for binding in bindings {
             let visibility = if binding.usage == Usage::Used {
                 stage
             } else {
-                ::wgpu::ShaderStages::NONE
+                Stages::NONE
             };
             match merged.get_mut(&(binding.set, binding.index)) {
                 Some(existing) => {
@@ -491,19 +485,19 @@ fn vertex_inputs(
     sorted
         .into_iter()
         .map(|attribute| {
-            let format = vertex_format(attribute.scalar, attribute.components).ok_or_else(|| {
-                names.error(
+            if !vertex_format_supported(attribute.scalar, attribute.components) {
+                return Err(names.error(
                     ErrorKind::UnsupportedParameter,
                     &format!(
                         "Slang reports the vertex attribute `{}` with a type that no vertex format holds",
                         attribute.path
                     ),
-                )
-            })?;
+                ));
+            }
             let step_mode = if options.instance_attributes.contains(&attribute.path) {
-                ::wgpu::VertexStepMode::Instance
+                StepMode::Instance
             } else {
-                ::wgpu::VertexStepMode::Vertex
+                StepMode::Vertex
             };
             let slot = (attribute.usage == Usage::Used).then(|| {
                 let slot = next_slot;
@@ -512,7 +506,6 @@ fn vertex_inputs(
             });
             Ok(VertexInput {
                 attribute: attribute.clone(),
-                format,
                 step_mode,
                 slot,
             })
@@ -520,136 +513,12 @@ fn vertex_inputs(
         .collect()
 }
 
-/// Returns the vertex format of an attribute of a scalar type with a number
-/// of components, or `None` when no vertex format holds it.
-pub(crate) fn vertex_format(scalar: Scalar, components: u32) -> Option<::wgpu::VertexFormat> {
-    use ::wgpu::VertexFormat as F;
-    let formats = match scalar {
-        Scalar::Float32 => [F::Float32, F::Float32x2, F::Float32x3, F::Float32x4],
-        Scalar::Int32 => [F::Sint32, F::Sint32x2, F::Sint32x3, F::Sint32x4],
-        Scalar::Uint32 => [F::Uint32, F::Uint32x2, F::Uint32x3, F::Uint32x4],
-        Scalar::Bool => return None,
-    };
-    let index = usize::try_from(components.checked_sub(1)?).ok()?;
-    formats.get(index).copied()
-}
-
-/// Returns one vertex buffer for each used attribute, in the order of their
-/// slots, with the attribute at offset 0.
-fn vertex_buffers(inputs: &[VertexInput]) -> Vec<VertexBuffer> {
-    inputs
-        .iter()
-        .filter(|input| input.slot.is_some())
-        .map(|input| VertexBuffer {
-            attribute: ::wgpu::VertexAttribute {
-                format: input.format,
-                offset: 0,
-                shader_location: input.attribute.location,
-            },
-            step_mode: input.step_mode,
-        })
-        .collect()
-}
-
-/// Returns the wgpu layouts of the vertex buffers, one for each slot from 0,
-/// each with a stride equal to the size of its attribute's format.
-fn vertex_buffer_layouts(buffers: &[VertexBuffer]) -> Vec<Option<::wgpu::VertexBufferLayout<'_>>> {
-    buffers
-        .iter()
-        .map(|buffer| {
-            Some(::wgpu::VertexBufferLayout {
-                array_stride: buffer.attribute.format.size(),
-                step_mode: buffer.step_mode,
-                attributes: std::slice::from_ref(&buffer.attribute),
-            })
-        })
-        .collect()
-}
-
-/// Creates the shader module of one entry point inside an error scope, and
-/// fails with [`ErrorKind::UnsupportedShader`] when the backend rejects it.
-fn shader_module(
-    device: &::wgpu::Device,
-    record: &UsableRender,
-    names: Names<'_>,
-    stage: RenderStage,
-) -> Result<::wgpu::ShaderModule> {
-    let name = match stage {
-        RenderStage::Vertex => names.vertex,
-        RenderStage::Fragment => names.fragment,
-    };
-    let (module, error) = scoped(device, || {
-        device.create_shader_module(::wgpu::ShaderModuleDescriptor {
-            label: Some(name),
-            source: ::wgpu::ShaderSource::SpirV(Cow::Borrowed(&record.spirv)),
-        })
-    });
-    match error {
-        Some(error) => Err(names
-            .error(
-                ErrorKind::UnsupportedShader,
-                &format!(
-                    "the backend rejected the SPIR-V of the {} entry point `{name}`",
-                    stage_word(stage)
-                ),
-            )
-            .with_source(error)),
-        None => Ok(module),
-    }
-}
-
-/// Returns the kind of the error when wgpu raises `error` while it creates
-/// the render pipeline itself: a validation error reports a mismatch between
-/// the two stages, such as of their varyings, which only a change of the
-/// shader fixes.
-fn render_pipeline_error_kind(error: &::wgpu::Error) -> ErrorKind {
-    match error {
-        ::wgpu::Error::Internal { .. } | ::wgpu::Error::Validation { .. } => {
-            ErrorKind::UnsupportedShader
-        }
-        ::wgpu::Error::OutOfMemory { .. } => ErrorKind::Backend,
-    }
-}
-
-fn colour_target(options: &RenderPipelineOptions) -> ::wgpu::ColorTargetState {
-    ::wgpu::ColorTargetState {
-        format: options.colour_format.to_wgpu(),
-        blend: blend_state(options.blend),
-        write_mask: ::wgpu::ColorWrites::ALL,
-    }
-}
-
-fn blend_state(blend: Blend) -> Option<::wgpu::BlendState> {
-    match blend {
-        Blend::Replace => None,
-        Blend::Alpha => Some(::wgpu::BlendState::ALPHA_BLENDING),
-    }
-}
-
-fn primitive(options: &RenderPipelineOptions) -> ::wgpu::PrimitiveState {
-    ::wgpu::PrimitiveState {
-        topology: ::wgpu::PrimitiveTopology::TriangleList,
-        front_face: ::wgpu::FrontFace::Ccw,
-        cull_mode: cull_face(options.cull_mode),
-        ..::wgpu::PrimitiveState::default()
-    }
-}
-
-fn cull_face(cull_mode: CullMode) -> Option<::wgpu::Face> {
-    match cull_mode {
-        CullMode::None => None,
-        CullMode::Back => Some(::wgpu::Face::Back),
-    }
-}
-
-fn depth_stencil(depth_format: Option<TextureFormat>) -> Option<::wgpu::DepthStencilState> {
-    depth_format.map(|format| ::wgpu::DepthStencilState {
-        format: format.to_wgpu(),
-        depth_write_enabled: Some(true),
-        depth_compare: Some(::wgpu::CompareFunction::Less),
-        stencil: ::wgpu::StencilState::default(),
-        bias: ::wgpu::DepthBiasState::default(),
-    })
+/// Returns whether a vertex format holds an attribute of a scalar type with
+/// a number of components, which is true for 1 to 4 components of `float`,
+/// `int`, and `uint`.
+pub(crate) fn vertex_format_supported(scalar: Scalar, components: u32) -> bool {
+    matches!(scalar, Scalar::Float32 | Scalar::Int32 | Scalar::Uint32)
+        && (1..=4).contains(&components)
 }
 
 #[cfg(test)]

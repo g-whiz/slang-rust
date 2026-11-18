@@ -193,6 +193,7 @@ pub(crate) enum Shape {
     Matrix {
         rows: u32,
         columns: u32,
+        row_stride: u64,
     },
     Array {
         length: u64,
@@ -1020,10 +1021,16 @@ impl Walk<'_> {
             TypeKind::Vector => Shape::Vector {
                 length: self.length(ty.element_count(), path)?,
             },
-            TypeKind::Matrix => Shape::Matrix {
-                rows: self.narrow(ty.row_count(), path, "a row count")?,
-                columns: self.narrow(ty.column_count(), path, "a column count")?,
-            },
+            TypeKind::Matrix => {
+                let Some(row) = layout.element_type_layout() else {
+                    return Err(self.unsupported(path, "Slang reports no layout for its rows"));
+                };
+                Shape::Matrix {
+                    rows: self.narrow(ty.row_count(), path, "a row count")?,
+                    columns: self.narrow(ty.column_count(), path, "a column count")?,
+                    row_stride: self.finite(row.stride(ParameterCategory::Uniform), path)?,
+                }
+            }
             TypeKind::Array => {
                 let Some(element) = layout.element_type_layout() else {
                     return Err(self.unsupported(path, "Slang reports no layout for its elements"));

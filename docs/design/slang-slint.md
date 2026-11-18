@@ -140,7 +140,7 @@ Slint renders only when something requests a frame (run). Either of two ways dri
 - Drawing in `BeforeRendering` and calling `Window::request_redraw` in `AfterRendering`.
 - A repeated `slint::Timer` of 16 ms on the UI thread that draws and requests a redraw.
 
-`slint::Image` is neither `Send` nor `Sync`, and `slango::Device`, `slango::Texture`, and `wgpu::Texture` are `Send` (run, a compile check). Without a D-Bus session, Slint prints one line that starts `Error watching for xdg desktop settings` on standard error (run).
+`slint::Image` is neither `Send` nor `Sync`, and `wgpu::Texture` is `Send` (run, a compile check). `slango::Device` and `slango::Texture` were `Send` in that check, before version 0.2 of `slango`, and are neither `Send` nor `Sync` from it (SLO-17 of `docs/design/slango.md`). Without a D-Bus session, Slint prints one line that starts `Error watching for xdg desktop settings` on standard error (run).
 
 ### 3.6. Dependencies
 
@@ -333,7 +333,7 @@ The error of a dependency is returned only through `source()`, never as a public
 
 SLS-14. `View` MUST be neither `Send` nor `Sync`, and `Error` and `ErrorKind` MUST be `Send` and `Sync`, each asserted in a test or a `compile_fail` case (CONC-1), and the crate MUST implement neither trait by hand and add no marker. The view holds `slango` types, which are neither from version 0.2 (SLO-17 of `docs/design/slango.md`), so the compiler derives the absence of both, and the errors hold only the error of `slango`, which stays both.
 
-The application already keeps the view on the UI thread, where it draws (Section 5.3), so the loss of both traits changes no use that Section 5.3 recommends. The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (Section 3.5), so the application creates and sets it on the UI thread. The application draws on the UI thread, in its rendering notifier or in a timer (Section 5.3). `slang-slint` starts no thread (CONC-4).
+The application already keeps the view on the UI thread, where it draws (Section 5.3), so the loss of both traits changes no use that Section 5.3 recommends. The `slint::Image` that `View::to_image` returns is neither `Send` nor `Sync` (Section 3.5), so the application creates and sets it on the UI thread. `slang-slint` starts no thread (CONC-4).
 
 ## 9. Tests
 
@@ -341,7 +341,7 @@ The application already keeps the view on the UI thread, where it draws (Section
 
 - The module `configuration` checks the fields of the configuration of SLS-6.
 - The module `device` checks the error path of `device`.
-- The module `view` asserts SLS-14 for `View`, with `compile_fail` cases for `Send` and `Sync`.
+- Two `compile_fail` doctests on `View` in `src/view.rs` assert SLS-14 for `View`, one for `Send` and one for `Sync`. The integration-test binary has no module `view`.
 - The unit tests in `src/error.rs` check the `Display` text of each error kind, `source`, and the assertions of SLS-14 for `Error` and `ErrorKind`. They sit in the crate, because only the crate can construct an error of each kind, as in `slango`.
 - The unit test in `src/view.rs` checks the mapping of SLS-11 for a texture without a wgpu texture: the private function `wgpu_texture`, which `View::to_image` calls with what `slango::wgpu::texture` returns, turns `None` into the kind `TextureImport` with the full text of the error and no source error. It sits in the crate, because no test can make `slango::wgpu::texture` return `None` (SLO-31 of `docs/design/slango.md`), so it calls the private function with `None` directly.
 

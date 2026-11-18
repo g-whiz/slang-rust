@@ -74,7 +74,7 @@ fn saxpy() -> KernelInterface {
 
 const SAXPY: &str = r#"const _: &[u8] = ::core::include_bytes!("/tmp/shaders/saxpy.slang");
 const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 2,
+    ::slango::__private::ENCODING_VERSION == 3,
     "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
 );
 /// The arguments of the kernel `saxpy`, one field for each parameter.

@@ -12,7 +12,6 @@ mod draw;
 mod elements;
 mod inputs;
 mod rejections;
-mod sharing;
 mod uniforms;
 
 fn device() -> Device {
@@ -460,7 +459,7 @@ fn a_kernel_runs_and_a_render_pipeline_is_created_from_one_module() -> slango::R
 }
 
 #[test]
-fn one_module_creates_several_pipelines_also_from_two_threads() -> slango::Result<()> {
+fn one_module_creates_several_pipelines() -> slango::Result<()> {
     let module = load(&device(), CHECKED);
     let first = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;
     let mut options = options_with(
@@ -470,27 +469,5 @@ fn one_module_creates_several_pipelines_also_from_two_threads() -> slango::Resul
     options.blend = Blend::Alpha;
     let second = module.render_pipeline("vsMain", "fsMain", &options)?;
     assert_ne!(format!("{first:?}"), format!("{second:?}"));
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = [TextureFormat::Bgra8Unorm, TextureFormat::Rgba8UnormSrgb]
-            .into_iter()
-            .map(|colour_format| {
-                let module = module.clone();
-                scope.spawn(move || {
-                    let mut options = options_with(colour_format, None);
-                    options.cull_mode = CullMode::Back;
-                    let pipeline = module.render_pipeline("vsMain", "fsMain", &options)?;
-                    let clone = pipeline.clone();
-                    drop(pipeline);
-                    Ok::<_, Error>(clone)
-                })
-            })
-            .collect();
-        for handle in handles {
-            handle
-                .join()
-                .expect("the thread finishes")
-                .expect("a pipeline from another thread");
-        }
-    });
     Ok(())
 }

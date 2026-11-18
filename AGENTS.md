@@ -100,7 +100,7 @@ As of 2026-11-18, the repository is at a very early stage. The agent updates thi
 - M7, the rework of the native crates, is complete on 2026-11-15. Every build generates the Slang bindings with libclang and records the Slang that it links in `BUILD_INFO`. A program can enable the Cargo feature `vendored` on `slang-compiler`, `slango`, or `slang-slint`, and on `slango-macros` when it calls the macro, to build Slang and its SPIR-V optimizer from source and link them statically without a Vulkan SDK, as the crate-level documentation of `slang-compiler-sys` describes.
 - M8, the forward-compatibility pass of `slango` and the first release, is complete on 2026-11-17. The wgpu backend of `slango` sits behind the default Cargo feature `wgpu`, and the eight crates of the first release are on crates.io at `0.1.0-alpha.1`, with their documentation on GitHub Pages. The recipe `check-semver` and the CI job `semver` check the crates against that release.
 - M9, `slang-rhi-sys`, `slang-rhi`, and additive reflection, is complete on 2026-11-18. A program on Linux with the GNU C library or on x86_64 Windows can run a compute kernel through slang-rhi with the safe crate `slang-rhi`, reach the rest of slang-rhi through the raw bindings of `slang-rhi-sys`, and reflect functions, attributes, modifiers, and generics with `slang-compiler`. Both new crates set `publish = false` until the second release.
-- M10, the opt-in backend `rhi` of `slango`, has its design, and none of its code steps has started. A program can use none of it yet.
+- M10, the opt-in backend `rhi` of `slango`, is in progress, and its design exists. The first of its seven code steps is done, which gives `slango` its backend boundary on wgpu alone and the thread rules of version 0.2. A program cannot use the backend `rhi` yet.
 
 On 2026-11-15, the owner replaced the roadmap after M6 with milestones M7 to M18, which Section 15 of `docs/design/architecture.md` defines. The design of M7 is in `docs/design/slang-compiler-sys.md`, `docs/design/slang-src.md`, `docs/design/slang-glslang-sys.md`, and the documents that they changed. Five steps delivered M7, all on 2026-11-15, and What exists and works describes what they delivered:
 
@@ -426,7 +426,7 @@ These open questions and unverified assumptions stay open after M9, with no mile
 - SRCQ-4 of `docs/design/slang-src.md`, which also concerns the entry key of `slang-rhi-sys`.
 - What the tests of `slang-rhi` do not verify, which Section 10.4 of `docs/design/slang-rhi.md` lists.
 
-The design of M10, the opt-in backend `rhi` of `slango` (Section 15.13 of `docs/design/architecture.md`), exists since 2026-11-18, and no code implements it yet. It consists of these parts, within the owner's decisions of 2026-11-18, which Section 4.6 of `docs/design/slango.md` records:
+The design of M10, the opt-in backend `rhi` of `slango` (Section 15.13 of `docs/design/architecture.md`), exists since 2026-11-18, and its first code step is done. It consists of these parts, within the owner's decisions of 2026-11-18, which Section 4.6 of `docs/design/slango.md` records:
 
 - `docs/design/slango.md`, Sections 3.11, 4.6, 4.7, 6.1 to 6.4, 7.6, 7.7, 8.3, 9.6, 9.7, 13.7, and 17.6, with SLO-33, SLO-34, SLO-36 to SLO-46, and the changed SLO-17, SLO-28, SLO-29, and SLO-30. The features `wgpu` and `rhi` of `slango` exclude each other, so each build has one backend, every type that holds a GPU object is neither `Send` nor `Sync` in version 0.2, and each load on the backend `rhi` creates its own Slang session.
 - `docs/design/slango-macros.md`, SLM-24 to SLM-26 and the changed SLM-5, SLM-8, SLM-11, SLM-15, and SLM-21, for the hidden helper macros of `slango` that keep the loading path and the struct layouts of the program's backend only, and the embedded sources that the backend `rhi` compiles.
@@ -436,7 +436,53 @@ The design of M10, the opt-in backend `rhi` of `slango` (Section 15.13 of `docs/
 
 Section 15.13 of the architecture design orders its seven code steps, the compute phase before the rendering phase. The design answers SOQ-4 and SOQ-9 of `docs/design/slango.md`, RHQ-4 of `docs/design/slang-rhi.md`, and Q-36 of the architecture design, and the owner's decision 5 answers the layout of structures on the backend `rhi`. RHQ-2 of `docs/design/slang-rhi.md` is no longer needed for M10 and has no milestone.
 
-The first code step adds the rule CONC-9 to the coding standard and changes SIMP-2, as Sections 6.1 and 11 of `docs/design/slango.md` state, and the fourth adds a rule for the helper macros of SLM-25 of `docs/design/slango-macros.md`. From the third code step until M11, no alpha of `slango`, `slango-codegen`, or `slango-macros` can be published (TOOL-54 of `docs/design/tooling.md`).
+The fourth code step adds a rule for the helper macros of SLM-25 of `docs/design/slango-macros.md`. From the third code step until M11, no alpha of `slango`, `slango-codegen`, or `slango-macros` can be published (TOOL-54 of `docs/design/tooling.md`).
+
+The first code step of M10, done on 2026-11-18 on the branch `feature/m10-boundary`, built the boundary of version 0.2 of `slango` on wgpu alone, with no feature `rhi` and no slang-rhi:
+
+- The shared modules of `slango` hold no wgpu type, and the private backend module `wgpu_backend`, imported as `backend`, holds the objects and calls of wgpu (SLO-34 of `docs/design/slango.md`). The rule SIMP-2 of the coding standard now requires this structure and names its exceptions: the crate root, `slango::wgpu`, and tests.
+- `Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Call`, and `Draw` of `slango` and `View` of `slang-slint` are neither `Send` nor `Sync`, through the marker field of the new rule CONC-9 of the coding standard, and CONC-1 and Section 17 of that standard name this exception (SLO-17). `compile_fail` doctests assert it for these types, and compile-time assertions in the module `bindings` of the test binary `macros` of `slango-macros` assert it for the generated `Shader`, kernel struct, and arguments struct (SLM-21 of `docs/design/slango-macros.md`). The `gpu` tests that used several threads are removed, or keep their part on one thread (Section 13.7 of `docs/design/slango.md`).
+- A call and a draw refuse one buffer bound to a read-only and to a read-write used parameter, and a draw refuses a vertex or index buffer that is also bound to a read-write parameter, with `ErrorKind::InvalidArgument` instead of the former `Backend` (SLO-44). Each `Buffer<T>` keeps an identity that its clones share.
+- The walk records the row stride of each matrix that reflection reports, marshalling writes each row at it, and `ENCODING_VERSION` is 3 (SLO-46). `slango-codegen` and its snapshots assert version 3.
+- The examples package has the features `wgpu`, its default, and `vendored`, takes `slango` without its default features, and builds its windowed programs only with `wgpu`. `check-features` checks it with `slango` in its second command (TOOL-48 of `docs/design/tooling.md`).
+
+The step departed from the plan of Section 15.13 of the architecture design in two points, which that section and Section 4.3 of `docs/design/slango.md` now state. The crate root keeps the gate on `wgpu` and the message of M8, because a `cfg` of the missing feature `rhi` trips the lint `unexpected_cfgs`, and the backend `wgpu` has no crate-private `Module`. The third code step adds both. `check-features` excludes only `vendored` until that step adds `rhi`.
+
+The step confirmed SOA-11 of `docs/design/slango.md` with no change of `slang-compiler`, and removed its row. Section 3.11 of that design states the row strides that reflection reports, and Section 3.5 states that naga rejects a matrix whose rows have two components in a uniform buffer. The step raised the assumption SOA-12 of that design and met no defect of Slang.
+
+An adversarial review of the step found that every wgpu descriptor, label, error text, order of checks, and order of drops stayed the same through the restructure, by a reading of the old code against the new. It also found that the nine GPU types of `slango` and `View` are neither `Send` nor `Sync`, and that the errors, options types, and enumerations are both. Matrices of several shapes in constant buffers, nested structures, and global arrays read back exactly on the NVIDIA adapter and on lavapipe. Its findings led to the rules of SLO-44 above and to changes of CONC-1, CONC-9, and SIMP-2. The review also asked that each of the two trybuild cases of `slango-macros` that then asserted the missing traits assert one type only. The second commit of the step replaced those cases with the compile-time assertions, as the paragraphs on CI below state.
+
+On 2026-11-18 in the development container, with Rust 1.99.1, these checks passed on the step after the fixes of the review:
+
+- `just check`, which printed "release self-test passed: 78 cases", "1053 tests run: 1053 passed, 0 skipped", and, under Miri, "595 tests run: 595 passed (24 slow), 458 skipped".
+- `test-gpu` with lavapipe, which printed "1053 tests run: 1053 passed, 0 skipped".
+
+These checks passed on the step before the fixes of the review and did not run again after them:
+
+- `test-vendored`, which printed "453 tests run: 453 passed, 0 skipped" and then "4 tests run: 4 passed, 10 skipped". `slango-macros` has one test fewer, the removed assertion of `Send` and `Sync`.
+- `test-rhi`, which printed "123 tests run: 123 passed, 0 skipped".
+- `check-features`, `check-msrv`, `check-semver`, `check-vendored`, `check-rhi`, `check-deny`, and `check-unused-deps`, and `check-clippy` with Rust 1.100.0.
+- cargo-semver-checks with `--release-type minor` on `slango` reported one failed check, `auto_trait_impl_removed`, for the 18 removed implementations of `Send` and `Sync` of the nine types, as intended, and on `slang-compiler` it found no breaking change.
+
+These are not verified: the row strides of DXIL, which were measured only through reflection, and an encoding of version 2 fed to `slango` at run time.
+
+CI run 44370707422, for the first commit of the step, concluded `failure`. Six of its ten jobs passed. The jobs "Run every check on Linux", "Test on macos-latest", "Test on windows-latest", and "Measure test coverage on Linux" failed in the one test `ffi::the_macro_compiles_a_shader_and_reports_each_failure_at_the_path` of `slango-macros`.
+
+Its trybuild cases `not_send` and `not_sync` reported a mismatch, because their `.stderr` files held the notes of error E0277 as rustc 1.99.1 words them, and the newer stable rustc of the runners words them differently. The failure reproduced in the development container with Rust 1.100.0.
+
+The second commit of the step removed the two cases and their `.stderr` files. The module `bindings` of the test binary `macros` of `slango-macros` now asserts at compile time, by trait ambiguity, that the generated `saxpy::Shader`, `saxpy::Saxpy`, and `saxpy::SaxpyArgs<'static>` each implement neither `Send` nor `Sync` (SLM-21 of `docs/design/slango-macros.md`). The assertions depend on no compiler message, and `test-vendored` checks them as well, because it compiles the whole test binary.
+
+CONC-9 of the coding standard now names the two accepted tests of a missing auto trait and forbids a test that compares diagnostic text, and the reference list gained the source of the technique, the crate static_assertions.
+
+On 2026-11-18 in the development container, these checks passed after the fix, with Rust 1.99.1 unless stated. The test counts did not change.
+
+- `test-gpu`, which printed "1053 tests run: 1053 passed, 0 skipped" with Rust 1.99.1 and the same with Rust 1.100.0, including the seven remaining trybuild cases.
+- `check-doctest` with Rust 1.100.0, so the `compile_fail,E0277` doctests of `slango` and `slang-slint`, which name only the error code, hold there.
+- `check-miri`, which printed "595 tests run: 595 passed (33 slow), 458 skipped".
+- `test-vendored`, which printed "453 tests run: 453 passed, 0 skipped" and then "4 tests run: 4 passed, 10 skipped".
+- `check-fmt`, `check-clippy` with both toolchains, `check-rust-comments`, and `check-doc-references`.
+
+When this was written, CI had not run the second commit, and Hard Rule 11 lets the step reach `main` only after the CI run of its last commit succeeds.
 
 On 2026-11-17, the advisory database gained RUSTSEC-2026-0543, which reports `chrono` as unmaintained, with no upgrade available. In CI run 44090478850, on a branch that changed no dependency, `check-deny` failed with it in the job "Run every check on Linux", and `check-deny` failed the same way on `main`. The owner decided that day to ignore the advisory in `deny.toml`, and Section 8 of `docs/design/tooling.md` records the reason.
 
@@ -458,7 +504,7 @@ What exists and works:
 
   The variables `release_packages` and `documentation_site` of the `justfile` hold the crates of the next release and the base address of the hosted documentation, which every recipe of the release reads (TOOL-35 and Section 9.4 of `docs/design/tooling.md`).
 
-  The variables `vendored_packages` and `vendored_features` of the `justfile` hold the packages and the feature of the vendored recipes (TOOL-7). Every recipe that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi`. `check-features` passes `--exclude-features vendored`, and checks `slango` in a second command with `--exclude-no-default-features` (TOOL-48 of `docs/design/tooling.md`).
+  The variables `vendored_packages` and `vendored_features` of the `justfile` hold the packages and the feature of the vendored recipes (TOOL-7). Every recipe that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi`. `check-features` passes `--exclude-features vendored`, and checks `slango` and the examples package in a second command with `--exclude-no-default-features` (TOOL-48 of `docs/design/tooling.md`).
 
   Its variable `slang_library_path` holds the assignment that puts `$VULKAN_SDK/lib` on the library path of Linux or macOS. The recipes that run compiled code which loads Slang put it at the start of their command line (SCS-32 of `docs/design/slang-compiler-sys.md`).
 - The scripts under `scripts/`, which the recipes and hooks run, including `install-vulkan-sdk` and `check-vulkan-sdk`, and the custom checkers of Section 6 of `docs/design/tooling.md`. These are `check-rust-comments`, `check-doc-headings`, `check-doctest-attributes`, `check-feature-docs`, `check-slang-call-guard`, `check-workflow-pins`, and `check-doc-references`, the extension of `check-prose` to the documentation comments of Rust files, and a self-test recipe for each. They also include the scripts of the release, `check-package`, `check-release`, `check-doc-site`, `publish-dry-run`, `publish`, `tag-release`, and `yank`, and their self-test `self-test-release`.
@@ -564,15 +610,18 @@ What exists and works:
   - `wgpu`, on by default, enables `wgpu` and `pollster` and gates every module and re-export of the crate root. Without it, the crate stops compiling with one `compile_error!` that names the feature (SLO-28, SLO-29).
   - `vendored`, off by default, only forwards to `slang-compiler`.
   - Its public API covers `Device` with `DeviceOptions` and `AdapterSelection`, `Module`, `Kernel`, `Call`, `Buffer`, `Texture`, `Sampler`, the sealed traits `Element`, `VertexElement`, and `Value`, the error type `Error` with its `ErrorKind`, and the public module `wgpu`, whose accessors `device`, `queue`, and `texture` return an `Option` (SLO-31).
-  - It also has the hidden module `__private` for the code that `slango-macros` generates, which is exempt from semantic versioning (SLM-6 of `docs/design/slango-macros.md`). The crate's API documentation is the detailed record.
-  - Its pure unit tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slango/` passed in CI on lavapipe, WARP, and hosted Metal.
+  - It also has the hidden module `__private` for the code that `slango-macros` generates, which is exempt from semantic versioning (SLM-6 of `docs/design/slango-macros.md`). Its encoding has `ENCODING_VERSION` 3, which holds the row stride of each matrix (SLO-46). The crate's API documentation is the detailed record.
+  - Its shared modules hold no wgpu item, and the private backend module `wgpu_backend`, which the crate root imports as `backend`, holds every object and call of wgpu outside `slango::wgpu` (SLO-34 of `docs/design/slango.md`, SIMP-2 of the coding standard). The crate root still gates on `wgpu` alone, and the third code step of M10 changes it for the feature `rhi` (Section 4.3 of `docs/design/slango.md`).
+  - `Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Call`, and `Draw` are neither `Send` nor `Sync`, each through a marker field with two `compile_fail` doctests, while the errors, the options types, and the enumerations are both (SLO-17).
+  - A call and a draw refuse one buffer bound to a read-only and to a read-write parameter with `ErrorKind::InvalidArgument` (SLO-44), and marshalling writes each row of a matrix at the row stride that reflection reports (SLO-46).
+  - Its pure unit tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slango/` passed in CI on lavapipe, WARP, and hosted Metal. The `gpu` tests changed in the first code step of M10, and have not run in CI since.
 - `crates/slang-slint`, the crate that shares Slint's wgpu device with `slango` and shows what `slango` draws in a Slint user interface, with publication metadata, `publish = false`, because it belongs to the second release, `slango` and `slint` as its dependencies, and the feature `vendored`, which only forwards to `slango` (SLS-17 of `docs/design/slang-slint.md`).
   - Its public API covers these items:
     - `wgpu_configuration` returns the configuration with which Slint creates a device that suits `slango`.
     - `device` turns the wgpu 30 device and queue that Slint passes to a rendering notifier into a `slango::Device`.
     - `View` draws with a `slango` render pipeline into a texture that Slint shows as an image.
     - The error type `Error` with its `ErrorKind`.
-  - It has no unsafe code. The crate's API documentation is the detailed record.
+  - It has no unsafe code. `View` is neither `Send` nor `Sync`, which two `compile_fail` doctests assert (SLS-14). The crate's API documentation is the detailed record.
   - Its pure tests run under Miri, and the `gpu` tests of its integration-test binary `tests/slang_slint/` passed locally on 2026-11-11 (Section 9 of `docs/design/slang-slint.md`).
 - `crates/slango-codegen`, the library crate that holds the generator of `slango-macros`, with publication metadata, `slango` with an exact version, `proc-macro2`, and `quote` as its dependencies, `insta`, `prettyplease`, and `syn` as its development dependencies, and the feature `vendored`, which only forwards to `slango` (SLM-23 of `docs/design/slango-macros.md`).
   - Its public API covers `generate`, which resolves a relative path against the working directory, and the error type `Error` with its `ErrorKind` of three kinds and its method `report`. The function `generate_precompiled` is also `pub`, for the crate's integration test, but `#[doc(hidden)]` and exempt from semantic versioning, like the hidden type of `slango` that it takes (Section 4.2 of `docs/design/slango-macros.md`). It has no unsafe code. Its crate-level documentation says when to use it instead of the macro and why it requires `slango` with an exact version. The crate's API documentation is the detailed record.
@@ -582,7 +631,7 @@ What exists and works:
   - Its one macro, `shader!`, compiles a Slang file with the Slang of its own copy of `slang-compiler`, by default that of the Vulkan SDK at `VULKAN_SDK`, while the crate builds and generates a typed kernel for each compute entry point and a Rust struct for each Slang structure that the kernels take (Sections 6 and 7 of `docs/design/slango-macros.md`).
   - Its build script gives the macro library an rpath to `$VULKAN_SDK/lib` on Linux and macOS (Section 6.3 of that design). A documentation build expands the macro with Slang like any other build, and the macro has no stub.
   - Its crate-level documentation states what building a crate that calls the macro needs, how failures appear, the exact versions that tie it to `slango`, the lint exceptions that a calling module may need, and the known limits.
-  - Its integration-test binary `tests/macros/` holds pure tests that Miri runs, `ffi` tests, and `gpu` tests that passed locally on 2026-11-11 (Section 10 of that design).
+  - Its integration-test binary `tests/macros/` holds pure tests that Miri runs, `ffi` tests, and `gpu` tests that passed locally on 2026-11-11 (Section 10 of that design). Its module `bindings` asserts SLM-21 at compile time for the generated `Shader`, kernel struct, and arguments struct, on the default route and on the vendored route.
   - In CI run 43300696682 on `main`, for commit `376f10a`, the `gpu` test `gpu::typed_kernel_advances_the_particles_and_prints_the_checked_results` of the examples passed on lavapipe on Linux, WARP on Windows, and Metal on macOS.
 - `examples/`, the unpublished package `slang-rust-examples`, with these examples and their tests:
   - `compile-and-reflect` compiles a Slang file and prints its entry points and parameters.
@@ -614,7 +663,7 @@ What exists and works:
 
 `just check` passes in the development container, and it passed in CI in run 43749637842. The tests of `slang-bindgen` and of `slang-compiler-sys` run in the default tier.
 
-The tests of the `gpu` tier are those of `slango`, of `slang-slint`, of `slango-macros`, of the examples `compute-kernel` and `typed-kernel`, and of the scenes of the examples `windowed-renderer` and `shader-playground`. On 2026-11-18, after the seventh code step of M9, the test tiers have 1038 tests on Linux, of which Miri runs 581 and skips 457, and the tests of `slang-bindgen` grew to 151 in the sixth code step. `test-vendored` runs 453 tests, the 45 of `slang-src`, the 33 of `slang-glslang-sys`, the 75 of `slang-compiler-sys`, and the 300 of `slang-compiler`, then 5 tests of `slango-macros`, and 243 doctests, the 238 of `slang-compiler`, the 4 of `slang-compiler-sys`, and the 1 of `slang-glslang-sys`. Only `test-rhi` runs the tests of `slang-rhi-sys` and `slang-rhi`, with the profile `gpu`: 123 tests, the 51 of `slang-rhi-sys` and the 52 unit tests and 20 `gpu` tests of `slang-rhi`, and then the 38 doctests of `slang-rhi`. `check-miri-rhi` runs the 52 unit tests of `slang-rhi` under Miri. No recipe runs the tests of `slang-src`, `slang-glslang-sys`, or `slang-rhi-sys` under Miri, and a run by hand of those of `slang-src` on 2026-11-15 ran 28 and skipped 8 (SRCQ-3 of `docs/design/slang-src.md`).
+The tests of the `gpu` tier are those of `slango`, of `slang-slint`, of `slango-macros`, of the examples `compute-kernel` and `typed-kernel`, and of the scenes of the examples `windowed-renderer` and `shader-playground`. On 2026-11-18, after the first code step of M10, the test tiers have 1053 tests on Linux, of which Miri runs 595 and skips 458, and the tests of `slang-bindgen` grew to 151 in the sixth code step of M9. `test-vendored` runs 453 tests, the 45 of `slang-src`, the 33 of `slang-glslang-sys`, the 75 of `slang-compiler-sys`, and the 300 of `slang-compiler`, then 4 tests of `slango-macros`, and 243 doctests, the 238 of `slang-compiler`, the 4 of `slang-compiler-sys`, and the 1 of `slang-glslang-sys`. Only `test-rhi` runs the tests of `slang-rhi-sys` and `slang-rhi`, with the profile `gpu`: 123 tests, the 51 of `slang-rhi-sys` and the 52 unit tests and 20 `gpu` tests of `slang-rhi`, and then the 38 doctests of `slang-rhi`. `check-miri-rhi` runs the 52 unit tests of `slang-rhi` under Miri. No recipe runs the tests of `slang-src`, `slang-glslang-sys`, or `slang-rhi-sys` under Miri, and a run by hand of those of `slang-src` on 2026-11-15 ran 28 and skipped 8 (SRCQ-3 of `docs/design/slang-src.md`).
 
 Building the workspace needs a LunarG Vulkan SDK with `VULKAN_SDK` set to its directory, and libclang, on every platform, which the development container and every CI job except `vendored` provide. The crates are tested with the Slang of SDK 1.4.363.1, and the build accepts the Slang of any SDK. Every command that compiles the workspace, such as `cargo check`, `cargo clippy`, `cargo test`, and every recipe that compiles, runs the build script of `slang-compiler-sys`, which generates the bindings with libclang. None of them enables the feature `vendored` or builds `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, or `slang-rhi`, which `default-members` and the `--exclude` options of the recipes leave out, so none clones Slang or builds Slang, slang-glslang, or slang-rhi from source.
 
@@ -632,7 +681,7 @@ What does not exist yet:
 
 - The custom file system of `slang-compiler`, which is deferred with no milestone assigned (Section 15.22 of `docs/design/architecture.md`). It is the trait `FileSystem` and the setter `SessionBuilder::file_system` of Section 8 of `docs/design/slang-compiler.md`, with the error kind `FileSystem`, the Rust-owned blob, the panic handling of SLC-18, and the Slang call guard raised around the user's code of every vtable function (SLC-28). A user who needs one reaches Slang's file system interface through `slang-compiler-sys`.
 - The path-tracing demo of Section 10 of `docs/design/architecture.md`, the broadcasting case and the differentiable function of `compute-kernel`, and tests of the `hw_gpu` tier.
-- The backend `rhi` of `slango` with its feature `rhi`, which excludes the feature `wgpu`, the additions to `slang-rhi` of Section 11 of `docs/design/slang-rhi.md`, the helper macros and embedded sources of `slango-macros`, the features `wgpu` and `rhi` of the examples package, and the commands of TOOL-53 of `docs/design/tooling.md`, which the code steps of M10 add (Section 15.13 of `docs/design/architecture.md`).
+- The backend `rhi` of `slango` with its feature `rhi`, which excludes the feature `wgpu`, the additions to `slang-rhi` of Section 11 of `docs/design/slang-rhi.md`, the helper macros and embedded sources of `slango-macros`, the feature `rhi` of the examples package, and the commands of TOOL-53 of `docs/design/tooling.md`, which the code steps of M10 add (Section 15.13 of `docs/design/architecture.md`).
 - slang-rhi on ARM64 Windows, which `slang-rhi-sys` refuses (RSYS-13 of `docs/design/slang-rhi-sys.md`).
 - slang-rhi on macOS, which stays unsupported until Slang's tree holds a newer metal-cpp (Section 7.4 of `docs/design/slang-rhi-sys.md`).
 - The design document of each crate other than `slang-compiler-sys`, `slang-compiler`, `slango`, `slang-slint`, `slango-macros`, `slango-codegen`, `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi`, which is written as the first task of the milestone that delivers the crate.
@@ -765,13 +814,14 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - `ffi/support.rs` holds their helpers.
 - `crates/slango/`: The crate `slango` that Project Status describes. It has these parts:
   - `Cargo.toml`, which declares the features `default`, `wgpu`, and `vendored` and inherits `slang-compiler`, the optional `pollster` and `wgpu`, and the development dependency `insta` from `[workspace.dependencies]`.
-  - `src/` with the private modules `buffer`, `call`, `device`, `draw`, `encoding`, `error`, `kernel`, `layout`, `marshal`, `module`, `render`, `sampler`, and `texture`. Their unit tests sit under `src/buffer/`, `src/call/`, `src/draw/`, `src/encoding/`, `src/kernel/`, `src/marshal/`, `src/render/`, `src/sampler/`, `src/texture/`, and, with their `insta` snapshots, `src/layout/`.
+  - `src/` with the shared private modules `buffer`, `call`, `device`, `draw`, `encoding`, `error`, `kernel`, `layout`, `marshal`, `module`, `render`, `sampler`, and `texture`, which name no wgpu item and hold no backend `cfg`. Their unit tests sit under `src/buffer/`, `src/call/`, `src/draw/`, `src/encoding/`, `src/kernel/`, `src/marshal/`, `src/render/`, `src/sampler/`, `src/texture/`, and, with their `insta` snapshots, `src/layout/`.
+  - The private backend module `wgpu_backend` in `src/wgpu_backend.rs`, which the crate root imports as `backend` (SLO-34 of `docs/design/slango.md`), with its modules `device`, `buffer`, `texture`, `sampler`, `kernel`, `render`, and `submit` under `src/wgpu_backend/` and the unit tests of `device`, `texture`, `sampler`, `kernel`, and `render` in a `tests.rs` under the directory of each. It holds every use of wgpu and `pollster` outside the public module `wgpu`.
   - The public module `wgpu`.
   - The hidden public module `__private`, with the types of the interface description in `src/__private/interface.rs` and its unit tests under `src/__private/`.
   - The integration-test binary `tests/slango/`, whose module `gpu` holds the tests of the `gpu` tier. They include these tests:
     - Loading, in `gpu/load.rs`.
     - The precompiled load, in `gpu/precompiled.rs`.
-    - The call, in `gpu/call.rs` and `gpu/call/`.
+    - The call, in `gpu/call.rs` and `gpu/call/`, with the matrices of every shape in `gpu/call/matrices.rs`.
     - Textures and sampling, in `gpu/texture.rs` and `gpu/sample.rs`.
     - Render pipelines and draws, in `gpu/render.rs` and `gpu/render/`.
   - The shaders that the tests load, under `tests/slango/shaders/`.
@@ -781,9 +831,9 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - The private modules:
     - `device` holds `wgpu_configuration` and `device`.
     - `error` holds the error type and its unit tests.
-    - `view` holds `View`.
+    - `view` holds `View` with its two `compile_fail` doctests.
   - The integration-test binary `tests/slang_slint/`, with these modules:
-    - `configuration`, `device`, and `view` hold the pure tests.
+    - `configuration` and `device` hold the pure tests.
     - `gpu` holds the tests of the `gpu` tier.
     - `common` holds their helpers.
 - `crates/slango-codegen/`: The generator crate that Project Status describes. It has these parts:
@@ -801,13 +851,13 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - `src/lib.rs` with the crate-level documentation and `shader!`.
   - The build script `build.rs`, which includes the logic in `instructions.rs` (SYS-8 of the coding standard).
   - The integration-test binary `tests/macros/`, with these modules:
-    - `bindings` calls the macro.
+    - `bindings` calls the macro and asserts at compile time that the generated types are neither `Send` nor `Sync`.
     - `build_script` includes `instructions.rs`.
     - `ffi` runs the trybuild cases under `tests/macros/ui/` and compares generated structs with Slang's reflection.
     - `gpu` runs the generated saxpy kernel and a kernel over a buffer of a generated struct.
     - `structs` checks the byte conversion of generated structs.
   - The shaders under `tests/macros/shaders/`.
-- `examples/Cargo.toml`: The manifest of the unpublished package `slang-rust-examples`, which declares the feature `vendored`, forwarded to `slang-compiler`, `slang-slint`, `slango`, and `slango-macros`, and inherits `pollster`, `slang-compiler`, `slang-slint`, `slango`, with its feature `wgpu` named, `slango-macros`, `slint`, `wgpu`, `winit`, and the development dependency `insta` from `[workspace.dependencies]`, and enables Slint's windowing backend on winit and its FemtoVG renderer on wgpu (Section 10 of `docs/design/slang-slint.md`).
+- `examples/Cargo.toml`: The manifest of the unpublished package `slang-rust-examples`, which declares the features `default = ["wgpu"]`, `wgpu`, which enables `slango/wgpu` and the optional dependencies `pollster`, `slang-slint`, `slint`, `wgpu`, and `winit`, and `vendored`, forwarded to `slang-compiler`, `slango`, `slango-macros`, and, when it is on, `slang-slint` (Section 13.7 of `docs/design/slango.md`). It inherits `slango` without its default features, the optional dependencies above, `slang-compiler`, `slango-macros`, and the development dependency `insta` from `[workspace.dependencies]`, and enables Slint's windowing backend on winit and its FemtoVG renderer on wgpu (Section 10 of `docs/design/slang-slint.md`). Its `[[bin]]` entries give `shader-playground` and `windowed-renderer` `required-features = ["wgpu"]`.
 - `examples/src/bin/compile-and-reflect.rs`: The example `compile-and-reflect`, which a user runs from the workspace root with `cargo run -p slang-rust-examples --bin compile-and-reflect -- examples/shaders/scale.slang`, with the Slang library on the library path.
 - `examples/src/bin/compute-kernel.rs`: The example `compute-kernel`, which a user runs from the workspace root with `cargo run -p slang-rust-examples --bin compute-kernel -- examples/shaders/saxpy.slang`, with the Slang library on the library path and a GPU driver or a software driver.
 - `examples/src/shared/`: The modules that several binaries of the examples include with a `#[path]` attribute, because the package has no library crate:
@@ -828,6 +878,7 @@ Section 7.12 of the writing guide and Section 4.8 of the coding standard say whi
   - The module `gpu.rs` runs `compute-kernel` on `saxpy.slang`, on `broken.slang`, and on a missing file, and runs `typed-kernel`.
   - `colour_format.rs` checks the choice of colour format of `windowed-renderer`.
   - `gpu/windowed_renderer.rs` and `gpu/shader_playground.rs` check the scene of each windowed example drawn offscreen and its reload.
+  - `colour_format` and the modules of both windowed examples under `gpu` and `ffi` compile only with the feature `wgpu` of the package.
   - The `insta` snapshots are under `snapshots/`.
 - `clippy.toml`: The Clippy configuration of Section 4.3 of the coding standard.
 - `deny.toml`: The cargo-deny configuration of Section 8 of `docs/design/tooling.md`, whose `[advisories]` table ignores six advisories by the owner's decisions and whose `[bans]` table skips 31 duplicate versions. Its `[licenses]` table accepts `GPL-3.0-or-later` for `slang-slint` alone, through an exception. It accepts `GPL-3.0-only` for every crate, so a reviewer checks that no crate under a permissive licence depends on a crate under the GPL (TOOL-34). Section 8 of `docs/design/tooling.md` lists the licence allow-list, the advisories, and the skips with the reason for each.
@@ -964,7 +1015,7 @@ The planned crates are:
 
   In M3 it calls existing compute entry points only, which are functions marked `[shader("compute")]`, with bindings built from reflection. Generated kernels around plain Slang functions, broadcasting over array arguments, and differentiable functions belong to later milestones (Section 8.1 of the architecture design).
 
-  In M3, `slango` uses wgpu 30 and loads every shader through wgpu's validated SPIR-V path, so it has no unsafe code. A load copies what the kernels need into a private, owned layout snapshot and releases every Slang object before it returns, so no Slang object outlives a load and the public types are `Send` and `Sync`. The design of M10, which the code does not implement yet, changes this for version 0.2. Every type that holds a GPU object is neither `Send` nor `Sync` on either backend. On the backend `rhi`, a device keeps its global session, each load creates a Slang session of its own, and a module keeps its Slang objects (SLO-17 and SLO-37 of `docs/design/slango.md`). A call sets each parameter by name (SLO-1, SLO-2, SLO-5, SLO-6, and Section 9.1 of `docs/design/slango.md`).
+  In M3, `slango` uses wgpu 30 and loads every shader through wgpu's validated SPIR-V path, so it has no unsafe code. A load copies what the kernels need into a private, owned layout snapshot and releases every Slang object before it returns, so no Slang object outlives a load. Since the first code step of M10, every type that holds a GPU object, together with `Call` and `Draw`, is neither `Send` nor `Sync`, through a marker field (SLO-17 of `docs/design/slango.md`, CONC-9 of the coding standard). The rest of the design of M10, which the code does not implement yet, covers the backend `rhi`: a device keeps its global session, each load creates a Slang session of its own, and a module keeps its Slang objects (SLO-17 and SLO-37 of `docs/design/slango.md`). A call sets each parameter by name (SLO-1, SLO-2, SLO-5, SLO-6, and Section 9.1 of `docs/design/slango.md`).
 
   Since M4, it also draws into a texture with render pipelines built from existing vertex and fragment entry points, still with SPIR-V only and no unsafe code. A shader target configurable per backend is deferred with no milestone assigned (Sections 1.4 and 1.5 of `docs/design/slango.md`).
 - `slango-macros`: A function-like procedural macro, `shader!`, of M6, that compiles a `.slang` file with Slang during compilation and generates typed Rust bindings to its compute kernels. The generated code embeds the precompiled SPIR-V and layout snapshot and calls the same core of `slango` as the runtime API through a hidden module of `slango`. The generator is in the library crate `slango-codegen` (SLM-1, SLM-6, and Section 7 of `docs/design/slango-macros.md`). The design of M10, which the code does not implement yet, wraps the items of each backend in hidden helper macros of `slango`, so the generated code keeps only those of the backend of the program's `slango`. On the backend `rhi`, that is the Slang source of the shader and of every module that it imports, which compiles when the module loads, and structs in the packed layout (SLM-24 to SLM-26 of that design). Every crate that uses it needs Slang at build time, and `slango` does not re-export it in M6 (Section 4.1 of that design). The feature `vendored` of `slango` does not reach the copy of Slang that the macro links, so a program without a Vulkan SDK at build time enables `vendored` on `slango-macros` as well (Section 4.3 of that design).

@@ -10,28 +10,47 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+default = ["wgpu"]
 vendored = [
     "slang-compiler/vendored",
-    "slang-slint/vendored",
+    "slang-slint?/vendored",
     "slango/vendored",
     "slango-macros/vendored",
 ]
+wgpu = [
+    "dep:pollster",
+    "dep:slang-slint",
+    "dep:slint",
+    "dep:wgpu",
+    "dep:winit",
+    "slango/wgpu",
+]
 
 [dependencies]
-pollster.workspace = true
+pollster = { workspace = true, optional = true }
 slang-compiler.workspace = true
-slang-slint.workspace = true
-slango = { workspace = true, features = ["wgpu"] }
+slang-slint = { workspace = true, optional = true }
+slango = { workspace = true, default-features = false }
 slango-macros.workspace = true
-slint = { workspace = true, features = [
+slint = { workspace = true, optional = true, features = [
     "backend-winit",
     "compat-1-18",
     "renderer-femtovg-wgpu",
     "std",
     "unstable-wgpu-30",
 ] }
-wgpu.workspace = true
-winit.workspace = true
+wgpu = { workspace = true, optional = true }
+winit = { workspace = true, optional = true }
+
+[[bin]]
+name = "shader-playground"
+path = "src/bin/shader-playground/main.rs"
+required-features = ["wgpu"]
+
+[[bin]]
+name = "windowed-renderer"
+path = "src/bin/windowed-renderer/main.rs"
+required-features = ["wgpu"]
 
 [dev-dependencies]
 insta.workspace = true

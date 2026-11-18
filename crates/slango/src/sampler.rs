@@ -1,8 +1,9 @@
 use std::fmt;
+use std::marker::PhantomData;
 
 use crate::Device;
-use crate::device::scoped;
-use crate::error::{Error, ErrorKind, Result};
+use crate::backend;
+use crate::error::Result;
 
 /// A sampler of a [`Device`], which states how a shader reads a
 /// [`Texture`](crate::Texture) between its pixels and beyond its edges.
@@ -12,8 +13,26 @@ use crate::error::{Error, ErrorKind, Result};
 /// [`Sampler::new`] from [`SamplerOptions`].
 ///
 /// Cloning a sampler is cheap and returns another handle to the same
-/// sampler. A sampler keeps its [`Device`] alive and is [`Send`] and
-/// [`Sync`], so threads can share it.
+/// sampler. A sampler keeps its [`Device`] alive.
+///
+/// A sampler is neither [`Send`] nor [`Sync`]: it stays on the thread that
+/// created its [`Device`], because the crate keeps all the GPU objects of a
+/// device on one thread whatever graphics library runs them. A program sends
+/// results to other threads as plain data, such as the vector that
+/// [`Texture::read`](crate::Texture::read) returns. This program does not
+/// compile, because a sampler is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Sampler>();
+/// ```
+///
+/// This program does not compile either, because a sampler is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Sampler>();
+/// ```
 ///
 /// # Examples
 ///
@@ -21,8 +40,9 @@ use crate::error::{Error, ErrorKind, Result};
 #[derive(Clone)]
 pub struct Sampler {
     device: Device,
-    inner: ::wgpu::Sampler,
+    inner: backend::Sampler,
     options: SamplerOptions,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl Sampler {
@@ -48,20 +68,16 @@ impl Sampler {
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`] of kind [`ErrorKind::Backend`] when wgpu reports
-    /// an error while it creates the sampler.
+    /// Returns an [`Error`](crate::Error) of kind
+    /// [`ErrorKind::Backend`](crate::ErrorKind::Backend) when wgpu reports an
+    /// error while it creates the sampler.
     pub fn new(device: &Device, options: &SamplerOptions) -> Result<Self> {
-        let wgpu_device = device.wgpu_device();
-        let (inner, error) = scoped(wgpu_device, || {
-            wgpu_device.create_sampler(&descriptor(options))
-        });
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::Backend, "create a sampler").with_source(error));
-        }
+        let inner = backend::Sampler::new(device.backend(), options)?;
         Ok(Self {
             device: device.clone(),
             inner,
             options: options.clone(),
+            thread_bound: PhantomData,
         })
     }
 
@@ -72,7 +88,7 @@ impl Sampler {
         self.device.is_same(device)
     }
 
-    pub(crate) fn wgpu_sampler(&self) -> &::wgpu::Sampler {
+    pub(crate) fn backend(&self) -> &backend::Sampler {
         &self.inner
     }
 }
@@ -146,39 +162,6 @@ pub enum AddressMode {
     /// The texture repeats with every second copy mirrored, so 1.25 reads
     /// what 0.75 reads.
     MirrorRepeat,
-}
-
-impl FilterMode {
-    fn to_wgpu(self) -> ::wgpu::FilterMode {
-        match self {
-            Self::Nearest => ::wgpu::FilterMode::Nearest,
-            Self::Linear => ::wgpu::FilterMode::Linear,
-        }
-    }
-}
-
-impl AddressMode {
-    fn to_wgpu(self) -> ::wgpu::AddressMode {
-        match self {
-            Self::ClampToEdge => ::wgpu::AddressMode::ClampToEdge,
-            Self::Repeat => ::wgpu::AddressMode::Repeat,
-            Self::MirrorRepeat => ::wgpu::AddressMode::MirrorRepeat,
-        }
-    }
-}
-
-fn descriptor(options: &SamplerOptions) -> ::wgpu::SamplerDescriptor<'static> {
-    let address_mode = options.address_mode.to_wgpu();
-    let filter = options.filter.to_wgpu();
-    ::wgpu::SamplerDescriptor {
-        label: Some("slango sampler"),
-        address_mode_u: address_mode,
-        address_mode_v: address_mode,
-        address_mode_w: address_mode,
-        mag_filter: filter,
-        min_filter: filter,
-        ..::wgpu::SamplerDescriptor::default()
-    }
 }
 
 #[cfg(test)]

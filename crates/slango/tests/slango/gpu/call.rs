@@ -1,11 +1,11 @@
 use std::fmt::Debug;
-use std::thread;
 
 use slango::{AdapterSelection, Buffer, Device, Element};
 
 use crate::common::{device_with, kernel, load, shader};
 
 mod elements;
+mod matrices;
 mod validation;
 
 fn device() -> Device {
@@ -473,41 +473,6 @@ fn a_dispatch_of_zero_elements_runs_no_thread() -> slango::Result<()> {
     call.dispatch([0, 1, 1])?;
     call.dispatch_groups([1, 1, 0])?;
     assert_eq!(cells.read()?, [7; 4]);
-    Ok(())
-}
-
-#[test]
-fn clones_of_a_kernel_run_on_two_threads_at_once() -> slango::Result<()> {
-    let device = device();
-    let kernel = kernel(&device, OFFSET, "offset");
-    let results = thread::scope(|scope| {
-        let workers: Vec<_> = [1.0_f32, 100.0]
-            .into_iter()
-            .map(|bias| {
-                let kernel = kernel.clone();
-                let device = device.clone();
-                scope.spawn(move || -> slango::Result<Vec<f32>> {
-                    let input = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0])?;
-                    let output = Buffer::<f32>::zeroed(&device, 3)?;
-                    for _ in 0..20 {
-                        kernel
-                            .call()
-                            .set("bias", bias)
-                            .set("count", 3_u32)
-                            .bind("input", &input)
-                            .bind("output", &output)
-                            .dispatch([3, 1, 1])?;
-                    }
-                    output.read()
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .map(|worker| worker.join().expect("the worker does not panic"))
-            .collect::<slango::Result<Vec<Vec<f32>>>>()
-    })?;
-    assert_eq!(results, [vec![2.0, 3.0, 4.0], vec![101.0, 102.0, 103.0]]);
     Ok(())
 }
 

@@ -167,6 +167,7 @@ fn compilation() -> Compilation {
                 layout::Shape::Matrix {
                     rows: 2,
                     columns: 2,
+                    row_stride: 16,
                 },
             ),
         ],

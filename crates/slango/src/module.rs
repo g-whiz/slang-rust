@@ -1,4 +1,5 @@
 use std::fmt;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -19,8 +20,27 @@ const READ: &str = "read a Slang file";
 /// fragment entry point with [`Module::render_pipeline`].
 ///
 /// Cloning a module is cheap and returns another handle to the same module.
-/// A module keeps its [`Device`] alive, holds no object of the Slang
-/// compiler, and is [`Send`] and [`Sync`], so threads can share it.
+/// A module keeps its [`Device`] alive and holds no object of the Slang
+/// compiler.
+///
+/// A module is neither [`Send`] nor [`Sync`]: it stays on the thread that
+/// created its [`Device`], because the crate keeps all the GPU objects of a
+/// device on one thread whatever graphics library runs them. A program sends
+/// results to other threads as plain data, such as the vector that
+/// [`Buffer::read`](crate::Buffer::read) returns. This program does not
+/// compile, because a module is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Module>();
+/// ```
+///
+/// This program does not compile either, because a module is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Module>();
+/// ```
 ///
 /// # Examples
 ///
@@ -30,6 +50,7 @@ pub struct Module {
     device: Device,
     kernels: Arc<[Kernel]>,
     render: Arc<[CompiledRender]>,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl Module {
@@ -256,6 +277,7 @@ impl Device {
             device: self.clone(),
             kernels: kernels.into(),
             render: compiled.render.into(),
+            thread_bound: PhantomData,
         })
     }
 }

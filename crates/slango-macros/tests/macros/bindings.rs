@@ -8,14 +8,25 @@ pub(crate) mod saxpy {
     slango_macros::shader!("shaders/saxpy.slang");
 }
 
-fn assert_send_sync<T: Send + Sync>() {}
-
-#[test]
-fn the_shader_its_kernels_and_their_arguments_are_send_and_sync() {
-    assert_send_sync::<saxpy::Shader>();
-    assert_send_sync::<saxpy::Saxpy>();
-    assert_send_sync::<saxpy::SaxpyArgs<'static>>();
+macro_rules! assert_not_impl {
+    ($type:ty: $trait:path) => {
+        const _: () = {
+            trait AmbiguousIfImpl<Marker> {
+                fn some_item() {}
+            }
+            impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
+            impl<T: ?Sized + $trait> AmbiguousIfImpl<u8> for T {}
+            let _ = <$type as AmbiguousIfImpl<_>>::some_item;
+        };
+    };
 }
+
+assert_not_impl!(saxpy::Saxpy: Send);
+assert_not_impl!(saxpy::Saxpy: Sync);
+assert_not_impl!(saxpy::Shader: Send);
+assert_not_impl!(saxpy::Shader: Sync);
+assert_not_impl!(saxpy::SaxpyArgs<'static>: Send);
+assert_not_impl!(saxpy::SaxpyArgs<'static>: Sync);
 
 #[test]
 fn a_path_resolves_against_the_directory_of_the_rust_file_that_calls_the_macro() {

@@ -4,7 +4,7 @@ expression: "bindings(\"particles.slang\")"
 ---
 const _: &[u8] = ::core::include_bytes!("<shaders>/particles.slang");
 const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 2,
+    ::slango::__private::ENCODING_VERSION == 3,
     "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
 );
 /// The Slang structure `Particle`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type.

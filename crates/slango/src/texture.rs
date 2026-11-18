@@ -1,15 +1,12 @@
 use std::fmt;
-
-use ::wgpu::util::DeviceExt as _;
+use std::marker::PhantomData;
 
 use crate::Device;
-use crate::buffer::read_back;
-use crate::device::scoped;
+use crate::backend;
 use crate::error::{Error, ErrorKind, Result};
 
 const CREATE: &str = "create a texture";
 const READ: &str = "read a texture";
-const WRAP: &str = "wrap a texture view";
 
 /// The size in bytes of one pixel of every [`TextureFormat`].
 const BYTES_PER_PIXEL: u32 = 4;
@@ -30,8 +27,26 @@ const BYTES_PER_PIXEL: u32 = 4;
 /// draw, so it is neither sampled nor read.
 ///
 /// Cloning a texture is cheap and returns another handle to the same texture
-/// on the GPU. A texture keeps its [`Device`] alive and is [`Send`] and
-/// [`Sync`], so threads can share it.
+/// on the GPU. A texture keeps its [`Device`] alive.
+///
+/// A texture is neither [`Send`] nor [`Sync`]: it stays on the thread that
+/// created its [`Device`], because the crate keeps all the GPU objects of a
+/// device on one thread whatever graphics library runs them. A program sends
+/// results to other threads as plain data, such as the vector that
+/// [`Texture::read`] returns. This program does not compile, because a
+/// texture is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Texture>();
+/// ```
+///
+/// This program does not compile either, because a texture is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Texture>();
+/// ```
 ///
 /// # Examples
 ///
@@ -39,10 +54,10 @@ const BYTES_PER_PIXEL: u32 = 4;
 #[derive(Clone)]
 pub struct Texture {
     device: Device,
-    inner: ::wgpu::Texture,
-    view: ::wgpu::TextureView,
+    inner: backend::Texture,
     size: [u32; 2],
     format: TextureFormat,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl Texture {
@@ -77,22 +92,16 @@ impl Texture {
     /// height, and of kind [`ErrorKind::Backend`] when wgpu reports an error,
     /// such as a lack of memory, while it creates the texture.
     pub fn from_pixels(device: &Device, size: [u32; 2], pixels: &[[u8; 4]]) -> Result<Self> {
-        check_size(size, max_dimension(device))?;
+        check_size(size, device.backend().max_texture_dimension())?;
         check_pixel_count(size, pixels.len())?;
-        let format = TextureFormat::Rgba8Unorm;
         let bytes: Vec<u8> = pixels.iter().flatten().copied().collect();
-        let wgpu_device = device.wgpu_device();
-        let (created, error) = scoped(wgpu_device, || {
-            let texture = wgpu_device.create_texture_with_data(
-                device.wgpu_queue(),
-                &descriptor(size, format),
-                ::wgpu::util::TextureDataOrder::LayerMajor,
-                &bytes,
-            );
-            let view = texture.create_view(&::wgpu::TextureViewDescriptor::default());
-            (texture, view)
-        });
-        Self::created(device, created, size, format, error)
+        let inner = backend::Texture::from_pixels(device.backend(), size, &bytes)?;
+        Ok(Self::from_backend(
+            device,
+            inner,
+            size,
+            TextureFormat::Rgba8Unorm,
+        ))
     }
 
     /// Creates a texture of `[width, height]` pixels in a format on the
@@ -120,58 +129,25 @@ impl Texture {
     /// device allows, and of kind [`ErrorKind::Backend`] when wgpu reports an
     /// error, such as a lack of memory, while it creates the texture.
     pub fn new(device: &Device, size: [u32; 2], format: TextureFormat) -> Result<Self> {
-        check_size(size, max_dimension(device))?;
-        let wgpu_device = device.wgpu_device();
-        let (created, error) = scoped(wgpu_device, || {
-            let texture = wgpu_device.create_texture(&descriptor(size, format));
-            let view = texture.create_view(&::wgpu::TextureViewDescriptor::default());
-            (texture, view)
-        });
-        Self::created(device, created, size, format, error)
+        check_size(size, device.backend().max_texture_dimension())?;
+        let inner = backend::Texture::zeroed(device.backend(), size, format)?;
+        Ok(Self::from_backend(device, inner, size, format))
     }
 
-    fn created(
+    /// Wraps a backend texture of `device` with its size and format.
+    pub(crate) fn from_backend(
         device: &Device,
-        (inner, view): (::wgpu::Texture, ::wgpu::TextureView),
+        inner: backend::Texture,
         size: [u32; 2],
         format: TextureFormat,
-        error: Option<::wgpu::Error>,
-    ) -> Result<Self> {
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::Backend, CREATE).with_source(error));
-        }
-        Ok(Self {
+    ) -> Self {
+        Self {
             device: device.clone(),
             inner,
-            view,
             size,
             format,
-        })
-    }
-
-    /// Wraps a view of a wgpu texture of `device` as a texture, with the
-    /// size and format of the viewed texture.
-    pub(crate) fn from_view(device: &Device, view: &::wgpu::TextureView) -> Result<Self> {
-        let texture = view.texture();
-        let format = TextureFormat::from_wgpu(texture.format()).ok_or_else(|| {
-            Error::new(ErrorKind::InvalidArgument, WRAP).with_detail(format!(
-                "the viewed texture has the format {:?}, which slango does not support",
-                texture.format()
-            ))
-        })?;
-        check_wrappable(
-            texture.dimension(),
-            texture.mip_level_count(),
-            texture.depth_or_array_layers(),
-            texture.sample_count(),
-        )?;
-        Ok(Self {
-            device: device.clone(),
-            inner: texture.clone(),
-            view: view.clone(),
-            size: [texture.width(), texture.height()],
-            format,
-        })
+            thread_bound: PhantomData,
+        }
     }
 
     /// Returns the size of the texture as `[width, height]` in pixels.
@@ -218,39 +194,19 @@ impl Texture {
     /// [`ErrorKind::Backend`] when wgpu reports an error while it copies the
     /// texture or maps the copy for reading.
     pub fn read(&self) -> Result<Vec<[u8; 4]>> {
-        check_readable(
-            self.format,
-            self.inner.usage().contains(::wgpu::TextureUsages::COPY_SRC),
-        )?;
+        check_readable(self.format, self.inner.can_copy_from())?;
         let [width, height] = self.size;
-        let layout = ReadLayout::new(self.size).ok_or_else(|| {
+        let layout = ReadLayout::new(self.size, backend::ROW_ALIGNMENT).ok_or_else(|| {
             Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
                 "a texture of {width} by {height} pixels is larger than a copy can hold"
             ))
         })?;
-        let bytes = read_back(&self.device, READ, layout.size, |encoder, staging| {
-            encoder.copy_texture_to_buffer(
-                ::wgpu::TexelCopyTextureInfo {
-                    texture: &self.inner,
-                    mip_level: 0,
-                    origin: ::wgpu::Origin3d::ZERO,
-                    aspect: ::wgpu::TextureAspect::All,
-                },
-                ::wgpu::TexelCopyBufferInfo {
-                    buffer: staging,
-                    layout: ::wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(layout.bytes_per_row),
-                        rows_per_image: Some(height),
-                    },
-                },
-                ::wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        })?;
+        let bytes = self.inner.read_bytes(
+            self.device.backend(),
+            self.size,
+            layout.bytes_per_row,
+            layout.size,
+        )?;
         layout.unpad(&bytes).ok_or_else(|| {
             Error::new(ErrorKind::Backend, READ).with_detail(format!(
                 "wgpu mapped {} bytes, which are not {height} rows of {} bytes",
@@ -270,25 +226,17 @@ impl Texture {
     /// Returns whether the texture has the usage `TEXTURE_BINDING`, which a
     /// shader needs to sample it.
     pub(crate) fn is_sampleable(&self) -> bool {
-        self.inner
-            .usage()
-            .contains(::wgpu::TextureUsages::TEXTURE_BINDING)
+        self.inner.is_sampleable()
     }
 
     /// Returns whether the texture has the usage `RENDER_ATTACHMENT`, which
     /// a draw needs to draw into it or to test and write its depths.
     pub(crate) fn is_attachable(&self) -> bool {
-        self.inner
-            .usage()
-            .contains(::wgpu::TextureUsages::RENDER_ATTACHMENT)
+        self.inner.is_attachable()
     }
 
-    pub(crate) fn wgpu_texture(&self) -> &::wgpu::Texture {
+    pub(crate) fn backend(&self) -> &backend::Texture {
         &self.inner
-    }
-
-    pub(crate) fn wgpu_view(&self) -> &::wgpu::TextureView {
-        &self.view
     }
 }
 
@@ -332,27 +280,6 @@ pub enum TextureFormat {
 }
 
 impl TextureFormat {
-    pub(crate) fn to_wgpu(self) -> ::wgpu::TextureFormat {
-        match self {
-            Self::Rgba8Unorm => ::wgpu::TextureFormat::Rgba8Unorm,
-            Self::Rgba8UnormSrgb => ::wgpu::TextureFormat::Rgba8UnormSrgb,
-            Self::Bgra8Unorm => ::wgpu::TextureFormat::Bgra8Unorm,
-            Self::Bgra8UnormSrgb => ::wgpu::TextureFormat::Bgra8UnormSrgb,
-            Self::Depth32Float => ::wgpu::TextureFormat::Depth32Float,
-        }
-    }
-
-    pub(crate) fn from_wgpu(format: ::wgpu::TextureFormat) -> Option<Self> {
-        match format {
-            ::wgpu::TextureFormat::Rgba8Unorm => Some(Self::Rgba8Unorm),
-            ::wgpu::TextureFormat::Rgba8UnormSrgb => Some(Self::Rgba8UnormSrgb),
-            ::wgpu::TextureFormat::Bgra8Unorm => Some(Self::Bgra8Unorm),
-            ::wgpu::TextureFormat::Bgra8UnormSrgb => Some(Self::Bgra8UnormSrgb),
-            ::wgpu::TextureFormat::Depth32Float => Some(Self::Depth32Float),
-            _ => None,
-        }
-    }
-
     pub(crate) fn is_depth(self) -> bool {
         match self {
             Self::Depth32Float => true,
@@ -361,42 +288,6 @@ impl TextureFormat {
             }
         }
     }
-
-    /// Returns the usages of a texture of the format that this crate
-    /// creates: a colour texture can be sampled, drawn into, and copied in
-    /// both directions, and a depth texture can only be a depth target.
-    pub(crate) fn usages(self) -> ::wgpu::TextureUsages {
-        if self.is_depth() {
-            ::wgpu::TextureUsages::RENDER_ATTACHMENT
-        } else {
-            ::wgpu::TextureUsages::TEXTURE_BINDING
-                | ::wgpu::TextureUsages::RENDER_ATTACHMENT
-                | ::wgpu::TextureUsages::COPY_SRC
-                | ::wgpu::TextureUsages::COPY_DST
-        }
-    }
-}
-
-fn descriptor(size: [u32; 2], format: TextureFormat) -> ::wgpu::TextureDescriptor<'static> {
-    let [width, height] = size;
-    ::wgpu::TextureDescriptor {
-        label: Some("slango texture"),
-        size: ::wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: ::wgpu::TextureDimension::D2,
-        format: format.to_wgpu(),
-        usage: format.usages(),
-        view_formats: &[],
-    }
-}
-
-fn max_dimension(device: &Device) -> u32 {
-    device.wgpu_device().limits().max_texture_dimension_2d
 }
 
 /// Fails with [`ErrorKind::InvalidArgument`] when a width or height is zero
@@ -452,39 +343,9 @@ fn check_readable(format: TextureFormat, copy_source: bool) -> Result<()> {
     Ok(())
 }
 
-/// Fails with [`ErrorKind::InvalidArgument`] unless a wgpu texture with these
-/// properties is two-dimensional, with one mip level, one array layer, and
-/// one sample per pixel, so that its only view is the one that a kernel
-/// samples and that [`Texture::size`] and [`Texture::read`] describe.
-fn check_wrappable(
-    dimension: ::wgpu::TextureDimension,
-    mip_level_count: u32,
-    depth_or_array_layers: u32,
-    sample_count: u32,
-) -> Result<()> {
-    let detail = if dimension != ::wgpu::TextureDimension::D2 {
-        format!(
-            "the viewed texture has the dimension {dimension:?}, and slango supports only a two-dimensional texture"
-        )
-    } else if sample_count != 1 {
-        format!(
-            "the viewed texture has {sample_count} samples per pixel, and slango supports only one"
-        )
-    } else if mip_level_count != 1 {
-        format!("the viewed texture has {mip_level_count} mip levels, and slango supports only one")
-    } else if depth_or_array_layers != 1 {
-        format!(
-            "the viewed texture has {depth_or_array_layers} array layers, and slango supports only one"
-        )
-    } else {
-        return Ok(());
-    };
-    Err(Error::new(ErrorKind::InvalidArgument, WRAP).with_detail(detail))
-}
-
-/// The layout of the copy of a texture into a buffer: wgpu needs each row of
-/// the copy to start at a multiple of 256 bytes, so a row of the copy is the
-/// row of the texture padded to that multiple.
+/// The layout of the copy of a texture into a buffer: the backend needs each
+/// row of the copy to start at a multiple of an alignment, so a row of the
+/// copy is the row of the texture padded to that multiple.
 #[derive(Debug, PartialEq, Eq)]
 struct ReadLayout {
     width: u32,
@@ -494,11 +355,11 @@ struct ReadLayout {
 }
 
 impl ReadLayout {
-    fn new(size: [u32; 2]) -> Option<Self> {
+    fn new(size: [u32; 2], alignment: u32) -> Option<Self> {
         let [width, height] = size;
         let bytes_per_row = width
             .checked_mul(BYTES_PER_PIXEL)?
-            .checked_next_multiple_of(::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)?;
+            .checked_next_multiple_of(alignment)?;
         Some(Self {
             width,
             height,

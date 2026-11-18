@@ -180,7 +180,7 @@ Slang's default layout of plain values differs from the layout of any Rust struc
 
 Slang's default matrix layout is row-major, as `defaultMatrixLayoutMode` in `slang.h` states, and `slango` sets no matrix layout. In that layout, a matrix of R rows and C columns is R rows, each starting at a multiple of the matrix stride. Row r starts at the value's offset plus r times its extent divided by R, and column c of a row follows at 4 bytes times c.
 
-The extent is the reflected size of the value, or the array stride for a matrix inside an array. It is R times 16 bytes in a uniform buffer and R times 8 or 16 bytes in the immediates, for every R and C from 2 to 4. This rule holds for Slang's SPIR-V and not for DXIL, so from M10 the walk records the row stride that reflection reports, and marshalling uses it on both backends (SLO-46, Section 3.11).
+The extent is the reflected size of the value, or the array stride for a matrix inside an array. It is R times 16 bytes in a uniform buffer and R times 8 or 16 bytes in the immediates, for every R and C from 2 to 4. This rule holds for Slang's SPIR-V and not for DXIL, so the walk records the row stride that reflection reports, and marshalling uses it on both backends (SLO-46, Section 3.11).
 
 Kernels that read a `float2x3` and a `float3x2` in the immediates and a `float2x3` in a constant buffer, element by element, read them in row order on every adapter of Section 3.8. The `slangc` command line defaults to the other layout, so an experiment with it must pass `-matrix-layout-row-major` to match what `slango` compiles.
 
@@ -198,6 +198,9 @@ naga rejects these valid Slang constructs, with the same text on every adapter. 
 | An array of textures, sized or unsized | `parsing error: InvalidImage([12])` |
 | `RWTexture2D<float4>` without a `[format(...)]` | `parsing error: UnsupportedCapability(StorageImageReadWithoutFormat)` |
 | A subscript of a `Texture2D` | `Cannot textureLoad from a mipmapped image without specifying a level.` |
+| A matrix whose rows have two components, such as `float2x2`, in a uniform buffer, where its rows are 16 bytes apart | `UnsupportedMatrixStride { stride: 16, columns: 2, rows: 2, width: 4 }` for a `float2x2`, which the load returns as `ErrorKind::UnsupportedShader` |
+
+The last row was observed in the development container, on the NVIDIA adapter and on lavapipe, and not on the adapters of Section 3.8. Such a matrix loads among the immediates, where its rows are 8 bytes apart.
 
 `double`, `int64_t`, and `half` load only on a device with the matching feature. naga otherwise names the missing capability, such as `Using 'f64' values requires the 'naga::valid::Capabilities::FLOAT64' flag`.
 
@@ -230,7 +233,7 @@ The `gpu` tests run on one adapter on each hosted runner, and each adapter offer
 
 lavapipe is the only adapter of the Linux runner, so the default selection also finds it there. Metal offers no software adapter, so `AdapterSelection::Software` returns `ErrorKind::NoAdapter` on the macOS runner (Sections 5.1 and 13.1).
 
-On all three adapters, modules load, and kernels dispatch with correct results for every kind of parameter of Section 7.1 and every element type of `Buffer<T>`. A kernel that calls `frexp` fails with the same backend text on all three. One buffer bound to a read-only and to a read-write parameter of one call fails wgpu's validation on every adapter (Section 9.3).
+On all three adapters, modules load, and kernels dispatch with correct results for every kind of parameter of Section 7.1 and every element type of `Buffer<T>`. A kernel that calls `frexp` fails with the same backend text on all three. One buffer bound to a read-only and to a read-write parameter of one call fails wgpu's validation on every adapter, which the check of SLO-44 now reaches first (Section 9.3).
 
 ### 3.9. Facts for Rendering
 
@@ -342,6 +345,7 @@ These facts concern layouts, each from `slangc -reflection-json` with `-matrix-l
 
 - For a structure whose fields are 32-bit scalars, vectors, arrays, and such structures, the std430 size equals the packed size exactly when std430 adds no padding, and then every offset is the same. A structure of the wrong layout therefore always has the wrong stride (inferred from the rules of both layouts).
 - On DXIL, the rows of a matrix in a uniform buffer are 16 bytes apart and the last row is not padded, so a global `float3x3` has a size of 44, a `float2x3` of 28, and a `float3x2` of 40. The rule of Section 3.4, that row `r` starts at the offset plus `r` times the extent divided by the number of rows, gives other offsets on DXIL. The scalar layout of SPIR-V meets the rule, with 36, 24, and 24.
+- `slang-compiler` already reports the row stride of a matrix: `TypeLayout::element_type_layout` of a matrix returns the layout of its row vector, whose `stride(ParameterCategory::Uniform)` is the row stride. In Slang's source, `slang-type-layout.cpp` sets the alignment of the row layout to the matrix alignment so that its stride is the row stride, and `spReflectionTypeLayout_GetElementTypeLayout` returns that row layout for a matrix (read). For global `float3x3`, `float2x3`, and `float3x2` values, the row stride was 16, 16, and 16 on SPIR-V with the default layout, 12, 12, and 8 on SPIR-V with the scalar layout, and 16, 16, and 16 on DXIL with the profile `sm_6_0` (run with `slang-compiler`). This confirmed the former assumption SOA-11 with no change of `slang-compiler`.
 - `Element` holds only 4-byte scalars and vectors of them (Section 8), whose stride is the same in every layout.
 
 These facts concern the vertex stage on D3D12:
@@ -410,6 +414,8 @@ A compile error is honest about a crate without a backend. M10 changes the condi
 
 `cargo check -p slango --no-default-features` therefore fails with that one error. With Rust 1.100.0, Cargo also warns that `slang-compiler` is unused (Section 3.10). The design accepts that warning, because the build fails with the error anyway, and keeps `slang-compiler` a required dependency.
 
+The third code step of M10, which adds the feature `rhi`, delivers the condition of SLO-28 on exactly one backend and the message of SLO-29 (Section 15.13 of the architecture design). Before that step, a `cfg(feature = "rhi")` trips the lint `unexpected_cfgs`, and the message would tell users to enable a feature that does not exist. Until then, the crate root puts every module declaration and re-export behind `#[cfg(feature = "wgpu")]` and stops without that feature with the message of M8: "slango needs a backend: enable its Cargo feature `wgpu`, which is on by default".
+
 `check-features` checks every combination of the features of each package (Section 3.10), so the recipe leaves out the one combination of `slango` without `wgpu`, the one with no features, and checks every combination that contains `wgpu`. It also leaves out `rhi`, which builds Slang and slang-rhi from source and cannot be combined with `wgpu`, and the recipes of the backend `rhi` check the build with `rhi` alone instead (Section 4.7). TOOL-48 of `docs/design/tooling.md` specifies the recipe.
 
 SLO-30. Every member of the workspace that depends on `slango` MUST name the backend feature of `slango` that it builds with, and MUST NOT rely on the default feature alone. Otherwise a later change that turns the default features off, in the entry of `[workspace.dependencies]` or elsewhere, removes the backend from that member without an error at the place of the change. The members write these entries:
@@ -443,7 +449,7 @@ With this feature, the backend `rhi` of M10 is additive in these respects:
 - An accessor of SLO-31 can return `None` for an object of the other backend without a change of its signature.
 - `texture_from_view` already returns a `Result`, so a device of the other backend can be rejected with an error kind.
 
-The pass cannot promise the rest, and the owner accepts a breaking version 0.2 of `slango` if the backend `rhi` needs one (Section 15.11 of the architecture design). In particular, SLO-17 makes every public type `Send` and `Sync`, which a backend whose objects are not thread-safe cannot keep. The owner also decided against a spike of slang-rhi before the release, so no signature of this document had been tried against slang-rhi. Section 4.6 records how M10 settles this.
+The pass cannot promise the rest, and the owner accepts a breaking version 0.2 of `slango` if the backend `rhi` needs one (Section 15.11 of the architecture design). In particular, SLO-17 of the first release made every public type `Send` and `Sync`, which a backend whose objects are not thread-safe cannot keep. The owner also decided against a spike of slang-rhi before the release, so no signature of this document had been tried against slang-rhi. Section 4.6 records how M10 settles this.
 
 With one backend for each build (Section 4.7), M10 relies on the first point and on the growth of `ErrorKind`. No object of a build lacks the objects of its backend, so the accessors of SLO-31 and `texture_from_view` keep their behaviour (SLO-36).
 
@@ -738,13 +744,13 @@ The callers in the workspace change in these ways:
 
 ### 6.1. One Backend for Each Build
 
-SLO-34. `slango` MUST hold the objects and calls of each backend in one private backend module, compiled only under the `cfg` of its feature, and MUST compile the shared modules in every build. Each public type that holds a GPU object, which are `Device`, `Module`, `Kernel`, `Buffer<T>`, `Texture`, `Sampler`, and `RenderPipeline`, MUST hold the objects of the build's backend through a crate-private type of that backend module with the same name in each module. `slango` MUST NOT add a public trait or a private enumeration over the backends. `Call` and `Draw` MUST keep the arguments that a caller gives them in the backend-neutral form of Section 9.1 and pass them to the backend only when they submit.
+SLO-34. `slango` MUST hold the objects and calls of each backend in one private backend module, compiled only under the `cfg` of its feature, and MUST compile the shared modules in every build. Each public type that holds a GPU object, which are `Device`, `Module`, `Kernel`, `Buffer<T>`, `Texture`, `Sampler`, and `RenderPipeline`, MUST hold the objects of the build's backend through a crate-private type of that backend module with the same name in each module, where that backend keeps objects for the type. On the backend `wgpu`, a `Module` holds only shared records, so that backend has no crate-private `Module`, and the backend `rhi` adds one for its session (Section 15.13 of the architecture design). `slango` MUST NOT add a public trait or a private enumeration over the backends. `Call` and `Draw` MUST keep the arguments that a caller gives them in the backend-neutral form of Section 9.1 and pass them to the backend only when they submit.
 
 A build has exactly one backend (SLO-29), so nothing chooses between backends while the program runs, and neither a trait nor an enumeration has a second case to serve. The public API stays one set of concrete types, so a program written for one backend compiles on the other, apart from the module `slango::wgpu`.
 
 A public trait would freeze the shape of the boundary and invite a third implementation outside the crate, which nothing needs (SIMP-1 of the coding standard). The code step that adds the backend module changes SIMP-2 of the coding standard, whose condition, a second backend, then holds, to require this structure.
 
-The crate root declares the backend module of the enabled feature under one name, so the shared modules name `backend::Device` and the like without a `cfg` of their own. Only the crate root, the two backend modules, and the tests hold a `cfg` of a backend feature. The boundary has these parts:
+The crate root declares the backend module of the enabled feature under one name, so the shared modules name `backend::Device` and the like without a `cfg` of their own. The module of the backend `wgpu` is `wgpu_backend`, which the crate root imports as `backend`. Only the crate root, the two backend modules, and the tests hold a `cfg` of a backend feature, and only the backend modules, the public module `slango::wgpu`, and tests use wgpu or `slang-rhi` (SIMP-2 of the coding standard). The boundary has these parts:
 
 | Part | Shared by both backends | Backend `wgpu` | Backend `rhi` |
 | --- | --- | --- | --- |
@@ -767,7 +773,16 @@ Each public type holds these objects of the build's backend:
 | `Sampler` | `wgpu::Sampler` | The sampler of `slang-rhi` |
 | `RenderPipeline` | Its merged snapshot, bind group layouts, and render pipeline | Its merged snapshot and the render pipeline of `slang-rhi` (Section 7.7) |
 
-Every type also keeps the identity of its device, which its clones share (Section 9.3), on both backends.
+Every type also keeps the identity of its device, which its clones share (Section 9.3), on both backends. A `Buffer<T>` also keeps an identity of its own, which its clones share, for the check of SLO-44.
+
+The shared modules hold these pieces that wgpu shaped, which the backend `rhi` needs elsewhere. The code steps of Section 15.13 of the architecture design move each behind the boundary:
+
+| Piece | Where it is shared | Step that moves it |
+| --- | --- | --- |
+| The creation of a kernel takes SPIR-V words, which the load compiles for the backend `wgpu` | `kernel` | The third, which adds the backend `rhi` and its load (Section 7.6) |
+| The plan of a call is built as bind groups, one for each set, with entries by binding index (Section 3.3) | `call` | The third, whose call writes shader objects by path (Section 9.6) |
+| The read of a texture pads each row to the fixed row alignment of wgpu, which the backend module exports | `texture` | The sixth, which adds textures to the backend `rhi` (Section 8.3) |
+| The checks of what a texture can do map to the usages `TEXTURE_BINDING` and `RENDER_ATTACHMENT` of wgpu, which their messages and documentation name | `texture`, `call`, and `draw` | The sixth |
 
 ### 6.2. The Device on the Backend `rhi`
 
@@ -868,7 +883,7 @@ The walk names parameters and records their usage by these rules:
 
 SLO-46. The walk MUST record, for each matrix among the plain values, the stride between its rows that reflection reports for the target of the session, and marshalling MUST write row `r` of the matrix at its offset plus `r` times that stride, on both backends. The rule of Section 3.4, which derives the row stride from the extent of the matrix, holds for Slang's SPIR-V but not for DXIL, where the last row is not padded (Section 3.11). The shape of a matrix in the snapshot therefore holds its row stride, which changes the bytes of the encoding, so `ENCODING_VERSION` becomes 3 (Section 5.3 of `docs/design/slango-macros.md`).
 
-The row stride comes from the type layout of the matrix through `slang-compiler`. Whether that crate offers it already is not verified, and the code step that adds SLO-46 adds an accessor to `slang-compiler` when it lacks one, which is an additive change (SOA-11).
+The walk reads the row stride from the type layout of the matrix, as the stride of the layout of its row vector, which `slang-compiler` reports (Section 3.11).
 
 The walk supports these parameters and rejects every other with `ErrorKind::UnsupportedParameter`, whose text names the parameter and the kernel, the vertex entry point, or the fragment entry point:
 
@@ -917,7 +932,7 @@ The load compiles every entry point as Section 7.1 states, with one SPIR-V modul
 
 A failure that belongs to one such entry point becomes the rejection on its record, and the load goes on (SLO-20). The rejection is `ErrorKind::UnsupportedParameter` for a parameter that the walk refuses. It is `ErrorKind::Compile` for a failure of Slang to reflect the entry point, report its metadata, or generate its SPIR-V. A `Compile` rejection keeps the text of the error of `slang-compiler`, with Slang's diagnostics, apart from its detail. The detail is the detail of that error, or "Slang failed on the {role} `{name}`" when it has none, and the text becomes the source error when `render_pipeline` returns the rejection.
 
-The rejection keeps the text and not the error of `slang-compiler`, because the record is returned from every call of `render_pipeline` and is decoded from the bytes of a precompiled module, so its source is a crate-private error type that holds the text and implements `Display` and `std::error::Error`. The documentation promises no downcast of the source. The encoding of a rejection record holds a tag byte, 0 or 1, and the text of the source after the detail, which is why `ENCODING_VERSION` is 2 (Section 5.3 of `docs/design/slango-macros.md`).
+The rejection keeps the text and not the error of `slang-compiler`, because the record is returned from every call of `render_pipeline` and is decoded from the bytes of a precompiled module, so its source is a crate-private error type that holds the text and implements `Display` and `std::error::Error`. The documentation promises no downcast of the source. The encoding of a rejection record holds a tag byte, 0 or 1, and the text of the source after the detail, which version 2 of the encoding added (Section 5.3 of `docs/design/slango-macros.md`).
 
 A rejected record keeps no SPIR-V, and `Module::render_pipeline` returns its rejection.
 
@@ -976,6 +991,8 @@ The pipeline merges the bindings of its two entry points, which share every glob
 A binding that neither stage uses gets no bind group layout entry, as Section 7.3 states for kernels. It stays known to the pipeline, so that a draw can accept and ignore an argument for it (Section 9.5). The bind group layouts cover the sets as Section 7.3 states for kernels.
 
 The vertex state has one vertex buffer for each used attribute, in slots numbered from 0 in the order of locations. Each attribute sits at offset 0, with a stride equal to the size of its format, and the step mode `Instance` when `instance_attributes` names its path, otherwise `Vertex`. An unused attribute gets no vertex buffer (Section 3.9).
+
+The backend `wgpu` returns `ErrorKind::UnsupportedParameter` for a used attribute with no vertex format, with the text of check 6, instead of leaving it out, because a missing attribute would shift the slots of the later ones (`crates/slango/src/wgpu_backend/render.rs`). Check 6 already refuses such an attribute, so the backend only repeats it.
 
 Because each used attribute takes its own vertex buffer, the device's limit on vertex buffers bounds the attributes that a vertex entry point may use, and creation fails when it uses more. Section 10 states how the errors of creation map to kinds.
 
@@ -1216,12 +1233,21 @@ The dispatch runs the checks in this order and returns the first failure, all be
 
 1. Each given argument, in the order given: its path, the kind of its parameter, and its value, its buffer, or its texture or sampler. A buffer is checked for its device, then that it is not empty, then its stride, then its element type, so a buffer of another stride gets the error about its stride. A texture is checked for its device, then its format, then its usage.
 2. Each used parameter that no argument gives, in the order of the bindings, followed by the immediates.
-3. One buffer bound to a read-only and to a read-write parameter (SLO-44).
+3. One buffer bound to a read-only and to a read-write parameter, both used (SLO-44).
 4. The workgroup count along each axis against the device's limit.
 
 A mistake of the caller in these checks gives `ErrorKind::InvalidArgument`, whose message names the kernel and the parameter. A reflected layout that cannot hold a value gives `ErrorKind::UnsupportedParameter`.
 
-SLO-44. A dispatch and a draw MUST fail with `ErrorKind::InvalidArgument`, naming both parameters, when one buffer is bound to a read-only and to a read-write parameter of the same call or draw, on both backends, in the shared checks. Until M10, wgpu's validation rejected such a dispatch with `ErrorKind::Backend` (Section 3.8). On D3D12, the read-only binding needs a shader-resource state and the read-write binding the state of unordered access, which one buffer cannot hold at once, and slang-rhi keeps one required state for each resource, so the later binding would win without an error (inferred, not run). One check before both backends gives the same kind and text on both and closes that gap of RHI-20 of `docs/design/slang-rhi.md`. Two parameters that are both read-only, or a buffer bound to one read-write parameter, stay valid. The change of the kind on the backend `wgpu` is part of the migration to version 0.2 (Section 17.6).
+SLO-44. A dispatch and a draw MUST fail with `ErrorKind::InvalidArgument`, naming both parameters, when one buffer is bound to a read-only and to a read-write parameter of the same call or draw, on both backends, in the shared checks. A draw MUST fail the same way when a buffer that it takes as a vertex buffer or as its index buffer is also bound to a read-write parameter of that draw. The check considers only the parameters that the kernel or the pipeline uses, so a buffer given for an unused parameter, which is then ignored (Section 9.3), takes no part in it. It finds the same buffer through an identity that each `Buffer<T>` keeps and its clones share, so a clone of a buffer counts as that buffer.
+
+The shared check, `check_shared_buffers` in `crates/slango/src/call.rs`, follows these rules:
+
+- It compares each buffer of a used read-only parameter with the buffers of the used read-write parameters.
+- A draw also passes its reads: the vertex buffer of each used attribute and the index buffer of `submit_indexed`. The check compares them with the buffers of the used read-write parameters. The buffer of an unused attribute is not compared.
+- A vertex or index buffer that is also bound to a read-only parameter is valid, because both uses only read it.
+- The message names both uses, in one of three forms: a read-only parameter, the vertex buffer of an attribute, or the index buffer, each with the read-write parameter. The form for a parameter reads "one buffer is bound to the read-only parameter `x` and to the read-write parameter `y` of" the kernel or pipeline, and goes on to say that one buffer cannot be both read only and written in one dispatch or draw, so separate buffers are bound.
+
+Before version 0.2, wgpu's validation rejected such a dispatch with `ErrorKind::Backend` (Section 3.8). On D3D12, the read-only binding needs a shader-resource state and the read-write binding the state of unordered access, which one buffer cannot hold at once, and slang-rhi keeps one required state for each resource, so the later binding would win without an error (inferred, not run). One shared check ahead of both backends gives the same kind and text on both and closes that gap of RHI-20 of `docs/design/slang-rhi.md`. Two parameters that are both read-only, or a buffer bound to one read-write parameter, stay valid. One buffer bound to two read-write parameters also stays valid, because wgpu allows it (SOA-12). The change of the kind on the backend `wgpu` is part of the migration to version 0.2 (Section 17.6).
 
 SLO-15. The dispatch MUST open an error scope around the work it records and submits, and MUST return each validation error that remains as `ErrorKind::Backend`, because an error that reaches wgpu's uncaptured-error handler is lost to the caller.
 
@@ -1254,19 +1280,21 @@ SLO-26. The draw MUST run the checks of SLO-14 on its parameters and the checks 
 The draw shares the checks of its parameters with a call, so every rule of Section 9.3 for a parameter holds for a draw. It runs the checks in this order and returns the first failure, all before any call of wgpu:
 
 1. The given arguments: each argument of a parameter, in the order given, as Section 9.3 states, then each vertex buffer, in the order given. A vertex buffer names a vertex attribute, belongs to the device, is not empty, and has the attribute's scalar type and component count.
-2. The missing arguments: each used parameter that no argument gives, as Section 9.3 states, and then each used vertex attribute without a buffer, in the order of locations. An unused parameter or attribute may be omitted. An argument or a vertex buffer given for one gets the checks of step 1 and is then ignored, so its length does not count in step 4.
-3. The targets. A colour target is required, and it belongs to the device, has the pipeline's colour format, and has the usage `RENDER_ATTACHMENT`.
+2. The missing arguments of parameters: each used parameter that no argument gives, as Section 9.3 states.
+3. The shared buffers of SLO-44, with the vertex buffers of the used attributes and the index buffer among the reads.
+4. The missing vertex buffers: each used vertex attribute without a buffer, in the order of locations. An unused parameter or attribute may be omitted. An argument or a vertex buffer given for one gets the checks of step 1 and is then ignored, so it takes no part in step 3 and its length does not count in step 6.
+5. The targets. A colour target is required, and it belongs to the device, has the pipeline's colour format, and has the usage `RENDER_ATTACHMENT`.
 
    A depth target is required exactly when the pipeline has a depth format. It is checked as the colour target is, against the depth format, and must have the size of the colour target.
 
    A depth given to `clear_depth` must be from 0.0 to 1.0, otherwise `ErrorKind::InvalidArgument`. This check runs even when the draw has no depth target, and such a draw ignores a valid depth.
-4. The counts. The used vertex buffers that step per vertex must have one length, and so must those that step per instance.
+6. The counts. The used vertex buffers that step per vertex must have one length, and so must those that step per instance.
 
    With `submit`, the count of vertices is at most the length of the buffers per vertex. With `submit_indexed`, the index buffer belongs to the device and is not empty, and the count of indices is at most its length and is not bounded by the vertex buffers. The count of instances is at most the length of the buffers per instance, when there are any.
 
 The draw does not read the values of an index buffer (Section 16). It records and submits its work inside an error scope, and returns each error that remains as `ErrorKind::Backend`, as SLO-15 states for a dispatch.
 
-`slango` makes no check of its own that one texture is both sampled and a target of one draw. wgpu's validation rejects it (Section 3.9), and on the backend `rhi`, `slang-rhi` refuses it (Section 9.7). A draw checks one buffer bound to a read-only and to a read-write parameter as a dispatch does (SLO-44).
+`slango` makes no check of its own that one texture is both sampled and a target of one draw. wgpu's validation rejects it (Section 3.9), and on the backend `rhi`, `slang-rhi` refuses it (Section 9.7). A draw checks one buffer bound to a read-only and to a read-write parameter as a dispatch does, in step 3 above, and also refuses a vertex or index buffer that is bound to a read-write parameter of the draw (SLO-44).
 
 ### 9.6. The Call on the Backend `rhi`
 
@@ -1362,13 +1390,11 @@ The kind arrives with the first need, in the step that adds compute to the backe
 
 ## 11. Threading
 
-SLO-17. `Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Call`, and `Draw` MUST be neither `Send` nor `Sync` in the build of either backend, and each MUST hold a private marker field of the type `PhantomData<*const ()>` that makes it so. `Error`, `ErrorKind`, every options type, and every enumeration MUST be `Send` and `Sync`. `slango` MUST implement neither trait by hand. Each auto trait that a type implements gets a compile-time assertion test, and each that it lacks gets a `compile_fail` doctest (CONC-1).
+SLO-17. `Device`, `Module`, `Kernel`, `Buffer<T>`, `RenderPipeline`, `Texture`, `Sampler`, `Call`, and `Draw` MUST be neither `Send` nor `Sync` in the build of either backend, and each MUST hold a private marker field of the type `PhantomData<*const ()>` that makes it so. `Error`, `ErrorKind`, every options type, and every enumeration MUST be `Send` and `Sync`. `slango` MUST implement neither trait by hand. Each auto trait that a type implements gets a compile-time assertion test, and each that it lacks gets a `compile_fail` doctest (CONC-1, CONC-9).
 
 This is the owner's decision 1 of Section 4.6, with the types that it covers as the design reads it there. The objects of `slang-rhi` are neither `Send` nor `Sync` (Section 3.11), and FFI-9 of the coding standard forbids an `unsafe impl` without a threading rule of slang-rhi. A type whose auto traits followed its backend would be `Send` in a build with `wgpu` and not in a build with `rhi`, so a program that compiles on one backend could fail to compile on the other. The marker makes the traits one fact of the API in both builds.
 
-The marker is a project-defined pattern, because the coding standard has no rule that makes a type without a foreign handle neither `Send` nor `Sync`. The sources behind it are S-1 of `docs/rust-references.md`, the Rustonomicon on `Send`, `Sync`, and `PhantomData`, which states that a raw pointer is neither and that negative implementations are unstable.
-
-The first code step of M10 adds the rule CONC-9 to the coding standard, as Hard Rule 13 of `AGENTS.md` and Section 19 of the coding standard require in the change that first relies on it: a type that MUST be neither `Send` nor `Sync` whatever it holds carries a private field of the type `PhantomData<*const ()>`, and states why in its documentation. The same step changes SIMP-2, as Section 6.1 states.
+The marker follows CONC-9 of the coding standard, a project-defined rule, which CONC-1 names for a type that its design makes neither `Send` nor `Sync`. Section 17 of the coding standard records this departure from the source that asks for public types that are `Send`.
 
 A program that used `slango` on several threads moves each device and everything created from it to one thread, and sends results as plain data, such as the `Vec<T>` that `Buffer::read` returns. Section 17.6 states the migration. `Error` stays `Send` and `Sync`, so an error can still cross a thread.
 
@@ -1526,7 +1552,12 @@ The tests of the backend `rhi` cover these cases:
 - A new colour texture and a new depth texture that read as zero, and a draw that loads the depth of a new depth target without `clear_depth` (SLO-45).
 - A vertex attribute without a semantic, which the backend `rhi` rejects (Section 7.7).
 
-The tests of the backend `wgpu` gain the cases of SLO-44, SLO-45, and SLO-46 on that backend.
+The tests of the backend `wgpu` gain the cases of SLO-44, SLO-45, and SLO-46 on that backend:
+
+- SLO-44: unit tests of a call and of a draw that bind one buffer read only and read-write, that bind it to two read-only parameters, that give it for an unused parameter, which is not compared, and that leave an argument missing, which is reported first. The unit tests of a draw also bind a vertex buffer and an index buffer to a read-write parameter, which is rejected with both uses named, and to a read-only parameter, which is valid, and give the buffer of an unused attribute, which is not compared. The `gpu` tests cover the rejection, with the output buffer unchanged, a clone of the output bound as the input, and, in `a_vertex_or_index_buffer_also_written_by_a_parameter_is_rejected_and_also_read_is_drawn` of `gpu/render/rejections.rs`, a vertex or index buffer that a parameter also writes, which is rejected, or also reads, which is drawn.
+- The unit test of the backend in `wgpu_backend/render/tests.rs` checks that a used attribute without a vertex format gives `ErrorKind::UnsupportedParameter` and an unused one is left out.
+- SLO-46: unit tests of marshalling with an explicit row stride, including a `float3x3` of DXIL, of size 44 with a stride of 16, a `float3x3` of the scalar layout, with a stride of 12, and a row past the reflected size, and the `insta` snapshots of `layout::tests::ffi`, which show the row stride of each matrix. The `gpu` test module `gpu/call/matrices.rs` reads back matrices of every row count with three or four columns in a `ConstantBuffer` and a `ParameterBlock`, and `float2x3`, `float3x2`, and `float3x3` as `uniform` parameters of the entry point. Matrices with two columns stay out of its uniform buffers, which naga rejects (Section 3.5). The encoding test pins a snapshot that holds a `float2x3`, so the pinned bytes cover the row stride.
+- SLO-45: the code step that adds rendering to the backend `rhi`.
 
 A test whose kernel combines a `ConstantBuffer` and a global `uniform` fails on D3D12 through RKB-2 of `docs/design/slang-rhi.md`. Such a test skips the backend `rhi` on Windows, with a reason that says so, while it runs on that backend on Linux. Hard Rule 14 of `AGENTS.md` forbids a new test of the defect, so no test asserts the failure.
 
@@ -1534,7 +1565,7 @@ The shader `examples/shaders/playground.slang` of the example `shader-playground
 
 The examples run on both backends in this way, which meets the exit criterion of M10 under the owner's decisions 4 and 5 of Section 4.6:
 
-- The examples package turns the default features of `slango` off and gains its own features: `wgpu`, its default, which enables `slango/wgpu` and the optional dependencies `slang-slint`, `slint`, `wgpu`, and `winit`, and `rhi`, which enables `slango/rhi`. Its feature `vendored` forwards to `slang-slint` only when that dependency is on. A build of the examples package with both `wgpu` and `rhi` stops with the error of SLO-29.
+- The examples package turns the default features of `slango` off and gains its own features: `wgpu`, its default, which enables `slango/wgpu` and the optional dependencies `pollster`, `slang-slint`, `slint`, `wgpu`, and `winit`, and `rhi`, which enables `slango/rhi`. Its feature `vendored` forwards to `slang-slint` only when that dependency is on. A build of the examples package with both `wgpu` and `rhi` stops with the error of SLO-29.
 - The binaries `windowed-renderer` and `shader-playground` declare `required-features = ["wgpu"]`, so a build with `rhi` leaves them out, and their windows stay on wgpu.
 - `compute-kernel` and `typed-kernel` build with either feature and run on the build's backend. They take no new option, and their `gpu` tests run them as before.
 - The scenes of `windowed-renderer` and `shader-playground` draw offscreen on the build's backend in their `gpu` tests (SLO-43). The scene of `shader-playground` draws into a `slang_slint::View` with the feature `wgpu`, and into a `slango::Texture` that it creates and resizes itself under the `cfg` of the feature `rhi`, because `slang-slint` cannot be built with `rhi`. Both offer the texture of the scene to the tests, which compare its pixels.
@@ -1549,7 +1580,13 @@ The tests of the walk on the layouts of the backend `rhi` are `ffi` unit tests i
 
 These tests check SOA-10 for the layouts, and the `gpu` tests on WARP check it for D3D12.
 
-The pure tests of the marker of SLO-17 are `compile_fail` doctests, one for `Send` and one for `Sync` of each type, as `slang-rhi` has them (RHI-13 of `docs/design/slang-rhi.md`). The `gpu` tests that dispatch clones of one kernel and draw with clones of one pipeline from several threads are removed, because the types are no longer `Send`. These are the tests in `gpu/call.rs` and `gpu/render.rs` that use several threads, and the module `gpu/render/sharing.rs`.
+The pure tests of the marker of SLO-17 are `compile_fail` doctests, one for `Send` and one for `Sync` of each type, as `slang-rhi` has them (RHI-13 of `docs/design/slang-rhi.md`). The `gpu` tests that dispatch clones of one kernel and draw with clones of one pipeline from several threads are removed, because the types are no longer `Send`:
+
+- `clones_of_a_kernel_run_on_two_threads_at_once` of `gpu/call.rs` is removed.
+- The test of `gpu/render.rs` that created pipelines from two threads keeps its part on one thread, as `one_module_creates_several_pipelines`.
+- The module `gpu/render/sharing.rs` is removed. Its one test that uses no thread, `a_kernel_fills_a_vertex_buffer_and_another_reads_the_target_of_a_draw`, moved unchanged to `gpu/render/draw.rs`.
+
+The unit tests keep their assertions of `Send` and `Sync` for `Error`, `ErrorKind`, the options types, and the enumerations, and their assertions of `Clone` for every type that had one.
 
 ## 14. Assumptions to Confirm
 
@@ -1562,9 +1599,9 @@ An identifier is never reused.
 | SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 16 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
 | SOA-9 | On the backend `rhi`, the conventions of a draw of Section 3.9 hold on Vulkan and D3D12, apart from the depth clamping of Section 3.11, through the negative viewport height of the Vulkan backend of slang-rhi | Section 9.7 | The `gpu` tests of the conventions on the backend `rhi` (Section 13.7), in the code step that adds rendering to that backend |
 | SOA-10 | For a program linked in the session of a load on the backend `rhi`, the walk of Section 7.1 records the same paths, kinds, and usage as for the session of the backend `wgpu` when the usage reads the category of each resource on DXIL, and the offset and size of each top-level field of a shader object equal those of the walk | Sections 7.6 and 9.6 | The `ffi` tests of the walk on the SPIR-V target with the scalar layout and on the DXIL target, and the `gpu` tests of every kind of parameter on the backend `rhi` (Section 13.7) |
-| SOA-11 | `slang-compiler` either offers the reflected row stride of a matrix in its type layout already, or can gain an accessor for it as an additive change | SLO-46 and Section 7.1 | The code step that adds SLO-46 |
+| SOA-12 | One buffer bound to two read-write parameters of one dispatch or draw, which wgpu allows and SLO-44 leaves valid, is also valid on D3D12, where both bindings need the state of unordered access, so the shared check need not refuse it | SLO-44 | The `gpu` tests of SLO-44 on the backend `rhi` on WARP, in the code steps that add compute and rendering to that backend (Section 15.13 of the architecture design). If they refute it, the rendering step revisits SLO-44 |
 
-SOA-7 and SOA-8 are retired. The owner's decision 6 of Section 4.6 removed the loads in one device session that SOA-7 concerned, and a reflection of DXIL refuted SOA-8, which SLO-46 replaces (Section 3.11).
+SOA-7, SOA-8, and SOA-11 are retired. The owner's decision 6 of Section 4.6 removed the loads in one device session that SOA-7 concerned, and a reflection of DXIL refuted SOA-8, which SLO-46 replaces (Section 3.11). A reading of Slang's source and a run with `slang-compiler` confirmed SOA-11, that `slang-compiler` reports the row stride of a matrix, with no change of that crate (Section 3.11).
 
 Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 
@@ -1682,7 +1719,7 @@ This section is non-normative. It lists the changes of M10 that break a program 
 | --- | --- |
 | `Device`, `Module`, `Kernel`, `Buffer<T>`, `Texture`, `Sampler`, `RenderPipeline`, `Call`, and `Draw` are neither `Send` nor `Sync` (SLO-17) | Keeps each device and everything created from it on one thread, and moves results between threads as plain data |
 | `ErrorKind` has the kind `Unsupported` (SLO-42) | Nothing, when it matches with a wildcard arm, as `#[non_exhaustive]` requires |
-| One buffer bound to a read-only and to a read-write parameter gives `InvalidArgument` instead of `Backend` (SLO-44) | Matches the new kind, if it matched `Backend` for this case |
+| One buffer bound to a read-only and to a read-write parameter that the kernel or pipeline uses gives `InvalidArgument` instead of `Backend`, and so does a vertex or index buffer of a draw that is also bound to a read-write parameter of it (SLO-44) | Matches the new kind, if it matched `Backend` for these cases |
 | A program that sets `default-features = false` and names neither `wgpu` nor `rhi`, or a build graph that enables both | Names exactly one of `wgpu` and `rhi` (SLO-29) |
 | The generated code of `slango-macros` loads through `load_embedded`, carries the loading path and the struct layouts of the backend of the program's `slango` only, and embeds the Slang source on the backend `rhi` (SLM-24 to SLM-26 of `docs/design/slango-macros.md`) | Rebuilds with the matching versions of `slango-macros` and `slango`, which SLM-2 requires anyway. `Shader` and the kernel structs are no longer `Send` or `Sync` |
 | `slang_slint::View` is no longer `Send` or `Sync` (SLS-14 of `docs/design/slang-slint.md`) | Keeps the view on the thread of the user interface, where Slint already requires its image |
@@ -1751,6 +1788,6 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLO-41 | 7.7 | A render pipeline of the backend `rhi` runs the checks of Section 7.5 and of its semantics and streams first, has the fixed-function state and options of `slango`, and fails as a whole. |
 | SLO-42 | 10 | The kind `Unsupported`, and one mapping of the errors of `slang-rhi` to the kinds of `slango`. |
 | SLO-43 | 13.7 | Each `gpu` test runs on the build's backend through one helper, names the backend in a failure, and skips only under the `cfg` of `rhi` with a reason. |
-| SLO-44 | 9.3 | One buffer bound to a read-only and to a read-write parameter gives `InvalidArgument` on both backends. |
+| SLO-44 | 9.3 | One buffer bound to a read-only and to a read-write used parameter, or a vertex or index buffer of a draw also bound to a read-write parameter, gives `InvalidArgument` on both backends. |
 | SLO-45 | 8.3 | On the backend `rhi`, `Texture::new` creates a colour texture from zero bytes and clears a depth texture to 0. |
 | SLO-46 | 7.1 | The walk records the reflected row stride of each matrix, and marshalling writes each row at it on both backends. |

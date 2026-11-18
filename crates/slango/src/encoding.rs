@@ -330,10 +330,15 @@ impl Writer {
                 self.u8(1);
                 self.u32(*length);
             }
-            Shape::Matrix { rows, columns } => {
+            Shape::Matrix {
+                rows,
+                columns,
+                row_stride,
+            } => {
                 self.u8(2);
                 self.u32(*rows);
                 self.u32(*columns);
+                self.u64(*row_stride);
             }
             Shape::Array {
                 length,
@@ -620,6 +625,7 @@ impl<'a> Reader<'a> {
             2 => Shape::Matrix {
                 rows: self.u32()?,
                 columns: self.u32()?,
+                row_stride: self.u64()?,
             },
             3 => Shape::Array {
                 length: self.u64()?,

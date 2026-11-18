@@ -41,7 +41,11 @@ fn shape(shape: &Shape) -> String {
     match shape {
         Shape::Scalar => "scalar".to_owned(),
         Shape::Vector { length } => format!("vector {length}"),
-        Shape::Matrix { rows, columns } => format!("matrix {rows}x{columns}"),
+        Shape::Matrix {
+            rows,
+            columns,
+            row_stride,
+        } => format!("matrix {rows}x{columns} with rows {row_stride} bytes apart"),
         Shape::Array {
             length,
             stride,
@@ -600,9 +604,10 @@ fn layout_of(value: &PlainValue) -> (u64, u64, Scalar, Shape) {
 #[test]
 fn arrays_of_vectors_matrices_and_arrays_and_ints_take_std140_and_std430_strides() {
     let kernel = kernel(NESTED_VALUES);
-    let matrix = Shape::Matrix {
+    let matrix = |row_stride| Shape::Matrix {
         rows: 2,
         columns: 2,
+        row_stride,
     };
     let (_, values) = uniform_buffer(&kernel, "Values");
     assert_eq!(values.size, 240);
@@ -616,7 +621,7 @@ fn arrays_of_vectors_matrices_and_arrays_and_ints_take_std140_and_std430_strides
                 Scalar::Float32,
                 array(4, 16, Shape::Vector { length: 3 })
             ),
-            (64, 64, Scalar::Float32, array(2, 32, matrix.clone())),
+            (64, 64, Scalar::Float32, array(2, 32, matrix(16))),
             (
                 128,
                 96,
@@ -639,7 +644,7 @@ fn arrays_of_vectors_matrices_and_arrays_and_ints_take_std140_and_std430_strides
                 Scalar::Float32,
                 array(4, 16, Shape::Vector { length: 3 })
             ),
-            (64, 32, Scalar::Float32, array(2, 16, matrix)),
+            (64, 32, Scalar::Float32, array(2, 16, matrix(8))),
             (
                 96,
                 24,

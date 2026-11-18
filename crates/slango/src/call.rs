@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 use std::fmt;
+use std::marker::PhantomData;
 use std::mem;
 
+use crate::backend;
 use crate::buffer::Buffer;
-use crate::device::{Device, scoped};
+use crate::device::Device;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
 use crate::layout::{
-    Binding, ElementType, KernelLayout, PlainValue, Resource, UniformBlock, Usage,
+    Access, Binding, ElementType, KernelLayout, PlainValue, Resource, UniformBlock, Usage,
 };
 use crate::marshal::{self, Element, Marshalled, Value, ValueType};
 use crate::sampler::Sampler;
@@ -39,8 +41,26 @@ const DRAW: &str = "draw with a render pipeline";
 /// so it can run the kernel again with the same arguments.
 ///
 /// A call borrows its kernel, the paths, the buffers, the textures, and the
-/// samplers, and is [`Send`] and [`Sync`]. Each thread that runs a kernel at
-/// the same time as another uses its own call.
+/// samplers.
+///
+/// A call is neither [`Send`] nor [`Sync`], because the kernel that it
+/// borrows stays on the thread that created its [`Device`]. The crate keeps
+/// all the GPU objects of a device on one thread whatever graphics library
+/// runs them, so a program sends results to other threads as plain data,
+/// such as the vector that [`Buffer::read`] returns. This program does not
+/// compile, because a call is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Call<'static>>();
+/// ```
+///
+/// This program does not compile either, because a call is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Call<'static>>();
+/// ```
 ///
 /// # Examples
 ///
@@ -48,12 +68,13 @@ const DRAW: &str = "draw with a render pipeline";
 pub struct Call<'a> {
     kernel: &'a Kernel,
     arguments: Vec<(&'a str, CallArgument<'a>)>,
+    thread_bound: PhantomData<*const ()>,
 }
 
-/// An argument of a [`Call`] or a [`Draw`](crate::Draw), with the wgpu
+/// An argument of a [`Call`] or a [`Draw`](crate::Draw), with the backend
 /// objects that it binds.
 pub(crate) type CallArgument<'a> =
-    Argument<&'a ::wgpu::Buffer, &'a ::wgpu::TextureView, &'a ::wgpu::Sampler>;
+    Argument<&'a backend::Buffer, &'a backend::Texture, &'a backend::Sampler>;
 
 /// One argument of a call, with the handle `B` of a bound buffer, `V` of a
 /// bound texture, and `S` of a bound sampler.
@@ -75,6 +96,8 @@ pub(crate) struct Bound<B> {
     pub(crate) element: ValueType,
     pub(crate) len: usize,
     pub(crate) on_device: bool,
+    /// The identity of the buffer, which its clones share.
+    pub(crate) identity: usize,
 }
 
 /// A texture bound to a parameter, with the facts that the checks of a call
@@ -166,6 +189,7 @@ impl Kernel {
         Call {
             kernel: self,
             arguments: Vec::new(),
+            thread_bound: PhantomData,
         }
     }
 }
@@ -300,14 +324,14 @@ impl<'a> Call<'a> {
     ///   sampler belongs to another device, a buffer is empty, has elements
     ///   of another size than the parameter, or has elements of another
     ///   scalar type or number of components than the scalars or vectors of
-    ///   the parameter, a texture has the depth format or cannot be sampled,
-    ///   or the number of thread groups along an axis exceeds the limit of
-    ///   the device.
+    ///   the parameter, one buffer is bound to a parameter that the kernel
+    ///   only reads and to one that it writes, a texture has the depth
+    ///   format or cannot be sampled, or the number of thread groups along
+    ///   an axis exceeds the limit of the device.
     /// - [`ErrorKind::UnsupportedParameter`] when the reflected layout of a
     ///   plain value does not hold the value.
     /// - [`ErrorKind::Backend`] when wgpu reports an error while it prepares
-    ///   or submits the work, such as when two parameters that the kernel
-    ///   writes or reads share one buffer in a way that wgpu forbids.
+    ///   or submits the work.
     pub fn dispatch(&self, elements: [u32; 3]) -> Result<()> {
         let groups =
             workgroup_counts(elements, self.kernel.layout.thread_group_size).ok_or_else(|| {
@@ -356,52 +380,18 @@ impl<'a> Call<'a> {
     pub fn dispatch_groups(&self, groups: [u32; 3]) -> Result<()> {
         let kernel = self.kernel;
         let plan = plan(&kernel.layout, &self.arguments)?;
-        let device = kernel.device.wgpu_device();
         check_workgroups(
             &kernel.layout.name,
             groups,
-            device.limits().max_compute_workgroups_per_dimension,
+            kernel.device.backend().max_workgroups_per_dimension(),
         )?;
-        let ((), error) = scoped(device, || self.submit(&plan, groups));
-        match error {
-            Some(error) => Err(Error::new(ErrorKind::Backend, CALL)
-                .with_detail(format!(
-                    "wgpu rejected the dispatch of the kernel `{}`",
-                    kernel.layout.name
-                ))
-                .with_source(error)),
-            None => Ok(()),
-        }
-    }
-
-    fn submit(&self, plan: &Plan, groups: [u32; 3]) {
-        let kernel = self.kernel;
-        let device = kernel.device.wgpu_device();
-        let name = kernel.layout.name.as_str();
-        let bind_groups = bind_groups(
-            device,
-            name,
-            plan,
-            &kernel.bind_group_layouts,
+        kernel.inner.dispatch(
+            kernel.device.backend(),
+            &kernel.layout.name,
+            &plan,
             &self.arguments,
-        );
-        let mut encoder =
-            device.create_command_encoder(&::wgpu::CommandEncoderDescriptor { label: Some(name) });
-        {
-            let mut pass = encoder.begin_compute_pass(&::wgpu::ComputePassDescriptor {
-                label: Some(name),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&kernel.pipeline);
-            for (set, group) in (0_u32..).zip(&bind_groups) {
-                pass.set_bind_group(set, group, &[]);
-            }
-            if !plan.immediates.is_empty() {
-                pass.set_immediates(0, &plan.immediates);
-            }
-            pass.dispatch_workgroups(groups[0], groups[1], groups[2]);
-        }
-        kernel.device.wgpu_queue().submit([encoder.finish()]);
+            groups,
+        )
     }
 }
 
@@ -420,11 +410,12 @@ pub(crate) fn buffer_argument<'a, T: Element>(
     device: &Device,
 ) -> CallArgument<'a> {
     Argument::Buffer(Bound {
-        handle: buffer.wgpu_buffer(),
+        handle: buffer.backend(),
         stride: T::STRIDE,
         element: T::value_type(),
         len: buffer.len(),
         on_device: buffer.is_on(device),
+        identity: buffer.identity(),
     })
 }
 
@@ -432,7 +423,7 @@ pub(crate) fn buffer_argument<'a, T: Element>(
 /// `device`.
 pub(crate) fn texture_argument<'a>(texture: &'a Texture, device: &Device) -> CallArgument<'a> {
     Argument::Texture(BoundTexture {
-        handle: texture.wgpu_view(),
+        handle: texture.backend(),
         format: texture.format(),
         sampleable: texture.is_sampleable(),
         on_device: texture.is_on(device),
@@ -443,102 +434,9 @@ pub(crate) fn texture_argument<'a>(texture: &'a Texture, device: &Device) -> Cal
 /// `device`.
 pub(crate) fn sampler_argument<'a>(sampler: &'a Sampler, device: &Device) -> CallArgument<'a> {
     Argument::Sampler(BoundSampler {
-        handle: sampler.wgpu_sampler(),
+        handle: sampler.backend(),
         on_device: sampler.is_on(device),
     })
-}
-
-/// Creates the uniform buffers and the bind group of each set that `plan`
-/// binds, from the bind group `layouts` of a kernel or render pipeline and
-/// the buffers, textures, and samplers of `arguments`.
-pub(crate) fn bind_groups(
-    device: &::wgpu::Device,
-    label: &str,
-    plan: &Plan,
-    layouts: &[::wgpu::BindGroupLayout],
-    arguments: &[(&str, CallArgument<'_>)],
-) -> Vec<::wgpu::BindGroup> {
-    let uniforms: Vec<Vec<Option<::wgpu::Buffer>>> = plan
-        .groups
-        .iter()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| match &entry.source {
-                    Source::Uniform(bytes) => Some(uniform_buffer(device, label, bytes)),
-                    Source::Argument(_) => None,
-                })
-                .collect()
-        })
-        .collect();
-    plan.groups
-        .iter()
-        .zip(&uniforms)
-        .zip(layouts)
-        .map(|((entries, uniforms), layout)| {
-            let entries: Vec<::wgpu::BindGroupEntry<'_>> = entries
-                .iter()
-                .zip(uniforms)
-                .filter_map(|(entry, uniform)| {
-                    let resource = match (&entry.source, uniform) {
-                        (Source::Uniform(_), Some(buffer)) => buffer.as_entire_binding(),
-                        (Source::Argument(index), _) => resource_of(arguments, *index)?,
-                        (Source::Uniform(_), None) => return None,
-                    };
-                    Some(::wgpu::BindGroupEntry {
-                        binding: entry.index,
-                        resource,
-                    })
-                })
-                .collect();
-            device.create_bind_group(&::wgpu::BindGroupDescriptor {
-                label: Some(label),
-                layout,
-                entries: &entries,
-            })
-        })
-        .collect()
-}
-
-/// Creates a uniform buffer that holds `bytes`.
-///
-/// A buffer that wgpu fails to create cannot be mapped, and wgpu reports the
-/// failure in the error scope around the work, so the bytes are then not
-/// written.
-#[expect(
-    clippy::expect_used,
-    reason = "slango builds for 64-bit targets only, where every usize fits in a u64"
-)]
-fn uniform_buffer(device: &::wgpu::Device, label: &str, bytes: &[u8]) -> ::wgpu::Buffer {
-    let size = u64::try_from(bytes.len())
-        .expect("internal error: a usize fits in a u64 on the 64-bit targets of slango")
-        .next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT)
-        .max(::wgpu::COPY_BUFFER_ALIGNMENT);
-    let buffer = device.create_buffer(&::wgpu::BufferDescriptor {
-        label: Some(label),
-        size,
-        usage: ::wgpu::BufferUsages::UNIFORM,
-        mapped_at_creation: true,
-    });
-    if let Ok(mut view) = buffer.get_mapped_range_mut(..) {
-        view.slice(..bytes.len()).copy_from_slice(bytes);
-    }
-    buffer.unmap();
-    buffer
-}
-
-fn resource_of<'a>(
-    arguments: &[(&str, CallArgument<'a>)],
-    index: usize,
-) -> Option<::wgpu::BindingResource<'a>> {
-    match arguments.get(index) {
-        Some((_, Argument::Buffer(bound))) => Some(bound.handle.as_entire_binding()),
-        Some((_, Argument::Texture(bound))) => {
-            Some(::wgpu::BindingResource::TextureView(bound.handle))
-        }
-        Some((_, Argument::Sampler(bound))) => Some(::wgpu::BindingResource::Sampler(bound.handle)),
-        Some((_, Argument::Value(_))) | None => None,
-    }
 }
 
 impl fmt::Debug for Call<'_> {
@@ -594,7 +492,7 @@ pub(crate) enum Subject<'s> {
 }
 
 impl Subject<'_> {
-    fn operation(self) -> &'static str {
+    pub(crate) fn operation(self) -> &'static str {
         match self {
             Self::Kernel(_) => CALL,
             Self::Pipeline { .. } => DRAW,
@@ -602,7 +500,7 @@ impl Subject<'_> {
     }
 
     /// Returns the noun of the request that gives the arguments.
-    fn request(self) -> &'static str {
+    pub(crate) fn request(self) -> &'static str {
         match self {
             Self::Kernel(_) => "call",
             Self::Pipeline { .. } => "draw",
@@ -621,14 +519,6 @@ impl Subject<'_> {
     /// Returns an error of [`ErrorKind::InvalidArgument`] with `detail`.
     pub(crate) fn invalid(self, detail: String) -> Error {
         Error::new(ErrorKind::InvalidArgument, self.operation()).with_detail(detail)
-    }
-
-    /// Returns an error of [`ErrorKind::Backend`] for an error that wgpu
-    /// reported while it prepared or submitted the work.
-    pub(crate) fn rejected(self, error: ::wgpu::Error) -> Error {
-        Error::new(ErrorKind::Backend, self.operation())
-            .with_detail(format!("wgpu rejected the {} of {self}", self.request()))
-            .with_source(error)
     }
 }
 
@@ -697,6 +587,17 @@ pub(crate) struct Checked<'p> {
     set: HashSet<&'p str>,
 }
 
+/// A use of a buffer that the work only reads.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Read<'p> {
+    /// The read-only parameter at this path.
+    Parameter(&'p str),
+    /// The vertex buffer of the attribute at this path.
+    Vertex(&'p str),
+    /// The index buffer of a draw.
+    Index,
+}
+
 /// Checks the arguments of a call against the layout snapshot of its kernel
 /// and returns what the dispatch binds.
 ///
@@ -707,7 +608,7 @@ pub(crate) fn plan<B, V, S>(
 ) -> Result<Plan> {
     let parameters = Parameters::of_kernel(layout);
     let checked = check_arguments(parameters, arguments)?;
-    finish(parameters, checked)
+    finish(parameters, arguments, checked, &[])
 }
 
 /// Checks each given argument, in the order of the arguments.
@@ -792,11 +693,18 @@ pub(crate) fn check_arguments<'p, P: AsRef<Binding>, B, V, S>(
 }
 
 /// Fails on the first parameter, in the order of the bindings and then the
-/// immediates, that is used and that no argument gives, and otherwise returns
-/// what the work binds.
-pub(crate) fn finish<P: AsRef<Binding>>(
+/// immediates, that is used and that no argument gives, then on a buffer
+/// that the work both reads and writes, and otherwise returns what the work
+/// binds.
+///
+/// `reads` holds the buffers that the work reads outside its parameters,
+/// each with its identity, which are the vertex buffers of the used
+/// attributes and the index buffer of a draw.
+pub(crate) fn finish<P: AsRef<Binding>, B, V, S>(
     parameters: Parameters<'_, P>,
+    arguments: &[(&str, Argument<B, V, S>)],
     checked: Checked<'_>,
+    reads: &[(Read<'_>, usize)],
 ) -> Result<Plan> {
     let Checked {
         mut blocks,
@@ -805,6 +713,7 @@ pub(crate) fn finish<P: AsRef<Binding>>(
         set,
     } = checked;
     require_arguments(parameters, &given, &set)?;
+    check_shared_buffers(parameters, arguments, &given, reads)?;
     let groups = group_sets(parameters.bindings)
         .into_iter()
         .map(|indexes| {
@@ -856,6 +765,68 @@ fn require_arguments<P: AsRef<Binding>>(
     }
     if let Some(block) = parameters.immediates {
         require_values(subject, block, set)?;
+    }
+    Ok(())
+}
+
+/// Fails with [`ErrorKind::InvalidArgument`] when one buffer is bound to a
+/// used read-write parameter and also to a used read-only parameter or given
+/// in `reads`, naming both, where `given` holds the argument of each
+/// binding.
+///
+/// The work would read a buffer through one binding while it writes it
+/// through another, which a graphics library either rejects or lets race,
+/// so the check runs before any backend sees the work. Two read-only uses
+/// of one buffer stay valid, and a parameter that the work does not use
+/// binds nothing, so its buffer is not compared.
+fn check_shared_buffers<P: AsRef<Binding>, B, V, S>(
+    parameters: Parameters<'_, P>,
+    arguments: &[(&str, Argument<B, V, S>)],
+    given: &[Option<usize>],
+    reads: &[(Read<'_>, usize)],
+) -> Result<()> {
+    let bound = |access: Access| {
+        parameters
+            .bindings
+            .iter()
+            .zip(given)
+            .filter_map(move |(binding, given)| {
+                let binding = binding.as_ref();
+                if binding.usage != Usage::Used {
+                    return None;
+                }
+                let Resource::StorageBuffer { access: of, .. } = &binding.resource else {
+                    return None;
+                };
+                let (_, Argument::Buffer(buffer)) = arguments.get((*given)?)? else {
+                    return None;
+                };
+                (*of == access).then_some((binding.path.as_str(), buffer.identity))
+            })
+    };
+    let written = |identity: usize| {
+        bound(Access::ReadWrite)
+            .find(|(_, other)| *other == identity)
+            .map(|(path, _)| path)
+    };
+    let subject = parameters.subject;
+    let request = subject.request();
+    let read_only =
+        bound(Access::ReadOnly).map(|(path, identity)| (Read::Parameter(path), identity));
+    for (read, identity) in read_only.chain(reads.iter().copied()) {
+        let Some(read_write) = written(identity) else {
+            continue;
+        };
+        let use_of = match read {
+            Read::Parameter(path) => format!("is bound to the read-only parameter `{path}` and to"),
+            Read::Vertex(path) => {
+                format!("is the vertex buffer of the attribute `{path}` and is bound to")
+            }
+            Read::Index => "is the index buffer and is bound to".to_owned(),
+        };
+        return Err(subject.invalid(format!(
+            "one buffer {use_of} the read-write parameter `{read_write}` of {subject}, and a buffer cannot be both read only and written in one {request}, so bind separate buffers"
+        )));
     }
     Ok(())
 }

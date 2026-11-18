@@ -1,12 +1,11 @@
-use std::borrow::Cow;
 use std::fmt;
-use std::num::NonZeroU64;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::Device;
-use crate::device::scoped;
+use crate::backend;
 use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{Access, Binding, CompiledKernel, KernelLayout, Resource, Usage};
+use crate::layout::{CompiledKernel, KernelLayout};
 
 const LOAD: &str = "load a Slang module";
 
@@ -20,8 +19,27 @@ const LOAD: &str = "load a Slang module";
 /// always has its compiled form on the device. [`Kernel::call`] runs it.
 ///
 /// Cloning a kernel is cheap and returns another handle to the same kernel. A
-/// kernel keeps its [`Device`] alive, holds no object of the Slang compiler,
-/// and is [`Send`] and [`Sync`], so threads can share it.
+/// kernel keeps its [`Device`] alive and holds no object of the Slang
+/// compiler.
+///
+/// A kernel is neither [`Send`] nor [`Sync`]: it stays on the thread that
+/// created its [`Device`], because the crate keeps all the GPU objects of a
+/// device on one thread whatever graphics library runs them. A program sends
+/// results to other threads as plain data, such as the vector that
+/// [`Buffer::read`](crate::Buffer::read) returns. This program does not
+/// compile, because a kernel is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Kernel>();
+/// ```
+///
+/// This program does not compile either, because a kernel is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Kernel>();
+/// ```
 ///
 /// # Examples
 ///
@@ -30,8 +48,8 @@ const LOAD: &str = "load a Slang module";
 pub struct Kernel {
     pub(crate) layout: Arc<KernelLayout>,
     pub(crate) device: Device,
-    pub(crate) bind_group_layouts: Arc<[::wgpu::BindGroupLayout]>,
-    pub(crate) pipeline: ::wgpu::ComputePipeline,
+    pub(crate) inner: backend::Kernel,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl Kernel {
@@ -60,68 +78,15 @@ impl Kernel {
         self.layout.thread_group_size
     }
 
-    /// Creates the shader module, the bind group layouts, and the compute
-    /// pipeline of one compiled kernel on the device.
+    /// Creates the kernel on the device from one compiled kernel.
     pub(crate) fn create(device: &Device, compiled: CompiledKernel) -> Result<Self> {
         let CompiledKernel { layout, spirv } = compiled;
-        let wgpu_device = device.wgpu_device();
-        let immediate_size = immediate_size(&layout, wgpu_device)?;
-        let name = layout.name.as_str();
-        let (module, error) = scoped(wgpu_device, || {
-            wgpu_device.create_shader_module(::wgpu::ShaderModuleDescriptor {
-                label: Some(name),
-                source: ::wgpu::ShaderSource::SpirV(Cow::Owned(spirv)),
-            })
-        });
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::UnsupportedShader, LOAD)
-                .with_detail(format!(
-                    "the backend rejected the SPIR-V of the kernel `{name}`"
-                ))
-                .with_source(error));
-        }
-        let ((bind_group_layouts, pipeline), error) = scoped(wgpu_device, || {
-            let bind_group_layouts: Vec<::wgpu::BindGroupLayout> =
-                bind_group_layout_entries(&layout)
-                    .iter()
-                    .map(|entries| {
-                        wgpu_device.create_bind_group_layout(&::wgpu::BindGroupLayoutDescriptor {
-                            label: Some(name),
-                            entries,
-                        })
-                    })
-                    .collect();
-            let layout_refs: Vec<Option<&::wgpu::BindGroupLayout>> =
-                bind_group_layouts.iter().map(Some).collect();
-            let pipeline_layout =
-                wgpu_device.create_pipeline_layout(&::wgpu::PipelineLayoutDescriptor {
-                    label: Some(name),
-                    bind_group_layouts: &layout_refs,
-                    immediate_size,
-                });
-            let pipeline =
-                wgpu_device.create_compute_pipeline(&::wgpu::ComputePipelineDescriptor {
-                    label: Some(name),
-                    layout: Some(&pipeline_layout),
-                    module: &module,
-                    entry_point: Some(name),
-                    compilation_options: ::wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-            (bind_group_layouts, pipeline)
-        });
-        if let Some(error) = error {
-            return Err(Error::new(pipeline_error_kind(&error), LOAD)
-                .with_detail(format!(
-                    "the backend failed to create the pipeline of the kernel `{name}`"
-                ))
-                .with_source(error));
-        }
+        let inner = backend::Kernel::create(device.backend(), &layout, spirv)?;
         Ok(Self {
             device: device.clone(),
-            bind_group_layouts: bind_group_layouts.into(),
-            pipeline,
+            inner,
             layout: Arc::new(layout),
+            thread_bound: PhantomData,
         })
     }
 }
@@ -135,34 +100,15 @@ impl fmt::Debug for Kernel {
     }
 }
 
-/// Returns the kind of the error when wgpu raises `error` while it creates
-/// the layouts or the compute pipeline of a kernel, or the layouts of a
-/// render pipeline.
-pub(crate) fn pipeline_error_kind(error: &::wgpu::Error) -> ErrorKind {
-    match error {
-        ::wgpu::Error::Internal { .. } => ErrorKind::UnsupportedShader,
-        ::wgpu::Error::OutOfMemory { .. } | ::wgpu::Error::Validation { .. } => ErrorKind::Backend,
-    }
-}
-
-/// Returns the size of the immediates of the kernel's pipeline layout, and
-/// fails with [`ErrorKind::MissingFeature`] when the device cannot pass them.
-fn immediate_size(layout: &KernelLayout, device: &::wgpu::Device) -> Result<u32> {
-    let Some(immediates) = &layout.immediates else {
-        return Ok(0);
-    };
-    checked_immediate_size(
-        &layout.name,
-        device.features().contains(::wgpu::Features::IMMEDIATES),
-        device.limits().max_immediate_size,
-        immediates.size,
-    )
-}
-
 /// Returns `size` as the size of the immediates of the kernel `name`, and
 /// fails with [`ErrorKind::MissingFeature`] when the device lacks the feature
 /// or `size` exceeds the device's `limit`.
-fn checked_immediate_size(name: &str, has_feature: bool, limit: u32, size: u64) -> Result<u32> {
+pub(crate) fn checked_immediate_size(
+    name: &str,
+    has_feature: bool,
+    limit: u32,
+    size: u64,
+) -> Result<u32> {
     if !has_feature {
         return Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
             "the kernel `{name}` has `uniform` parameters, which need the feature IMMEDIATES that the device lacks"
@@ -173,70 +119,6 @@ fn checked_immediate_size(name: &str, has_feature: bool, limit: u32, size: u64) 
         _ => Err(Error::new(ErrorKind::MissingFeature, LOAD).with_detail(format!(
             "the `uniform` parameters of the kernel `{name}` take {size} bytes of immediates, and the device allows {limit}"
         ))),
-    }
-}
-
-/// Returns the entries of the bind group layout of each set of the kernel,
-/// from set 0 to the last set with a binding that the kernel uses.
-///
-/// A binding that the kernel does not use has no entry, because the SPIR-V
-/// that Slang generates omits it, and a set between used sets gets an empty
-/// layout.
-fn bind_group_layout_entries(layout: &KernelLayout) -> Vec<Vec<::wgpu::BindGroupLayoutEntry>> {
-    let used: Vec<(&Binding, ::wgpu::ShaderStages)> = layout
-        .bindings
-        .iter()
-        .filter(|binding| binding.usage == Usage::Used)
-        .map(|binding| (binding, ::wgpu::ShaderStages::COMPUTE))
-        .collect();
-    layout_entries(&used)
-}
-
-/// Returns the entries of the bind group layout of each set, from set 0 to
-/// the last set of the `used` bindings, each visible to its stages, with an
-/// empty layout for a set that holds no used binding.
-pub(crate) fn layout_entries(
-    used: &[(&Binding, ::wgpu::ShaderStages)],
-) -> Vec<Vec<::wgpu::BindGroupLayoutEntry>> {
-    let Some(last_set) = used.iter().map(|(binding, _)| binding.set).max() else {
-        return Vec::new();
-    };
-    (0..=last_set)
-        .map(|set| {
-            used.iter()
-                .filter(|(binding, _)| binding.set == set)
-                .map(|&(binding, visibility)| ::wgpu::BindGroupLayoutEntry {
-                    binding: binding.index,
-                    visibility,
-                    ty: binding_type(&binding.resource),
-                    count: None,
-                })
-                .collect()
-        })
-        .collect()
-}
-
-/// Returns the wgpu binding type of a resource.
-fn binding_type(resource: &Resource) -> ::wgpu::BindingType {
-    let buffer = |ty, size| ::wgpu::BindingType::Buffer {
-        ty,
-        has_dynamic_offset: false,
-        min_binding_size: NonZeroU64::new(size),
-    };
-    match resource {
-        Resource::StorageBuffer { access, stride, .. } => buffer(
-            ::wgpu::BufferBindingType::Storage {
-                read_only: *access == Access::ReadOnly,
-            },
-            *stride,
-        ),
-        Resource::UniformBuffer(block) => buffer(::wgpu::BufferBindingType::Uniform, block.size),
-        Resource::SampledTexture => ::wgpu::BindingType::Texture {
-            sample_type: ::wgpu::TextureSampleType::Float { filterable: true },
-            view_dimension: ::wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        Resource::Sampler => ::wgpu::BindingType::Sampler(::wgpu::SamplerBindingType::Filtering),
     }
 }
 

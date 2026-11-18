@@ -546,11 +546,11 @@ check-unused-deps:
 check-miri:
     cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
 
-# Check that every combination of Cargo features compiles, except slango without a backend, run by CI only
+# Check that every combination of Cargo features compiles, except slango and the examples package without a backend, run by CI only
 [group('checks')]
 check-features:
-    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --all-targets --feature-powerset --exclude-features vendored
-    CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
+    CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --exclude slang-rust-examples --all-targets --feature-powerset --exclude-features vendored
+    CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
 
 # Check that the workspace builds with the toolchain of its declared rust-version, run by CI only
 [group('checks')]

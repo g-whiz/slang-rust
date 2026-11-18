@@ -13,6 +13,7 @@
 //! This module is available only with the Cargo feature `wgpu`, which is on
 //! by default.
 
+use crate::backend;
 use crate::error::Result;
 use crate::{Device, Texture};
 
@@ -38,7 +39,7 @@ use crate::{Device, Texture};
 /// ```
 #[must_use]
 pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> Device {
-    Device::from_wgpu(device, queue)
+    Device::from_backend(backend::Device::from_wgpu(device, queue))
 }
 
 /// Returns the wgpu device of a [`Device`], or `None` when the device has no
@@ -66,7 +67,7 @@ pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> De
     reason = "a device of a backend other than wgpu has no wgpu device, and wgpu is the only backend of this crate"
 )]
 pub fn device(device: &Device) -> Option<&::wgpu::Device> {
-    Some(device.wgpu_device())
+    Some(device.backend().wgpu_device())
 }
 
 /// Returns the wgpu queue of a [`Device`], through which work is submitted to
@@ -95,7 +96,7 @@ pub fn device(device: &Device) -> Option<&::wgpu::Device> {
     reason = "a device of a backend other than wgpu has no wgpu queue, and wgpu is the only backend of this crate"
 )]
 pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
-    Some(device.wgpu_queue())
+    Some(device.backend().wgpu_queue())
 }
 
 /// Returns the wgpu texture of a [`Texture`], or `None` when the texture has
@@ -133,7 +134,7 @@ pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
     reason = "a texture of a backend other than wgpu has no wgpu texture, and wgpu is the only backend of this crate"
 )]
 pub fn texture(texture: &Texture) -> Option<&::wgpu::Texture> {
-    Some(texture.wgpu_texture())
+    Some(texture.backend().wgpu_texture())
 }
 
 /// Wraps a wgpu texture view of the wgpu device of a [`Device`] as a
@@ -171,5 +172,6 @@ pub fn texture(texture: &Texture) -> Option<&::wgpu::Texture> {
 /// [`TextureFormat`](crate::TextureFormat) lacks, is not two-dimensional, or
 /// has more than one mip level, array layer, or sample per pixel.
 pub fn texture_from_view(device: &Device, view: &::wgpu::TextureView) -> Result<Texture> {
-    Texture::from_view(device, view)
+    let (inner, size, format) = backend::Texture::from_view(view)?;
+    Ok(Texture::from_backend(device, inner, size, format))
 }

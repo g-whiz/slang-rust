@@ -25,8 +25,13 @@
 //! the GPU and copy the results back. Every failure is an [`Error`], whose
 //! [`Error::kind`] says what went wrong.
 //!
-//! Every type of the crate is [`Send`] and [`Sync`], and a [`Device`], a
-//! [`Module`], a [`Kernel`], a [`RenderPipeline`], a [`Buffer`], a
+//! A [`Device`], a [`Module`], a [`Kernel`], a [`RenderPipeline`], a
+//! [`Buffer`], a [`Texture`], a [`Sampler`], a [`Call`], and a [`Draw`] hold
+//! GPU objects, so none of them is [`Send`] or [`Sync`], and each stays on
+//! the thread that created its [`Device`]. A program sends results to other
+//! threads as plain data. An [`Error`], an [`ErrorKind`], the options
+//! structs, and the enumerations are [`Send`] and [`Sync`], and a [`Device`],
+//! a [`Module`], a [`Kernel`], a [`RenderPipeline`], a [`Buffer`], a
 //! [`Texture`], and a [`Sampler`] are cheap to clone. The crate loads every
 //! shader through wgpu's validated path and contains no unsafe code.
 //!
@@ -326,6 +331,11 @@ mod sampler;
 mod texture;
 #[cfg(feature = "wgpu")]
 pub mod wgpu;
+#[cfg(feature = "wgpu")]
+mod wgpu_backend;
+
+#[cfg(feature = "wgpu")]
+use wgpu_backend as backend;
 
 #[cfg(feature = "wgpu")]
 pub use buffer::Buffer;

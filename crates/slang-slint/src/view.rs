@@ -23,9 +23,11 @@ use crate::error::{Error, ErrorKind, Result};
 /// has no depth target, so a pipeline with a depth format is given one with
 /// [`Draw::depth`] at each draw.
 ///
-/// A view holds nothing of Slint and is [`Send`] and [`Sync`]. The image
-/// that [`View::to_image`] returns is neither, so the program creates and
-/// sets it on the thread that runs Slint's event loop.
+/// A view is neither [`Send`] nor [`Sync`], because it holds a
+/// [`slango::Device`] and objects of that device, which stay on the thread
+/// that created them. The program creates the view, draws into it, and
+/// calls [`View::to_image`] on the thread that runs Slint's event loop,
+/// where the image that it returns has to stay as well.
 ///
 /// # Examples
 ///
@@ -68,6 +70,21 @@ use crate::error::{Error, ErrorKind, Result};
 /// view.draw().set("colour", [1.0_f32, 0.0, 0.0, 1.0]).submit(3, 1)?;
 /// assert!(view.texture().read()?.iter().all(|pixel| *pixel == [255, 0, 0, 255]));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// A view cannot move to another thread, so this example does not compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slang_slint::View>();
+/// ```
+///
+/// It cannot be shared between threads either, so this example does not
+/// compile:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slang_slint::View>();
 /// ```
 #[derive(Debug)]
 pub struct View {

@@ -1,7 +1,9 @@
 mod compute_kernel;
+#[cfg(feature = "wgpu")]
 mod shader_playground;
 mod typed_kernel;
 mod watched;
+#[cfg(feature = "wgpu")]
 mod windowed_renderer;
 
 use std::fs;

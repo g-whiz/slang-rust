@@ -165,11 +165,13 @@
 //!
 //! # Threading
 //!
-//! A [`View`], an [`Error`], and an [`ErrorKind`] are [`Send`] and [`Sync`].
-//! The [`slint::Image`] that [`View::to_image`] returns is neither, so the
-//! program creates it and sets it on the thread that runs Slint's event
-//! loop. The program draws on that thread as well, in its rendering notifier
-//! or in a timer. The crate starts no thread.
+//! An [`Error`] and an [`ErrorKind`] are [`Send`] and [`Sync`]. A [`View`]
+//! is neither, because the objects of `slango` that it holds stay on the
+//! thread that created them, and neither is the [`slint::Image`] that
+//! [`View::to_image`] returns. So the program creates the view and the
+//! image, and sets the image, on the thread that runs Slint's event loop.
+//! The program draws on that thread as well, in its rendering notifier or in
+//! a timer. The crate starts no thread.
 //!
 //! # Features
 //!

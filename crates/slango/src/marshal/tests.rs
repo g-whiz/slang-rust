@@ -11,8 +11,12 @@ fn vector(length: u32) -> Shape {
     Shape::Vector { length }
 }
 
-fn matrix(rows: u32, columns: u32) -> Shape {
-    Shape::Matrix { rows, columns }
+fn matrix(rows: u32, columns: u32, row_stride: u64) -> Shape {
+    Shape::Matrix {
+        rows,
+        columns,
+        row_stride,
+    }
 }
 
 fn array(length: u64, stride: u64, element: Shape) -> Shape {
@@ -151,7 +155,7 @@ fn check_accepts_each_structure_that_an_array_stands_for() {
         (f32::value_type(), Shape::Scalar),
         (<[f32; 3]>::value_type(), vector(3)),
         (<[f32; 3]>::value_type(), array(3, 16, Shape::Scalar)),
-        (<[[f32; 3]; 2]>::value_type(), matrix(2, 3)),
+        (<[[f32; 3]; 2]>::value_type(), matrix(2, 3, 16)),
         (<[[f32; 3]; 4]>::value_type(), array(4, 16, vector(3))),
         (
             <[[f32; 3]; 2]>::value_type(),
@@ -159,7 +163,7 @@ fn check_accepts_each_structure_that_an_array_stands_for() {
         ),
         (
             <[[[f32; 2]; 2]; 2]>::value_type(),
-            array(2, 32, matrix(2, 2)),
+            array(2, 32, matrix(2, 2, 16)),
         ),
     ];
     for (ty, shape) in cases {
@@ -219,12 +223,12 @@ fn check_rejects_other_matrix_dimensions() {
         mismatch(
             &<[[f32; 3]; 2]>::value_type(),
             Scalar::Float32,
-            matrix(3, 2)
+            matrix(3, 2, 16)
         ),
         mismatch_text("float3x2", "[[f32; 3]; 2]")
     );
     assert_eq!(
-        mismatch(&<[f32; 4]>::value_type(), Scalar::Float32, matrix(2, 2)),
+        mismatch(&<[f32; 4]>::value_type(), Scalar::Float32, matrix(2, 2, 16)),
         mismatch_text("float2x2", "[f32; 4]")
     );
 }
@@ -263,7 +267,7 @@ fn check_rejects_an_array_of_vectors_of_another_length() {
         mismatch(
             &<[[[f32; 2]; 2]; 2]>::value_type(),
             Scalar::Float32,
-            array(2, 32, matrix(2, 3))
+            array(2, 32, matrix(2, 3, 16))
         ),
         mismatch_text("float2x3[2]", "[[[f32; 2]; 2]; 2]")
     );
@@ -315,7 +319,7 @@ fn write_puts_an_array_of_matrices_row_by_row_at_its_std140_strides() {
         64,
         64,
         Scalar::Float32,
-        array(2, 32, matrix(2, 2)),
+        array(2, 32, matrix(2, 2, 16)),
     );
     assert_eq!(
         written(&MATS, &mats, 240),
@@ -342,7 +346,7 @@ fn write_puts_an_array_of_matrices_row_by_row_at_its_std430_strides() {
         64,
         32,
         Scalar::Float32,
-        array(2, 16, matrix(2, 2)),
+        array(2, 16, matrix(2, 2, 8)),
     );
     assert_eq!(
         written(&MATS, &rotations, 144),
@@ -445,7 +449,7 @@ fn write_puts_a_bool_as_a_four_byte_one() {
 
 #[test]
 fn write_puts_a_float4x4_row_by_row_in_the_immediates() {
-    let transform = plain("transform", 32, 64, Scalar::Float32, matrix(4, 4));
+    let transform = plain("transform", 32, 64, Scalar::Float32, matrix(4, 4, 16));
     let mut value = [[0.0_f32; 4]; 4];
     let mut scalars = Vec::new();
     for (row, columns) in value.iter_mut().enumerate() {
@@ -460,7 +464,7 @@ fn write_puts_a_float4x4_row_by_row_in_the_immediates() {
 
 #[test]
 fn write_puts_each_row_of_a_float2x3_at_16_bytes_in_a_uniform_buffer() {
-    let m23 = plain("Matrices.m23", 112, 32, Scalar::Float32, matrix(2, 3));
+    let m23 = plain("Matrices.m23", 112, 32, Scalar::Float32, matrix(2, 3, 16));
     assert_eq!(
         written(&[[1.0_f32, 2.0, 3.0], [4.0, 5.0, 6.0]], &m23, 160),
         expected(
@@ -479,7 +483,7 @@ fn write_puts_each_row_of_a_float2x3_at_16_bytes_in_a_uniform_buffer() {
 
 #[test]
 fn write_puts_each_row_of_a_float3x2_at_8_bytes_in_the_immediates() {
-    let p32 = plain("p32", 80, 24, Scalar::Float32, matrix(3, 2));
+    let p32 = plain("p32", 80, 24, Scalar::Float32, matrix(3, 2, 8));
     assert_eq!(
         written(&[[1.0_f32, 2.0], [3.0, 4.0], [5.0, 6.0]], &p32, 112),
         expected(
@@ -535,12 +539,46 @@ fn write_rejects_a_value_past_the_end_of_its_block_and_writes_no_byte() {
 }
 
 #[test]
-fn write_rejects_a_matrix_without_rows() {
-    let empty = plain("empty", 0, 16, Scalar::Float32, matrix(0, 2));
-    let mut block = vec![0; 16];
-    let error = write("empty", &marshal(&[[0.0_f32; 2]; 0]), &empty, &mut block)
-        .expect_err("a matrix of zero rows has no row stride");
+fn write_puts_the_rows_of_a_float3x3_at_the_reflected_row_stride_without_a_padded_last_row() {
+    let unpadded = plain("m33", 0, 44, Scalar::Float32, matrix(3, 3, 16));
+    let value = [[1.0_f32, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+    assert_eq!(
+        written(&value, &unpadded, 48),
+        expected(
+            48,
+            &[
+                (0, f(1.0)),
+                (4, f(2.0)),
+                (8, f(3.0)),
+                (16, f(4.0)),
+                (20, f(5.0)),
+                (24, f(6.0)),
+                (32, f(7.0)),
+                (36, f(8.0)),
+                (40, f(9.0)),
+            ]
+        )
+    );
+}
+
+#[test]
+fn write_puts_the_rows_of_a_float3x3_at_12_bytes_in_a_scalar_layout() {
+    let packed = plain("m33", 4, 36, Scalar::Float32, matrix(3, 3, 12));
+    let value = [[1.0_f32, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]];
+    let scalars: Vec<_> = (0_u8..9)
+        .map(|index| (4 + 4 * usize::from(index), f(f32::from(index + 1))))
+        .collect();
+    assert_eq!(written(&value, &packed, 40), expected(40, &scalars));
+}
+
+#[test]
+fn write_rejects_a_row_stride_that_places_a_row_past_the_reflected_size() {
+    let short = plain("m22", 0, 16, Scalar::Float32, matrix(2, 2, 16));
+    let mut block = vec![0; 32];
+    let error = write("m22", &marshal(&[[1.0_f32; 2]; 2]), &short, &mut block)
+        .expect_err("the second row starts at the end of the reflected size");
     assert_eq!(error.kind(), ErrorKind::UnsupportedParameter);
+    assert_eq!(block, vec![0; 32]);
 }
 
 fn element(scalar: Scalar, components: u32) -> ElementType {

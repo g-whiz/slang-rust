@@ -422,3 +422,77 @@ fn a_depth_clear_value_outside_zero_to_one_is_rejected_before_any_work() {
         "the draw with the render pipeline of `vsMain` and `fsMain` clears the depth target to 2.0, and a depth is from 0.0 to 1.0",
     );
 }
+
+/// A module whose fragment entry point `fsMain` reads the buffers `tints`
+/// and `order` and writes the buffers `colours` and `marks`, and whose
+/// vertex entry point `vsMain` takes a position in clip space.
+const STORAGE: &str = r#"
+StructuredBuffer<float4> tints;
+StructuredBuffer<uint> order;
+RWStructuredBuffer<float4> colours;
+RWStructuredBuffer<uint> marks;
+
+[shader("vertex")]
+float4 vsMain(float4 position : POSITION) : SV_Position { return position; }
+
+[shader("fragment")]
+float4 fsMain() : SV_Target
+{
+    colours[0] = tints[0];
+    marks[0] = order[0];
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+"#;
+
+#[test]
+fn a_vertex_or_index_buffer_also_written_by_a_parameter_is_rejected_and_also_read_is_drawn() {
+    let setup = Setup::new();
+    let Setup { device, target, .. } = &setup;
+    let pipeline = render_pipeline(device, STORAGE, &RenderPipelineOptions::default());
+    let corners = Buffer::from_slice(
+        device,
+        &[
+            [-1.0_f32, -1.0, 0.5, 1.0],
+            [3.0, -1.0, 0.5, 1.0],
+            [-1.0, 3.0, 0.5, 1.0],
+        ],
+    )
+    .expect("the corners");
+    let indices = Buffer::from_slice(device, &[0_u32, 1, 2]).expect("the indices");
+    let colours = Buffer::<[f32; 4]>::zeroed(device, 1).expect("the colours");
+    let marks = Buffer::<u32>::zeroed(device, 1).expect("the marks");
+    let tints = Buffer::<[f32; 4]>::zeroed(device, 1).expect("the tints");
+    let order = Buffer::<u32>::zeroed(device, 1).expect("the order");
+    let draw = |tints: &Buffer<[f32; 4]>,
+                order: &Buffer<u32>,
+                colours: &Buffer<[f32; 4]>,
+                marks: &Buffer<u32>| {
+        pipeline
+            .draw()
+            .bind("tints", tints)
+            .bind("order", order)
+            .bind("colours", colours)
+            .bind("marks", marks)
+            .vertex("position", &corners)
+            .target(target)
+            .clear(RED)
+            .submit_indexed(&indices, 3, 1)
+    };
+    let written_corners = corners.clone();
+    setup.assert_invalid(
+        draw(&tints, &order, &written_corners, &marks),
+        "one buffer is the vertex buffer of the attribute `position` and is bound to the read-write parameter `colours` of the render pipeline of `vsMain` and `fsMain`, and a buffer cannot be both read only and written in one draw, so bind separate buffers",
+    );
+    setup.assert_invalid(
+        draw(&tints, &order, &colours, &indices),
+        "one buffer is the index buffer and is bound to the read-write parameter `marks` of the render pipeline of `vsMain` and `fsMain`, and a buffer cannot be both read only and written in one draw, so bind separate buffers",
+    );
+    draw(&corners, &indices, &colours, &marks)
+        .expect("buffers that the draw only reads may be shared");
+    assert_eq!(read(target), [GREEN_PIXEL; 16]);
+    assert_eq!(
+        colours.read().expect("the colours"),
+        [[-1.0, -1.0, 0.5, 1.0]]
+    );
+    assert_eq!(marks.read().expect("the marks"), [0]);
+}

@@ -356,7 +356,7 @@ fn shape(shape: &layout::Shape) -> Shape {
     match shape {
         layout::Shape::Scalar => Shape::Scalar,
         layout::Shape::Vector { length } => Shape::Vector { length: *length },
-        layout::Shape::Matrix { rows, columns } => Shape::Matrix {
+        layout::Shape::Matrix { rows, columns, .. } => Shape::Matrix {
             rows: *rows,
             columns: *columns,
         },

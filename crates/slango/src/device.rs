@@ -1,7 +1,9 @@
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::backend;
+use crate::error::Result;
 
 /// A GPU device on which this crate runs compute kernels and draws, with the
 /// queue through which it submits work to the device.
@@ -12,16 +14,34 @@ use crate::error::{Error, ErrorKind, Result};
 /// [`wgpu::from_device_and_queue`](crate::wgpu::from_device_and_queue).
 ///
 /// Cloning a device is cheap and returns another handle to the same device.
-/// A device is [`Send`] and [`Sync`], so threads can share it.
+///
+/// A device is neither [`Send`] nor [`Sync`]: it and every object created
+/// from it stay on the thread that created them, because the crate keeps all
+/// the GPU objects of a device on one thread whatever graphics library runs
+/// them, so a program sends results to other threads as plain data, such as
+/// the vector that [`Buffer::read`](crate::Buffer::read) returns. This
+/// program does not compile, because a device is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Device>();
+/// ```
+///
+/// This program does not compile either, because a device is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Device>();
+/// ```
 ///
 /// # Examples
 ///
 /// See the example of [`Device::new`].
 #[derive(Clone)]
 pub struct Device {
-    handle: ::wgpu::Device,
-    queue: ::wgpu::Queue,
+    inner: backend::Device,
     identity: Arc<()>,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl Device {
@@ -53,17 +73,13 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`] of kind [`ErrorKind::NoAdapter`] when no adapter
+    /// Returns an [`Error`](crate::Error) of kind
+    /// [`ErrorKind::NoAdapter`](crate::ErrorKind::NoAdapter) when no adapter
     /// matches [`DeviceOptions::adapter`], and of kind
-    /// [`ErrorKind::DeviceRequest`] when the adapter refuses to create the
-    /// device.
+    /// [`ErrorKind::DeviceRequest`](crate::ErrorKind::DeviceRequest) when the
+    /// adapter refuses to create the device.
     pub fn new(options: &DeviceOptions) -> Result<Self> {
-        let instance = ::wgpu::Instance::new(::wgpu::InstanceDescriptor {
-            backends: ::wgpu::Backends::PRIMARY,
-            ..::wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let adapter = select_adapter(&instance, &options.adapter)?;
-        request_device(&adapter)
+        Ok(Self::from_backend(backend::Device::new(options)?))
     }
 
     /// Returns the name of the adapter of the device, as its driver reports
@@ -74,14 +90,14 @@ impl Device {
     /// See the example of [`Device::new`].
     #[must_use]
     pub fn adapter_name(&self) -> String {
-        self.handle.adapter_info().name
+        self.inner.adapter_name()
     }
 
-    pub(crate) fn from_wgpu(device: ::wgpu::Device, queue: ::wgpu::Queue) -> Self {
+    pub(crate) fn from_backend(inner: backend::Device) -> Self {
         Self {
-            handle: device,
-            queue,
+            inner,
             identity: Arc::new(()),
+            thread_bound: PhantomData,
         }
     }
 
@@ -94,12 +110,8 @@ impl Device {
         Arc::ptr_eq(&self.identity, &other.identity)
     }
 
-    pub(crate) fn wgpu_device(&self) -> &::wgpu::Device {
-        &self.handle
-    }
-
-    pub(crate) fn wgpu_queue(&self) -> &::wgpu::Queue {
-        &self.queue
+    pub(crate) fn backend(&self) -> &backend::Device {
+        &self.inner
     }
 }
 
@@ -174,148 +186,23 @@ pub enum AdapterSelection {
     Name(String),
 }
 
-/// Runs `create` inside error scopes for every filter of wgpu and returns the
-/// first error that it raised, so that no error reaches wgpu's handler of
-/// uncaptured errors, which panics by default.
-pub(crate) fn scoped<T>(
-    device: &::wgpu::Device,
-    create: impl FnOnce() -> T,
-) -> (T, Option<::wgpu::Error>) {
-    let validation = device.push_error_scope(::wgpu::ErrorFilter::Validation);
-    let internal = device.push_error_scope(::wgpu::ErrorFilter::Internal);
-    let out_of_memory = device.push_error_scope(::wgpu::ErrorFilter::OutOfMemory);
-    let value = create();
-    let out_of_memory = pollster::block_on(out_of_memory.pop());
-    let internal = pollster::block_on(internal.pop());
-    let validation = pollster::block_on(validation.pop());
-    (value, validation.or(internal).or(out_of_memory))
-}
-
-const FIND_ADAPTER: &str = "find a GPU adapter";
-
-fn select_adapter(
-    instance: &::wgpu::Instance,
-    selection: &AdapterSelection,
-) -> Result<::wgpu::Adapter> {
-    match selection {
-        AdapterSelection::Default => request_adapter(instance, false),
-        AdapterSelection::Software => request_adapter(instance, true)
-            .map_err(|error| error.with_detail("no adapter is a software adapter".to_owned())),
-        AdapterSelection::Name(name) => {
-            let adapters =
-                pollster::block_on(instance.enumerate_adapters(::wgpu::Backends::PRIMARY));
-            let names: Vec<String> = adapters
-                .iter()
-                .map(|adapter| adapter.get_info().name)
-                .collect();
-            first_name_containing(&names, name)
-                .and_then(|index| adapters.into_iter().nth(index))
-                .ok_or_else(|| {
-                    Error::new(ErrorKind::NoAdapter, FIND_ADAPTER)
-                        .with_detail(format!("no adapter has a name that contains `{name}`"))
-                })
-        }
-    }
-}
-
-fn first_name_containing(names: &[String], text: &str) -> Option<usize> {
-    names.iter().position(|name| name.contains(text))
-}
-
-fn request_adapter(
-    instance: &::wgpu::Instance,
-    force_fallback_adapter: bool,
-) -> Result<::wgpu::Adapter> {
-    let options = ::wgpu::RequestAdapterOptions {
-        force_fallback_adapter,
-        ..::wgpu::RequestAdapterOptions::default()
-    };
-    pollster::block_on(instance.request_adapter(&options))
-        .map_err(|error| Error::new(ErrorKind::NoAdapter, FIND_ADAPTER).with_source(error))
-}
-
-fn request_device(adapter: &::wgpu::Adapter) -> Result<Device> {
-    let required_features = adapter.features() & ::wgpu::Features::IMMEDIATES;
-    let max_immediate_size = if required_features.is_empty() {
-        0
-    } else {
-        adapter.limits().max_immediate_size
-    };
-    let descriptor = ::wgpu::DeviceDescriptor {
-        label: Some("slango"),
-        required_features,
-        required_limits: ::wgpu::Limits {
-            max_immediate_size,
-            ..::wgpu::Limits::default()
-        },
-        ..::wgpu::DeviceDescriptor::default()
-    };
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&descriptor)).map_err(|error| {
-            Error::new(ErrorKind::DeviceRequest, "request a device")
-                .with_detail(format!(
-                    "the adapter `{}` refused it",
-                    adapter.get_info().name
-                ))
-                .with_source(error)
-        })?;
-    Ok(Device::from_wgpu(device, queue))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{AdapterSelection, Device, DeviceOptions, first_name_containing};
+    use super::{AdapterSelection, Device, DeviceOptions};
 
     #[test]
     fn default_options_select_the_default_adapter() {
         assert_eq!(DeviceOptions::default().adapter, AdapterSelection::Default);
     }
 
-    fn names(names: &[&str]) -> Vec<String> {
-        names.iter().map(|&name| name.to_owned()).collect()
-    }
+    fn assert_clone<T: Clone + 'static>() {}
+
+    fn assert_send_sync_clone<T: Send + Sync + Clone + 'static>() {}
 
     #[test]
-    fn name_selection_finds_a_match_after_the_first_name() {
-        let names = names(&[
-            "llvmpipe (LLVM 19.1.7, 256 bits)",
-            "NVIDIA GeForce RTX 4070",
-        ]);
-        assert_eq!(first_name_containing(&names, "NVIDIA"), Some(1));
-    }
-
-    #[test]
-    fn name_selection_takes_the_first_of_several_matches() {
-        let names = names(&[
-            "AMD Radeon",
-            "NVIDIA GeForce RTX 4070",
-            "NVIDIA GeForce RTX 3060",
-        ]);
-        assert_eq!(first_name_containing(&names, "NVIDIA"), Some(1));
-    }
-
-    #[test]
-    fn name_selection_matches_with_the_case_of_each_letter() {
-        let names = names(&["NVIDIA GeForce RTX 4070"]);
-        assert_eq!(first_name_containing(&names, "nvidia"), None);
-    }
-
-    #[test]
-    fn name_selection_without_a_match_finds_nothing() {
-        let names = names(&[
-            "llvmpipe (LLVM 19.1.7, 256 bits)",
-            "NVIDIA GeForce RTX 4070",
-        ]);
-        assert_eq!(first_name_containing(&names, "Radeon"), None);
-        assert_eq!(first_name_containing(&[], "Radeon"), None);
-    }
-
-    fn assert_send_sync<T: Send + Sync + 'static>() {}
-
-    #[test]
-    fn device_and_options_are_send_and_sync() {
-        assert_send_sync::<Device>();
-        assert_send_sync::<DeviceOptions>();
-        assert_send_sync::<AdapterSelection>();
+    fn devices_are_clone_and_their_options_are_send_sync_and_clone() {
+        assert_clone::<Device>();
+        assert_send_sync_clone::<DeviceOptions>();
+        assert_send_sync_clone::<AdapterSelection>();
     }
 }

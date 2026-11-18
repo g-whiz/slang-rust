@@ -4,7 +4,7 @@ expression: "bindings(\"resources.slang\")"
 ---
 const _: &[u8] = ::core::include_bytes!("<shaders>/resources.slang");
 const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 2,
+    ::slango::__private::ENCODING_VERSION == 3,
     "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
 );
 /// The arguments of the kernel `shadeImage`, one field for each parameter.

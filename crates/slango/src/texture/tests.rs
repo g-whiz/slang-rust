@@ -1,16 +1,5 @@
-use super::{
-    ReadLayout, Texture, TextureFormat, check_pixel_count, check_readable, check_size,
-    check_wrappable,
-};
+use super::{ReadLayout, Texture, TextureFormat, check_pixel_count, check_readable, check_size};
 use crate::error::ErrorKind;
-
-const FORMATS: [TextureFormat; 5] = [
-    TextureFormat::Rgba8Unorm,
-    TextureFormat::Rgba8UnormSrgb,
-    TextureFormat::Bgra8Unorm,
-    TextureFormat::Bgra8UnormSrgb,
-    TextureFormat::Depth32Float,
-];
 
 #[test]
 fn a_size_within_the_limit_is_accepted() {
@@ -82,42 +71,6 @@ fn only_a_colour_texture_with_copy_src_is_readable() {
 }
 
 #[test]
-fn only_a_single_sample_two_dimensional_texture_of_one_mip_level_and_layer_is_wrappable() {
-    check_wrappable(::wgpu::TextureDimension::D2, 1, 1, 1).expect("one level, layer, and sample");
-    let cases = [
-        (
-            (::wgpu::TextureDimension::D1, 1, 1, 1),
-            "the viewed texture has the dimension D1, and slango supports only a two-dimensional texture",
-        ),
-        (
-            (::wgpu::TextureDimension::D3, 1, 1, 1),
-            "the viewed texture has the dimension D3, and slango supports only a two-dimensional texture",
-        ),
-        (
-            (::wgpu::TextureDimension::D2, 1, 1, 4),
-            "the viewed texture has 4 samples per pixel, and slango supports only one",
-        ),
-        (
-            (::wgpu::TextureDimension::D2, 2, 1, 1),
-            "the viewed texture has 2 mip levels, and slango supports only one",
-        ),
-        (
-            (::wgpu::TextureDimension::D2, 1, 6, 1),
-            "the viewed texture has 6 array layers, and slango supports only one",
-        ),
-    ];
-    for ((dimension, mip_level_count, layers, sample_count), detail) in cases {
-        let error = check_wrappable(dimension, mip_level_count, layers, sample_count)
-            .expect_err("a texture that slango cannot wrap");
-        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
-        assert_eq!(
-            error.to_string(),
-            format!("cannot wrap a texture view: {detail}")
-        );
-    }
-}
-
-#[test]
 fn each_row_of_a_read_is_padded_to_a_multiple_of_256_bytes() {
     let cases = [
         ([1, 1], 256, 256),
@@ -127,16 +80,16 @@ fn each_row_of_a_read_is_padded_to_a_multiple_of_256_bytes() {
         ([8192, 8192], 32768, 32768 * 8192),
     ];
     for (size, bytes_per_row, total) in cases {
-        let layout = ReadLayout::new(size).expect("the layout of a valid size");
+        let layout = ReadLayout::new(size, 256).expect("the layout of a valid size");
         assert_eq!(layout.bytes_per_row, bytes_per_row, "{size:?}");
         assert_eq!(layout.size, total, "{size:?}");
     }
-    assert_eq!(ReadLayout::new([u32::MAX, 1]), None);
+    assert_eq!(ReadLayout::new([u32::MAX, 1], 256), None);
 }
 
 #[test]
 fn unpad_drops_the_padding_of_each_row_and_keeps_the_rows_in_order() {
-    let layout = ReadLayout::new([3, 2]).expect("the layout of three by two");
+    let layout = ReadLayout::new([3, 2], 256).expect("the layout of three by two");
     let mut bytes = vec![0xee_u8; 512];
     let pixels: [[u8; 4]; 6] = [
         [1, 2, 3, 4],
@@ -156,48 +109,24 @@ fn unpad_drops_the_padding_of_each_row_and_keeps_the_rows_in_order() {
 }
 
 #[test]
-fn each_format_maps_to_its_wgpu_format_and_back() {
-    let expected = [
-        wgpu::TextureFormat::Rgba8Unorm,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-        wgpu::TextureFormat::Bgra8Unorm,
-        wgpu::TextureFormat::Bgra8UnormSrgb,
-        wgpu::TextureFormat::Depth32Float,
-    ];
-    for (format, wgpu_format) in FORMATS.into_iter().zip(expected) {
-        assert_eq!(format.to_wgpu(), wgpu_format);
-        assert_eq!(TextureFormat::from_wgpu(wgpu_format), Some(format));
-    }
-    for other in [
-        wgpu::TextureFormat::R8Unorm,
-        wgpu::TextureFormat::Rgba16Float,
-        wgpu::TextureFormat::Depth24Plus,
+fn only_the_depth_format_is_a_depth_format() {
+    for format in [
+        TextureFormat::Rgba8Unorm,
+        TextureFormat::Rgba8UnormSrgb,
+        TextureFormat::Bgra8Unorm,
+        TextureFormat::Bgra8UnormSrgb,
+        TextureFormat::Depth32Float,
     ] {
-        assert_eq!(TextureFormat::from_wgpu(other), None);
-    }
-}
-
-#[test]
-fn colour_formats_get_every_usage_and_the_depth_format_only_render_attachment() {
-    let colour = wgpu::TextureUsages::TEXTURE_BINDING
-        | wgpu::TextureUsages::RENDER_ATTACHMENT
-        | wgpu::TextureUsages::COPY_SRC
-        | wgpu::TextureUsages::COPY_DST;
-    for format in FORMATS {
-        let expected = if format == TextureFormat::Depth32Float {
-            wgpu::TextureUsages::RENDER_ATTACHMENT
-        } else {
-            colour
-        };
-        assert_eq!(format.usages(), expected, "{format:?}");
         assert_eq!(format.is_depth(), format == TextureFormat::Depth32Float);
     }
 }
 
+fn assert_clone<T: Clone + 'static>() {}
+
 fn assert_send_sync_clone<T: Send + Sync + Clone + 'static>() {}
 
 #[test]
-fn textures_and_formats_are_send_sync_and_clone() {
-    assert_send_sync_clone::<Texture>();
+fn textures_are_clone_and_formats_are_send_sync_and_clone() {
+    assert_clone::<Texture>();
     assert_send_sync_clone::<TextureFormat>();
 }

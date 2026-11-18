@@ -557,11 +557,11 @@ cargo deny check
 
 Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
 
-These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed. The features of `slango` are checked in the second command, without the combination with no features, which stops on purpose with a compile error (TOOL-48 of `docs/design/tooling.md`).
+These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed. The features of `slango` and of the examples package are checked in the second command, without the combination with no features, which stops `slango` on purpose with a compile error and leaves the examples package without a backend (TOOL-48 of `docs/design/tooling.md`).
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --all-targets --feature-powerset --exclude-features vendored
-CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --exclude slang-rust-examples --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets --rust-version
 cargo machete
 cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
@@ -1211,7 +1211,7 @@ Reason: a direct call such as `((*(*this).vtable).method)(this)` is three unsafe
 
 ## 13. Concurrency and Async
 
-**CONC-1.** Decide for each public type whether it is `Send` and `Sync`, state the decision in its documentation when it is not both, and add a compile-time assertion test for each auto trait that it does implement. A type that holds no foreign handle is `Send` and `Sync` unless it holds a value tied to one thread, and a type that holds a foreign handle follows FFI-9.
+**CONC-1.** Decide for each public type whether it is `Send` and `Sync`, state the decision in its documentation when it is not both, and add a compile-time assertion test for each auto trait that it does implement. A type that holds no foreign handle is `Send` and `Sync` unless it holds a value tied to one thread or its design document decides that it is neither, in which case CONC-9 applies. A type that holds a foreign handle follows FFI-9.
 
 Reason: auto traits change silently when a field changes, and a lost `Send` is a breaking change that no other test detects. [IR-8] [S-10] [IR-13]
 
@@ -1281,6 +1281,21 @@ Reason: dropping a future is how async Rust cancels, so every `.await` is a poin
 Reason: a type that is neither `Send` nor `Sync` keeps one handle on one thread, but a process-wide object is reached from every thread through a global function of the library, so no value that the caller holds can keep two threads apart. The lock guards no data, so a panic leaves nothing invalid, and a reentrant call that waited for a lock its own thread holds would deadlock.
 
 The lock holds within one version of the crate only, as the guard of CONC-4 does, because two versions of the crate in one build each get their own `static`, while the `links` key of the `-sys` crate (FFI-2) allows one copy of the native library. The design document therefore states this limit. The sources state the bounds of `Send` and `Sync` and the cost of statics, and do not address a native object without a threading rule, so the rest of the rule is project-defined. [S-1] [S-6] [S-10]
+
+**CONC-9.** Give a type that its design document makes neither `Send` nor `Sync`, whatever its other fields hold, a private field of the type `PhantomData<*const ()>`, state in its documentation why it is neither, and add one test of the absence of each of the two traits, in place of the assertion tests of CONC-1. Do not implement either trait by hand, and do not rely on the fields that it holds today to remove them.
+
+Test the absence of an auto trait in one of these two ways:
+
+- A `compile_fail` doctest that names only the error code, such as `compile_fail,E0277`.
+- A compile-time negative assertion by trait ambiguity, for a type that a doctest cannot reach, such as code that a procedural macro generates in a test. A `const _` item declares a helper trait with one item, implements it for every type with one type argument and for every type that implements the trait under test with another, and names the item for the type with the type argument left to inference. When the type implements the trait, both implementations apply, the type argument is ambiguous, and the item fails to compile.
+
+Do not test the absence of an auto trait by comparing the text of a compiler diagnostic, such as the expected output of a trybuild case.
+
+Reason: the auto traits of a type follow its fields, so a type whose fields are both today, such as one that holds only reference-counted handles of a thread-safe library, gains both silently, and a later field that is neither then removes them in a breaking change. A raw pointer is neither `Send` nor `Sync`, and negative implementations are unstable, so the marker field is the stable way to state the decision once, in the type itself. The tests fail when a change restores either trait.
+
+CI installs the latest stable compiler, and the notes of a diagnostic, such as the chain of fields that error E0277 prints, change between compiler versions. A test that compares them fails on a newer compiler while the type is still correct. An error code and an ambiguity depend on no wording.
+
+The sources state that a raw pointer is neither and how `PhantomData` carries the auto traits of its parameter, and do not name the marker pattern, so that part of the rule is project-defined. The negative assertion is the technique of `assert_not_impl_any!` of the crate static_assertions. [S-1] [S-10] [S-12]
 
 ## 14. Testing
 
@@ -1361,9 +1376,15 @@ Reason: the declared version is a promise to users, and Clippy reads it to hold 
 
 Reason: predictions of future needs rarely hold, and an abstraction built on a prediction fixes a design before its requirements are known. [IR-93] [IR-72] [IR-81]
 
-**SIMP-2.** Do not add a backend abstraction to `slango` before a second backend exists. Keep the code that depends on wgpu behind a small number of module boundaries, so that extracting a trait for a slang-rhi backend later changes only those modules.
+**SIMP-2.** Keep the code of each backend of `slango` in one private backend module that only the `cfg` of its Cargo feature compiles, and keep every other module of the crate free of backend code and of a backend `cfg`, except these:
 
-Reason: the right shape of a backend trait is known only once two backends exist, and contained wgpu code keeps that later change local. [IR-81] [IR-93]
+- The crate root, which holds the `cfg` of each backend feature and declares the backend module of the build under one name.
+- The public module `slango::wgpu`, which takes and returns wgpu objects.
+- Tests, which may call the public functions of `slango::wgpu`.
+
+Give each public type that holds an object of the backend a crate-private type of that module with the same name, and add no public trait and no private enumeration over the backends.
+
+Reason: a build has exactly one backend, so nothing chooses between backends while the program runs, and a trait or an enumeration would have no second case to serve. A public trait would also freeze the shape of the boundary and invite an implementation outside the crate. One module for each backend under the same name keeps the public API one set of concrete types in every build. [IR-81] [IR-93]
 
 **SIMP-3.** Write the examples of a new public API from the caller's side before implementing it, and rework the API until the common case is short and obvious. Reason: an API that is merely functional produces long and awkward examples, and the examples show the problem before other code depends on the API. [IR-63] [IR-44] [IR-93]
 
@@ -1393,7 +1414,7 @@ This table records each disagreement between sources, or between a source and a 
 | Discarding a result with `.ok()` | `.ok()` to discard: [IR-2]. `clippy::unused_result_ok` forbids it | `let _ =` under a lint exception for `clippy::let_underscore_must_use` (ERR-5), with `clippy::unused_result_ok` on to reject `.ok()` | One form, with a stated reason, makes each discard reviewable, and both lints detect their form. |
 | `#![deny(warnings)]` in source | Recommended: [IR-68]. Anti-pattern: [IR-5]. `CARGO_BUILD_WARNINGS=deny`: [IR-4] | `CARGO_BUILD_WARNINGS=deny` in the check (Section 4.2) | New compiler warnings would break users' builds, and `-D warnings` invalidates the build cache. |
 | Iterator return types | `impl Iterator`: [IR-83]. Named types: [IR-17], [IR-8]. `Vec`: [IR-93] | Named types in public APIs, `Vec` for computed results, `impl Iterator` in private code (API-2) | Tier 1 names iterator types after their methods, and a named type can gain traits. |
-| `Send` by default, or thread-affine handles | Public types `Send`: [S-10]. Raw-pointer handles neither: [S-1], [IR-27] | Neither for foreign handles until the Slang documentation proves otherwise (FFI-9) | Tier 1 wins, and a wrong `Send` is undefined behaviour while a missing one is only an inconvenience. |
+| `Send` by default, or thread-affine handles | Public types `Send`: [S-10]. Raw-pointer handles neither: [S-1], [IR-27] | Neither for foreign handles until the Slang documentation proves otherwise (FFI-9), and neither for a type that its design document makes neither, with a marker field (CONC-1, CONC-9) | Tier 1 wins, and a wrong `Send` is undefined behaviour while a missing one is only an inconvenience. The second case departs from [S-10] by a design decision, such as SLO-17 of `docs/design/slango.md`, which keeps one public API on a backend whose objects are neither. |
 | Checked-in or build-time bindings | Build time: [S-2]. Pre-generated: [S-4], [S-10]. Compare test: [S-3] | Generated by the binding generator in the build script of every build, from the headers of the linked Slang, and never checked in (COM-9, TEST-8) | It is a project decision: a build accepts the Slang of any SDK or of a fork of `slang-src` that the user patches in, and only bindings from the linked headers stay sound, at the cost of libclang on every user's machine (Section 14.2 of `docs/design/architecture.md`). |
 | Documenting `-sys` items | Do not document them: [S-4]. Document every unsafe function: [S-10] | Lint exceptions on the generated module only, with one shared safety contract in the crate-level documentation in place of `# Safety` sections and safety comments (Section 7.9 of the writing guide, UNS-6) | Generated items mirror the Slang documentation, while hand-written items stay fully documented. |
 | Panics in callbacks | Convert with `catch_unwind`: [S-1]. Last resort only: [S-10]. Abort at `extern "C"`: [S-5] | Catch only to return a failure code, otherwise abort (FFI-7) | Both positions hold in their case, and tier 1 states the abort. |
@@ -1580,6 +1601,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | CONC-6 | A blocking core, async only for external waits, no `Send + 'static` bounds unless spawning or on a trait whose objects a foreign library keeps and calls. |
 | CONC-7 | Every public `async fn` documents its cancel safety and holds nothing across `.await`. |
 | CONC-8 | Every call through a process-wide native object without a threading rule holds one crate-private `static` `Mutex<()>`, taken after the per-thread guard and recovered when poisoned. |
+| CONC-9 | A type that its design makes neither `Send` nor `Sync` holds a private `PhantomData<*const ()>` field, documents why, and has a test of the absence of each trait: a `compile_fail` doctest that names only the error code, or a compile-time assertion by trait ambiguity, never a comparison of diagnostic text. |
 | TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names, a module of an example binary that the test binary of the examples includes with `#[path]` when the module needs a test, and modules that several example binaries share under `examples/src/shared/`. |
 | TEST-2 | Snapshot tests with `insta` for text and structured output, with deterministic output. |
 | TEST-3 | Tests that need the native library or a GPU are tagged so they can be filtered. |
@@ -1595,6 +1617,6 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |
 | SIMP-1 | Concrete types first, and abstractions only for two implementations that exist now. |
-| SIMP-2 | No backend abstraction before a second backend exists, with wgpu code contained. |
+| SIMP-2 | Each backend of `slango` sits in one private module under the `cfg` of its feature, with no trait or enumeration over the backends, and only the crate root, `slango::wgpu`, and tests hold backend code or a backend `cfg` besides it. |
 | SIMP-3 | Examples of a new API are written first and the API is reworked until they are clean. |
 | SIMP-4 | Plain code over macros, and optimization only after measurement. |

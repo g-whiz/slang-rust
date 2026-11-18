@@ -35,14 +35,14 @@ fn size_within_rejects_a_size_that_overflows() {
     assert_eq!(error.kind(), ErrorKind::InvalidArgument);
 }
 
-fn assert_send_sync_clone<T: Send + Sync + Clone + 'static>() {}
+fn assert_clone<T: Clone + 'static>() {}
 
 #[test]
-fn buffers_are_send_sync_and_clone() {
-    assert_send_sync_clone::<Buffer<f32>>();
-    assert_send_sync_clone::<Buffer<i32>>();
-    assert_send_sync_clone::<Buffer<u32>>();
-    assert_send_sync_clone::<Buffer<[f32; 4]>>();
-    assert_send_sync_clone::<Buffer<[i32; 4]>>();
-    assert_send_sync_clone::<Buffer<[u32; 4]>>();
+fn buffers_are_clone() {
+    assert_clone::<Buffer<f32>>();
+    assert_clone::<Buffer<i32>>();
+    assert_clone::<Buffer<u32>>();
+    assert_clone::<Buffer<[f32; 4]>>();
+    assert_clone::<Buffer<[i32; 4]>>();
+    assert_clone::<Buffer<[u32; 4]>>();
 }

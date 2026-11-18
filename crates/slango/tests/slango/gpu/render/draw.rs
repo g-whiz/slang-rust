@@ -418,3 +418,67 @@ fn a_later_vertex_buffer_for_an_attribute_replaces_the_earlier_one() {
         .expect("the draw with the later colours");
     assert_eq!(target.read().expect("the pixels"), [GREEN_PIXEL; 16]);
 }
+
+#[test]
+fn a_kernel_fills_a_vertex_buffer_and_another_reads_the_target_of_a_draw() {
+    let device = device_with(AdapterSelection::Default);
+    let module = load(
+        &device,
+        r#"
+RWStructuredBuffer<float4> corners;
+Texture2D<float4> image;
+RWStructuredBuffer<float4> picked;
+
+[shader("compute")]
+[numthreads(3, 1, 1)]
+void fill(uint3 id : SV_DispatchThreadID)
+{
+    float2 positions[3] = { float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0) };
+    corners[id.x] = float4(positions[id.x], 0.5, 1.0);
+}
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void pick()
+{
+    picked[0] = image.Load(int3(2, 1, 0));
+}
+
+[shader("vertex")]
+float4 vsMain(float4 position : POSITION) : SV_Position { return position; }
+
+[shader("fragment")]
+float4 fsMain() : SV_Target { return float4(0.0, 1.0, 0.0, 1.0); }
+"#,
+    );
+    let corners = Buffer::<[f32; 4]>::zeroed(&device, 3).expect("the corners");
+    module
+        .kernel("fill")
+        .expect("the kernel")
+        .call()
+        .bind("corners", &corners)
+        .dispatch([3, 1, 1])
+        .expect("the dispatch");
+    let pipeline = module
+        .render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())
+        .expect("the pipeline");
+    let target = Texture::new(&device, [4, 4], TextureFormat::Rgba8Unorm).expect("a target");
+    pipeline
+        .draw()
+        .vertex("position", &corners)
+        .target(&target)
+        .clear(BLUE)
+        .submit(3, 1)
+        .expect("the draw");
+    assert_eq!(target.read().expect("the pixels"), [GREEN_PIXEL; 16]);
+    let picked = Buffer::<[f32; 4]>::zeroed(&device, 1).expect("the result");
+    module
+        .kernel("pick")
+        .expect("the kernel")
+        .call()
+        .texture("image", &target)
+        .bind("picked", &picked)
+        .dispatch([1, 1, 1])
+        .expect("the dispatch");
+    assert_eq!(picked.read().expect("the result"), [GREEN]);
+}

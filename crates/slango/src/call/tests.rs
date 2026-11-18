@@ -1,8 +1,9 @@
 use std::error::Error as _;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{
-    Argument, Bound, BoundSampler, BoundTexture, Call, Entry, Plan, Source, check_workgroups,
-    insert, plan, workgroup_counts,
+    Argument, Bound, BoundSampler, BoundTexture, Entry, Plan, Source, check_workgroups, insert,
+    plan, workgroup_counts,
 };
 use crate::__private::StructElement;
 use crate::error::{ErrorKind, Result};
@@ -118,13 +119,24 @@ fn value<V: Value>(value: V) -> Arg {
     Argument::Value(marshal(&value))
 }
 
+/// Returns an identity that no other buffer of the tests has.
+fn fresh_identity() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn buffer<T: Element>(len: usize) -> Arg {
+    buffer_with_identity::<T>(len, fresh_identity())
+}
+
+fn buffer_with_identity<T: Element>(len: usize, identity: usize) -> Arg {
     Argument::Buffer(Bound {
         handle: (),
         stride: T::STRIDE,
         element: T::value_type(),
         len,
         on_device: true,
+        identity,
     })
 }
 
@@ -201,17 +213,27 @@ fn without(path: &str) -> Vec<(&'static str, Arg)> {
 fn a_later_argument_for_a_path_replaces_the_earlier_one_whatever_its_kind() {
     let mut arguments = Vec::new();
     insert(&mut arguments, "factor", value(1.0_f32));
-    insert(&mut arguments, "data", buffer::<f32>(4));
+    insert(&mut arguments, "data", buffer_with_identity::<f32>(4, 7));
     insert(&mut arguments, "factor", value(2.0_f32));
     assert_eq!(
         arguments,
-        vec![("factor", value(2.0_f32)), ("data", buffer::<f32>(4))]
+        vec![
+            ("factor", value(2.0_f32)),
+            ("data", buffer_with_identity::<f32>(4, 7))
+        ]
     );
     insert(&mut arguments, "data", value(3_u32));
-    insert(&mut arguments, "factor", buffer::<[f32; 4]>(2));
+    insert(
+        &mut arguments,
+        "factor",
+        buffer_with_identity::<[f32; 4]>(2, 8),
+    );
     assert_eq!(
         arguments,
-        vec![("factor", buffer::<[f32; 4]>(2)), ("data", value(3_u32))]
+        vec![
+            ("factor", buffer_with_identity::<[f32; 4]>(2, 8)),
+            ("data", value(3_u32))
+        ]
     );
 }
 
@@ -472,6 +494,7 @@ fn a_buffer_of_another_device_is_an_invalid_argument() {
         element: marshal(&0.0_f32).ty,
         len: 4,
         on_device: false,
+        identity: fresh_identity(),
     });
     assert_eq!(
         rejected(&replaced("data", &other)),
@@ -542,13 +565,6 @@ fn workgroups_over_the_limit_are_an_invalid_argument() {
         error.to_string(),
         "cannot call a kernel: the dispatch of the kernel `scale` needs 65536 thread groups along the y axis, and the device allows 65535"
     );
-}
-
-fn assert_send_sync<T: Send + Sync>() {}
-
-#[test]
-fn a_call_is_send_and_sync() {
-    assert_send_sync::<Call<'_>>();
 }
 
 fn resource(path: &str, index: u32, usage: Usage, resource: Resource) -> Binding {
@@ -870,5 +886,103 @@ fn a_value_that_its_reflected_layout_cannot_hold_is_an_unsupported_parameter() {
         Some(
             "cannot set a plain value: the reflected layout of the parameter `factor` places a scalar outside its 2 bytes"
         )
+    );
+}
+
+/// The layout of a kernel `copy` that reads `input` and `mirror` and writes
+/// `output`, all buffers of `float`.
+fn copy_layout() -> KernelLayout {
+    let buffer = |path: &str, index: u32, access: Access| Binding {
+        path: path.to_owned(),
+        set: 0,
+        index,
+        usage: Usage::Used,
+        resource: Resource::StorageBuffer {
+            access,
+            stride: 4,
+            element: plain_element(Scalar::Float32, 1),
+        },
+    };
+    KernelLayout {
+        name: "copy".to_owned(),
+        thread_group_size: [64, 1, 1],
+        bindings: vec![
+            buffer("input", 0, Access::ReadOnly),
+            buffer("output", 1, Access::ReadWrite),
+            buffer("mirror", 2, Access::ReadOnly),
+        ],
+        immediates: None,
+        structures: Vec::new(),
+    }
+}
+
+#[test]
+fn one_buffer_bound_read_only_and_read_write_is_an_invalid_argument_that_names_both() {
+    let shared = fresh_identity();
+    let arguments = [
+        ("output", buffer_with_identity::<f32>(4, shared)),
+        ("mirror", buffer::<f32>(4)),
+        ("input", buffer_with_identity::<f32>(4, shared)),
+    ];
+    let error = plan(&copy_layout(), &arguments).expect_err("one buffer cannot be both");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: one buffer is bound to the read-only parameter `input` and to the read-write parameter `output` of the kernel `copy`, and a buffer cannot be both read only and written in one call, so bind separate buffers"
+    );
+}
+
+#[test]
+fn one_buffer_bound_to_two_read_only_parameters_is_valid() {
+    let shared = fresh_identity();
+    let arguments = [
+        ("input", buffer_with_identity::<f32>(4, shared)),
+        ("mirror", buffer_with_identity::<f32>(4, shared)),
+        ("output", buffer::<f32>(4)),
+    ];
+    plan(&copy_layout(), &arguments).expect("two read-only bindings of one buffer are valid");
+}
+
+#[test]
+fn a_buffer_of_an_unused_parameter_is_not_compared_with_the_read_write_parameters() {
+    let unused = |path: &str, index: u32, access: Access| Binding {
+        path: path.to_owned(),
+        set: 0,
+        index,
+        usage: Usage::Unused,
+        resource: Resource::StorageBuffer {
+            access,
+            stride: 4,
+            element: plain_element(Scalar::Float32, 1),
+        },
+    };
+    let mut layout = copy_layout();
+    layout.bindings.push(unused("notUsed", 3, Access::ReadOnly));
+    layout
+        .bindings
+        .push(unused("notWritten", 4, Access::ReadWrite));
+    let read = fresh_identity();
+    let written = fresh_identity();
+    let arguments = [
+        ("input", buffer::<f32>(4)),
+        ("mirror", buffer_with_identity::<f32>(4, read)),
+        ("output", buffer_with_identity::<f32>(4, written)),
+        ("notUsed", buffer_with_identity::<f32>(4, written)),
+        ("notWritten", buffer_with_identity::<f32>(4, read)),
+    ];
+    plan(&layout, &arguments).expect("an unused parameter binds nothing");
+}
+
+#[test]
+fn a_missing_argument_is_reported_before_a_shared_buffer() {
+    let shared = fresh_identity();
+    let arguments = [
+        ("input", buffer_with_identity::<f32>(4, shared)),
+        ("output", buffer_with_identity::<f32>(4, shared)),
+    ];
+    let error = plan(&copy_layout(), &arguments).expect_err("`mirror` is missing");
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: no buffer is bound to the parameter `mirror` of the kernel `copy`"
     );
 }

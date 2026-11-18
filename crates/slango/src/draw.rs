@@ -1,15 +1,16 @@
 use std::fmt;
+use std::marker::PhantomData;
 
+use crate::backend;
 use crate::buffer::Buffer;
 use crate::call::{
-    self, Argument, CallArgument, Parameters, Plan, Subject, buffer_argument, insert,
+    self, Argument, CallArgument, Parameters, Plan, Read, Subject, buffer_argument, insert,
     sampler_argument, texture_argument,
 };
-use crate::device::scoped;
 use crate::error::Result;
 use crate::layout::{Scalar, slang_type};
 use crate::marshal::{self, Element, Value, ValueType, VertexElement};
-use crate::render::{PipelineSnapshot, RenderPipeline};
+use crate::render::{PipelineSnapshot, RenderPipeline, StepMode};
 use crate::sampler::Sampler;
 use crate::texture::{Texture, TextureFormat};
 
@@ -45,8 +46,26 @@ use crate::texture::{Texture, TextureFormat};
 /// arguments, so it can draw again with the same arguments.
 ///
 /// A draw borrows its pipeline, the paths, the buffers, the textures, and
-/// the samplers, and is [`Send`] and [`Sync`]. Each thread that draws at the
-/// same time as another uses its own draw.
+/// the samplers.
+///
+/// A draw is neither [`Send`] nor [`Sync`], because the pipeline that it
+/// borrows stays on the thread that created its [`Device`](crate::Device).
+/// The crate keeps all the GPU objects of a device on one thread whatever
+/// graphics library runs them, so a program sends results to other threads
+/// as plain data, such as the vector that [`Texture::read`] returns. This
+/// program does not compile, because a draw is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Draw<'static>>();
+/// ```
+///
+/// This program does not compile either, because a draw is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Draw<'static>>();
+/// ```
 ///
 /// # Examples
 ///
@@ -54,11 +73,28 @@ use crate::texture::{Texture, TextureFormat};
 pub struct Draw<'a> {
     pipeline: &'a RenderPipeline,
     arguments: Vec<(&'a str, CallArgument<'a>)>,
-    vertices: Vec<(&'a str, BoundVertex<&'a ::wgpu::Buffer>)>,
-    target: Option<BoundTarget<&'a ::wgpu::TextureView>>,
+    vertices: Vec<(&'a str, BoundVertex<&'a backend::Buffer>)>,
+    target: Option<BoundTarget<&'a backend::Texture>>,
     clear: Option<[f32; 4]>,
-    depth: Option<BoundTarget<&'a ::wgpu::TextureView>>,
+    depth: Option<BoundTarget<&'a backend::Texture>>,
     clear_depth: Option<f32>,
+    thread_bound: PhantomData<*const ()>,
+}
+
+/// What the backend records and submits for one draw: the plan of the draw
+/// and the arguments, vertex buffers, and targets that it binds.
+pub(crate) struct Recording<'r, 'a> {
+    pub(crate) label: &'r str,
+    pub(crate) plan: &'r DrawPlan,
+    pub(crate) arguments: &'r [(&'a str, CallArgument<'a>)],
+    pub(crate) vertices: &'r [(&'a str, BoundVertex<&'a backend::Buffer>)],
+    pub(crate) target: Option<&'r BoundTarget<&'a backend::Texture>>,
+    pub(crate) clear: Option<[f32; 4]>,
+    pub(crate) depth: Option<&'r BoundTarget<&'a backend::Texture>>,
+    pub(crate) clear_depth: Option<f32>,
+    pub(crate) indices: Option<&'r backend::Buffer>,
+    pub(crate) count: u32,
+    pub(crate) instances: u32,
 }
 
 /// The buffer of a vertex attribute, with the facts that the checks of a
@@ -72,6 +108,8 @@ pub(crate) struct BoundVertex<B> {
     pub(crate) element: Option<(Scalar, u32)>,
     pub(crate) len: usize,
     pub(crate) on_device: bool,
+    /// The identity of the buffer, which its clones share.
+    pub(crate) identity: usize,
 }
 
 /// A colour or depth target of a draw, with the facts that the checks of a
@@ -91,6 +129,8 @@ pub(crate) struct BoundTarget<V> {
 pub(crate) struct BoundIndex {
     pub(crate) len: usize,
     pub(crate) on_device: bool,
+    /// The identity of the buffer, which its clones share.
+    pub(crate) identity: usize,
 }
 
 /// How many vertices a draw draws: a number of vertices in the order of the
@@ -211,6 +251,7 @@ impl RenderPipeline {
             clear: None,
             depth: None,
             clear_depth: None,
+            thread_bound: PhantomData,
         }
     }
 }
@@ -298,10 +339,11 @@ impl<'a> Draw<'a> {
     /// See the example of [`RenderPipeline::draw`].
     pub fn vertex<T: VertexElement>(&mut self, path: &'a str, buffer: &'a Buffer<T>) -> &mut Self {
         let bound = BoundVertex {
-            handle: buffer.wgpu_buffer(),
+            handle: buffer.backend(),
             element: element_type::<T>(),
             len: buffer.len(),
             on_device: buffer.is_on(&self.pipeline.device),
+            identity: buffer.identity(),
         };
         insert(&mut self.vertices, path, bound);
         self
@@ -435,8 +477,9 @@ impl<'a> Draw<'a> {
     ///   reports for a parameter. It is also returned when a path names no
     ///   vertex attribute, a vertex attribute that the vertex entry point
     ///   uses has no buffer, a vertex buffer belongs to another device, is
-    ///   empty, or has elements of another Slang type than its attribute,
-    ///   the colour target is missing, or a target belongs to another
+    ///   empty, has elements of another Slang type than its attribute, or is
+    ///   also bound to a read-write parameter that the draw uses, the colour
+    ///   target is missing, or a target belongs to another
     ///   device, has another format than the pipeline, or cannot be drawn
     ///   into. A depth target given to a pipeline without a depth format, or
     ///   missing for one with it, or of another size than the colour target,
@@ -471,21 +514,23 @@ impl<'a> Draw<'a> {
     /// Returns an [`Error`](crate::Error) of the kinds that [`Draw::submit`]
     /// returns, and of kind
     /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument)
-    /// when the index buffer belongs to another device, is empty, or holds
-    /// fewer than `count` indices.
+    /// when the index buffer belongs to another device, is empty, holds
+    /// fewer than `count` indices, or is also bound to a read-write
+    /// parameter that the draw uses.
     pub fn submit_indexed(&self, indices: &Buffer<u32>, count: u32, instances: u32) -> Result<()> {
         let buffer = BoundIndex {
             len: indices.len(),
             on_device: indices.is_on(&self.pipeline.device),
+            identity: indices.identity(),
         };
         self.run(
             Count::Indices { buffer, count },
             instances,
-            Some(indices.wgpu_buffer()),
+            Some(indices.backend()),
         )
     }
 
-    fn run(&self, count: Count, instances: u32, indices: Option<&::wgpu::Buffer>) -> Result<()> {
+    fn run(&self, count: Count, instances: u32, indices: Option<&backend::Buffer>) -> Result<()> {
         let pipeline = self.pipeline;
         let plan = plan_draw(
             &pipeline.snapshot,
@@ -499,92 +544,23 @@ impl<'a> Draw<'a> {
             count,
             instances,
         )?;
-        let device = pipeline.device.wgpu_device();
-        let ((), error) = scoped(device, || {
-            self.record(&plan, indices, count.number(), instances);
-        });
-        match error {
-            Some(error) => Err(subject(&pipeline.snapshot).rejected(error)),
-            None => Ok(()),
-        }
-    }
-
-    fn record(
-        &self,
-        plan: &DrawPlan,
-        indices: Option<&::wgpu::Buffer>,
-        count: u32,
-        instances: u32,
-    ) {
-        let pipeline = self.pipeline;
-        let device = pipeline.device.wgpu_device();
-        let label = Some(pipeline.snapshot.vertex.as_str());
-        let bind_groups = call::bind_groups(
-            device,
-            &pipeline.snapshot.vertex,
-            &plan.plan,
-            &pipeline.bind_group_layouts,
-            &self.arguments,
-        );
-        let colour = [self
-            .target
-            .as_ref()
-            .map(|target| ::wgpu::RenderPassColorAttachment {
-                view: target.handle,
-                depth_slice: None,
-                resolve_target: None,
-                ops: ::wgpu::Operations {
-                    load: self.clear.map_or(::wgpu::LoadOp::Load, |[r, g, b, a]| {
-                        ::wgpu::LoadOp::Clear(::wgpu::Color {
-                            r: f64::from(r),
-                            g: f64::from(g),
-                            b: f64::from(b),
-                            a: f64::from(a),
-                        })
-                    }),
-                    store: ::wgpu::StoreOp::Store,
-                },
-            })];
-        let depth = self
-            .depth
-            .as_ref()
-            .map(|depth| ::wgpu::RenderPassDepthStencilAttachment {
-                view: depth.handle,
-                depth_ops: Some(::wgpu::Operations {
-                    load: self
-                        .clear_depth
-                        .map_or(::wgpu::LoadOp::Load, ::wgpu::LoadOp::Clear),
-                    store: ::wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            });
-        let mut encoder =
-            device.create_command_encoder(&::wgpu::CommandEncoderDescriptor { label });
-        {
-            let mut pass = encoder.begin_render_pass(&::wgpu::RenderPassDescriptor {
-                label,
-                color_attachments: &colour,
-                depth_stencil_attachment: depth,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&pipeline.pipeline);
-            for (set, group) in (0_u32..).zip(&bind_groups) {
-                pass.set_bind_group(set, group, &[]);
-            }
-            for &(slot, index) in &plan.vertex_buffers {
-                pass.set_vertex_buffer(slot, self.vertices[index].1.handle.slice(..));
-            }
-            match indices {
-                Some(indices) => {
-                    pass.set_index_buffer(indices.slice(..), ::wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..count, 0, 0..instances);
-                }
-                None => pass.draw(0..count, 0..instances),
-            }
-        }
-        pipeline.device.wgpu_queue().submit([encoder.finish()]);
+        pipeline.inner.draw(
+            pipeline.device.backend(),
+            subject(&pipeline.snapshot),
+            &Recording {
+                label: &pipeline.snapshot.vertex,
+                plan: &plan,
+                arguments: &self.arguments,
+                vertices: &self.vertices,
+                target: self.target.as_ref(),
+                clear: self.clear,
+                depth: self.depth.as_ref(),
+                clear_depth: self.clear_depth,
+                indices,
+                count: count.number(),
+                instances,
+            },
+        )
     }
 }
 
@@ -604,9 +580,9 @@ impl fmt::Debug for Draw<'_> {
 fn bound_target<'a>(
     texture: &'a Texture,
     pipeline: &RenderPipeline,
-) -> BoundTarget<&'a ::wgpu::TextureView> {
+) -> BoundTarget<&'a backend::Texture> {
     BoundTarget {
-        handle: texture.wgpu_view(),
+        handle: texture.backend(),
         format: texture.format(),
         size: texture.size(),
         attachable: texture.is_attachable(),
@@ -648,9 +624,11 @@ pub(crate) fn element_type<T: VertexElement>() -> Option<(Scalar, u32)> {
 ///    it, and then each vertex buffer, in the order given: its path names a
 ///    vertex attribute, and the buffer belongs to the device, is not empty,
 ///    and has the attribute's scalar type and component count.
-/// 2. Each used parameter that no argument gives, as a call checks it, and
-///    then each used vertex attribute without a buffer, in the order of
-///    locations.
+/// 2. Each used parameter that no argument gives, as a call checks it, then
+///    a buffer bound to a used read-write parameter that is also bound to a
+///    used read-only parameter, the vertex buffer of a used attribute, or the
+///    index buffer, and then each used vertex attribute without a buffer, in
+///    the order of locations.
 /// 3. The colour target is given, belongs to the device, has the pipeline's
 ///    colour format, and can be drawn into. A depth target is given exactly
 ///    when the pipeline has a depth format, belongs to the device, has that
@@ -682,7 +660,8 @@ pub(crate) fn plan_draw<B, V, S>(
     };
     let checked = call::check_arguments(parameters, arguments)?;
     check_vertices(snapshot, subject, vertices)?;
-    let plan = call::finish(parameters, checked)?;
+    let reads = reads(snapshot, vertices, count);
+    let plan = call::finish(parameters, arguments, checked, &reads)?;
     let vertex_buffers = require_vertices(snapshot, subject, vertices)?;
     check_targets(snapshot, subject, targets.colour, targets.depth)?;
     check_clear_depth(subject, targets.clear_depth)?;
@@ -691,6 +670,31 @@ pub(crate) fn plan_draw<B, V, S>(
         plan,
         vertex_buffers,
     })
+}
+
+/// Returns the buffers that a draw reads outside its parameters, each with
+/// its identity: the vertex buffer of each used attribute, in the order
+/// given, and the index buffer of an indexed draw.
+fn reads<'v, B>(
+    snapshot: &PipelineSnapshot,
+    vertices: &[(&'v str, BoundVertex<B>)],
+    count: Count,
+) -> Vec<(Read<'v>, usize)> {
+    let used = |path: &str| {
+        snapshot
+            .inputs
+            .iter()
+            .any(|input| input.slot.is_some() && input.attribute.path == path)
+    };
+    let mut reads: Vec<(Read<'v>, usize)> = vertices
+        .iter()
+        .filter(|(path, _)| used(path))
+        .map(|(path, bound)| (Read::Vertex(path), bound.identity))
+        .collect();
+    if let Count::Indices { buffer, .. } = count {
+        reads.push((Read::Index, buffer.identity));
+    }
+    reads
 }
 
 fn check_vertices<B>(
@@ -839,7 +843,7 @@ fn check_counts<B>(
     count: Count,
     instances: u32,
 ) -> Result<()> {
-    let length = |step_mode: ::wgpu::VertexStepMode, steps: &str| -> Result<Option<usize>> {
+    let length = |step_mode: StepMode, steps: &str| -> Result<Option<usize>> {
         let mut first: Option<(&str, usize)> = None;
         for input in &snapshot.inputs {
             if input.slot.is_none() || input.step_mode != step_mode {
@@ -862,8 +866,8 @@ fn check_counts<B>(
         }
         Ok(first.map(|(_, len)| len))
     };
-    let per_vertex = length(::wgpu::VertexStepMode::Vertex, "vertex")?;
-    let per_instance = length(::wgpu::VertexStepMode::Instance, "instance")?;
+    let per_vertex = length(StepMode::Vertex, "vertex")?;
+    let per_instance = length(StepMode::Instance, "instance")?;
     let within = |count: u32, len: usize| usize::try_from(count).is_ok_and(|count| count <= len);
     match count {
         Count::Vertices(count) => {

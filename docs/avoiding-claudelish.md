@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | Every Markdown document and all API documentation in this repository |
 
 ## Abstract
@@ -80,8 +80,8 @@ CLD-7. An author MUST state what is untested or unknown plainly, and what is kno
 | Abstract thing as actor | `The build script will not lie to you about which Slang it linked.` | The build script records the build tag of the Slang that it links in `BUILD_INFO`. | Judgement |
 | Abstract thing as actor | `A compile error is honest about wgpu being the only backend.` | Without the feature `wgpu`, `slango` stops compiling with an error that names the feature. | Judgement |
 | Denial pivot | `The vendored route is not a fallback, it's a separate build.` | The vendored route builds Slang from source. A build never falls back from one route to the other. | Phrase check for two forms, judgement for others |
-| Trailing "-ing" analysis | `slango releases every Slang object before a load returns, highlighting its focus on safety.` | `slango` releases every Slang object before a load returns, so its public types are `Send` and `Sync`. | Phrase check for the listed participles, judgement for others |
-| Reflexive rule of three | `The API is safe, fast, and ergonomic.` | The public types of `slango` are `Send` and `Sync`. | Judgement |
+| Trailing "-ing" analysis | `slango releases every Slang object before a load returns, highlighting its focus on safety.` | `slango` releases every Slang object before a load returns, so no Slang object outlives a load. | Phrase check for the listed participles, judgement for others |
+| Reflexive rule of three | `The API is safe, fast, and ergonomic.` | The public types of `slango` that hold a GPU object are neither `Send` nor `Sync`. | Judgement |
 | Hedge | `Based on available information, other Slang versions could potentially work.` | The crates are tested with the Slang of one Vulkan SDK version, and another Slang is best effort. | Phrase check for the listed hedges, judgement for others |
 
 ### 3.3. Paragraph and Document Structure

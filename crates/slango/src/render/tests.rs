@@ -1,12 +1,9 @@
 use std::error::Error as StdError;
 
-use wgpu::ShaderStages;
-
 use super::{
-    Blend, CullMode, Names, PipelineBinding, RenderPipeline, RenderPipelineOptions, VertexBuffer,
-    VertexInput, blend_state, colour_target, cull_face, depth_stencil, merge_bindings, primitive,
-    render_pipeline_error_kind, select, snapshot, vertex_buffer_layouts, vertex_buffers,
-    vertex_format, vertex_inputs,
+    Blend, CullMode, Names, PipelineBinding, RenderPipeline, RenderPipelineOptions, Stages,
+    StepMode, VertexInput, merge_bindings, select, snapshot, vertex_format_supported,
+    vertex_inputs,
 };
 use crate::error::{Error, ErrorKind};
 use crate::layout::{
@@ -331,7 +328,7 @@ fn the_options_are_checked_after_the_uniform_parameters() {
     );
 }
 
-fn merged(binding: Binding, visibility: ShaderStages) -> PipelineBinding {
+fn merged(binding: Binding, visibility: Stages) -> PipelineBinding {
     PipelineBinding {
         binding,
         visibility,
@@ -363,16 +360,16 @@ fn a_binding_is_visible_to_exactly_the_stages_that_use_it() {
         [
             merged(
                 binding(0, 0, Usage::Used, uniform(64)),
-                ShaderStages::VERTEX | ShaderStages::FRAGMENT
+                Stages::VERTEX | Stages::FRAGMENT
             ),
-            merged(binding(0, 1, Usage::Used, storage), ShaderStages::VERTEX),
+            merged(binding(0, 1, Usage::Used, storage), Stages::VERTEX),
             merged(
                 binding(0, 2, Usage::Used, Resource::SampledTexture),
-                ShaderStages::FRAGMENT
+                Stages::FRAGMENT
             ),
             merged(
                 binding(0, 3, Usage::Unused, Resource::Sampler),
-                ShaderStages::NONE
+                Stages::NONE
             ),
         ]
     );
@@ -391,15 +388,12 @@ fn bindings_of_one_stage_only_are_merged_in_the_order_of_sets_and_bindings() {
         [
             merged(
                 binding(0, 1, Usage::Used, Resource::Sampler),
-                ShaderStages::FRAGMENT
+                Stages::FRAGMENT
             ),
-            merged(
-                binding(1, 0, Usage::Used, uniform(16)),
-                ShaderStages::VERTEX
-            ),
+            merged(binding(1, 0, Usage::Used, uniform(16)), Stages::VERTEX),
             merged(
                 binding(2, 0, Usage::Unused, Resource::SampledTexture),
-                ShaderStages::NONE
+                Stages::NONE
             ),
         ]
     );
@@ -436,101 +430,28 @@ fn used_attributes_take_slots_in_the_order_of_locations_and_unused_ones_none() {
         ..RenderPipelineOptions::default()
     };
     let inputs = vertex_inputs(&attributes, NAMES, &options).expect("the attributes are valid");
-    let input = |attribute: &Attribute, format, step_mode, slot| VertexInput {
+    let input = |attribute: &Attribute, step_mode, slot| VertexInput {
         attribute: attribute.clone(),
-        format,
         step_mode,
         slot,
     };
     assert_eq!(
         inputs,
         [
-            input(
-                &attributes[1],
-                wgpu::VertexFormat::Float32x3,
-                wgpu::VertexStepMode::Vertex,
-                Some(0)
-            ),
-            input(
-                &attributes[2],
-                wgpu::VertexFormat::Float32x4,
-                wgpu::VertexStepMode::Instance,
-                None
-            ),
-            input(
-                &attributes[0],
-                wgpu::VertexFormat::Float32x2,
-                wgpu::VertexStepMode::Vertex,
-                Some(1)
-            ),
-            input(
-                &attributes[3],
-                wgpu::VertexFormat::Sint32x2,
-                wgpu::VertexStepMode::Instance,
-                Some(2)
-            ),
+            input(&attributes[1], StepMode::Vertex, Some(0)),
+            input(&attributes[2], StepMode::Instance, None),
+            input(&attributes[0], StepMode::Vertex, Some(1)),
+            input(&attributes[3], StepMode::Instance, Some(2)),
         ]
     );
-    let buffers = vertex_buffers(&inputs);
-    let buffer = |format, shader_location, step_mode| VertexBuffer {
-        attribute: wgpu::VertexAttribute {
-            format,
-            offset: 0,
-            shader_location,
-        },
-        step_mode,
-    };
-    assert_eq!(
-        buffers,
-        [
-            buffer(
-                wgpu::VertexFormat::Float32x3,
-                0,
-                wgpu::VertexStepMode::Vertex
-            ),
-            buffer(
-                wgpu::VertexFormat::Float32x2,
-                2,
-                wgpu::VertexStepMode::Vertex
-            ),
-            buffer(
-                wgpu::VertexFormat::Sint32x2,
-                3,
-                wgpu::VertexStepMode::Instance
-            ),
-        ]
-    );
-    let layouts = vertex_buffer_layouts(&buffers);
-    let strides: Vec<Option<(u64, wgpu::VertexStepMode, usize)>> = layouts
-        .iter()
-        .map(|layout| {
-            layout.as_ref().map(|layout| {
-                (
-                    layout.array_stride,
-                    layout.step_mode,
-                    layout.attributes.len(),
-                )
-            })
-        })
-        .collect();
-    assert_eq!(
-        strides,
-        [
-            Some((12, wgpu::VertexStepMode::Vertex, 1)),
-            Some((8, wgpu::VertexStepMode::Vertex, 1)),
-            Some((8, wgpu::VertexStepMode::Instance, 1)),
-        ]
-    );
-    let first = layouts[0].as_ref().map(|layout| layout.attributes[0]);
-    assert_eq!(first, Some(buffers[0].attribute));
 }
 
 #[test]
-fn a_vertex_entry_point_without_used_attributes_has_no_vertex_buffer() {
+fn a_vertex_entry_point_without_used_attributes_has_no_slot() {
     let attributes = [attribute("unused", 0, Scalar::Float32, 1, Usage::Unused)];
     let inputs = vertex_inputs(&attributes, NAMES, &RenderPipelineOptions::default())
         .expect("the attribute is valid");
-    assert_eq!(vertex_buffers(&inputs), []);
+    assert!(inputs.iter().all(|input| input.slot.is_none()));
     assert_eq!(
         vertex_inputs(&[], NAMES, &RenderPipelineOptions::default())
             .expect("no attribute is valid"),
@@ -539,30 +460,15 @@ fn a_vertex_entry_point_without_used_attributes_has_no_vertex_buffer() {
 }
 
 #[test]
-fn each_scalar_type_and_component_count_has_its_vertex_format() {
-    use wgpu::VertexFormat as F;
-    for (scalar, formats) in [
-        (
-            Scalar::Float32,
-            [F::Float32, F::Float32x2, F::Float32x3, F::Float32x4],
-        ),
-        (
-            Scalar::Int32,
-            [F::Sint32, F::Sint32x2, F::Sint32x3, F::Sint32x4],
-        ),
-        (
-            Scalar::Uint32,
-            [F::Uint32, F::Uint32x2, F::Uint32x3, F::Uint32x4],
-        ),
-    ] {
-        for (components, format) in (1..=4).zip(formats) {
-            assert_eq!(vertex_format(scalar, components), Some(format));
-            assert_eq!(format.size(), 4 * u64::from(components));
+fn a_vertex_format_holds_one_to_four_components_of_a_float_or_an_integer() {
+    for scalar in [Scalar::Float32, Scalar::Int32, Scalar::Uint32] {
+        for components in 1..=4 {
+            assert!(vertex_format_supported(scalar, components));
         }
-        assert_eq!(vertex_format(scalar, 0), None);
-        assert_eq!(vertex_format(scalar, 5), None);
+        assert!(!vertex_format_supported(scalar, 0));
+        assert!(!vertex_format_supported(scalar, 5));
     }
-    assert_eq!(vertex_format(Scalar::Bool, 1), None);
+    assert!(!vertex_format_supported(Scalar::Bool, 1));
 }
 
 #[test]
@@ -586,103 +492,13 @@ fn default_options_replace_into_rgba8_without_depth_culling_or_instances() {
     assert_eq!(options.instance_attributes, Vec::<String>::new());
 }
 
-#[test]
-fn blend_and_cull_mode_map_to_their_wgpu_states() {
-    assert_eq!(blend_state(Blend::Replace), None);
-    assert_eq!(
-        blend_state(Blend::Alpha),
-        Some(wgpu::BlendState::ALPHA_BLENDING)
-    );
-    assert_eq!(cull_face(CullMode::None), None);
-    assert_eq!(cull_face(CullMode::Back), Some(wgpu::Face::Back));
-}
-
-#[test]
-fn the_colour_target_has_the_colour_format_and_writes_every_channel() {
-    let options = RenderPipelineOptions {
-        colour_format: TextureFormat::Bgra8UnormSrgb,
-        blend: Blend::Alpha,
-        ..RenderPipelineOptions::default()
-    };
-    assert_eq!(
-        colour_target(&options),
-        wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-            write_mask: wgpu::ColorWrites::ALL,
-        }
-    );
-}
-
-#[test]
-fn the_primitive_state_is_a_triangle_list_with_counter_clockwise_front_faces() {
-    let options = RenderPipelineOptions {
-        cull_mode: CullMode::Back,
-        ..RenderPipelineOptions::default()
-    };
-    assert_eq!(
-        primitive(&options),
-        wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
-            unclipped_depth: false,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            conservative: false,
-        }
-    );
-}
-
-#[test]
-fn a_depth_format_tests_less_and_writes_depth() {
-    assert_eq!(depth_stencil(None), None);
-    assert_eq!(
-        depth_stencil(Some(TextureFormat::Depth32Float)),
-        Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        })
-    );
-}
-
-fn source() -> wgpu::ErrorSource {
-    Box::new(std::io::Error::other("the backend failed"))
-}
-
-#[test]
-fn a_validation_or_internal_error_of_the_render_pipeline_is_an_unsupported_shader() {
-    let validation = wgpu::Error::Validation {
-        source: source(),
-        description: "validation".to_owned(),
-    };
-    assert_eq!(
-        render_pipeline_error_kind(&validation),
-        ErrorKind::UnsupportedShader
-    );
-    let internal = wgpu::Error::Internal {
-        source: source(),
-        description: "internal".to_owned(),
-    };
-    assert_eq!(
-        render_pipeline_error_kind(&internal),
-        ErrorKind::UnsupportedShader
-    );
-    let out_of_memory = wgpu::Error::OutOfMemory { source: source() };
-    assert_eq!(
-        render_pipeline_error_kind(&out_of_memory),
-        ErrorKind::Backend
-    );
-}
+fn assert_clone<T: Clone + 'static>() {}
 
 fn assert_send_sync_clone<T: Send + Sync + Clone + 'static>() {}
 
 #[test]
-fn render_pipelines_and_their_options_are_send_sync_and_clone() {
-    assert_send_sync_clone::<RenderPipeline>();
+fn render_pipelines_are_clone_and_their_options_are_send_sync_and_clone() {
+    assert_clone::<RenderPipeline>();
     assert_send_sync_clone::<RenderPipelineOptions>();
     assert_send_sync_clone::<Blend>();
     assert_send_sync_clone::<CullMode>();

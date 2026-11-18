@@ -309,7 +309,7 @@ The layout types stay crate-private. The generated code also asserts at compile 
 
 The encoding has these properties:
 
-- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 2, as a little-endian `u32`, and 3 from M10. The version changes whenever the bytes of the encoding, or the meaning of any of them, change. Version 2 added to the rejection record of a vertex or fragment entry point a tag byte, 0 or 1, and, after the detail, the text of the source error of a `Compile` rejection (Section 7.4 of `docs/design/slango.md`). Version 3 adds the row stride to the shape of a matrix (SLO-46 of that design).
+- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 3, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change. Version 2 added to the rejection record of a vertex or fragment entry point a tag byte, 0 or 1, and, after the detail, the text of the source error of a `Compile` rejection (Section 7.4 of `docs/design/slango.md`). Version 3 adds the row stride to the shape of a matrix (SLO-46 of that design).
 - The decoder also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic and bounds every count by the bytes left before it allocates.
 - The decoder accepts at most 256 levels of nested arrays or structures, and only bindings in descriptor sets up to 255, so that a load creates a bounded number of bind group layouts.
 - The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX` or a binding in a descriptor set above 255. So it never writes bytes that the decoder refuses.
@@ -541,7 +541,7 @@ At run time, generated code returns `slango::Error`. A load of an encoded snapsh
 
 ## 9. Threading
 
-SLM-21. `Shader`, every kernel struct, and every arguments struct MUST be neither `Send` nor `Sync`, with no implementation and no marker of their own, asserted by `compile_fail` cases of the generated code (CONC-1). They hold `slango` types or references to them, which are neither from version 0.2 (SLO-17 of `docs/design/slango.md`), so the compiler derives the absence of both.
+SLM-21. `Shader`, every kernel struct, and every arguments struct MUST be neither `Send` nor `Sync`, with no implementation and no marker of their own. They hold `slango` types or references to them, which are neither from version 0.2 (SLO-17 of `docs/design/slango.md`), so the compiler derives the absence of both. Compile-time assertions in the tests of `slango-macros` check both traits for each of the three kinds of generated type (CONC-9), as Section 10 states.
 
 The generated structs of Slang structures hold plain data only and stay `Send` and `Sync`, as the hidden trait `StructElement` requires. The macro starts no thread.
 
@@ -576,22 +576,24 @@ Further `ffi` tests of `slango-codegen` check:
 
 `slango-macros` has one integration-test binary, `tests/macros/`:
 
-- The module `bindings`, which Miri runs, asserts SLM-21. It resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10).
+- The module `bindings`, which Miri runs, calls the macro. It resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10).
 - The module `build_script` tests the logic of the build script under Miri (Section 6.3).
 - The module `structs` sits in no `ffi` module, so Miri runs it, although it calls the macro. It checks the round trip of `write_bytes` and `read_bytes` for generated structs over many seeds, the rejection of bytes of another length, and that `write_bytes` puts each scalar at the `offset_of!` of its field, nested fields included, and zero in the padding.
 - The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a move of the recorded Slang can change it (SLM-22).
+- The module `bindings` also asserts SLM-21 on the generated code of `saxpy.slang`. Its private macro `assert_not_impl!` and six uses of it assert that the generated `saxpy::Shader`, the kernel struct `saxpy::Saxpy`, and the arguments struct `saxpy::SaxpyArgs<'static>` each implement neither `Send` nor `Sync`. Each use is a `const _` item that declares a helper trait with one implementation for every type and a second for every type that implements the trait under test. Naming an item of the helper trait for the type is then ambiguous when the type implements that trait, so the test binary fails to compile.
+- The assertions are not trybuild cases, because the expected text of a trybuild case holds the notes of error E0277 as one rustc version words them, and the latest stable rustc, which CI installs, can word them differently. They depend on no compiler message, so they also cover `Shader` and the arguments struct, whose notes pass through private fields of `slango`. They are not doctests either, because a doctest cannot resolve the relative path of the macro.
 - The module `ffi` also compares the size, stride, and field offsets of generated structs with what `precompile_file` reflects. They cover tail padding, a gap between fields, arrays, nested structures, and a `new` of eight arguments.
 - The module `gpu` runs saxpy through `dispatch` and through `dispatch_groups` with a count that stops inside the last group, against values computed on the CPU. It also runs a kernel over a buffer of particles with a nested structure, a uniform structure `Step` that nests the structure `Wind`, and a uniform `Motion` that the element form of `Motion` serves. It compares the whole buffer exactly with values computed on the CPU.
 
 From M10, the generated code runs on the backend `rhi` in the tests of the examples package, not of `slango-macros`, because a test build of `slango-macros` cannot keep the macro's copy of `slango` apart from the copy of its tests (Section 4.3):
 
-- The `gpu` tests of `slango-macros` keep running on the backend `wgpu` in every recipe that runs them today.
+- The `gpu` tests of `slango-macros` keep running on the backend `wgpu` in every recipe that runs them.
 - The examples test binary gains a module of `gpu` tests that call the macro on the test shaders of `slango-macros` under `tests/macros/shaders/`, by a relative path, so that one set of shaders serves both packages. They run on the build's backend through the helper of SLO-43 of `docs/design/slango.md`, so `test-rhi` runs them on the backend `rhi` on lavapipe and on WARP (TOOL-53 of `docs/design/tooling.md`). They cover saxpy, the structures with padding and nesting of the module `gpu` of `slango-macros`, and a shader that imports a module that imports another, which checks SLMA-6 and the order of SLM-24.
 - The example `typed-kernel`, whose structure `Particle` has 4 bytes of tail padding on the backend `wgpu` and none on the backend `rhi`, runs on both backends through its `gpu` test, which checks SLMA-7 on lavapipe and on WARP.
 - The tests of the tokens of `slango-codegen` check both helper macros, both forms of each element struct, and the embedded sources in their order, and its `ffi` tests check the imported modules that `precompile_file` records, with their names and order, and the packed layouts of the test shaders against the scalar layout.
 - A test of `slango` checks that a buffer of a generated struct whose field offsets differ from the reflected structure, with an equal stride, fails the check of SLM-26.
 
-On the vendored route, `test-vendored` runs only the modules `bindings` and `structs` of `slango-macros`, with only its feature `vendored` (Section 4.3). The trybuild case of `ffi` cannot run there. trybuild passes the features of the crate under test to the project that it generates, but not those of its development dependency `slango`, so the `slango` of that project takes the dynamic route and stops without `VULKAN_SDK`. That is a limit of the test harness, not of the crates. The `gpu` tests do not run on the vendored route either.
+On the vendored route, `test-vendored` runs only the modules `bindings` and `structs` of `slango-macros`, with only its feature `vendored` (Section 4.3). It compiles the whole test binary `macros`, so it checks the compile-time assertions of SLM-21 there as well. The trybuild cases of `ffi` cannot run there. trybuild passes the features of the crate under test to the project that it generates, but not those of its development dependency `slango`, so the `slango` of that project takes the dynamic route and stops without `VULKAN_SDK`. That is a limit of the test harness, not of the crates. The `gpu` tests do not run on the vendored route either.
 
 A missing file is no trybuild case, because its expected text would hold an error message of the operating system that differs on Windows, and the `ffi` test of `slango-codegen` covers it. The comparison with `precompile_file` uses the description of `slango`, so a wrong description that is consistent with itself passes it. The `gpu` test is the independent check of the stride, through the stride check of `bind`.
 
@@ -756,7 +758,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLM-18 | 7.3 | Element structs are `#[repr(C)]` with padding, `new`, layout assertions, and `StructElement`. |
 | SLM-19 | 7.4 | Names follow fixed rules, and a conflict is a compile error. |
 | SLM-20 | 8 | `slango-codegen` has one `Error` type with three kinds. |
-| SLM-21 | 9 | `Shader`, kernel structs, and arguments structs are neither `Send` nor `Sync`, asserted by `compile_fail` cases. |
+| SLM-21 | 9 | `Shader`, kernel structs, and arguments structs are neither `Send` nor `Sync`, asserted at compile time for all three. |
 | SLM-22 | 10 | A move of the recorded Slang updates the expected text of the compile-fail tests. |
 | SLM-23 | 4.3 | Each crate has one Cargo feature, `vendored`, off by default, which only forwards to the crate below. |
 | SLM-24 | 7.1 | The generated code embeds the encoded snapshot for the backend `wgpu` and the sources of the shader and its imported modules, in the order of their imports, for the backend `rhi`, which compiles them in a session of their own at load. |

@@ -6,4 +6,3 @@ mod common;
 mod configuration;
 mod device;
 mod gpu;
-mod view;

@@ -519,7 +519,7 @@ pub(crate) fn write(
 ) -> Result<()> {
     check(path, &value.ty, plain)?;
     let mut offsets = Vec::with_capacity(value.scalars.len());
-    let fits = scalar_offsets(&plain.shape, plain.size, 0, &mut offsets).is_some()
+    let fits = scalar_offsets(&plain.shape, 0, &mut offsets).is_some()
         && offsets.iter().all(|offset| {
             offset
                 .checked_add(SCALAR_SIZE)
@@ -589,7 +589,7 @@ fn shape_matches(shape: &Shape, dims: &[usize]) -> bool {
     match shape {
         Shape::Scalar => dims.is_empty(),
         Shape::Vector { length } => matches!(dims, [n] if same(u64::from(*length), *n)),
-        Shape::Matrix { rows, columns } => {
+        Shape::Matrix { rows, columns, .. } => {
             matches!(dims, [r, c] if same(u64::from(*rows), *r) && same(u64::from(*columns), *c))
         }
         Shape::Array {
@@ -601,16 +601,19 @@ fn shape_matches(shape: &Shape, dims: &[usize]) -> bool {
     }
 }
 
-/// Appends the byte offset of each scalar of a value of `shape` that takes
-/// `extent` bytes and starts at `base`, in the order of its indexes, the last
-/// index varying fastest, and returns `None` when an offset overflows.
+/// Appends the byte offset of each scalar of a value of `shape` that starts
+/// at `base`, in the order of its indexes, the last index varying fastest,
+/// and returns `None` when an offset overflows.
 ///
 /// A matrix is a sequence of rows, each a vector of its columns, because
 /// the session of a load keeps Slang's default row-major layout, in which
-/// the rows of a Slang matrix are its contiguous vectors. Its rows are
-/// `extent / rows` bytes apart, which is 16 bytes in a uniform buffer and
-/// the size of a row rounded up to 8 or 16 bytes in the immediates.
-fn scalar_offsets(shape: &Shape, extent: u64, base: u64, out: &mut Vec<u64>) -> Option<()> {
+/// the rows of a Slang matrix are its contiguous vectors. Its rows are the
+/// row stride that reflection reports apart, which depends on the target
+/// and the layout: 16 bytes in a uniform buffer of SPIR-V, the size of a row
+/// rounded up to 8 or 16 bytes in the immediates, and the size of a row in
+/// a scalar layout. The last row is not always padded to the stride, so the
+/// stride cannot be derived from the size of the matrix.
+fn scalar_offsets(shape: &Shape, base: u64, out: &mut Vec<u64>) -> Option<()> {
     match shape {
         Shape::Scalar => out.push(base),
         Shape::Vector { length } => {
@@ -618,10 +621,13 @@ fn scalar_offsets(shape: &Shape, extent: u64, base: u64, out: &mut Vec<u64>) -> 
                 out.push(base.checked_add(index.checked_mul(SCALAR_SIZE)?)?);
             }
         }
-        Shape::Matrix { rows, columns } => {
-            let row_stride = extent.checked_div(u64::from(*rows))?;
+        Shape::Matrix {
+            rows,
+            columns,
+            row_stride,
+        } => {
             for row in 0..u64::from(*rows) {
-                let row_base = base.checked_add(row.checked_mul(row_stride)?)?;
+                let row_base = base.checked_add(row.checked_mul(*row_stride)?)?;
                 for column in 0..u64::from(*columns) {
                     out.push(row_base.checked_add(column.checked_mul(SCALAR_SIZE)?)?);
                 }
@@ -634,7 +640,7 @@ fn scalar_offsets(shape: &Shape, extent: u64, base: u64, out: &mut Vec<u64>) -> 
         } => {
             for index in 0..*length {
                 let element_base = base.checked_add(index.checked_mul(*stride)?)?;
-                scalar_offsets(element, *stride, element_base, out)?;
+                scalar_offsets(element, element_base, out)?;
             }
         }
     }
@@ -668,7 +674,7 @@ fn slang_type_name(scalar: Scalar, shape: &Shape) -> String {
     match shape {
         Shape::Scalar | Shape::Array { .. } => format!("{name}{lengths}"),
         Shape::Vector { length } => format!("{name}{length}{lengths}"),
-        Shape::Matrix { rows, columns } => format!("{name}{rows}x{columns}{lengths}"),
+        Shape::Matrix { rows, columns, .. } => format!("{name}{rows}x{columns}{lengths}"),
     }
 }
 

@@ -8,8 +8,8 @@ kernel `run` thread group [1, 1, 1]
     +0 80 bytes `Arrays.c`: Float32 array 5 stride 16 of scalar
   set 0 binding 1 `Matrices` Used: uniform buffer
     size 160
-    +0 64 bytes `Matrices.m4`: Float32 matrix 4x4
-    +64 48 bytes `Matrices.m3`: Float32 matrix 3x3
-    +112 32 bytes `Matrices.m23`: Float32 matrix 2x3
+    +0 64 bytes `Matrices.m4`: Float32 matrix 4x4 with rows 16 bytes apart
+    +64 48 bytes `Matrices.m3`: Float32 matrix 3x3 with rows 16 bytes apart
+    +112 32 bytes `Matrices.m23`: Float32 matrix 2x3 with rows 16 bytes apart
     +144 12 bytes `Matrices.v3`: Float32 vector 3
   set 0 binding 2 `output` Used: storage buffer ReadWrite, stride 4, element Float32 x1

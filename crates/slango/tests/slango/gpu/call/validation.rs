@@ -215,22 +215,26 @@ fn workgroup_counts_over_the_limit_of_the_device_are_rejected() -> slango::Resul
 }
 
 #[test]
-fn one_buffer_bound_as_read_only_and_as_read_write_is_a_backend_error() -> slango::Result<()> {
+fn one_buffer_bound_as_read_only_and_as_read_write_is_rejected_before_any_work()
+-> slango::Result<()> {
     let fixture = fixture()?;
     let mut call = fixture.call_without("input");
     call.bind("input", &fixture.output);
-    let error = call
-        .dispatch([4, 1, 1])
-        .expect_err("wgpu rejects the aliasing");
-    assert_eq!(error.kind(), ErrorKind::Backend, "{error}");
-    assert_eq!(
-        error.to_string(),
-        "cannot call a kernel: wgpu rejected the dispatch of the kernel `offset`"
-    );
-    println!(
-        "wgpu reports: {:?}",
-        error.source().map(ToString::to_string)
-    );
+    fixture.assert_rejected(
+        &call,
+        ErrorKind::InvalidArgument,
+        "cannot call a kernel: one buffer is bound to the read-only parameter `input` and to the read-write parameter `output` of the kernel `offset`, and a buffer cannot be both read only and written in one call, so bind separate buffers",
+    )
+}
+
+#[test]
+fn a_clone_of_the_output_bound_as_the_input_is_rejected_as_the_same_buffer() -> slango::Result<()> {
+    let fixture = fixture()?;
+    let clone = fixture.output.clone();
+    let mut call = fixture.call_without("input");
+    call.bind("input", &clone);
+    let outcome = call.dispatch([4, 1, 1]).map_err(|error| error.kind());
+    assert_eq!(outcome, Err(ErrorKind::InvalidArgument));
     assert_eq!(fixture.output.read()?, SENTINEL);
     Ok(())
 }

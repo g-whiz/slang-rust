@@ -1,9 +1,9 @@
 use std::fmt;
 use std::marker::PhantomData;
-use std::sync::mpsc;
+use std::rc::Rc;
 
 use crate::Device;
-use crate::device::scoped;
+use crate::backend;
 use crate::error::{Error, ErrorKind, Result};
 use crate::marshal::VertexElement;
 
@@ -26,8 +26,26 @@ const READ: &str = "read a buffer";
 /// of every platform that this crate supports.
 ///
 /// Cloning a buffer is cheap and returns another handle to the same buffer
-/// on the GPU. A buffer keeps its [`Device`] alive and is [`Send`] and
-/// [`Sync`], so threads can share it.
+/// on the GPU. A buffer keeps its [`Device`] alive.
+///
+/// A buffer is neither [`Send`] nor [`Sync`]: it stays on the thread that
+/// created its [`Device`], because the crate keeps all the GPU objects of a
+/// device on one thread whatever graphics library runs them. A program sends
+/// results to other threads as plain data, such as the vector that
+/// [`Buffer::read`] returns. This program does not compile, because a buffer
+/// is not `Send`:
+///
+/// ```compile_fail,E0277
+/// fn assert_send<T: Send>() {}
+/// assert_send::<slango::Buffer<f32>>();
+/// ```
+///
+/// This program does not compile either, because a buffer is not `Sync`:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<slango::Buffer<f32>>();
+/// ```
 ///
 /// # Examples
 ///
@@ -35,9 +53,11 @@ const READ: &str = "read a buffer";
 #[derive(Clone)]
 pub struct Buffer<T> {
     device: Device,
-    inner: ::wgpu::Buffer,
+    inner: backend::Buffer,
     len: usize,
     element: PhantomData<fn() -> T>,
+    identity: Rc<()>,
+    thread_bound: PhantomData<*const ()>,
 }
 
 impl<T: VertexElement> Buffer<T> {
@@ -72,23 +92,8 @@ impl<T: VertexElement> Buffer<T> {
         if elements.is_empty() {
             return Self::zeroed(device, 0);
         }
-        let wgpu_device = device.wgpu_device();
-        let ((buffer, mapped), error) = scoped(wgpu_device, || {
-            let buffer = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
-                label: Some("slango buffer"),
-                size: size.next_multiple_of(::wgpu::COPY_BUFFER_ALIGNMENT),
-                usage: usages(),
-                mapped_at_creation: true,
-            });
-            let mapped = buffer
-                .get_mapped_range_mut(..)
-                .map(|mut view| write_elements(elements, view.slice(..)));
-            buffer.unmap();
-            (buffer, mapped)
-        });
-        let buffer = Self::created(device, buffer, elements.len(), error)?;
-        mapped.map_err(|error| Error::new(ErrorKind::Backend, CREATE).with_source(error))?;
-        Ok(buffer)
+        let inner = backend::Buffer::from_elements(device.backend(), elements, size)?;
+        Ok(Self::created(device, inner, elements.len()))
     }
 
     /// Creates a buffer on the device that holds `len` elements whose bytes
@@ -116,33 +121,19 @@ impl<T: VertexElement> Buffer<T> {
     /// type has a size of zero bytes.
     pub fn zeroed(device: &Device, len: usize) -> Result<Self> {
         let size = checked_size(device, len, T::STRIDE)?;
-        let wgpu_device = device.wgpu_device();
-        let (buffer, error) = scoped(wgpu_device, || {
-            wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
-                label: Some("slango buffer"),
-                size,
-                usage: usages(),
-                mapped_at_creation: false,
-            })
-        });
-        Self::created(device, buffer, len, error)
+        let inner = backend::Buffer::zeroed(device.backend(), size)?;
+        Ok(Self::created(device, inner, len))
     }
 
-    fn created(
-        device: &Device,
-        inner: ::wgpu::Buffer,
-        len: usize,
-        error: Option<::wgpu::Error>,
-    ) -> Result<Self> {
-        if let Some(error) = error {
-            return Err(Error::new(ErrorKind::Backend, CREATE).with_source(error));
-        }
-        Ok(Self {
+    fn created(device: &Device, inner: backend::Buffer, len: usize) -> Self {
+        Self {
             device: device.clone(),
             inner,
             len,
             element: PhantomData,
-        })
+            identity: Rc::new(()),
+            thread_bound: PhantomData,
+        }
     }
 
     /// Copies the elements of the buffer back from the GPU into a vector.
@@ -164,10 +155,7 @@ impl<T: VertexElement> Buffer<T> {
         if self.len == 0 {
             return Ok(Vec::new());
         }
-        let size = self.inner.size();
-        let bytes = read_back(&self.device, READ, size, |encoder, staging| {
-            encoder.copy_buffer_to_buffer(&self.inner, 0, staging, 0, size);
-        })?;
+        let bytes = self.inner.read_bytes(self.device.backend())?;
         let elements = bytes
             .chunks_exact(T::STRIDE)
             .map(T::read_bytes)
@@ -223,7 +211,13 @@ impl<T: VertexElement> Buffer<T> {
         self.device.is_same(device)
     }
 
-    pub(crate) fn wgpu_buffer(&self) -> &::wgpu::Buffer {
+    /// Returns a number that this buffer and its clones share and that no
+    /// other buffer that is alive at the same time has.
+    pub(crate) fn identity(&self) -> usize {
+        Rc::as_ptr(&self.identity).addr()
+    }
+
+    pub(crate) fn backend(&self) -> &backend::Buffer {
         &self.inner
     }
 }
@@ -237,102 +231,11 @@ impl<T> fmt::Debug for Buffer<T> {
     }
 }
 
-/// Copies `size` bytes from the GPU into a vector through a staging buffer
-/// into which `record` records the copy, and blocks until the device has
-/// finished every earlier submission and the copy.
-///
-/// Every error of wgpu is returned with the operation `operation` and the
-/// kind [`ErrorKind::Backend`].
-pub(crate) fn read_back(
-    device: &Device,
-    operation: &'static str,
-    size: u64,
-    record: impl FnOnce(&mut ::wgpu::CommandEncoder, &::wgpu::Buffer),
-) -> Result<Vec<u8>> {
-    let wgpu_device = device.wgpu_device();
-    let (staging, error) = scoped(wgpu_device, || {
-        let staging = wgpu_device.create_buffer(&::wgpu::BufferDescriptor {
-            label: Some("slango staging buffer"),
-            size,
-            usage: ::wgpu::BufferUsages::MAP_READ | ::wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let mut encoder =
-            wgpu_device.create_command_encoder(&::wgpu::CommandEncoderDescriptor::default());
-        record(&mut encoder, &staging);
-        device.wgpu_queue().submit([encoder.finish()]);
-        staging
-    });
-    if let Some(error) = error {
-        return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
-    }
-    let (sender, receiver) = mpsc::channel();
-    let ((), error) = scoped(wgpu_device, || {
-        staging.map_async(::wgpu::MapMode::Read, .., move |result| {
-            #[expect(
-                clippy::let_underscore_must_use,
-                reason = "a send fails only when `read_back` has already returned, so no one waits for the result"
-            )]
-            let _ = sender.send(result);
-        });
-    });
-    if let Some(error) = error {
-        return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
-    }
-    wgpu_device
-        .poll(::wgpu::PollType::wait_indefinitely())
-        .map_err(|error| Error::new(ErrorKind::Backend, operation).with_source(error))?;
-    match receiver.recv() {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            return Err(Error::new(ErrorKind::Backend, operation).with_source(error));
-        }
-        Err(error) => {
-            return Err(Error::new(ErrorKind::Backend, operation)
-                .with_detail("wgpu finished waiting before it mapped the copy".to_owned())
-                .with_source(error));
-        }
-    }
-    let view = staging
-        .get_mapped_range(..)
-        .map_err(|error| Error::new(ErrorKind::Backend, operation).with_source(error))?;
-    Ok(view.to_vec())
-}
-
-/// The number of bytes of elements that [`write_elements`] converts before
-/// it copies them into the buffer.
-const UPLOAD_CHUNK: usize = 64 * 1024;
-
-/// Writes the bytes of `elements` to the start of `out`, a chunk of
-/// [`UPLOAD_CHUNK`] bytes at a time, so that an upload holds no second copy
-/// of all its elements on the host.
-fn write_elements<T: VertexElement>(elements: &[T], mut out: ::wgpu::WriteOnly<'_, [u8]>) {
-    let mut chunk = Vec::with_capacity(UPLOAD_CHUNK);
-    let mut offset = 0;
-    for group in elements.chunks((UPLOAD_CHUNK / T::STRIDE).max(1)) {
-        chunk.clear();
-        for element in group {
-            element.write_bytes(&mut chunk);
-        }
-        let end = offset + chunk.len();
-        out.slice(offset..end).copy_from_slice(&chunk);
-        offset = end;
-    }
-}
-
-fn usages() -> ::wgpu::BufferUsages {
-    ::wgpu::BufferUsages::STORAGE
-        | ::wgpu::BufferUsages::VERTEX
-        | ::wgpu::BufferUsages::INDEX
-        | ::wgpu::BufferUsages::COPY_SRC
-        | ::wgpu::BufferUsages::COPY_DST
-}
-
 /// Returns the size in bytes of `len` elements of `stride` bytes, and fails
 /// with [`ErrorKind::InvalidArgument`] when it exceeds the largest buffer that
 /// the device allows.
 fn checked_size(device: &Device, len: usize, stride: usize) -> Result<u64> {
-    let limit = device.wgpu_device().limits().max_buffer_size;
+    let limit = device.backend().max_buffer_size();
     size_within(len, stride, limit)
 }
 

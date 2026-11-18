@@ -32,7 +32,7 @@ An agent that is about to use a design pattern, or that faces a design question,
 Every source has one identifier, used in this document and in `docs/rust-coding-standards.md` alike:
 
 - `[IR-<n>]`: the entry at zero-based index n of the file `resources.json` in the curated list at <https://github.com/mre/idiomatic-rust>, as of the snapshot that Section 6.2 records.
-- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly, and some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary.
+- `[S-<n>]`: supplementary source n, which is not part of the curated list. Sources `[S-1]` to `[S-10]` were chosen mainly for the foreign function interface (FFI), `-sys` crates, and unsafe code, which the curated list covers weakly, and some of them, such as `[S-10]`, also cover other topics. Source `[S-11]` was added for unwinding across the FFI boundary, and `[S-12]` for compile-time assertions that a type does not implement a trait.
 
 An identifier is never reused or renumbered (Section 6). The catalogue in Section 3 holds the entry for every identifier that this document cites, so it takes the place of a References section. Section 21 of `docs/rust-coding-standards.md` points to the catalogue in the same way.
 
@@ -477,13 +477,14 @@ These sources cover threads, atomics, locks, `Send`, and `Sync`.
 | [S-7] | 1 | The `if let` temporary scope change, and `set_var` becoming unsafe. |
 | [S-10] | 2 | Public types are `Send` unless documented, and no statics in libraries. |
 | [IR-13] | 2 | `Send` and `Sync` through `unsafe impl`. |
+| [S-12] | 3 | A compile-time assertion that a type does not implement `Send`, `Sync`, or another trait, by trait ambiguity. |
 | [IR-27] | 3 | Memory orderings, atomics, reference counts, poisoning, and scoped threads. |
 | [IR-84] | 3 | Lock guards in `if let` and `match` scrutinees. |
 | [IR-3] | 3 | No hidden threads and no global state. |
 | [IR-61] | 3 | Data parallelism with `join`, and sequential fallback. |
 | [IR-24] | 3 | Recipes for threads, channels, and atomics. |
 
-Rules: CONC-1 to CONC-5, CONC-8, FFI-9. Section 17 of the standards document records the conflict over `Send` handles.
+Rules: CONC-1 to CONC-5, CONC-8, CONC-9, FFI-9. Section 17 of the standards document records the conflict over `Send` handles.
 
 ### 2.27. Async and Cancellation
 
@@ -562,6 +563,7 @@ Rules: TEST-5. Section 7 of `docs/writing-documentation.md` governs API document
 | [IR-63] | 3 | API tests in `tests/`. |
 | [IR-27] | 3 | Drop counters, stress tests, and Miri for unsafe code. |
 | [IR-15] | 3 | Compile-fail tests with `trybuild`. |
+| [S-12] | 3 | Compile-time assertions of trait implementations that depend on no compiler message. |
 | [IR-22] | 3 | Fuzzing and assurance tools. |
 | [IR-36] | 3 | Tests for malformed input, and fuzzing. |
 | [S-4] | 3 | A test that references C symbols, to check linking. |
@@ -708,7 +710,7 @@ These sources teach Rust and yield few rules. An agent consults them for backgro
 
 ## 3. Catalogue
 
-The catalogue holds 106 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-11]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
+The catalogue holds 107 entries: one for each of the 95 entries of the curated list, `[IR-0]` to `[IR-94]`, and one for each supplementary source, `[S-1]` to `[S-12]`. Section 1.4 defines the fields. An entry whose source yielded no rules stays in the catalogue, so that a later agent knows the source was considered.
 
 ### 3.1. Curated List Entries
 
@@ -1992,7 +1994,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It explains why the rules on opaque types, `Send` and `Sync`, `PhantomData`, variance, and panics at the boundary exist.
 - Consult when: designing an owning handle over a foreign object, deciding `Send` and `Sync`, writing a callback trampoline, or using `PhantomData` for a child object tied to a lifetime.
 - Chapters: `ffi.html`, `phantom-data.html`, `send-and-sync.html`, `leaking.html`, `working-with-unsafe.html`, `unwinding.html`, `subtyping.html`, `dropck.html`, and `obrm.html`.
-- Cited by: CONC-8, FFI-3, FFI-4, FFI-6, FFI-7, FFI-8, FFI-9, OWN-4, UNS-2, UNS-3, UNS-4, UNS-7. Sections 1.3, 17, and 18.
+- Cited by: CONC-8, CONC-9, FFI-3, FFI-4, FFI-6, FFI-7, FFI-8, FFI-9, OWN-4, UNS-2, UNS-3, UNS-4, UNS-7. Sections 1.3, 17, and 18.
 
 **[S-2] The bindgen User Guide**
 
@@ -2116,7 +2118,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It is a recent organizational standard with a chapter on AI, and it contains the guidelines M-SYS-CRATES, M-ESCAPE-HATCHES, M-UNSAFE, and M-FFI-NAMING.
 - Consult when: deciding the crate split and names, the public API of the safe wrapper (builders, errors, `Clone`, `Send`), documentation sections, lint configuration, or API design for AI agents.
 - Chapters: about, checklist, universal, `libs/interop`, `libs/ux`, `libs/resilience`, `libs/building`, macros, apps, ffi, correctness, performance, project, docs, ai, and agents.
-- Cited by: API-4, API-6, API-7, API-10, CONC-1, CONC-4, CONC-8, DEP-1, DEP-2, DEP-3, DEP-4, ERR-1, ERR-2, ERR-5, FFI-1, FFI-7, FFI-9, OWN-5, SYS-7, TEST-6, TEST-7, TEST-9, TYPE-1, UNS-1, UNS-3. Sections 1.3 and 17.
+- Cited by: API-4, API-6, API-7, API-10, CONC-1, CONC-4, CONC-8, CONC-9, DEP-1, DEP-2, DEP-3, DEP-4, ERR-1, ERR-2, ERR-5, FFI-1, FFI-7, FFI-9, OWN-5, SYS-7, TEST-6, TEST-7, TEST-9, TYPE-1, UNS-1, UNS-3. Sections 1.3 and 17.
 
 **[S-11] RFC 2945: C-unwind ABI**
 
@@ -2130,6 +2132,19 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. The binding generator declares every function of Slang with an unwinding ABI, and the safe crate relies on the defined behaviour of a foreign exception that crosses such a boundary.
 - Consult when: choosing between an ABI string and its `-unwind` form, or reasoning about why a foreign exception is undefined behaviour through a non-unwinding ABI and defined through an unwinding one.
 - Cited by: FFI-7.
+
+**[S-12] static_assertions**
+
+- Author: Nikolai Vazquez.
+- Year: not recorded. Version 1.1.0, read on 2026-11-18 from the copy in the local Cargo registry.
+- URL: <https://github.com/nvzqz/static-assertions-rs>, with the API documentation at <https://docs.rs/static_assertions/>.
+- Kind: project.
+- Tier: 3, assigned here as a crate by an individual author.
+- Read status: partial. The manifest, the README, the crate-level documentation, and the file `src/assert_impl.rs` with the documentation and code of `assert_not_impl_all!` and `assert_not_impl_any!`. The other macros were not read.
+- Current: mostly. The manifest marks the crate passively maintained, and its macros use only stable language features.
+- Relevance: medium. Its negative assertion is the stable way to check at compile time that a type implements neither `Send` nor `Sync` without comparing a compiler message. The project writes the few lines of the technique in its tests instead of depending on the crate.
+- Consult when: asserting that a type does not implement a trait, or choosing between a compile-fail test with expected compiler output and a compile-time assertion.
+- Cited by: CONC-9.
 
 ## 4. Coverage Gaps
 
@@ -2230,6 +2245,7 @@ This table lists every entry whose read status is partial or unreachable, with w
 | [S-9] | Partial | The build configuration page only. | FFI-7 |
 | [S-10] | Partial | Every chapter. The FAQ, the change log, and the agent version were not read. | 25 rules |
 | [S-11] | Partial | Consulted for the `-unwind` ABIs. The sections read in full are not recorded. | FFI-7 |
+| [S-12] | Partial | The manifest, the README, the crate-level documentation, and `src/assert_impl.rs` of version 1.1.0. | CONC-9 |
 
 Section 3 gives the full list of rules that cite each source.
 

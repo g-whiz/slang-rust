@@ -1,28 +1,21 @@
-use wgpu::{ShaderStages, VertexFormat, VertexStepMode};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::{
-    BoundIndex, BoundTarget, BoundVertex, Count, Draw, DrawPlan, Targets, element_type, plan_draw,
-};
+use super::{BoundIndex, BoundTarget, BoundVertex, Count, DrawPlan, Targets, plan_draw};
 use crate::call::{Argument, Bound, BoundSampler, BoundTexture, Entry, Plan, Source};
 use crate::error::ErrorKind;
 use crate::layout::{
     Access, Attribute, Binding, ElementType, PlainValue, Resource, Scalar, Shape, UniformBlock,
     Usage,
 };
-use crate::marshal::{Value, VertexElement, marshal};
+use crate::marshal::{Value, marshal};
 use crate::render::{
-    PipelineBinding, PipelineSnapshot, RenderPipelineOptions, VertexInput, vertex_format,
+    PipelineBinding, PipelineSnapshot, RenderPipelineOptions, Stages, StepMode, VertexInput,
 };
 use crate::texture::TextureFormat;
 
 type Arg = Argument<(), (), ()>;
 
-fn binding(
-    path: &str,
-    index: u32,
-    visibility: ShaderStages,
-    resource: Resource,
-) -> PipelineBinding {
+fn binding(path: &str, index: u32, visibility: Stages, resource: Resource) -> PipelineBinding {
     PipelineBinding {
         binding: Binding {
             path: path.to_owned(),
@@ -44,7 +37,7 @@ fn input(
     location: u32,
     scalar: Scalar,
     components: u32,
-    step_mode: VertexStepMode,
+    step_mode: StepMode,
     slot: Option<u32>,
 ) -> VertexInput {
     VertexInput {
@@ -59,7 +52,6 @@ fn input(
                 Usage::Unused
             },
         },
-        format: vertex_format(scalar, components).expect("a vertex format"),
         step_mode,
         slot,
     }
@@ -83,7 +75,7 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
             binding(
                 "",
                 0,
-                ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                Stages::VERTEX | Stages::FRAGMENT,
                 Resource::UniformBuffer(UniformBlock {
                     size: 80,
                     values: vec![
@@ -95,6 +87,7 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                             shape: Shape::Matrix {
                                 rows: 4,
                                 columns: 4,
+                                row_stride: 16,
                             },
                         },
                         PlainValue {
@@ -107,12 +100,12 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                     ],
                 }),
             ),
-            binding("image", 1, ShaderStages::FRAGMENT, Resource::SampledTexture),
-            binding("imageSampler", 2, ShaderStages::FRAGMENT, Resource::Sampler),
+            binding("image", 1, Stages::FRAGMENT, Resource::SampledTexture),
+            binding("imageSampler", 2, Stages::FRAGMENT, Resource::Sampler),
             binding(
                 "unused",
                 3,
-                ShaderStages::NONE,
+                Stages::NONE,
                 Resource::StorageBuffer {
                     access: Access::ReadOnly,
                     stride: 4,
@@ -129,7 +122,7 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                 0,
                 Scalar::Float32,
                 2,
-                VertexStepMode::Vertex,
+                StepMode::Vertex,
                 Some(0),
             ),
             input(
@@ -137,7 +130,7 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                 1,
                 Scalar::Uint32,
                 1,
-                VertexStepMode::Vertex,
+                StepMode::Vertex,
                 Some(1),
             ),
             input(
@@ -145,17 +138,10 @@ fn snapshot(depth_format: Option<TextureFormat>) -> PipelineSnapshot {
                 2,
                 Scalar::Float32,
                 2,
-                VertexStepMode::Instance,
+                StepMode::Instance,
                 Some(2),
             ),
-            input(
-                "input.spare",
-                3,
-                Scalar::Int32,
-                3,
-                VertexStepMode::Vertex,
-                None,
-            ),
+            input("input.spare", 3, Scalar::Int32, 3, StepMode::Vertex, None),
         ],
         options,
     }
@@ -197,12 +183,19 @@ fn arguments() -> Vec<(&'static str, Arg)> {
     ]
 }
 
+/// Returns an identity that no other buffer of the tests has.
+fn fresh_identity() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(1000);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn vertex(scalar: Scalar, components: u32, len: usize) -> BoundVertex<()> {
     BoundVertex {
         handle: (),
         element: Some((scalar, components)),
         len,
         on_device: true,
+        identity: fresh_identity(),
     }
 }
 
@@ -356,6 +349,7 @@ fn a_parameter_that_neither_stage_uses_may_be_omitted_and_a_given_one_is_checked
             element: marshal(&0.0_f32).ty,
             len: 1,
             on_device: true,
+            identity: 101,
         }),
     ));
     assert_eq!(case.plan().expect("the unused buffer is accepted"), without);
@@ -368,6 +362,7 @@ fn a_parameter_that_neither_stage_uses_may_be_omitted_and_a_given_one_is_checked
             element: marshal(&[0.0_f32; 4]).ty,
             len: 1,
             on_device: true,
+            identity: 102,
         }),
     ));
     assert_eq!(
@@ -389,6 +384,7 @@ fn a_buffer_of_another_scalar_type_is_rejected_as_a_call_rejects_it() {
             element: marshal(&0_u32).ty,
             len: 1,
             on_device: true,
+            identity: 103,
         }),
     ));
     assert_eq!(
@@ -797,6 +793,7 @@ fn indices(len: usize, count: u32) -> Count {
         buffer: BoundIndex {
             len,
             on_device: true,
+            identity: fresh_identity(),
         },
         count,
     }
@@ -828,6 +825,7 @@ fn an_indexed_draw_is_bounded_by_its_index_buffer_and_not_by_the_vertex_buffers(
         buffer: BoundIndex {
             len: 6,
             on_device: false,
+            identity: fresh_identity(),
         },
         count: 6,
     };
@@ -840,60 +838,6 @@ fn an_indexed_draw_is_bounded_by_its_index_buffer_and_not_by_the_vertex_buffers(
     case.count = indices(6, 6);
     case.instances = 3;
     assert!(case.rejected().1.contains("draws 3 instances"));
-}
-
-fn format_of<T: VertexElement>() -> Option<VertexFormat> {
-    let (scalar, components) = element_type::<T>()?;
-    vertex_format(scalar, components)
-}
-
-#[test]
-fn each_vertex_element_type_has_the_vertex_format_of_its_attribute() {
-    let formats = [
-        (format_of::<f32>(), VertexFormat::Float32),
-        (format_of::<[f32; 2]>(), VertexFormat::Float32x2),
-        (format_of::<[f32; 3]>(), VertexFormat::Float32x3),
-        (format_of::<[f32; 4]>(), VertexFormat::Float32x4),
-        (format_of::<i32>(), VertexFormat::Sint32),
-        (format_of::<[i32; 2]>(), VertexFormat::Sint32x2),
-        (format_of::<[i32; 3]>(), VertexFormat::Sint32x3),
-        (format_of::<[i32; 4]>(), VertexFormat::Sint32x4),
-        (format_of::<u32>(), VertexFormat::Uint32),
-        (format_of::<[u32; 2]>(), VertexFormat::Uint32x2),
-        (format_of::<[u32; 3]>(), VertexFormat::Uint32x3),
-        (format_of::<[u32; 4]>(), VertexFormat::Uint32x4),
-    ];
-    for (given, expected) in formats {
-        assert_eq!(given, Some(expected));
-    }
-}
-
-#[test]
-fn the_stride_of_each_vertex_element_type_is_the_size_of_its_vertex_format() {
-    fn stride_matches<T: VertexElement>() -> bool {
-        format_of::<T>().is_some_and(|format| {
-            u64::try_from(T::STRIDE).is_ok_and(|stride| stride == format.size())
-        })
-    }
-    assert!(stride_matches::<f32>());
-    assert!(stride_matches::<[f32; 2]>());
-    assert!(stride_matches::<[f32; 3]>());
-    assert!(stride_matches::<[f32; 4]>());
-    assert!(stride_matches::<i32>());
-    assert!(stride_matches::<[i32; 2]>());
-    assert!(stride_matches::<[i32; 3]>());
-    assert!(stride_matches::<[i32; 4]>());
-    assert!(stride_matches::<u32>());
-    assert!(stride_matches::<[u32; 2]>());
-    assert!(stride_matches::<[u32; 3]>());
-    assert!(stride_matches::<[u32; 4]>());
-}
-
-fn assert_send_sync<T: Send + Sync>() {}
-
-#[test]
-fn a_draw_is_send_and_sync() {
-    assert_send_sync::<Draw<'_>>();
 }
 
 #[test]
@@ -927,4 +871,186 @@ fn a_value_that_its_reflected_layout_cannot_hold_is_an_unsupported_parameter() {
             "cannot set a plain value: the reflected layout of the parameter `tint` places a scalar outside its 8 bytes"
         )
     );
+}
+
+#[test]
+fn one_buffer_bound_read_only_and_read_write_is_rejected_as_for_a_call() {
+    let mut case = Case::new();
+    let storage = |access| Resource::StorageBuffer {
+        access,
+        stride: 4,
+        element: ElementType::Plain {
+            scalar: Scalar::Float32,
+            components: 1,
+        },
+    };
+    case.snapshot.bindings.push(binding(
+        "samples",
+        4,
+        Stages::FRAGMENT,
+        storage(Access::ReadOnly),
+    ));
+    case.snapshot.bindings.push(binding(
+        "results",
+        5,
+        Stages::FRAGMENT,
+        storage(Access::ReadWrite),
+    ));
+    let shared = || {
+        Argument::Buffer(Bound {
+            handle: (),
+            stride: 4,
+            element: marshal(&0.0_f32).ty,
+            len: 1,
+            on_device: true,
+            identity: 201,
+        })
+    };
+    case.arguments.push(("results", shared()));
+    case.arguments.push(("samples", shared()));
+    assert_eq!(
+        case.rejected(),
+        invalid(
+            "one buffer is bound to the read-only parameter `samples` and to the read-write parameter `results` of the render pipeline of `vsMain` and `fsMain`, and a buffer cannot be both read only and written in one draw, so bind separate buffers"
+        )
+    );
+}
+
+/// Returns a case whose fragment stage also reads the buffer `samples` and
+/// writes the buffer `results`, and whose snapshot holds an unused buffer
+/// `spare` that the fragment stage would write, each bound to a buffer of
+/// its own.
+fn case_with_storage() -> Case {
+    let mut case = Case::new();
+    let storage = |access| Resource::StorageBuffer {
+        access,
+        stride: 4,
+        element: ElementType::Plain {
+            scalar: Scalar::Float32,
+            components: 1,
+        },
+    };
+    for (path, index, visibility, access) in [
+        ("samples", 4, Stages::FRAGMENT, Access::ReadOnly),
+        ("results", 5, Stages::FRAGMENT, Access::ReadWrite),
+        ("spare", 6, Stages::NONE, Access::ReadWrite),
+    ] {
+        case.snapshot
+            .bindings
+            .push(binding(path, index, visibility, storage(access)));
+        case.arguments
+            .push((path, storage_buffer(fresh_identity())));
+    }
+    case
+}
+
+fn storage_buffer(identity: usize) -> Arg {
+    Argument::Buffer(Bound {
+        handle: (),
+        stride: 4,
+        element: marshal(&0.0_f32).ty,
+        len: 1,
+        on_device: true,
+        identity,
+    })
+}
+
+/// Binds the buffer of `identity` to the parameter at `path` of `case`.
+fn rebind(case: &mut Case, path: &str, identity: usize) {
+    for (given, argument) in &mut case.arguments {
+        if *given == path {
+            *argument = storage_buffer(identity);
+        }
+    }
+}
+
+/// Returns the count of an indexed draw of 3 indices from an index buffer
+/// of 6 with `identity`.
+fn indexed_by(identity: usize) -> Count {
+    Count::Indices {
+        buffer: BoundIndex {
+            len: 6,
+            on_device: true,
+            identity,
+        },
+        count: 3,
+    }
+}
+
+fn identity_of_vertex(case: &Case, path: &str) -> usize {
+    case.vertices
+        .iter()
+        .find(|(given, _)| *given == path)
+        .map(|(_, bound)| bound.identity)
+        .expect("the vertex buffer")
+}
+
+#[test]
+fn a_buffer_of_an_unused_parameter_is_not_compared_with_the_read_write_parameters() {
+    let mut case = case_with_storage();
+    let shared = fresh_identity();
+    rebind(&mut case, "results", shared);
+    case.arguments.push(("unused", storage_buffer(shared)));
+    case.plan()
+        .expect("the unused read-only parameter binds nothing");
+    let mut case = case_with_storage();
+    rebind(&mut case, "samples", shared);
+    rebind(&mut case, "spare", shared);
+    case.plan()
+        .expect("the unused read-write parameter binds nothing");
+}
+
+#[test]
+fn a_vertex_buffer_bound_to_a_read_write_parameter_is_an_invalid_argument_that_names_both() {
+    let mut case = case_with_storage();
+    let position = identity_of_vertex(&case, "input.position");
+    rebind(&mut case, "results", position);
+    assert_eq!(
+        case.rejected(),
+        invalid(
+            "one buffer is the vertex buffer of the attribute `input.position` and is bound to the read-write parameter `results` of the render pipeline of `vsMain` and `fsMain`, and a buffer cannot be both read only and written in one draw, so bind separate buffers"
+        )
+    );
+}
+
+#[test]
+fn a_vertex_buffer_bound_to_a_read_only_parameter_is_valid() {
+    let mut case = case_with_storage();
+    let position = identity_of_vertex(&case, "input.position");
+    rebind(&mut case, "samples", position);
+    case.plan()
+        .expect("a vertex buffer may also be read as a parameter");
+}
+
+#[test]
+fn the_buffer_of_an_unused_attribute_is_not_compared_with_the_read_write_parameters() {
+    let mut case = case_with_storage().vertex("input.spare", vertex(Scalar::Int32, 3, 3));
+    let spare = identity_of_vertex(&case, "input.spare");
+    rebind(&mut case, "results", spare);
+    case.plan()
+        .expect("the buffer of the unused attribute binds nothing");
+}
+
+#[test]
+fn an_index_buffer_bound_to_a_read_write_parameter_is_an_invalid_argument_that_names_both() {
+    let mut case = case_with_storage();
+    let index = fresh_identity();
+    case.count = indexed_by(index);
+    rebind(&mut case, "results", index);
+    assert_eq!(
+        case.rejected(),
+        invalid(
+            "one buffer is the index buffer and is bound to the read-write parameter `results` of the render pipeline of `vsMain` and `fsMain`, and a buffer cannot be both read only and written in one draw, so bind separate buffers"
+        )
+    );
+}
+
+#[test]
+fn an_index_buffer_bound_to_a_read_only_parameter_is_valid() {
+    let mut case = case_with_storage();
+    let index = fresh_identity();
+    case.count = indexed_by(index);
+    rebind(&mut case, "samples", index);
+    case.plan()
+        .expect("an index buffer may also be read as a parameter");
 }
