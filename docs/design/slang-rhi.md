@@ -83,6 +83,14 @@ The `IRHI` instance is one object of the process, which any thread reaches throu
 
 A device whose `SlangDesc::slangGlobalSession` is null creates a global session of its own (Section 3.3 of the sys design), and that session has no loader of `slang-glslang-sys`. A C++ program outside the repository, linked against the vendored Slang and slang-rhi, created such a device and compiled a compute shader through `IDevice::getSlangSession`. Its debug callback received `error[E00100]: failed to load downstream compiler 'spirv-opt'` with `note[E99996]: failed to load dynamic library 'slang-glslang-2026.17'`, and the SPIR-V, which was not optimized, still ran and gave the expected results.
 
+The raw types of the compute path in `slang-rhi-sys` have these shapes (RSYS-10 of the sys design), and a `gpu` test of that crate runs the whole compute path through them (Section 9 of the sys design):
+
+- `DeviceDesc`, `BufferDesc`, `SubmitDesc`, and the other descriptors of the compute path implement `Default` with the C++ defaults, so the crate writes `..T::default()` for every field that it does not set. The default `cudaStream` of `SubmitDesc` is `kInvalidCUDAStream`.
+- `Binding` holds its two resources as the raw pointers `resource` and `resource2` of type `*mut IResource`, and the range in a field of an anonymous union. slang-rhi adds its own references during `setBinding`, so the crate keeps its own reference through the call (Section 6.7).
+- The struct constant `kEntireBuffer` has no binding, so the crate writes the range of a whole buffer itself, as an offset of 0 and a size of `u64::MAX`.
+- `ShaderOffset` is a plain record of three `u32` fields.
+- The methods of the placeholder slots have no thunk, and none of them is on the compute path.
+
 ### 3.1. Known Upstream Bugs
 
 This is the one list of the known defects of the recorded slang-rhi. It has the columns of Section 3.12 of the `slang-compiler` design and follows the rules stated there, and every path in the column "Source" is in the slang-rhi tree.
@@ -261,7 +269,7 @@ RHI-11. Before each call, `set_data` MUST check that the uniform offset plus the
 
 The header states no check of these bounds by slang-rhi, and a write past the uniform data of an object or into a range that does not exist is an access out of bounds in native code. These are the checks of an index that a safe interface needs, so they stay whatever slang-rhi checks (Hard Rule 14 of `AGENTS.md` for the analogous case of Slang).
 
-`set_buffer` builds a `Binding` of `slang-rhi-sys` with the type of a buffer, the buffer's interface pointer in `resource`, a null `resource2`, and the range of the whole buffer, and passes it by pointer while the `Buffer` that it borrows keeps its own reference (Section 6.4 of the sys design).
+`set_buffer` builds a `Binding` of `slang-rhi-sys` with the type of a buffer, the buffer's interface pointer in `resource`, a null `resource2`, and the range of the whole buffer, which is the offset 0 and the size `u64::MAX` (Section 3), and passes it by pointer while the `Buffer` that it borrows keeps its own reference (Section 6.4 of the sys design). `Queue::submit` passes a `SubmitDesc` with its command buffers and `..SubmitDesc::default()` for every other field.
 
 ### 6.8. Errors
 
@@ -403,7 +411,7 @@ The crate reads no environment variable. Its dependencies read those of Section 
 
 ### 14.3. Platforms and Minimum Supported Rust Version
 
-The crate builds where `slang-rhi-sys` builds, which in M9 is Linux with the GNU C library, and is tested on x86_64 Linux on lavapipe. It uses the workspace's `rust-version`.
+The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C library until the code step for Windows of M9 (Section 7.3 of the sys design), and is tested on x86_64 Linux on lavapipe. It uses the workspace's `rust-version`.
 
 ### 14.4. Failure Modes
 

@@ -11,6 +11,7 @@ const HOST: &str = "HOST";
 const OUT_DIR: &str = "OUT_DIR";
 const MANIFEST_DIR: &str = "CARGO_MANIFEST_DIR";
 const NUM_JOBS: &str = "NUM_JOBS";
+const LIBCLANG_PATH: &str = "LIBCLANG_PATH";
 const CXX: &str = "CXX";
 const SRC_ROOT: &str = "DEP_SLANG_SRC_ROOT";
 const SRC_COMMIT: &str = "DEP_SLANG_SRC_COMMIT";
@@ -40,11 +41,21 @@ const NATIVE_FILES: [(&str, &str); 1] = [("CMakeLists.txt", include_str!("native
 
 const STATIC_LIBRARIES: [&str; 3] = ["slang-rhi", "slang-rhi-vma", "slang-rhi-resources"];
 
+const PROBE_LIBRARY: &str = "slang-rhi-sys-abi-probe";
+
+const PROBE_SOURCE: &str = "abi-probe.cpp";
+
+const BINDINGS_FILE: &str = "bindings.rs";
+
+const SYMBOLS_FILE: &str = "symbols.rs";
+
+const RHI_HEADERS: &str = "external/slang-rhi/include";
+
 const DYNAMIC_LIBRARIES: [&str; 3] = ["stdc++", "dl", "pthread"];
 
 const CONFIG_HEADER: &str = "slang-rhi-config.h";
 
-const BUILD_TARGET: &str = "slang-rhi";
+const BUILD_TARGETS: [&str; 2] = ["slang-rhi", PROBE_LIBRARY];
 
 const SUBPROJECT_DIR: &str = "slang-rhi";
 
@@ -78,6 +89,32 @@ trait Host {
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn lock(&self, path: &Path) -> io::Result<()>;
     fn process_id(&self) -> u32;
+    fn generate(
+        &self,
+        rhi_headers: &Path,
+        config_dir: &Path,
+        slang_headers: &Path,
+        target: &str,
+    ) -> Result<Generated, GenerationError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Generated {
+    bindings: String,
+    symbols: String,
+    abi_probe: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GenerationErrorKind {
+    Libclang,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GenerationError {
+    kind: GenerationErrorKind,
+    message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,20 +187,24 @@ struct Source {
 }
 
 struct Layout {
+    out: PathBuf,
     build: PathBuf,
     lib: PathBuf,
+    config_dir: PathBuf,
     config_header: PathBuf,
+    probe: PathBuf,
     log: PathBuf,
 }
 
 impl Layout {
     fn new(out: &Path) -> Self {
         let build = out.join("build");
+        let config_dir = build.join(SUBPROJECT_DIR).join("include");
         Self {
-            config_header: build
-                .join(SUBPROJECT_DIR)
-                .join("include")
-                .join(CONFIG_HEADER),
+            out: out.to_path_buf(),
+            config_header: config_dir.join(CONFIG_HEADER),
+            config_dir,
+            probe: build.join(PROBE_SOURCE),
             build,
             lib: out.join("lib"),
             log: out.join("build.log"),
@@ -179,7 +220,11 @@ enum EntryState {
 }
 
 fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), BuildError> {
-    for name in CMAKE_VARIABLES.into_iter().chain(MSVC_VARIABLES) {
+    for name in CMAKE_VARIABLES
+        .into_iter()
+        .chain(MSVC_VARIABLES)
+        .chain([LIBCLANG_PATH])
+    {
         directives.push(format!("cargo::rerun-if-env-changed={name}"));
     }
     let target = required(host, TARGET)?;
@@ -190,8 +235,29 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
     let native = cargo_path(host, MANIFEST_DIR, "find the wrapper project")?.join("native");
     check_success(host, &command("ninja", &["--version"]))?;
     let compiler = compiler_identity(host)?;
+    let cmake_version = first_line(host, &cmake(vec!["--version".to_owned()]))?;
     let layout = Layout::new(&out);
-    let inputs = entry_inputs(host, &source, &target, &compiler)?;
+    run_configure_step(host, &layout, &source, &native)?;
+    let generated = generate(host, &source, &layout.config_dir, &target)?;
+    let Some(probe) = &generated.abi_probe else {
+        return Err(BuildError(format!(
+            "the binding generator returned no ABI probe for the target {target}, so the build cannot check the layout of the bindings against the compiler that builds slang-rhi"
+        )));
+    };
+    let config = host
+        .read(&layout.config_header)
+        .map_err(|error| file_error("read", &layout.config_header, &error))?;
+    let inputs = entry_inputs(
+        host,
+        &EntryInputs {
+            source: &source,
+            target: &target,
+            compiler: &compiler,
+            cmake_version: &cmake_version,
+            probe,
+            config: &config,
+        },
+    );
     let entries = source.shared.join(ENTRY_FOLDER);
     let key = fnv1a(inputs.as_bytes());
     let lock = entries.join(format!("{key}.lock"));
@@ -204,7 +270,7 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
     ));
     let state = entry_state(host, &entry, &inputs)?;
     if state != EntryState::Complete {
-        build_libraries(host, &layout, &source, &native)?;
+        build_libraries(host, &layout, probe)?;
         store_entry(
             host,
             &entries,
@@ -214,17 +280,44 @@ fn configure(host: &impl Host, directives: &mut Vec<String>) -> Result<(), Build
             state == EntryState::Unusable,
         )?;
     }
-    directives.push(format!(
-        "cargo::rustc-link-search=native={}",
-        entry.join("lib").display()
-    ));
+    write_file(host, &layout.out.join(BINDINGS_FILE), &generated.bindings)?;
+    write_file(host, &layout.out.join(SYMBOLS_FILE), &generated.symbols)?;
+    let lib = entry.join("lib");
+    directives.push(format!("cargo::rustc-link-search=native={}", lib.display()));
     for library in STATIC_LIBRARIES {
         directives.push(format!("cargo::rustc-link-lib=static={library}"));
     }
     for library in DYNAMIC_LIBRARIES {
         directives.push(format!("cargo::rustc-link-lib=dylib={library}"));
     }
+    directives.push(format!(
+        "cargo::rustc-link-arg-tests={}",
+        lib.join(format!("lib{PROBE_LIBRARY}.a")).display()
+    ));
     Ok(())
+}
+
+fn generate(
+    host: &impl Host,
+    source: &Source,
+    config_dir: &Path,
+    target: &str,
+) -> Result<Generated, BuildError> {
+    let rhi_headers = source.root.join(RHI_HEADERS);
+    host.generate(&rhi_headers, config_dir, &source.slang_include, target)
+        .map_err(|error| {
+            let advice = match error.kind {
+                GenerationErrorKind::Libclang => format!(
+                    " slang-rhi-sys generates its bindings with libclang in every build, so install libclang or set {LIBCLANG_PATH} to the directory that holds it."
+                ),
+                GenerationErrorKind::Other => String::new(),
+            };
+            BuildError(format!(
+                "cannot generate the slang-rhi bindings from {} for the target {target}: {}.{advice}",
+                rhi_headers.display(),
+                error.message
+            ))
+        })
 }
 
 fn directive_safe_path(value: &OsStr) -> Option<PathBuf> {
@@ -339,7 +432,7 @@ fn check_platform(host: &impl Host, target: &str, host_triple: &str) -> Result<(
     };
     if (text(TARGET_OS).as_str(), text(TARGET_ENV).as_str()) != ("linux", "gnu") {
         return Err(BuildError(format!(
-            "the target {target} is not Linux with the GNU C library, and slang-rhi-sys builds only for Linux with the GNU C library, because its builds of the Direct3D 12 backend of Windows and the Metal backend of macOS are not designed yet. Build on Linux with the GNU C library."
+            "the target {target} is not Linux with the GNU C library, and slang-rhi-sys builds only the Vulkan backend of slang-rhi, for Linux with the GNU C library. Build on Linux with the GNU C library."
         )));
     }
     if target != host_triple {
@@ -416,20 +509,23 @@ fn key_options() -> Vec<String> {
     options
 }
 
-fn entry_inputs(
-    host: &impl Host,
-    source: &Source,
-    target: &str,
-    compiler: &str,
-) -> Result<String, BuildError> {
-    let cmake_version = first_line(host, &cmake(vec!["--version".to_owned()]))?;
+struct EntryInputs<'a> {
+    source: &'a Source,
+    target: &'a str,
+    compiler: &'a str,
+    cmake_version: &'a str,
+    probe: &'a str,
+    config: &'a str,
+}
+
+fn entry_inputs(host: &impl Host, inputs: &EntryInputs<'_>) -> String {
     let mut lines = vec![
         format!("crate={CRATE_NAME} {CRATE_VERSION}"),
         format!("files={}", native_files_hash()),
-        format!("commit={}", source.commit),
-        format!("build_tag={}", source.build_tag),
-        format!("target={target}"),
-        format!("cmake={cmake_version}"),
+        format!("commit={}", inputs.source.commit),
+        format!("build_tag={}", inputs.source.build_tag),
+        format!("target={}", inputs.target),
+        format!("cmake={}", inputs.cmake_version),
     ];
     lines.extend(
         key_options()
@@ -442,8 +538,10 @@ fn entry_inputs(
             .map_or_default(|value| value.to_string_lossy().into_owned());
         lines.push(format!("{name}={value}"));
     }
-    lines.push(format!("compiler={compiler}"));
-    Ok(lines.join("\n") + "\n")
+    lines.push(format!("compiler={}", inputs.compiler));
+    lines.push(format!("config={}", fnv1a(inputs.config.as_bytes())));
+    lines.push(format!("probe={}", fnv1a(inputs.probe.as_bytes())));
+    lines.join("\n") + "\n"
 }
 
 fn fnv1a(bytes: &[u8]) -> String {
@@ -453,9 +551,12 @@ fn fnv1a(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+fn entry_libraries() -> impl Iterator<Item = &'static str> {
+    STATIC_LIBRARIES.into_iter().chain([PROBE_LIBRARY])
+}
+
 fn entry_files() -> impl Iterator<Item = PathBuf> {
-    STATIC_LIBRARIES
-        .iter()
+    entry_libraries()
         .map(|library| Path::new("lib").join(format!("lib{library}.a")))
         .chain([Path::new("include").join(CONFIG_HEADER)])
 }
@@ -478,7 +579,7 @@ fn entry_state(host: &impl Host, entry: &Path, inputs: &str) -> Result<EntryStat
     })
 }
 
-fn build_libraries(
+fn run_configure_step(
     host: &impl Host,
     layout: &Layout,
     source: &Source,
@@ -508,13 +609,17 @@ fn build_libraries(
         "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={}",
         layout.lib.display()
     ));
-    run_logged(host, &cmake(configure_args), &layout.log, "configure")?;
+    run_logged(host, &cmake(configure_args), &layout.log, "configure")
+}
+
+fn build_libraries(host: &impl Host, layout: &Layout, probe: &str) -> Result<(), BuildError> {
+    write_file(host, &layout.probe, probe)?;
     let mut build_args = vec![
         "--build".to_owned(),
         layout.build.display().to_string(),
         "--target".to_owned(),
-        BUILD_TARGET.to_owned(),
     ];
+    build_args.extend(BUILD_TARGETS.iter().map(|target| (*target).to_owned()));
     if let Some(jobs) = host
         .var(NUM_JOBS)
         .and_then(|jobs| jobs.to_str()?.parse::<u32>().ok())
@@ -538,8 +643,7 @@ fn build_libraries(
 }
 
 fn built_files(layout: &Layout) -> Vec<PathBuf> {
-    STATIC_LIBRARIES
-        .iter()
+    entry_libraries()
         .map(|library| layout.lib.join(format!("lib{library}.a")))
         .chain([layout.config_header.clone()])
         .collect()

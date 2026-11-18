@@ -191,7 +191,7 @@ Dependencies between the library crates point strictly downward, as this diagram
   (Vulkan SDK, or built from the tree of slang-src)
 ```
 
-The planned crates of M9 depend on the crates of the first diagram as this second diagram shows. `slang-rhi` depends on `slang-compiler` with its feature `vendored`, on `slang-rhi-sys`, and on `slang-compiler-sys`, whose reflection functions it calls (RHI-1 of `docs/design/slang-rhi.md`). `slang-rhi-sys` depends on `slang-src` and on the vendored `slang-compiler-sys`, as `slang-glslang-sys` does, and on `slang-bindgen` as a build dependency (RSYS-1 of `docs/design/slang-rhi-sys.md`):
+The crates of M9 depend on the crates of the first diagram as this second diagram shows. `slang-rhi` depends on `slang-compiler` with its feature `vendored`, on `slang-rhi-sys`, and on `slang-compiler-sys`, whose reflection functions it calls (RHI-1 of `docs/design/slang-rhi.md`). `slang-rhi-sys` depends on `slang-src` and on the vendored `slang-compiler-sys`, as `slang-glslang-sys` does, and on `slang-bindgen` as a build dependency (RSYS-1 of `docs/design/slang-rhi-sys.md`):
 
 ```text
   slang-rhi ------------------> slang-compiler, with vendored
@@ -214,7 +214,7 @@ M10 makes `slang-rhi` a dependency of `slango` behind the opt-in feature `rhi`, 
 
 ### 3.3. Unsafe Code
 
-Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, and `slang-glslang-sys`, and in the planned `slang-rhi-sys` and `slang-rhi`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. `slang-glslang-sys` declares the one foreign function that returns its loader, in an `unsafe extern "C"` block, and has no other unsafe code (SGL-13 of `docs/design/slang-glslang-sys.md`). The other crates have none:
+Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, and `slang-rhi-sys`, and in the planned `slang-rhi`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. `slang-glslang-sys` declares the one foreign function that returns its loader, in an `unsafe extern "C"` block, and has no other unsafe code (SGL-13 of `docs/design/slang-glslang-sys.md`). The other crates have none:
 
 - `slang-src` runs git and `slang-bindgen` parses headers, both through safe APIs (SRC-2 of `docs/design/slang-src.md` and SCS-57 of `docs/design/slang-compiler-sys.md`).
 - `slango` loads every shader through wgpu's validated path (SLO-2 of `docs/design/slango.md`).
@@ -223,7 +223,7 @@ Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, and `slang-g
 
 A later feature of `slango` or `slang-slint` may need unsafe code, such as for shader passthrough or for interoperation with Slint or wgpu-hal. Each such need follows the procedure of Section 4.4 of the coding standard, and the design document of that crate decides it (Section 17, Q-19).
 
-The planned crates `slang-rhi-sys` and `slang-rhi` of M9 hold unsafe code, as `slang-compiler-sys` and `slang-compiler` do, and Hard Rule 7 of `AGENTS.md` lists them. `slang-rhi-sys` includes the generated declarations of slang-rhi, which are unsafe foreign items (RSYS-2 of `docs/design/slang-rhi-sys.md`). `slang-rhi` calls them and the reflection functions of `slang-compiler-sys` to give a safe API, with its unsafe code in four private modules (RHI-2 of `docs/design/slang-rhi.md`).
+The crates `slang-rhi-sys` and `slang-rhi` of M9 hold unsafe code, as `slang-compiler-sys` and `slang-compiler` do, and Hard Rule 7 of `AGENTS.md` lists them. `slang-rhi-sys` includes the generated declarations of slang-rhi, which are unsafe foreign items (RSYS-2 of `docs/design/slang-rhi-sys.md`). The planned `slang-rhi` calls them and the reflection functions of `slang-compiler-sys` to give a safe API, with its unsafe code in four private modules (RHI-2 of `docs/design/slang-rhi.md`).
 
 ### 3.4. Design Documents per Crate
 
@@ -347,7 +347,7 @@ The generated module carries the lint exception that Section 7.9 of the writing 
 
 ### 6.2. Binding Generator
 
-The binding generator is the published library crate `slang-bindgen`, which parses the Slang headers with libclang for one target and returns the bindings and the list of their C functions as text. The build script of `slang-compiler-sys` runs it in every build, so every build needs libclang, and later the build script of `slang-rhi-sys` runs it too. A thin binary of the crate writes the same text into files for the checker of the guard around calls into Slang (SCS-60 of `docs/design/slang-compiler-sys.md`).
+The binding generator is the published library crate `slang-bindgen`, which parses the Slang headers with libclang for one target and returns the bindings and the list of their C functions as text. The build script of `slang-compiler-sys` runs it in every build, so every build needs libclang, and the build script of `slang-rhi-sys` runs it in every build on the slang-rhi headers (Section 7.8 of `docs/design/slang-compiler-sys.md`). A thin binary of the crate writes the same text into files for the checker of the guard around calls into Slang (SCS-60 of `docs/design/slang-compiler-sys.md`).
 
 The library follows ERR-1 and ERR-2 of the coding standard. Its binary is an application, so those rules do not apply to the binary (Section 1.1 of the coding standard).
 
@@ -509,6 +509,8 @@ This table states the support tier of each platform.
 
 CI installs the Vulkan SDK version that its configuration records on all three platforms, and its Slang on Windows and macOS is the same build as on Linux (Section 3.6 of `docs/design/slang-compiler-sys.md`). One CI job on each platform also builds and tests the vendored route (SCS-62 of that document). On each runner, the GPU tier uses SPIR-V as the only shader target (Section 3.8 of `docs/design/slango.md`).
 
+The crates of slang-rhi have narrower platforms than this table: `slang-rhi-sys` builds on Linux with the GNU C library only, the code step for Windows of M9 is to add Windows with the D3D12 backend, and macOS has no slang-rhi (Section 7 of `docs/design/slang-rhi-sys.md`).
+
 The tested targets are x86_64 Linux, x86_64 Windows with the Microsoft toolchain, and aarch64 and x86_64 macOS, of which CI only type-checks x86_64 macOS with Clippy (Section 6 of `docs/design/slang-compiler-sys.md`).
 
 ARCH-37. A build MUST NOT stop because its target is not one of the tested targets. The build script of `slang-compiler-sys` MUST state an untested target as untested and unsupported, in a warning and in its build information (SCS-65 of `docs/design/slang-compiler-sys.md`). A build MUST stop for its target only where a correct build is impossible, and MUST name the reason: a target whose pointer width is not 64, and on the vendored route a cross-compilation or a target without a link rule for its C++ runtime library (SCS-66 and SCS-43 of that document). The owner decided that untested platforms are allowed, because a refusal blocks a user whose build would work, while the statement keeps the support honest.
@@ -534,7 +536,7 @@ Each crate of the workspace has the licence of its kind, as this table shows. Th
 
 | Kind | Crates | Licence |
 | --- | --- | --- |
-| A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, `slang-src`, `slang-glslang-sys`, and the planned `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
+| A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, `slang-src`, `slang-glslang-sys`, and `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
 | The Slint view | `slang-slint` | `GPL-3.0-or-later` |
 | Every other crate | `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, the binding generator `slang-bindgen`, the planned `slang-rhi`, and the unpublished examples package | `MIT OR Apache-2.0` |
 
@@ -791,22 +793,24 @@ Several milestones replace requirements of this document that the code satisfies
   - The crate `slang-rhi`, with safe wrappers over `slang-rhi-sys`.
   - Additive reflection in `slang-compiler`: functions found by name, function modifiers such as `Differentiable`, function attributes, specialization with argument types, generics, and the metadata of cooperative types (Section 9.6 of `docs/design/slang-compiler.md`).
 
-  The CMake build of slang-rhi downloads its dependencies when it configures by default. On Linux with the Vulkan backend, the build script of `slang-rhi-sys` turns every download off or redirects it to the Slang tree (Section 5.2 of `docs/design/slang-rhi-sys.md`).
+  The CMake build of slang-rhi downloads its dependencies when it configures by default. On Linux with the Vulkan backend, the build script of `slang-rhi-sys` turns every download off or redirects it to the Slang tree (Section 5.2 of `docs/design/slang-rhi-sys.md`), and the build for Windows with the D3D12 backend is to do the same (Section 7.3 of that design). macOS has no slang-rhi in M9, because its Metal backend does not compile with the metal-cpp of the Slang tree (Section 7.4 of that design).
 - Owner decisions that bind it:
   - `slang-bindgen` is a build dependency of `slang-rhi-sys`, as it is of `slang-compiler-sys`, and `slang-rhi-sys` builds slang-rhi from the one Slang tree of `slang-src`.
   - The Vulkan, D3D12, and Metal device backends of slang-rhi are built by default on their platforms. CUDA with OptiX, and the CPU, are opt-in Cargo features, which M15 delivers.
+  - On 2026-11-18, after the test of Windows and macOS, the owner decided that slang-rhi is supported on Windows with the D3D12 backend, built offline with no download, NVAPI, or Agility SDK, with the vendored Slang built with DXIL support and `dxcompiler.dll` provided by the user's program at run time. slang-rhi stays unsupported on macOS, and the project asks Slang upstream to update its submodule `external/metal-cpp`. Section 4.1 of `docs/design/slang-rhi-sys.md` states these decisions, and its Sections 7.3 and 7.4 the design that follows from them.
   - On 2026-11-17, the owner decided that `slang-rhi-sys` always uses the vendored Slang, so that the feature `rhi` of `slango` implies `vendored`, which answered Q-39. The owner also decided that M9 delivers `slang-rhi-sys` on Linux with the Vulkan backend first, that a code step tests the builds of Windows and macOS with their downloads off before any download is designed, and that the safe crate wraps the compute path in M9 while the raw bindings cover the whole API wherever the generator can produce them soundly. Section 4.1 of `docs/design/slang-rhi-sys.md` states these decisions.
 - Code steps, in this order, each on its own branch with its own CI run. The first two remove the largest uncertainty, and the second brings the result of Windows and macOS to the owner early:
-  1. The build of slang-rhi: `external/slang-rhi` in the required submodules with the clone entry of SRC-25 of `docs/design/slang-src.md`, the crate `slang-rhi-sys` with its wrapper build and its entry of the shared folder on Linux and no bindings yet, the recipes `check-rhi` and `test-rhi`, and the steps of the CI job `vendored` for them (TOOL-52 of `docs/design/tooling.md`). It confirms the wrapper build of Section 5 of `docs/design/slang-rhi-sys.md` and measures the build time and the size of the entry.
+  1. The build of slang-rhi: `external/slang-rhi` in the required submodules with the clone entry of SRC-25 of `docs/design/slang-src.md`, the crate `slang-rhi-sys` with its wrapper build and its entry of the shared folder on Linux and no bindings yet, the recipes `check-rhi` and `test-rhi`, and the steps of the CI job `vendored` for them (TOOL-52 of `docs/design/tooling.md`). It confirms the wrapper build of Section 5 of `docs/design/slang-rhi-sys.md`.
   2. The test of Windows and macOS of Section 7.2 of `docs/design/slang-rhi-sys.md`, on a branch whose result does not reach `main`, with the result brought to the owner.
   3. The generator on the slang-rhi headers (Section 7.8 of `docs/design/slang-compiler-sys.md`), the rule set `SLANG_RHI`, the bindings of `slang-rhi-sys`, and its symbol, ABI probe, smoke, and `gpu` tests.
   4. The additive reflection and the two accessors of Sections 9.6 and 9.7 of `docs/design/slang-compiler.md`. This step depends on no other step and can run beside the first three.
   5. The safe crate `slang-rhi` with its `gpu` tests on lavapipe, and the new rule CONC-8, which that step adds to the coding standard (Section 7 of `docs/design/slang-rhi.md`).
-  6. The crate documentation, the crate READMEs, and the documents that the exit criteria name.
-- Replaces: ARCH-1 and the diagram of Section 3.2, which gain the two crates in a second diagram, and Section 3.3 with the list of crates in Hard Rule 7 of `AGENTS.md` that may hold unsafe code. Its design confirms A-15, A-16, A-19, and A-20, corrects A-21, whose unsettled part is A-29 (Section 16), and answers Q-39 and the Linux part of Q-35 (Section 17).
+  6. The build for Windows with D3D12 of Section 7.3 of `docs/design/slang-rhi-sys.md`: the ABI probe extended to the Microsoft ABI, which settles SA-19 of `docs/design/slang-compiler-sys.md` before any binding is emitted for that ABI, the DXIL support of the vendored Slang on Windows (SCS-82 of that design), the wrapper build with D3D12 and the lookup of the Microsoft compiler, the redirection of WinPixEventRuntime (RSYS-18), the tests of both crates on a D3D12 device, and the steps of `check-rhi` and `test-rhi` in the CI job `vendored` on Windows. It comes after the safe crate, because SA-19 concerns only bindings for the Microsoft ABI, which no earlier step needs, and the safe crate then runs on Windows without a change of its design.
+  7. The crate documentation, the crate READMEs, and the documents that the exit criteria name.
+- Replaces: ARCH-1 and the diagram of Section 3.2, which gain the two crates in a second diagram, and Section 3.3 with the list of crates in Hard Rule 7 of `AGENTS.md` that may hold unsafe code. Its design confirms A-15, A-16, A-19, and A-20, corrects A-21, whose unsettled part is A-29 (Section 16), and answers Q-39 and Q-35 (Section 17).
 - Depends on: M7, whose `slang-bindgen` and `slang-src` it builds on. The roadmap places M9 after M8.
 - Design document, which exists before any code of the milestone: `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, new, `docs/design/slang-compiler-sys.md`, revised for the generator, `docs/design/slang-compiler.md`, revised for reflection, and `docs/design/slang-src.md`, revised for the new required submodule.
-- Exit criteria: every check passes, including the tests of both new crates in the GPU tier on lavapipe in the CI job `vendored` on Linux (Section 9 of `docs/design/slang-rhi-sys.md`, Section 10 of `docs/design/slang-rhi.md`). The owner has the result of the test of Windows and macOS. `AGENTS.md`, `README.md`, and this document are updated.
+- Exit criteria: every check passes, including the tests of both new crates in the GPU tier on lavapipe in the CI job `vendored` on Linux and on a D3D12 device on WARP in that job on Windows (Section 9 of `docs/design/slang-rhi-sys.md`, Section 10 of `docs/design/slang-rhi.md`). SA-19 of `docs/design/slang-compiler-sys.md` is settled, and the entry REQ-1 of `docs/upstream-reports.md` is in the list. `AGENTS.md`, `README.md`, and this document are updated.
 
 ### 15.13. M10: The Opt-In slang-rhi Backend of `slango`
 
@@ -957,7 +961,7 @@ Each row is a question that this document leaves open. The design document in th
 | Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
 
-Q-39 is answered by the owner's decision of 2026-11-17: `slang-rhi-sys` always uses the vendored Slang, so the feature `rhi` of `slango` implies `vendored` (Section 4.1 of `docs/design/slang-rhi-sys.md`). Q-35 is answered for Linux with the Vulkan backend, which builds without any download (Section 5.2 of that design). Its rest, the builds of Windows and macOS, is RSQ-1 of that design, which the owner decides after the test of its Section 7.2.
+Q-39 is answered by the owner's decision of 2026-11-17: `slang-rhi-sys` always uses the vendored Slang, so the feature `rhi` of `slango` implies `vendored` (Section 4.1 of `docs/design/slang-rhi-sys.md`). Q-35 is answered for Linux with the Vulkan backend, which builds without any download (Section 5.2 of that design), and by the owner's decisions of 2026-11-18 for Windows and macOS: Windows is to build the D3D12 backend offline, and macOS stays without slang-rhi until Slang's tree holds a newer metal-cpp (Sections 4.1, 7.3, and 7.4 of that design).
 
 Q-32, whether the in-process loader of `slang-glslang-sys` gives a vendored build optimized SPIR-V on Linux, Windows, and macOS, is answered yes for the hosted runners of the three platforms by the vendored tests of `slang-compiler` and `slang-glslang-sys` (Section 9 of `docs/design/slang-glslang-sys.md`).
 
@@ -976,7 +980,7 @@ The design addresses each part, mostly through the rules that Section 20 of the 
 - Untrusted input: `slang-compiler` returns errors instead of panicking (ERR-5), and its design document states which files Slang can read through include paths and module search paths. The crates treat text passed to Slang as trusted input and do not guard against defects of Slang (Section 1.6 of `docs/design/slang-compiler.md`).
 
   Slang reads standard modules, the files of some options, and downstream compilers directly from the operating system. An application that compiles untrusted source and needs isolation therefore runs the compiler in a separate process (Sections 8.6 and 17 of `docs/design/slang-compiler.md`).
-- Unsafe code: the crates rely on the native library matching the bindings, which the generation from the headers of the linked Slang (ARCH-33) and the run-time check (ARCH-34) secure, and on the reference counting and lifetime contracts of the Slang API, which Section 12 of the coding standard constrains. Unsafe code stays in three crates, and in the two planned crates of M9 (Section 3.3), and generated declarations are never written by hand (ARCH-33, COM-9).
+- Unsafe code: the crates rely on the native library matching the bindings, which the generation from the headers of the linked Slang (ARCH-33) and the run-time check (ARCH-34) secure, and on the reference counting and lifetime contracts of the Slang API, which Section 12 of the coding standard constrains. Unsafe code stays in four crates, and in the planned `slang-rhi` (Section 3.3), and generated declarations are never written by hand (ARCH-33, COM-9).
 - Build scripts: only `slang-src` reaches the network, to clone the recorded commit by its full hash over HTTPS only, without tags or history, and no build script writes outside `OUT_DIR` except into the shared folder in the Cargo target directory (ARCH-35, Section 14 of `docs/design/slang-src.md`). ARCH-27 keeps the vendored build out of the source tree, and ARCH-5 and ARCH-28 stop the build instead of searching for a library elsewhere or falling back.
 - Dependencies: the exact version of `slang-src` fixes the recorded commit for each version of the crates that depend on it, the dynamic route links whichever SDK the user installed, and cargo-deny checks the advisories, licences, and sources of every crate, including the dependencies of the generator, which now compile on every user's machine.
 - CI: every download whose upstream publishes a SHA-256 checksum is verified against it, as Hard Rule 7 of `AGENTS.md` requires, and `docs/design/tooling.md` specifies how. No file in the repository contains a secret.
@@ -1012,7 +1016,7 @@ This table summarizes the Cargo feature `vendored`, which selects the vendored r
 
 `slang-src`, `slang-glslang-sys`, and `slang-bindgen` have no Cargo features. `--all-features` enables `vendored`, so the recipes pass an explicit list of features (`docs/design/tooling.md`).
 
-The planned `slang-rhi-sys` and `slang-rhi` have no Cargo features in M9. They always enable `vendored` through their dependencies, so a build graph that holds either links the vendored Slang (Section 4.1 of `docs/design/slang-rhi-sys.md`).
+`slang-rhi-sys` and the planned `slang-rhi` have no Cargo features in M9. They always enable `vendored` through their dependencies, so a build graph that holds either links the vendored Slang (Section 4.1 of `docs/design/slang-rhi-sys.md`).
 
 ### 19.2. Environment Variables
 

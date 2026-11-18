@@ -16,5 +16,11 @@ repository.workspace = true
 slang-compiler-sys = { workspace = true, features = ["vendored"] }
 slang-src.workspace = true
 
+[build-dependencies]
+slang-bindgen.workspace = true
+
+[dev-dependencies]
+slang-bindgen.workspace = true
+
 [lints]
 workspace = true

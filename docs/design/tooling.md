@@ -126,7 +126,7 @@ TOOL-52. The `justfile` MUST hold the packages of the crates that build slang-rh
 
 `rhi_packages` holds `slang-rhi-sys`, and the change that adds the crate `slang-rhi` adds it. The crates need no feature, because `slang-rhi-sys` always enables `vendored` on `slang-compiler-sys` (RSYS-1 of `docs/design/slang-rhi-sys.md`).
 
-The crates build on Linux only in M9 and need an adapter for their tests, so they get recipes of their own instead of joining `vendored_packages`, whose recipes run on every platform. The recipes share `target/vendored` with the vendored recipes, so a run after `test-vendored` reuses its clone and its build of Slang. This is a departure of TOOL-7 of the same kind as that of the vendored recipes.
+The crates build on Linux only until the code step for Windows of M9, which is also to change these recipes and their steps in the CI job `vendored` for Windows (Section 15.12 of the architecture design), and they need an adapter for their tests, so they get recipes of their own instead of joining `vendored_packages`, whose recipes run on every platform. The recipes share `target/vendored` with the vendored recipes, so a run after `test-vendored` reuses its clone and its build of Slang. This is a departure of TOOL-7 of the same kind as that of the vendored recipes.
 
 Both recipes need what a vendored build needs (SRC-20 of `docs/design/slang-src.md`) and the development headers of Xlib, such as those of the Debian package `libx11-dev`, which the Vulkan backend of slang-rhi includes on Linux (Section 7.1 of `docs/design/slang-rhi-sys.md`).
 

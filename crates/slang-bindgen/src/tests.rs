@@ -8,6 +8,8 @@ mod ffi {
     use crate::rules::{Action, DeclRule, MacroAction, MacroRule, RuleSet, UnnamedEnumRule};
     use crate::{Generated, generate_with};
 
+    mod slang_rhi;
+
     static LIBCLANG: Mutex<()> = Mutex::new(());
 
     const TARGET: &str = "x86_64-unknown-linux-gnu";
@@ -50,6 +52,7 @@ struct IRoot
     }];
 
     const NO_MACROS: &[MacroRule] = &[MacroRule {
+        header: None,
         pattern: "*",
         action: MacroAction::Exclude,
         reason: "a test macro",
@@ -58,12 +61,26 @@ struct IRoot
     const fn rules(declarations: &'static [DeclRule], macros: &'static [MacroRule]) -> RuleSet {
         RuleSet {
             main_header: "slang.h",
+            language: "c++17",
+            defines: &[],
+            library: "Slang",
+            own_crate: "slang_compiler_sys",
+            external_crate: None,
             declarations,
             macros,
             unnamed_enums: &[],
             result_type: "SlangResult",
             uuid_type: "SlangUUID",
             pointer_sized: &[("SlangInt", Prim::Isize)],
+            members: None,
+            templates: &[],
+            uuidless: &[],
+            overloads: &[],
+            placeholders: &[],
+            called_callbacks: &[],
+            without_default: &[],
+            abi_probe: false,
+            initializers_in_place: false,
         }
     }
 
@@ -126,6 +143,13 @@ struct IRoot
 
     fn generate(test: &str, header: &str) -> String {
         generate_rules(test, header, &DEFAULT_RULES)
+    }
+
+    #[test]
+    fn generate_returns_no_abi_probe_for_the_slang_headers() {
+        let (generated, _) = run_in("no_probe", "", &DEFAULT_RULES, TARGET);
+        let generated = generated.unwrap_or_else(|error| panic!("generation failed: {error}"));
+        assert_eq!(generated.abi_probe, None);
     }
 
     fn generate_rules(test: &str, header: &str, rules: &RuleSet) -> String {
@@ -477,26 +501,31 @@ impl Fixed {
     fn generate_evaluates_result_codes_and_allowed_macros_only() {
         const MACROS: &[MacroRule] = &[
             MacroRule {
+                header: None,
                 pattern: "SLANG_OK",
                 action: MacroAction::ResultCode,
                 reason: "a result code",
             },
             MacroRule {
+                header: None,
                 pattern: "SLANG_E_*",
                 action: MacroAction::ResultCode,
                 reason: "a result code",
             },
             MacroRule {
+                header: None,
                 pattern: "TEST_SIZE",
                 action: MacroAction::Constant(Prim::Usize),
                 reason: "a size sentinel",
             },
             MacroRule {
+                header: None,
                 pattern: "TEST_FACILITY",
                 action: MacroAction::Constant(Prim::I32),
                 reason: "a facility",
             },
             MacroRule {
+                header: None,
                 pattern: "*",
                 action: MacroAction::Exclude,
                 reason: "a platform macro",
@@ -1029,6 +1058,7 @@ struct Differs
     #[test]
     fn generate_fails_on_a_macro_that_matches_no_rule() {
         const MACROS: &[MacroRule] = &[MacroRule {
+            header: None,
             pattern: "TEST_*",
             action: MacroAction::Exclude,
             reason: "a test macro",
@@ -1046,11 +1076,13 @@ struct Differs
 
     const TYPED_MACROS: &[MacroRule] = &[
         MacroRule {
+            header: None,
             pattern: "TEST_VALUE",
             action: MacroAction::Constant(Prim::I32),
             reason: "a typed test constant",
         },
         MacroRule {
+            header: None,
             pattern: "*",
             action: MacroAction::Exclude,
             reason: "a test macro",
@@ -1895,11 +1927,13 @@ enum
         ];
         const MACROS: &[MacroRule] = &[
             MacroRule {
+                header: None,
                 pattern: "OLD_MACRO",
                 action: MacroAction::Exclude,
                 reason: "a removed macro",
             },
             MacroRule {
+                header: None,
                 pattern: "*",
                 action: MacroAction::Exclude,
                 reason: "a test macro",

@@ -1,5 +1,5 @@
 //! Generates the raw Rust bindings of `slang-compiler-sys` from the Slang
-//! headers.
+//! headers, and those of `slang-rhi-sys` from the headers of slang-rhi.
 //!
 //! Slang is a shader compiler, a compiler for the programs that run on a
 //! graphics processing unit (GPU), and its C++ header `slang.h` declares its
@@ -12,8 +12,11 @@
 //!
 //! The build script of `slang-compiler-sys` calls [`generate`] in every
 //! build, on the headers of the Slang that the build links, and includes the
-//! two texts from its output directory. Use this crate directly only to see
-//! the bindings that a build of `slang-compiler-sys` compiles, such as to
+//! two texts from its output directory. The build script of `slang-rhi-sys`
+//! calls [`generate_slang_rhi`] in the same way on the headers of slang-rhi,
+//! the render hardware interface of the Slang source tree, whose bindings
+//! refer to the Slang types of `slang-compiler-sys`. Use this crate directly
+//! only to see the bindings that a build of either crate compiles, such as to
 //! compare the bindings of two Slang versions. Programs that use Slang depend
 //! on `slang-compiler-sys`, or on the safe crate `slang-compiler`, instead.
 //!
@@ -75,6 +78,7 @@ mod emit;
 mod error;
 mod model;
 mod parse;
+mod probe;
 mod rules;
 
 use std::path::Path;
@@ -90,10 +94,10 @@ pub struct ReadmeDoctests;
 
 const CLANG_EXISTS: &str = "an instance of `Clang` already exists";
 
-/// The two texts that one call of [`generate`] returns.
+/// The texts that one call of [`generate`] or [`generate_slang_rhi`] returns.
 ///
-/// Both texts come from the same parse of the headers, so the list of C
-/// functions always matches the bindings.
+/// The texts come from the same parse of the headers, so the list of C
+/// functions and the ABI probe always match the bindings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Generated {
@@ -102,8 +106,14 @@ pub struct Generated {
     pub bindings: String,
     /// The constant `C_FUNCTIONS`, which pairs the name of every C function
     /// of the bindings with its address, in declaration order, for a module
-    /// that includes it next to the crate `slang_compiler_sys`.
+    /// that includes it next to the crate of the bindings, which is
+    /// `slang_compiler_sys` for [`generate`] and `slang_rhi_sys` for
+    /// [`generate_slang_rhi`].
     pub symbols: String,
+    /// The C++ translation unit that checks the layout of the bindings
+    /// against the compiler that builds slang-rhi, which only
+    /// [`generate_slang_rhi`] returns. [`generate`] returns `None`.
+    pub abi_probe: Option<String>,
 }
 
 /// Generates the raw bindings and the list of their C functions from the
@@ -159,7 +169,122 @@ pub fn generate(header_dir: impl AsRef<Path>, target: &str) -> Result<Generated>
     generate_with(&rules::SLANG, header_dir.as_ref(), target)
 }
 
+/// Generates the raw bindings of slang-rhi, the list of their C functions,
+/// and the ABI probe from the slang-rhi headers for the target `target`.
+///
+/// Use this in a build script that builds slang-rhi, to get the bindings of
+/// the slang-rhi that the build links. `rhi_header_dir` is the `include`
+/// directory of slang-rhi, which holds `slang-rhi.h`. `config_dir` is the
+/// directory that holds the `slang-rhi-config.h` that the configure step of
+/// slang-rhi wrote, so that the parse sees the configuration that the library
+/// was built with. `slang_header_dir` holds the headers of the Slang that the
+/// same build links, the directory that [`generate`] takes. `target` is a
+/// target triple that libclang knows.
+///
+/// The bindings refer to every declaration of the Slang headers by its path
+/// in the crate `slang_compiler_sys`, whose bindings [`generate`] writes for
+/// the same headers and target, so that one native type has one Rust type.
+/// The interfaces of slang-rhi implement the trait `Interface` of that crate.
+/// The C functions are listed for a module that includes the list next to
+/// the crate `slang_rhi_sys`.
+///
+/// [`Generated::abi_probe`] holds a C++ translation unit for the compiler
+/// that builds slang-rhi. It asserts the size, the alignment, and the offset
+/// of each field of every generated struct. On a target of the Itanium C++
+/// ABI, which is every target that libclang does not resolve to Windows with
+/// the `msvc` environment, it also defines the C function `slang_rhi_sys_abi_probe_slots`, which writes the
+/// byte offset of the vtable slot of every generated method into an array of
+/// `size_t` of the given capacity and returns their number.
+/// [`Generated::symbols`] then also holds the declaration of that function and
+/// the constant `VTABLE_SLOTS`, which pairs each method with the offset of
+/// its field in the generated vtable struct, in the same order.
+///
+/// # Examples
+///
+/// This example generates the bindings of slang-rhi for `x86_64` Linux. It
+/// needs libclang and the headers at run time, so it is compiled but not run:
+///
+/// ```no_run
+/// let generated = slang_bindgen::generate_slang_rhi(
+///     "/tmp/slang/external/slang-rhi/include",
+///     "/tmp/slang-rhi-build/include",
+///     "/tmp/slang/include",
+///     "x86_64-unknown-linux-gnu",
+/// )?;
+/// assert!(generated.abi_probe.is_some());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns an [`Error`] with the kinds that [`generate`] returns, for the
+/// slang-rhi headers and for the Slang headers, which this function also
+/// parses as [`generate`] does. These are added:
+///
+/// - [`ErrorKind::Io`] when one of the three directories, or `slang-rhi.h`
+///   in the first, cannot be read.
+/// - [`ErrorKind::Unsupported`] when a declaration of slang-rhi refers to a
+///   Slang type that the bindings of [`generate`] do not declare in the form
+///   that the reference needs, and when virtual methods share a name on a
+///   target that libclang resolves to Windows with the `msvc` environment,
+///   such as `x86_64-pc-windows-msvc` or `x86_64-pc-win32`, whose Microsoft
+///   C++ ABI orders such methods in a vtable in a way that is not
+///   established.
+pub fn generate_slang_rhi(
+    rhi_header_dir: impl AsRef<Path>,
+    config_dir: impl AsRef<Path>,
+    slang_header_dir: impl AsRef<Path>,
+    target: &str,
+) -> Result<Generated> {
+    generate_with_external(
+        &rules::SLANG,
+        &rules::SLANG_RHI,
+        [
+            rhi_header_dir.as_ref(),
+            config_dir.as_ref(),
+            slang_header_dir.as_ref(),
+        ],
+        target,
+    )
+}
+
+fn generate_with_external(
+    external_rules: &rules::RuleSet,
+    rules: &rules::RuleSet,
+    [header_dir, config_dir, external_dir]: [&Path; 3],
+    target: &str,
+) -> Result<Generated> {
+    readable_dir(config_dir, "the directory of the configured header")?;
+    main_header(external_dir, external_rules)?;
+    let clang = start(header_dir, rules)?;
+    let index = Index::new(&clang, false, false);
+    let external = run(&index, external_rules, &[external_dir], target, None)?;
+    let emitted = run(
+        &index,
+        rules,
+        &[header_dir, config_dir, external_dir],
+        target,
+        Some(&external.types),
+    )?;
+    Ok(Generated {
+        bindings: emitted.bindings,
+        symbols: emitted.symbols,
+        abi_probe: emitted.abi_probe,
+    })
+}
+
 fn generate_with(rules: &rules::RuleSet, header_dir: &Path, target: &str) -> Result<Generated> {
+    let clang = start(header_dir, rules)?;
+    let index = Index::new(&clang, false, false);
+    let emitted = run(&index, rules, &[header_dir], target, None)?;
+    Ok(Generated {
+        bindings: emitted.bindings,
+        symbols: emitted.symbols,
+        abi_probe: emitted.abi_probe,
+    })
+}
+
+fn main_header(header_dir: &Path, rules: &rules::RuleSet) -> Result<()> {
     readable_dir(header_dir, "the header directory")?;
     let main_header = header_dir.join(rules.main_header);
     std::fs::File::open(&main_header)
@@ -170,22 +295,37 @@ fn generate_with(rules: &rules::RuleSet, header_dir: &Path, target: &str) -> Res
                 format!("cannot read the main header {}", main_header.display()),
             )
             .with_source(error)
-        })?;
+        })
+}
+
+fn start(header_dir: &Path, rules: &rules::RuleSet) -> Result<Clang> {
+    main_header(header_dir, rules)?;
     readable_dir(&parse::shim_dir(), "the directory of the shim headers")?;
     keep_libclang_loaded()?;
-    let clang = Clang::new().map_err(|reason| libclang_error(&reason))?;
-    let index = Index::new(&clang, false, false);
-    let model = parse::parse(&index, target, header_dir, rules.main_header)?;
-    let mut selection = check::select(model, rules)?;
-    check::evaluate(&mut selection, |evaluations| {
-        parse::evaluate(&index, target, header_dir, rules.main_header, evaluations)
+    Clang::new().map_err(|reason| libclang_error(&reason))
+}
+
+fn run(
+    index: &Index<'_>,
+    rules: &rules::RuleSet,
+    dirs: &[&Path],
+    target: &str,
+    external: Option<&emit::TypeNames>,
+) -> Result<emit::Emitted> {
+    let source = parse::Source {
+        dirs,
+        initializers_in_place: rules.initializers_in_place,
+        main_header: rules.main_header,
+        language: rules.language,
+        defines: rules.defines,
+    };
+    let model = parse::parse(index, target, &source)?;
+    let mut selection = check::select(model, rules, target)?;
+    check::evaluate(&mut selection, rules, |evaluations| {
+        parse::evaluate(index, target, &source, evaluations)
     })?;
-    check::validate(&selection, rules, target)?;
-    let emitted = emit::emit(&selection, rules, target)?;
-    Ok(Generated {
-        bindings: emitted.bindings,
-        symbols: emitted.symbols,
-    })
+    check::validate(&selection, rules, target, external)?;
+    emit::emit(&selection, rules, target)
 }
 
 fn readable_dir(dir: &Path, what: &str) -> Result<()> {

@@ -48,3 +48,9 @@ endif()
 add_subdirectory("${SLANG_TREE_DIR}/external/slang-rhi" slang-rhi EXCLUDE_FROM_ALL)
 
 set_property(TARGET slang-rhi-warnings-as-errors PROPERTY INTERFACE_COMPILE_OPTIONS "")
+
+set(SLANG_RHI_SYS_ABI_PROBE "${CMAKE_BINARY_DIR}/abi-probe.cpp")
+set_source_files_properties("${SLANG_RHI_SYS_ABI_PROBE}" PROPERTIES GENERATED TRUE)
+add_library(slang-rhi-sys-abi-probe STATIC EXCLUDE_FROM_ALL "${SLANG_RHI_SYS_ABI_PROBE}")
+set_target_properties(slang-rhi-sys-abi-probe PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(slang-rhi-sys-abi-probe PRIVATE slang-rhi)

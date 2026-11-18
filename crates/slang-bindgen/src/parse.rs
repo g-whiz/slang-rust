@@ -8,8 +8,9 @@ use clang::{
 
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Constant, Enum, Enumerator, Evaluation, Field, Function, Guid, Init, Interface, Item,
-    ItemKind, Macro, Method, Model, Name, Param, Prim, Record, Signature, Ty, Underlying, Value,
+    CType, CanonicalSignature, Constant, Enum, Enumerator, Evaluation, Field, Function, Guid, Init,
+    Interface, Item, ItemKind, Macro, Member, Method, Model, Name, Param, Prim, Record, Signature,
+    Ty, Underlying, Value,
 };
 
 const EVALUATION_FILE: &str = "__slang_bindgen_evaluate.cpp";
@@ -19,49 +20,78 @@ pub(crate) fn shim_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("shim")
 }
 
-fn arguments(target: &str, header_dir: &Path) -> Vec<String> {
-    vec![
-        "-x".to_owned(),
-        "c++".to_owned(),
-        "-std=c++17".to_owned(),
-        "-target".to_owned(),
-        target.to_owned(),
-        "-nostdinc".to_owned(),
-        "-isystem".to_owned(),
-        shim_dir().display().to_string(),
-        format!("-I{}", header_dir.display()),
-    ]
+pub(crate) struct Source<'a> {
+    pub(crate) dirs: &'a [&'a Path],
+    pub(crate) initializers_in_place: bool,
+    pub(crate) main_header: &'a str,
+    pub(crate) language: &'a str,
+    pub(crate) defines: &'a [&'a str],
 }
 
-pub(crate) fn parse(
-    index: &Index<'_>,
-    target: &str,
-    header_dir: &Path,
-    main_header: &str,
-) -> Result<Model> {
-    let mut parser = index.parser(header_dir.join(main_header));
+impl Source<'_> {
+    fn main_dir(&self) -> &Path {
+        self.dirs.first().copied().unwrap_or_else(|| Path::new("."))
+    }
+
+    fn arguments(&self, target: &str) -> Vec<String> {
+        let mut arguments = vec![
+            "-x".to_owned(),
+            "c++".to_owned(),
+            format!("-std={}", self.language),
+            "-target".to_owned(),
+            target.to_owned(),
+            "-nostdinc".to_owned(),
+            "-isystem".to_owned(),
+            shim_dir().display().to_string(),
+        ];
+        arguments.extend(self.dirs.iter().map(|dir| format!("-I{}", dir.display())));
+        arguments.extend(self.defines.iter().map(|define| format!("-D{define}")));
+        arguments
+    }
+
+    fn canonical_dirs(&self) -> Vec<PathBuf> {
+        self.dirs
+            .iter()
+            .filter_map(|dir| std::fs::canonicalize(dir).ok())
+            .collect()
+    }
+}
+
+pub(crate) fn parse(index: &Index<'_>, target: &str, source: &Source<'_>) -> Result<Model> {
+    let mut parser = index.parser(source.main_dir().join(source.main_header));
     parser.detailed_preprocessing_record(true);
-    let tu = parse_unit(&mut parser, target, header_dir, main_header, |_| None)?;
+    let dirs = source.canonical_dirs();
+    let tu = parse_unit(
+        &mut parser,
+        target,
+        source,
+        &dirs,
+        source.main_header,
+        |_| None,
+    )?;
     let mut extractor = Extractor {
-        header_dir,
+        dirs: &dirs,
+        initializers_in_place: source.initializers_in_place,
         files: HashMap::new(),
         model: Model::default(),
         seen: HashSet::new(),
         macros_seen: HashSet::new(),
     };
     extractor.walk(tu.get_entity())?;
+    extractor.model.microsoft_abi = crate::check::is_microsoft_abi(&tu.get_target().triple);
     Ok(extractor.model)
 }
 
 fn parse_unit<'i>(
     parser: &mut Parser<'i>,
     target: &str,
-    header_dir: &Path,
+    source: &Source<'_>,
+    dirs: &[PathBuf],
     what: &str,
     explain: impl Fn(u32) -> Option<(Location, String)>,
 ) -> Result<TranslationUnit<'i>> {
     let tu = parser
-        .arguments(&arguments(target, header_dir))
+        .arguments(&source.arguments(target))
         .parse()
         .map_err(|error| {
             Error::new(
@@ -72,14 +102,14 @@ fn parse_unit<'i>(
             )
             .with_source(error.to_string())
         })?;
-    check_diagnostics(&tu, target, header_dir, explain)?;
+    check_diagnostics(&tu, target, dirs, explain)?;
     Ok(tu)
 }
 
 fn check_diagnostics(
     tu: &TranslationUnit<'_>,
     target: &str,
-    header_dir: &Path,
+    dirs: &[PathBuf],
     explain: impl Fn(u32) -> Option<(Location, String)>,
 ) -> Result<()> {
     let Some(diagnostic) = tu
@@ -93,7 +123,7 @@ fn check_diagnostics(
     let file = place
         .file
         .map(|file| file.get_path())
-        .and_then(|path| file_name_in(header_dir, &path));
+        .and_then(|path| file_name_in(dirs, &path));
     if let Some((location, what)) = place
         .file
         .filter(|file| file.get_path().ends_with(EVALUATION_FILE))
@@ -122,16 +152,17 @@ fn check_diagnostics(
     })
 }
 
-fn file_name_in(header_dir: &Path, path: &Path) -> Option<String> {
+fn file_name_in(dirs: &[PathBuf], path: &Path) -> Option<String> {
     let canonical = std::fs::canonicalize(path).ok()?;
-    if canonical.parent()? != std::fs::canonicalize(header_dir).ok()? {
+    if !dirs.iter().any(|dir| canonical.starts_with(dir)) {
         return None;
     }
     Some(canonical.file_name()?.to_string_lossy().into_owned())
 }
 
 struct Extractor<'a> {
-    header_dir: &'a Path,
+    dirs: &'a [PathBuf],
+    initializers_in_place: bool,
     files: HashMap<PathBuf, Option<String>>,
     model: Model,
     seen: HashSet<String>,
@@ -142,11 +173,11 @@ impl Extractor<'_> {
     fn location(&mut self, entity: Entity<'_>) -> Option<Location> {
         let place = entity.get_location()?.get_file_location();
         let path = place.file?.get_path();
-        let header_dir = self.header_dir;
+        let dirs = self.dirs;
         let file = self
             .files
             .entry(path)
-            .or_insert_with_key(|path| file_name_in(header_dir, path))
+            .or_insert_with_key(|path| file_name_in(dirs, path))
             .clone()?;
         Some(Location::new(file, place.line))
     }
@@ -269,9 +300,9 @@ impl Extractor<'_> {
             .any(|child| child.get_kind() == EntityKind::BaseSpecifier);
         self.nested_declarations(&children)?;
         let kind = if has_uuid && (has_virtual || has_bases) {
-            ItemKind::Interface(self.interface(&children))
+            ItemKind::Interface(self.interface(&name, &children, true))
         } else if has_virtual {
-            ItemKind::Unsupported("a class with virtual methods and no UUID".to_owned())
+            ItemKind::Interface(self.interface(&name, &children, false))
         } else {
             ItemKind::Record(self.record(entity, &name, location, has_bases)?)
         };
@@ -322,11 +353,13 @@ impl Extractor<'_> {
         }
     }
 
-    fn interface(&mut self, children: &[Entity<'_>]) -> Interface {
+    fn interface(&mut self, owner: &Name, children: &[Entity<'_>], com: bool) -> Interface {
         let mut interface = Interface {
+            com,
             bases: Vec::new(),
             uuid: None,
             methods: Vec::new(),
+            members: Vec::new(),
             has_fields: false,
             has_virtual_destructor: false,
         };
@@ -340,8 +373,8 @@ impl Extractor<'_> {
                     interface.bases.push(base);
                 }
                 EntityKind::FieldDecl => interface.has_fields = true,
-                EntityKind::Destructor => {
-                    interface.has_virtual_destructor |= child.is_virtual_method();
+                EntityKind::Destructor if child.is_virtual_method() => {
+                    interface.has_virtual_destructor = true;
                 }
                 EntityKind::Method if child.is_virtual_method() => {
                     let location = self
@@ -349,18 +382,55 @@ impl Extractor<'_> {
                         .unwrap_or_else(|| Location::new("<unknown>", 0));
                     interface.methods.push(Method {
                         name: child.get_name().unwrap_or_default(),
+                        rust: None,
                         location,
                         signature: self.signature(*child),
                         pure: child.is_pure_virtual_method(),
+                        placeholder: false,
+                        spelled_params: spelled_params(*child),
+                        canonical: canonical_signature(*child),
                     });
                 }
-                EntityKind::Method if child.get_name().as_deref() == Some("getTypeGuid") => {
+                EntityKind::Method
+                    if com
+                        && child.is_static_method()
+                        && child.get_name().as_deref() == Some("getTypeGuid") =>
+                {
                     interface.uuid = uuid(*child);
                 }
-                _ => {}
+                _ => {
+                    if let Some(member) = self.member(owner, *child) {
+                        interface.members.push(member);
+                    }
+                }
             }
         }
         interface
+    }
+
+    fn member(&mut self, owner: &Name, child: Entity<'_>) -> Option<Member> {
+        let kind = child.get_kind();
+        if matches!(
+            kind,
+            EntityKind::FieldDecl
+                | EntityKind::BaseSpecifier
+                | EntityKind::AccessSpecifier
+                | EntityKind::StructDecl
+                | EntityKind::ClassDecl
+                | EntityKind::UnionDecl
+                | EntityKind::EnumDecl
+                | EntityKind::TypedefDecl
+                | EntityKind::TypeAliasDecl
+        ) {
+            return None;
+        }
+        let location = self.location(child)?;
+        let name = child.get_name().unwrap_or_default();
+        Some(Member {
+            name: format!("{}::{name}", owner.cxx),
+            kind: format!("{kind:?}"),
+            location,
+        })
     }
 
     fn record(
@@ -390,6 +460,12 @@ impl Extractor<'_> {
         let align = ty
             .get_alignof()
             .map_err(|error| layout_error("alignment").with_source(error))?;
+        let mut members = Vec::new();
+        for child in entity.get_children() {
+            if let Some(member) = self.member(name, child) {
+                members.push(member);
+            }
+        }
         let mut fields = Vec::new();
         for field in ty.get_fields().unwrap_or_default() {
             let field_location = self.location(field).unwrap_or_else(|| location.clone());
@@ -421,7 +497,12 @@ impl Extractor<'_> {
                 init: if member {
                     Init::None
                 } else {
-                    initializer(field)
+                    self.field_initializer(field)
+                },
+                spelling: if member {
+                    None
+                } else {
+                    initializer_spelling(field)
                 },
             });
         }
@@ -430,8 +511,23 @@ impl Extractor<'_> {
             size,
             align,
             fields,
+            members,
             has_bases,
         })
+    }
+
+    fn field_initializer(&self, field: Entity<'_>) -> Init {
+        let init = initializer(field);
+        if init != Init::Expression || !self.initializers_in_place {
+            return init;
+        }
+        let Some(expression) = field.get_children().last().copied() else {
+            return Init::Expression;
+        };
+        if let Some(value) = expression.evaluate().as_ref().and_then(value) {
+            return Init::Value(value);
+        }
+        referenced_pointer_constant(expression).map_or(Init::Expression, Init::Constant)
     }
 
     fn anonymous_member(
@@ -558,7 +654,11 @@ impl Extractor<'_> {
         let kind = match ty {
             Some(ty) if ty.is_const_qualified() => ItemKind::Constant(Constant {
                 ty: self.ty(ty),
-                value: entity.evaluate().as_ref().and_then(value),
+                value: if ty.get_canonical_type().get_kind() == TypeKind::Pointer {
+                    pointer_cast_value(entity, ty)
+                } else {
+                    entity.evaluate().as_ref().and_then(value)
+                },
             }),
             _ => ItemKind::Unsupported("a variable that is not a compile-time constant".to_owned()),
         };
@@ -589,6 +689,7 @@ impl Extractor<'_> {
             result: entity.get_result_type().map_or(Ty::Void, |ty| self.ty(ty)),
             variadic: entity.is_variadic(),
             convention: convention(function_type),
+            called_from_rust: false,
         }
     }
 
@@ -609,6 +710,7 @@ impl Extractor<'_> {
                 .map_or(Ty::Void, |ty| self.ty(ty)),
             variadic: function_type.is_variadic(),
             convention: convention(Some(function_type)),
+            called_from_rust: false,
         }
     }
 
@@ -633,6 +735,27 @@ impl Extractor<'_> {
                 let Some(declaration) = ty.get_declaration() else {
                     return unsupported(ty);
                 };
+                if let Some(template) = declaration.get_template() {
+                    let args = ty
+                        .get_template_argument_types()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|arg| {
+                            arg.map_or_else(
+                                || {
+                                    Ty::Unsupported(
+                                        "a template argument that is not a type".to_owned(),
+                                    )
+                                },
+                                |arg| self.ty(arg),
+                            )
+                        })
+                        .collect();
+                    return Ty::Template {
+                        template: qualified_name(template).cxx,
+                        args,
+                    };
+                }
                 let Some(location) = self.location(declaration) else {
                     return unsupported(ty);
                 };
@@ -663,6 +786,18 @@ impl Extractor<'_> {
                 },
                 _ => unsupported(ty),
             },
+            TypeKind::Unexposed => {
+                let canonical = ty.get_canonical_type();
+                match canonical.get_declaration() {
+                    Some(declaration)
+                        if canonical.get_kind() == TypeKind::Record
+                            && declaration.get_template().is_some() =>
+                    {
+                        self.ty(canonical)
+                    }
+                    _ => unsupported(ty),
+                }
+            }
             TypeKind::Void => Ty::Void,
             TypeKind::Bool => Ty::Bool,
             TypeKind::CharS | TypeKind::CharU => Ty::C(CType::Char),
@@ -715,6 +850,35 @@ fn qualified_name(entity: Entity<'_>) -> Name {
         } else {
             Some(rust.into_iter().flatten().collect::<Vec<_>>().join("_"))
         },
+    }
+}
+
+fn spelled_params(method: Entity<'_>) -> Vec<String> {
+    method
+        .get_arguments()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|argument| {
+            argument
+                .get_type()
+                .map_or_else(String::new, |ty| ty.get_display_name())
+        })
+        .collect()
+}
+
+fn canonical_signature(method: Entity<'_>) -> CanonicalSignature {
+    let spelling = |ty: Option<Type<'_>>| {
+        ty.map_or_else(String::new, |ty| ty.get_canonical_type().get_display_name())
+    };
+    CanonicalSignature {
+        result: spelling(method.get_result_type()),
+        params: method
+            .get_arguments()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|argument| spelling(argument.get_type()))
+            .collect(),
+        is_const: method.is_const_method(),
     }
 }
 
@@ -792,36 +956,100 @@ fn has_fixed_underlying_type(entity: Entity<'_>) -> bool {
     false
 }
 
-fn initializer(field: Entity<'_>) -> Init {
-    let Some(range) = field.get_range() else {
-        return Init::None;
-    };
-    let tokens: Vec<String> = range
+fn initializer_tokens(field: Entity<'_>) -> Option<Vec<String>> {
+    let tokens: Vec<String> = field
+        .get_range()?
         .tokenize()
         .iter()
         .map(clang::token::Token::get_spelling)
         .collect();
     let mut depth = 0_usize;
-    let mut equals = None;
     for (index, token) in tokens.iter().enumerate() {
         match token.as_str() {
             "[" | "(" => depth += 1,
             "]" | ")" => depth = depth.saturating_sub(1),
-            "=" if depth == 0 => {
-                equals = Some(index);
-                break;
-            }
+            "=" if depth == 0 => return Some(tokens[index + 1..].to_vec()),
             _ => {}
         }
     }
-    let Some(equals) = equals else {
+    None
+}
+
+fn initializer(field: Entity<'_>) -> Init {
+    let Some(tokens) = initializer_tokens(field) else {
         return Init::None;
     };
-    match &tokens[equals + 1..] {
+    match tokens.as_slice() {
         [null] if null == "nullptr" => Init::Null,
         [open, close] if open == "{" && close == "}" => Init::Zero,
         _ => Init::Expression,
     }
+}
+
+fn initializer_spelling(field: Entity<'_>) -> Option<String> {
+    let tokens = initializer_tokens(field)?;
+    let mut spelling = String::new();
+    let mut previous: Option<&str> = None;
+    for token in &tokens {
+        if let Some(previous) = previous
+            && (previous == "," || is_word(previous) && is_word(token))
+        {
+            spelling.push(' ');
+        }
+        spelling.push_str(token);
+        previous = Some(token);
+    }
+    Some(spelling)
+}
+
+fn is_word(token: &str) -> bool {
+    token
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_alphanumeric() || first == '_')
+}
+
+fn referenced_pointer_constant(expression: Entity<'_>) -> Option<String> {
+    let mut expression = expression;
+    while expression.get_kind() == EntityKind::UnexposedExpr {
+        let [inner] = expression.get_children()[..] else {
+            return None;
+        };
+        expression = inner;
+    }
+    if expression.get_kind() != EntityKind::DeclRefExpr {
+        return None;
+    }
+    let variable = expression.get_reference()?;
+    let ty = variable.get_type()?;
+    let constant = variable.get_kind() == EntityKind::VarDecl
+        && ty.is_const_qualified()
+        && ty.get_canonical_type().get_kind() == TypeKind::Pointer
+        && pointer_cast_value(variable, ty).is_some();
+    constant.then(|| qualified_name(variable).cxx)
+}
+
+fn pointer_cast_value(variable: Entity<'_>, pointer: Type<'_>) -> Option<Value> {
+    let cast = variable.get_children().into_iter().last()?;
+    if !matches!(
+        cast.get_kind(),
+        EntityKind::ReinterpretCastExpr | EntityKind::CStyleCastExpr
+    ) {
+        return None;
+    }
+    let operand = cast.get_children().into_iter().last()?;
+    let operand_type = operand.get_type()?.get_canonical_type();
+    if !operand_type.is_unsigned_integer()
+        || operand_type.get_sizeof().ok()? != pointer.get_sizeof().ok()?
+    {
+        return None;
+    }
+    let address = match operand.evaluate()? {
+        EvaluationResult::UnsignedInteger(value) => value,
+        EvaluationResult::SignedInteger(value) => u64::try_from(value).ok()?,
+        _ => return None,
+    };
+    Some(Value::Integer(i128::from(address)))
 }
 
 fn uuid(method: Entity<'_>) -> Option<Guid> {
@@ -861,11 +1089,11 @@ fn value(result: &EvaluationResult) -> Option<Value> {
 pub(crate) fn evaluate(
     index: &Index<'_>,
     target: &str,
-    header_dir: &Path,
-    main_header: &str,
+    source: &Source<'_>,
     evaluations: &[Evaluation],
 ) -> Result<Vec<Value>> {
-    let source: String = std::iter::once(format!("#include \"{main_header}\"\n"))
+    let main_header = source.main_header;
+    let text: String = std::iter::once(format!("#include \"{main_header}\"\n"))
         .chain(
             evaluations
                 .iter()
@@ -878,13 +1106,15 @@ pub(crate) fn evaluate(
                 }),
         )
         .collect();
-    let path = header_dir.join(EVALUATION_FILE);
+    let path = source.main_dir().join(EVALUATION_FILE);
     let mut parser = index.parser(&path);
-    parser.unsaved(&[Unsaved::new(&path, &source)]);
+    parser.unsaved(&[Unsaved::new(&path, &text)]);
+    let dirs = source.canonical_dirs();
     let tu = parse_unit(
         &mut parser,
         target,
-        header_dir,
+        source,
+        &dirs,
         "the evaluation file",
         |line| {
             let position = usize::try_from(line).ok()?.checked_sub(2)?;

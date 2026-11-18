@@ -35,7 +35,8 @@ pub enum ErrorKind {
     NameCollision,
 }
 
-/// A place in a Slang header, given as the file name and the line number.
+/// A place in a Slang header or a slang-rhi header, given as the file name
+/// and the line number.
 ///
 /// The file name has no directory, so that messages do not depend on where
 /// the headers are installed.

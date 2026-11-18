@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-17 |
-| Applies to | Every defect of an upstream project that this repository records and that should be reported to that project |
+| Date | 2026-11-18 |
+| Applies to | Every defect of an upstream project that this repository records and that should be reported to that project, and every request to an upstream project that the owner decided to make |
 
 ## 1. Introduction
 
@@ -16,7 +16,7 @@ The list exists so that a defect that should be reported is not lost between the
 
 An agent that records a defect of an upstream project that should be reported adds its entry to Section 3 in the same change, as Hard Rule 14 of `AGENTS.md` requires. An agent that cannot tell whether a defect should be reported adds the entry with the status "Owner to decide" and says why in one sentence, so that the owner decides instead of the agent.
 
-An entry cites the record of the defect by its identifier and does not repeat its input, outcome, or source location, because a second copy diverges from the first (Hard Rule 1 of `AGENTS.md`). The record of a defect is its row in the list of known upstream bugs for its project, which is Section 3.12 of `docs/design/slang-compiler.md` for Slang and Section 3.1 of `docs/design/slang-rhi.md` for slang-rhi. The identifiers in Section 3 are the identifiers of those rows.
+An entry cites the record of the defect by its identifier and does not repeat its input, outcome, or source location, because a second copy diverges from the first (Hard Rule 1 of `AGENTS.md`). The record of a defect is its row in the list of known upstream bugs for its project, which is Section 3.12 of `docs/design/slang-compiler.md` for Slang and Section 3.1 of `docs/design/slang-rhi.md` for slang-rhi. The identifiers in Section 3 are the identifiers of those rows. A request to an upstream project that is not a defect, such as a request to update a submodule, also gets an entry when the owner decided to make it, with an identifier of the form `REQ-<n>` and the section of the design document that states its facts as its record.
 
 A draft is the one exception, because an issue has to state the facts itself. A draft states what the row and the API documentation of the affected call record as observed, and flags anything that it reconstructs in a note for the owner. A change to the row updates the draft in the same change.
 
@@ -28,7 +28,7 @@ An entry stays in the list after its report is posted, and its identifier is nev
 
 ## 3. Entries
 
-Each identifier is a row of the list that Section 2 names for the entry's upstream project, and the column "Upstream project" names the project's repository on GitHub.
+Each identifier is a row of the list that Section 2 names for the entry's upstream project, or a request of Section 2, and the column "Upstream project" names the project's repository on GitHub.
 
 | Identifier | Upstream project | Title | Status |
 | --- | --- | --- | --- |
@@ -40,10 +40,11 @@ Each identifier is a row of the list that Section 2 names for the entry's upstre
 | KB-6 | Slang, `shader-slang/slang` | `spReflectionType_GetElementCount` returns 0 instead of `SLANG_UNBOUNDED_SIZE` for an array without a length | Draft not written |
 | KB-7 | Slang, `shader-slang/slang` | `spReflection_getGlobalConstantBufferBinding` returns 0 on SPIR-V when the global constant buffer is at another binding | Draft written in Section 4, not posted |
 | RKB-1 | slang-rhi, `shader-slang/slang-rhi` | The range check of `readBuffer` can overflow, so a range past the end of a buffer passes it | Draft not written. The defect was read in the source and is not reproduced yet |
+| REQ-1 | Slang, `shader-slang/slang` | Update the submodule `external/metal-cpp` to the metal-cpp for macOS 15.2 that slang-rhi pins, so that slang-rhi builds its Metal backend from the Slang tree | Draft not written. Its record is Section 7.4 of `docs/design/slang-rhi-sys.md` |
 
 The status of an entry is one of these values:
 
-- Draft not written: The defect should be reported, and no draft exists yet.
+- Draft not written: The defect should be reported or the request made, and no draft exists yet.
 - Draft written: The draft is in a section of this document and is not posted.
 - Owner to decide: The agent that added the entry could not tell whether the defect should be reported.
 - Reported: The issue is posted, and the status gives its address.

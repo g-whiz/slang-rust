@@ -3,7 +3,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use super::{EntryKind, Exit, Finished, Host, Invocation, LoggedRunError, command};
+use super::{
+    EntryKind, Exit, Finished, Generated, GenerationError, GenerationErrorKind, Host, Invocation,
+    LoggedRunError, command,
+};
 
 include!("../../../system.rs");
 
@@ -128,4 +131,53 @@ fn system_holds_a_lock_until_it_is_dropped() -> io::Result<()> {
         .try_lock()
         .map_err(|error| io::Error::other(error.to_string()))?;
     Ok(())
+}
+
+#[test]
+fn system_generate_maps_a_failure_of_the_generator_and_keeps_its_causes() -> io::Result<()> {
+    let system = System::default();
+    let dir = scratch("generate")?;
+    let missing = system
+        .generate(&dir, &dir, &dir, "x86_64-unknown-linux-gnu")
+        .expect_err("the scratch directory holds no headers");
+    assert_eq!(missing.kind, GenerationErrorKind::Other, "{missing:?}");
+    assert!(
+        missing.message.starts_with(&format!(
+            "cannot read the main header {}, caused by: ",
+            dir.join("slang.h").display()
+        )),
+        "{missing:?}"
+    );
+    fs::remove_dir_all(&dir)
+}
+
+const LIBCLANG_CHILD: &str = "SLANG_RHI_SYS_TEST_WITHOUT_LIBCLANG";
+
+#[test]
+fn system_generate_reports_a_libclang_that_cannot_be_loaded() -> io::Result<()> {
+    let name = "build_script::ffi::system_generate_reports_a_libclang_that_cannot_be_loaded";
+    if let Some(dir) = std::env::var_os(LIBCLANG_CHILD) {
+        let dir = Path::new(&dir);
+        let error = System::default()
+            .generate(dir, dir, dir, "x86_64-unknown-linux-gnu")
+            .expect_err("libclang cannot be loaded");
+        assert_eq!(error.kind, GenerationErrorKind::Libclang, "{error:?}");
+        assert!(
+            error.message.starts_with("cannot load libclang: "),
+            "{error:?}"
+        );
+        return Ok(());
+    }
+    let dir = scratch("no-libclang")?;
+    fs::write(dir.join("slang.h"), "")?;
+    fs::write(dir.join("slang-rhi.h"), "")?;
+    let output = Command::new(std::env::current_exe()?)
+        .args(["--exact", name, "--nocapture"])
+        .env(LIBCLANG_CHILD, &dir)
+        .env("LIBCLANG_PATH", dir.join("no-such-directory"))
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{output:?}");
+    assert!(stdout.contains("1 passed"), "{stdout}");
+    fs::remove_dir_all(&dir)
 }

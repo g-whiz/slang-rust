@@ -13,6 +13,8 @@ const PROCESS_ID: u32 = 4242;
 const CMAKE_VERSION: &str = "cmake version 3.31.6";
 const COMPILER_VERSION: &str = "c++ (GCC) 15.2.1 20260101";
 const LINUX_LINKS: &[&str] = &["stdc++", "dl", "pthread"];
+const CONFIG_TEXT: &str = "#pragma once\n#define SLANG_RHI_ENABLE_VULKAN 1\n";
+const PROBE_TEXT: &str = "static_assert(true);";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileOp {
@@ -40,6 +42,8 @@ struct FakeHost {
     written: RefCell<Vec<(PathBuf, String)>>,
     modified: RefCell<Vec<(PathBuf, SystemTime)>>,
     events: RefCell<Vec<String>>,
+    generated: Result<Generated, GenerationError>,
+    generations: RefCell<Vec<(PathBuf, PathBuf, PathBuf, String)>>,
 }
 
 impl FakeHost {
@@ -158,6 +162,33 @@ impl Host for FakeHost {
     fn process_id(&self) -> u32 {
         PROCESS_ID
     }
+
+    fn generate(
+        &self,
+        rhi_headers: &Path,
+        config_dir: &Path,
+        slang_headers: &Path,
+        target: &str,
+    ) -> Result<Generated, GenerationError> {
+        self.generations.borrow_mut().push((
+            rhi_headers.to_path_buf(),
+            config_dir.to_path_buf(),
+            slang_headers.to_path_buf(),
+            target.to_owned(),
+        ));
+        self.events
+            .borrow_mut()
+            .push(format!("Generate {}", config_dir.display()));
+        self.generated.clone()
+    }
+}
+
+fn fake_generated() -> Generated {
+    Generated {
+        bindings: "pub struct Bindings;".to_owned(),
+        symbols: "pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[];".to_owned(),
+        abi_probe: Some(PROBE_TEXT.to_owned()),
+    }
 }
 
 fn root() -> PathBuf {
@@ -214,8 +245,7 @@ fn happy(invocation: &Invocation) -> Finished {
 }
 
 fn archives() -> Vec<String> {
-    STATIC_LIBRARIES
-        .iter()
+    entry_libraries()
         .map(|library| format!("lib{library}.a"))
         .collect()
 }
@@ -254,7 +284,7 @@ fn host_for(triple: &str, os: &str, env: &str) -> FakeHost {
             (TARGET_OS, OsString::from(os)),
             (TARGET_ENV, OsString::from(env)),
         ],
-        files: Vec::new(),
+        files: vec![(built_header(), CONFIG_TEXT.to_owned())],
         entries: built,
         listings: Vec::new(),
         respond: Box::new(|invocation| Ok(happy(invocation))),
@@ -265,6 +295,8 @@ fn host_for(triple: &str, os: &str, env: &str) -> FakeHost {
         written: RefCell::default(),
         modified: RefCell::default(),
         events: RefCell::default(),
+        generated: Ok(fake_generated()),
+        generations: RefCell::default(),
     }
 }
 
@@ -333,6 +365,8 @@ fn expected_inputs(triple: &str, variables: &[(&str, &str)], compiler: &str) -> 
         lines.push(format!("{name}={value}"));
     }
     lines.push(format!("compiler={compiler}"));
+    lines.push(format!("config={}", fnv1a(CONFIG_TEXT.as_bytes())));
+    lines.push(format!("probe={}", fnv1a(PROBE_TEXT.as_bytes())));
     lines.join("\n") + "\n"
 }
 
@@ -348,6 +382,7 @@ fn reruns() -> Vec<String> {
     CMAKE_VARIABLES
         .into_iter()
         .chain(MSVC_VARIABLES)
+        .chain(["LIBCLANG_PATH"])
         .map(|name| format!("cargo::rerun-if-env-changed={name}"))
         .collect()
 }
@@ -367,6 +402,13 @@ fn links(entry: &Path) -> Vec<String> {
             .iter()
             .map(|library| format!("cargo::rustc-link-lib=dylib={library}")),
     );
+    links.push(format!(
+        "cargo::rustc-link-arg-tests={}",
+        entry
+            .join("lib")
+            .join("libslang-rhi-sys-abi-probe.a")
+            .display()
+    ));
     links
 }
 
@@ -447,7 +489,7 @@ fn the_files_input_hashes_the_wrapper_project_and_its_name() {
 }
 
 #[test]
-fn configure_builds_stores_and_links_the_three_libraries_on_linux() {
+fn configure_builds_stores_and_links_the_three_libraries_and_the_probe_on_linux() {
     let host = linux_host();
     let (directives, result) = run(&host);
     result.expect("the build succeeds");
@@ -460,8 +502,20 @@ fn configure_builds_stores_and_links_the_three_libraries_on_linux() {
         host.written.borrow().as_slice(),
         [
             (out_dir().join("build.log"), String::new()),
+            (
+                out_dir().join("build").join("abi-probe.cpp"),
+                "static_assert(true);".to_owned()
+            ),
             (temporary.join("inputs"), inputs.clone()),
             (temporary.join("stamp"), String::new()),
+            (
+                out_dir().join("bindings.rs"),
+                "pub struct Bindings;".to_owned()
+            ),
+            (
+                out_dir().join("symbols.rs"),
+                "pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[];".to_owned()
+            ),
         ]
     );
     assert_eq!(
@@ -479,17 +533,27 @@ fn configure_builds_stores_and_links_the_three_libraries_on_linux() {
         .collect();
     assert_eq!(host.copied.borrow().as_slice(), copies);
     let events = host.events.borrow();
-    assert_eq!(
-        events.iter().find(|event| !event.starts_with("Run ")),
-        Some(&format!(
-            "Lock {}",
-            entries_dir().join(format!("{key}.lock")).display()
-        ))
+    let lock = format!(
+        "Lock {}",
+        entries_dir().join(format!("{key}.lock")).display()
     );
-    assert_eq!(
-        events.last(),
-        Some(&format!("Renamed {}", temporary.display()))
+    let locked = events
+        .iter()
+        .position(|event| *event == lock)
+        .unwrap_or_else(|| panic!("no lock: {events:?}"));
+    let generated = events
+        .iter()
+        .position(|event| event.starts_with("Generate"))
+        .unwrap_or_else(|| panic!("no generation: {events:?}"));
+    assert!(generated < locked, "{events:?}");
+    let shared = entries_dir().display().to_string();
+    assert!(
+        events[..locked]
+            .iter()
+            .all(|event| !event.contains(shared.as_str())),
+        "{events:?}"
     );
+    assert!(events.contains(&format!("Renamed {}", temporary.display())));
     assert!(
         host.read_vars
             .borrow()
@@ -546,7 +610,9 @@ fn configure_runs_ninja_the_compiler_and_cmake_with_the_tree_and_the_slang_heade
             "c++ --version".to_owned(),
             "cmake --version".to_owned(),
             format!("cmake {}", configure_args().join(" ")),
-            format!("cmake --build {build_dir} --target slang-rhi --parallel 12"),
+            format!(
+                "cmake --build {build_dir} --target slang-rhi slang-rhi-sys-abi-probe --parallel 12"
+            ),
         ]
     );
     let log = out_dir().join("build.log");
@@ -581,6 +647,7 @@ fn configure_builds_without_parallel_jobs_when_num_jobs_is_not_a_number() {
                 out_dir().join("build").display().to_string(),
                 "--target".to_owned(),
                 "slang-rhi".to_owned(),
+                "slang-rhi-sys-abi-probe".to_owned(),
             ]),
             "{value:?}"
         );
@@ -611,8 +678,8 @@ fn configure_refuses_every_target_that_is_not_linux_with_glibc() {
             &host,
             &[
                 &format!("the target {triple} is not Linux with the GNU C library"),
-                "slang-rhi-sys builds only for Linux with the GNU C library",
-                "Direct3D 12 backend of Windows and the Metal backend of macOS are not designed",
+                "slang-rhi-sys builds only the Vulkan backend of slang-rhi, for Linux with the GNU C library",
+                "Build on Linux with the GNU C library",
             ],
         );
         assert!(host.runs.borrow().is_empty(), "{triple}");
@@ -838,6 +905,10 @@ fn configure_keys_the_entry_by_no_path_of_the_build() {
             Ok(EntryKind::File),
         )])
         .collect();
+    host.files = vec![(
+        PathBuf::from("/elsewhere/out/build/slang-rhi/include/slang-rhi-config.h"),
+        CONFIG_TEXT.to_owned(),
+    )];
     let (directives, result) = run(&host);
     result.expect("the build succeeds");
     assert_eq!(directives, expected_directives(&entry_for(&linux_inputs())));
@@ -972,9 +1043,237 @@ fn configure_uses_a_complete_entry_without_building() {
     let (directives, result) = run(&host);
     result.expect("the build succeeds");
     assert_eq!(directives, expected_directives(&entry));
-    assert!(cmake_runs(&host).iter().all(|(_, log)| log.is_none()));
-    assert!(host.written.borrow().is_empty());
+    let logged: Vec<String> = cmake_runs(&host)
+        .into_iter()
+        .filter(|(_, log)| log.is_some())
+        .filter_map(|(invocation, _)| invocation.args.first().cloned())
+        .collect();
+    assert_eq!(logged, ["-S"]);
+    assert_eq!(
+        host.written.borrow().as_slice(),
+        [
+            (out_dir().join("build.log"), String::new()),
+            (
+                out_dir().join("bindings.rs"),
+                "pub struct Bindings;".to_owned()
+            ),
+            (
+                out_dir().join("symbols.rs"),
+                "pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[];".to_owned()
+            ),
+        ]
+    );
     assert!(host.copied.borrow().is_empty());
+    assert_eq!(
+        host.generations.borrow().as_slice(),
+        [(
+            source_root()
+                .join("external")
+                .join("slang-rhi")
+                .join("include"),
+            out_dir().join("build").join("slang-rhi").join("include"),
+            slang_entry().join("include"),
+            LINUX.to_owned(),
+        )]
+    );
+}
+
+#[test]
+fn configure_keys_the_entry_by_the_generated_probe_and_the_configured_header() {
+    let stale = complete_entry(&mut linux_host(), &linux_inputs());
+    for case in ["probe", "config"] {
+        let mut host = linux_host();
+        complete_entry(&mut host, &linux_inputs());
+        let mut inputs = linux_inputs();
+        if case == "probe" {
+            let probe = "static_assert(sizeof(rhi::Desc) == 16);";
+            host.generated = Ok(Generated {
+                abi_probe: Some(probe.to_owned()),
+                ..fake_generated()
+            });
+            inputs = inputs.replace(
+                &format!("probe={}", fnv1a(PROBE_TEXT.as_bytes())),
+                &format!("probe={}", fnv1a(probe.as_bytes())),
+            );
+        } else {
+            let config = "#pragma once\n#define SLANG_RHI_ENABLE_CUDA 1\n";
+            host.files.retain(|(path, _)| *path != built_header());
+            host.files.push((built_header(), config.to_owned()));
+            inputs = inputs.replace(
+                &format!("config={}", fnv1a(CONFIG_TEXT.as_bytes())),
+                &format!("config={}", fnv1a(config.as_bytes())),
+            );
+        }
+        assert_ne!(inputs, linux_inputs(), "{case}");
+        let entry = entry_for(&inputs);
+        assert_ne!(entry, stale, "{case}");
+        let (directives, result) = run(&host);
+        result.unwrap_or_else(|error| panic!("{case}: {error}"));
+        assert_eq!(directives, expected_directives(&entry), "{case}");
+        let events = host.events.borrow();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.starts_with("Run cmake --build")),
+            "{case}: {events:?}"
+        );
+        let key = fnv1a(inputs.as_bytes());
+        assert!(
+            events.contains(&format!(
+                "Renamed {}",
+                entries_dir()
+                    .join(format!("{key}.tmp-{PROCESS_ID}"))
+                    .display()
+            )),
+            "{case}: {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| !event.contains(stale.display().to_string().as_str())),
+            "{case}: {events:?}"
+        );
+        assert!(
+            host.written
+                .borrow()
+                .iter()
+                .any(|(path, text)| path.ends_with("inputs") && *text == inputs),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn configure_generates_after_the_configure_step_and_writes_the_probe_before_the_build_step() {
+    let host = linux_host();
+    run(&host).1.expect("the build succeeds");
+    assert_eq!(
+        host.generations.borrow().as_slice(),
+        [(
+            source_root()
+                .join("external")
+                .join("slang-rhi")
+                .join("include"),
+            out_dir().join("build").join("slang-rhi").join("include"),
+            slang_entry().join("include"),
+            LINUX.to_owned(),
+        )]
+    );
+    let events = host.events.borrow();
+    let position = |prefix: &str| {
+        events
+            .iter()
+            .position(|event| event.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no event starts with {prefix:?}: {events:?}"))
+    };
+    let configure = position("Run cmake -S");
+    let generate = position("Generate");
+    let probe = position(&format!(
+        "Write {}",
+        out_dir().join("build").join("abi-probe.cpp").display()
+    ));
+    let build = position("Run cmake --build");
+    let bindings = position(&format!(
+        "Write {}",
+        out_dir().join("bindings.rs").display()
+    ));
+    assert!(configure < generate, "{events:?}");
+    assert!(generate < probe, "{events:?}");
+    assert!(probe < build, "{events:?}");
+    assert!(build < bindings, "{events:?}");
+}
+
+#[test]
+fn configure_links_the_abi_probe_only_into_the_tests() {
+    let (directives, result) = run(&linux_host());
+    result.expect("the build succeeds");
+    let entry = entry_for(&linux_inputs());
+    let probe = entry
+        .join("lib")
+        .join("libslang-rhi-sys-abi-probe.a")
+        .display()
+        .to_string();
+    assert_eq!(
+        directives
+            .iter()
+            .filter(|directive| directive.contains("slang-rhi-sys-abi-probe"))
+            .collect::<Vec<_>>(),
+        [&format!("cargo::rustc-link-arg-tests={probe}")]
+    );
+}
+
+#[test]
+fn configure_stops_on_a_generator_failure_before_any_link_instruction() {
+    for (kind, advice) in [
+        (
+            GenerationErrorKind::Libclang,
+            Some(
+                "slang-rhi-sys generates its bindings with libclang in every build, so install libclang or set LIBCLANG_PATH to the directory that holds it.",
+            ),
+        ),
+        (GenerationErrorKind::Other, None),
+    ] {
+        for complete in [false, true] {
+            let mut host = linux_host();
+            if complete {
+                complete_entry(&mut host, &linux_inputs());
+            }
+            host.generated = Err(GenerationError {
+                kind,
+                message: "slang-rhi.h:12: refused".to_owned(),
+            });
+            let headers = source_root()
+                .join("external")
+                .join("slang-rhi")
+                .join("include");
+            let start = format!(
+                "cannot generate the slang-rhi bindings from {} for the target {LINUX}: slang-rhi.h:12: refused.",
+                headers.display()
+            );
+            let directives = failure(&host, &[&start, advice.unwrap_or("")]);
+            assert!(
+                !directives
+                    .iter()
+                    .any(|directive| directive.starts_with("cargo::rustc-link")),
+                "{directives:?}"
+            );
+            let message = run(&host).1.err().unwrap_or_default();
+            assert_eq!(message.contains("libclang"), advice.is_some(), "{message}");
+            assert!(
+                host.written
+                    .borrow()
+                    .iter()
+                    .all(|(path, _)| !path.ends_with("bindings.rs")),
+                "{kind:?}"
+            );
+            assert!(
+                cmake_runs(&host).iter().all(|(invocation, _)| invocation
+                    .args
+                    .first()
+                    .map(String::as_str)
+                    != Some("--build")),
+                "{kind:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn configure_stops_when_the_generator_returns_no_abi_probe() {
+    let mut host = linux_host();
+    host.generated = Ok(Generated {
+        abi_probe: None,
+        ..fake_generated()
+    });
+    failure(
+        &host,
+        &["the binding generator returned no ABI probe for the target x86_64-unknown-linux-gnu"],
+    );
+    assert!(
+        cmake_runs(&host)
+            .iter()
+            .all(|(invocation, _)| invocation.args.first().map(String::as_str) != Some("--build"))
+    );
 }
 
 #[test]

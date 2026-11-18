@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::check::{Selection, Validator, unfixed_prim};
+use crate::check::{Selection, Validator, WithoutDefault, unfixed_prim};
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
     CType, Enum, Field, Init, Interface, Item, ItemKind, Param, Record, Signature, Ty, Underlying,
@@ -8,9 +8,7 @@ use crate::model::{
 };
 use crate::rules::{MacroAction, RuleSet};
 
-const SYMBOLS_CRATE: &str = "slang_compiler_sys";
-
-const POINTER_WIDTH_CHECK: &str = "#[cfg(not(target_pointer_width = \"64\"))]\ncompile_error!(\"the Slang bindings support only 64-bit targets\");\n\n";
+const PROBE_FUNCTION: &str = "slang_rhi_sys_abi_probe_slots";
 
 const INTERFACE_TRAIT: &str = "Interface";
 
@@ -27,38 +25,97 @@ const SUFFIXED_KEYWORDS: &[&str] = &["crate", "self", "Self", "super", "_"];
 pub(crate) struct Emitted {
     pub(crate) bindings: String,
     pub(crate) symbols: String,
+    pub(crate) abi_probe: Option<String>,
+    pub(crate) types: TypeNames,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TypeNames {
+    pub(crate) included: BTreeSet<String>,
+    pub(crate) opaque: BTreeSet<String>,
 }
 
 pub(crate) fn emit(selection: &Selection, rules: &RuleSet, target: &str) -> Result<Emitted> {
     let mut emitter = Emitter {
-        validator: Validator::new(selection, rules, target),
+        validator: Validator::new(selection, rules, target, None),
         rules,
         selection,
         types: BTreeMap::new(),
         values: BTreeMap::new(),
         opaque: BTreeMap::new(),
+        opaque_names: BTreeSet::new(),
         out: String::new(),
         externs: String::new(),
         functions: Vec::new(),
+        slots: Vec::new(),
         trait_emitted: false,
     };
     emitter.run()?;
-    let mut bindings = String::from(POINTER_WIDTH_CHECK);
+    let mut bindings = format!(
+        "#[cfg(not(target_pointer_width = \"64\"))]\ncompile_error!(\"the {} bindings support only 64-bit targets\");\n\n",
+        rules.library
+    );
     bindings.push_str(&emitter.out);
+    let probe = rules.abi_probe.then_some(!selection.microsoft_abi);
+    let mut symbols = symbols(rules.own_crate, &emitter.functions);
+    if probe == Some(true) {
+        symbols.push_str(&slot_list(rules.own_crate, &emitter.slots));
+    }
+    let abi_probe = match probe {
+        Some(slots) => Some(crate::probe::probe(
+            selection,
+            rules,
+            slots.then_some(emitter.slots.as_slice()),
+        )?),
+        None => None,
+    };
+    let opaque = emitter.opaque_names;
+    let included = emitter
+        .types
+        .into_keys()
+        .filter(|name| !opaque.contains(name))
+        .collect();
     Ok(Emitted {
         bindings,
-        symbols: symbols(&emitter.functions),
+        symbols,
+        abi_probe,
+        types: TypeNames { included, opaque },
     })
 }
 
-fn symbols(functions: &[String]) -> String {
+fn symbols(own_crate: &str, functions: &[String]) -> String {
     let mut text = String::from("pub(super) const C_FUNCTIONS: &[(&str, *const ())] = &[\n");
     for name in functions {
         put(
             &mut text,
             format_args!(
-                "    (\"{name}\", {SYMBOLS_CRATE}::{} as *const ()),\n",
+                "    (\"{name}\", {own_crate}::{} as *const ()),\n",
                 ident(name)
+            ),
+        );
+    }
+    text.push_str("];\n");
+    text
+}
+
+pub(crate) struct Slot {
+    pub(crate) interface_cxx: String,
+    pub(crate) interface_rust: String,
+    pub(crate) method: String,
+    pub(crate) field: String,
+    pub(crate) canonical: crate::model::CanonicalSignature,
+}
+
+fn slot_list(own_crate: &str, slots: &[Slot]) -> String {
+    let mut text = format!(
+        "unsafe extern \"C\" {{\n    pub(super) fn {PROBE_FUNCTION}(out: *mut usize, capacity: usize) -> usize;\n}}\n\npub(super) const VTABLE_SLOTS: &[(&str, usize)] = &[\n"
+    );
+    for slot in slots {
+        put(
+            &mut text,
+            format_args!(
+                "    (\"{}::{}\", ::core::mem::offset_of!({own_crate}::{}Vtbl, {})),\n",
+                slot.interface_rust, slot.field, slot.interface_rust, slot.field
             ),
         );
     }
@@ -73,9 +130,11 @@ struct Emitter<'a> {
     types: BTreeMap<String, Origin>,
     values: BTreeMap<String, Origin>,
     opaque: BTreeMap<String, Origin>,
+    opaque_names: BTreeSet<String>,
     out: String,
     externs: String,
     functions: Vec<String>,
+    slots: Vec<Slot>,
     trait_emitted: bool,
 }
 
@@ -121,6 +180,7 @@ impl<'a> Emitter<'a> {
         let opaque = std::mem::take(&mut self.opaque);
         for (rust, origin) in &opaque {
             self.register(Namespace::Type, rust, &origin.cxx, &origin.location)?;
+            self.opaque_names.insert(rust.clone());
             self.out.push_str(&opaque_struct(rust));
         }
         if !self.externs.is_empty() {
@@ -197,6 +257,7 @@ impl<'a> Emitter<'a> {
             ItemKind::Opaque => {
                 let name = rust_name_of(item)?;
                 self.register(Namespace::Type, &name, &item.name.cxx, &item.location)?;
+                self.opaque_names.insert(name.clone());
                 self.out.push_str(&opaque_struct(&name));
                 Ok(())
             }
@@ -324,7 +385,7 @@ impl<'a> Emitter<'a> {
                 "the type of an unnamed enumeration is not a typedef",
             ));
         };
-        let ty = rust_name_of(typedef_item)?;
+        let ty = self.path_of(typedef_item)?;
         for enumerator in &enumeration.enumerators {
             self.register(
                 Namespace::Value,
@@ -353,12 +414,21 @@ impl<'a> Emitter<'a> {
         } else {
             "Clone, Copy, Debug"
         };
+        let without_default = self.selection.without_default.get(&item.name.cxx);
+        if let Some(without_default) = without_default {
+            let doc = self.without_default_doc(keyword, without_default)?;
+            put(&mut self.out, format_args!("#[doc = {doc:?}]\n"));
+        }
         put(
             &mut self.out,
             format_args!("#[repr(C)]\n#[derive({derive})]\npub {keyword} {name} {{\n"),
         );
         for (field, field_name) in record.fields.iter().zip(&field_names) {
             let ty = self.rust_ty(&field.ty)?;
+            if without_default.is_some() {
+                let doc = field_default_doc(field);
+                put(&mut self.out, format_args!("    #[doc = {doc:?}]\n"));
+            }
             put(&mut self.out, format_args!("    pub {field_name}: {ty},\n"));
         }
         self.out.push_str("}\n\n");
@@ -370,11 +440,12 @@ impl<'a> Emitter<'a> {
                 ),
             );
         }
-        if has_default(record) {
+        if has_default(record) && without_default.is_none() {
             let mut initializers = String::new();
             for (field, field_name) in record.fields.iter().zip(&field_names) {
-                let value = match field.init {
-                    Init::Value(value) => self.value_expr(&field.ty, value, &field.location)?,
+                let value = match &field.init {
+                    Init::Value(value) => self.value_expr(&field.ty, *value, &field.location)?,
+                    Init::Constant(constant) => self.rust_name(constant, &field.location)?,
                     Init::None | Init::Null | Init::Zero | Init::Expression => {
                         self.zero_expr(&field.ty, &field.location)?
                     }
@@ -413,12 +484,47 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn without_default_doc(
+        &self,
+        keyword: &str,
+        without_default: &WithoutDefault,
+    ) -> Result<String> {
+        let why = match without_default {
+            WithoutDefault::Rule(reason) => {
+                format!("{reason}, so the bindings cannot reproduce its C++ default")
+            }
+            WithoutDefault::Holds { field, held } => {
+                let held = self
+                    .validator
+                    .included(held)
+                    .map_or_else(|| Ok(held.clone()), |held| self.path_of(held))?;
+                format!("its field `{field}` holds `{held}` by value, which has none")
+            }
+        };
+        Ok(format!(
+            "This {keyword} has no `Default` implementation, because {why}. A caller states every field, and the documentation of each field gives its C++ default member initializer."
+        ))
+    }
+
+    fn path_of(&self, item: &Item) -> Result<String> {
+        let name = rust_name_of(item)?;
+        match self.rules.external_crate {
+            Some(external) if self.validator.is_external(&item.name.cxx) => {
+                Ok(format!("::{external}::{name}"))
+            }
+            _ => Ok(name),
+        }
+    }
+
+    fn crate_path(&self, name: &str) -> String {
+        self.rules.external_crate.map_or_else(
+            || name.to_owned(),
+            |external| format!("::{external}::{name}"),
+        )
+    }
+
     fn uuid_fields(&self) -> Result<Vec<String>> {
-        let uuid = self
-            .selection
-            .items
-            .iter()
-            .find(|item| item.name.rust.as_deref() == Some(self.rules.uuid_type));
+        let uuid = self.validator.uuid_item();
         match uuid.map(|item| (item, &item.kind)) {
             Some((_, ItemKind::Record(record))) => Ok(field_names(&record.fields)),
             Some((item, _)) => Err(internal(&item.location, "the UUID type is not a struct")),
@@ -432,7 +538,20 @@ impl<'a> Emitter<'a> {
     fn interface(&mut self, item: &'a Item, interface: &'a Interface) -> Result<()> {
         let name = rust_name_of(item)?;
         self.interface_structs(item, interface, &name)?;
-        self.interface_uuid_impl(item, interface, &name)?;
+        if interface.com {
+            self.interface_uuid_impl(item, interface, &name)?;
+        }
+        if self.rules.abi_probe {
+            for method in &interface.methods {
+                self.slots.push(Slot {
+                    interface_cxx: item.name.cxx.clone(),
+                    interface_rust: name.clone(),
+                    method: method.name.clone(),
+                    field: ident(method.rust_name()),
+                    canonical: method.canonical.clone(),
+                });
+            }
+        }
         self.interface_thunks(item, interface, &name)
     }
 
@@ -443,7 +562,7 @@ impl<'a> Emitter<'a> {
         name: &str,
     ) -> Result<()> {
         let vtable = format!("{name}Vtbl");
-        if !self.trait_emitted {
+        if !self.trait_emitted && self.rules.external_crate.is_none() {
             self.register(
                 Namespace::Type,
                 INTERFACE_TRAIT,
@@ -476,13 +595,23 @@ impl<'a> Emitter<'a> {
             put(&mut self.out, format_args!("    pub base: {base}Vtbl,\n"));
         }
         for method in &interface.methods {
+            if method.placeholder {
+                put(
+                    &mut self.out,
+                    format_args!(
+                        "    pub {}: *const ::core::ffi::c_void,\n",
+                        ident(method.rust_name())
+                    ),
+                );
+                continue;
+            }
             let params = self.params(&method.signature.params, Some(name))?;
             let result = self.result(&method.signature.result)?;
             put(
                 &mut self.out,
                 format_args!(
                     "    pub {}: unsafe extern \"system-unwind\" fn({params}){result},\n",
-                    ident(&method.name)
+                    ident(method.rust_name())
                 ),
             );
         }
@@ -506,10 +635,12 @@ impl<'a> Emitter<'a> {
             .iter()
             .map(|byte| hex_literal(u64::from(*byte), 2))
             .collect();
+        let uuid = self.crate_path(self.rules.uuid_type);
+        let interface_trait = self.crate_path(INTERFACE_TRAIT);
         put(
             &mut self.out,
             format_args!(
-                "unsafe impl {INTERFACE_TRAIT} for {name} {{\n    const UUID: {uuid} = {uuid} {{\n        {}: {},\n        {}: {},\n        {}: {},\n        {}: [{}],\n    }};\n}}\n\n",
+                "unsafe impl {interface_trait} for {name} {{\n    const UUID: {uuid} = {uuid} {{\n        {}: {},\n        {}: {},\n        {}: {},\n        {}: [{}],\n    }};\n}}\n\n",
                 data1,
                 hex_literal(u64::from(guid.data1), 8),
                 data2,
@@ -518,7 +649,6 @@ impl<'a> Emitter<'a> {
                 hex_literal(u64::from(guid.data3), 4),
                 data4,
                 bytes.join(", "),
-                uuid = self.rules.uuid_type,
             ),
         );
         Ok(())
@@ -533,7 +663,7 @@ impl<'a> Emitter<'a> {
         let chain = self.validator.chain(item, interface)?;
         put(&mut self.out, format_args!("impl {name} {{\n"));
         for (depth, owner) in chain.iter().enumerate().rev() {
-            for method in &owner.methods {
+            for method in owner.methods.iter().filter(|method| !method.placeholder) {
                 self.thunk(method, depth)?;
             }
         }
@@ -549,7 +679,7 @@ impl<'a> Emitter<'a> {
         let this = if depth == 0 { "this" } else { "this.cast()" };
         let mut arguments = vec![this.to_owned()];
         arguments.extend(names);
-        let method_name = ident(&method.name);
+        let method_name = ident(method.rust_name());
         let terminator = if method.signature.result == Ty::Void {
             ";"
         } else {
@@ -586,7 +716,7 @@ impl<'a> Emitter<'a> {
 
     fn rust_name(&mut self, cxx: &str, location: &Location) -> Result<String> {
         if let Some(item) = self.validator.included(cxx) {
-            return rust_name_of(item);
+            return self.path_of(item);
         }
         if let Some(item) = self.validator.excluded(cxx) {
             let name = rust_name_of(item)?;
@@ -617,6 +747,15 @@ impl<'a> Emitter<'a> {
             ),
             Ty::Array { element, len } => format!("[{}; {len}]", self.rust_ty(element)?),
             Ty::Callback(signature) => self.callback(signature)?,
+            Ty::Template { args, .. } => match args.as_slice() {
+                [arg] => format!("*mut {}", self.rust_ty(arg)?),
+                _ => {
+                    return Err(internal(
+                        &unknown,
+                        "a template type without exactly one argument reached the emitter",
+                    ));
+                }
+            },
             Ty::Unsupported(spelling) => {
                 return Err(internal(
                     &unknown,
@@ -632,8 +771,13 @@ impl<'a> Emitter<'a> {
             params.push(self.rust_ty(&param.ty)?);
         }
         let result = self.result(&signature.result)?;
+        let abi = if signature.called_from_rust {
+            "C-unwind"
+        } else {
+            "C"
+        };
         Ok(format!(
-            "Option<unsafe extern \"C\" fn({}){result}>",
+            "Option<unsafe extern \"{abi}\" fn({}){result}>",
             params.join(", ")
         ))
     }
@@ -646,7 +790,8 @@ impl<'a> Emitter<'a> {
             Ty::Pointer { is_const: true, .. } => "::core::ptr::null()".to_owned(),
             Ty::Pointer {
                 is_const: false, ..
-            } => "::core::ptr::null_mut()".to_owned(),
+            }
+            | Ty::Template { .. } => "::core::ptr::null_mut()".to_owned(),
             Ty::Callback(_) => "None".to_owned(),
             Ty::Array { element, len } => {
                 format!("[{}; {len}]", self.zero_expr(element, location)?)
@@ -660,6 +805,12 @@ impl<'a> Emitter<'a> {
                     }
                     ItemKind::Typedef(inner) => self.zero_expr(inner, location)?,
                     ItemKind::Enum(_) => format!("{rust}(0)"),
+                    ItemKind::Record(_) if self.selection.without_default.contains_key(name) => {
+                        return Err(internal(
+                            location,
+                            "a default value needs a struct without Default",
+                        ));
+                    }
                     ItemKind::Record(record) if has_default(record) => format!("{rust}::default()"),
                     ItemKind::Record(record) => self.zero_record(&rust, record, location)?,
                     _ => {
@@ -708,7 +859,7 @@ impl<'a> Emitter<'a> {
         let Some(item) = self.validator.included(name) else {
             return Err(internal(location, message));
         };
-        Ok((item, rust_name_of(item)?))
+        Ok((item, self.path_of(item)?))
     }
 
     fn value_expr(&mut self, ty: &'a Ty, value: Value, location: &Location) -> Result<String> {
@@ -736,6 +887,16 @@ impl<'a> Emitter<'a> {
             }
             Ty::Bool => (integer != 0).to_string(),
             Ty::C(CType::Float | CType::Double) => format!("{integer}.0"),
+            Ty::Pointer { is_const: true, .. } => format!(
+                "::core::ptr::without_provenance({}_usize)",
+                int_literal(integer)
+            ),
+            Ty::Pointer {
+                is_const: false, ..
+            } => format!(
+                "::core::ptr::without_provenance_mut({}_usize)",
+                int_literal(integer)
+            ),
             _ => int_literal(integer),
         })
     }
@@ -759,6 +920,13 @@ fn rust_name_of(item: &Item) -> Result<String> {
     })
 }
 
+fn field_default_doc(field: &Field) -> String {
+    field.spelling.as_ref().map_or_else(
+        || "The C++ declaration of this field has no default member initializer.".to_owned(),
+        |spelling| format!("The C++ default member initializer of this field is `= {spelling}`."),
+    )
+}
+
 fn has_default(record: &Record) -> bool {
     record.fields.iter().any(|field| field.init != Init::None)
 }
@@ -773,7 +941,7 @@ fn opaque_struct(name: &str) -> String {
     clippy::expect_used,
     reason = "the fmt::Write implementation of String never returns an error"
 )]
-fn put(out: &mut String, text: std::fmt::Arguments<'_>) {
+pub(crate) fn put(out: &mut String, text: std::fmt::Arguments<'_>) {
     std::fmt::Write::write_fmt(out, text).expect("internal error: writing to a String cannot fail");
 }
 

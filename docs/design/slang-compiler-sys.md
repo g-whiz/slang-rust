@@ -257,7 +257,7 @@ A build needs CMake 3.22 or newer, or 3.25 for presets, a C++17 compiler, and Ni
 These facts about a minimal static build of the CMake target `slang` with the options of Section 9.3 shape the vendored route:
 
 - The build compiles several hundred C++ translation units. It takes several minutes on a machine with many cores and leaves close to 1 GB under `OUT_DIR`, which is why the vendored route runs in its own CI job (SCS-62) and why the build keeps its libraries in the shared folder (SCS-56).
-- It runs without network access. With the default options, a configure without network access tries to download a DirectX Shader Compiler (DXC) binary and then to clone DXC. `SLANG_ENABLE_DXIL=OFF` and `SLANG_SLANG_LLVM_FLAVOR=DISABLE` stop every download of the configuration of Section 9.3.
+- It runs without network access. With the default options, a configure without network access tries to download a DirectX Shader Compiler (DXC) binary and then to clone DXC. `SLANG_ENABLE_DXIL=OFF` and `SLANG_SLANG_LLVM_FLAVOR=DISABLE` stop every download of the configuration of Section 9.3. With `FETCHCONTENT_FULLY_DISCONNECTED=ON`, a configure on Windows with `SLANG_ENABLE_DXIL=ON` downloads nothing either (SCS-82).
 - `-DSLANG_VERSION_FULL=` alone breaks the configure step, with "set_target_properties called with incorrect number of arguments", because Slang's CMake then leaves `SLANG_VERSION_NUMERIC` empty. `-DSLANG_VERSION_NUMERIC=` with the numeric version fixes it. The numeric version is also part of the names of the modules that the library loads at run time.
 - Slang's build writes into its source tree. It rewrites one tracked documentation file with the same content, and it creates and removes temporary files next to its `*.meta.slang` inputs in `source/slang`.
 
@@ -461,6 +461,8 @@ Every other macro has a rule that excludes it, such as the platform and compiler
 SCS-9. The binding generator MUST emit each struct as a `#[repr(C)]` struct and each union as a `#[repr(C)]` union, with public fields in declaration order. It MUST emit an `impl Default` that reproduces the C++ default member initializers for each struct that has any, using the evaluated value of each initializer, a null pointer for `nullptr`, and, for `{}`, the `Default` of the field's type when that type has one and zero otherwise.
 
 C++ value-initializes a field written `= {}`, which runs the default member initializers of a struct type, so a field of such a type takes its `Default`, and each element of an array of such a type takes it as well. An initializer of an enumeration type, also of a scoped enumeration (`enum class`), is evaluated through a conversion to its underlying type and emitted as the value of the generated newtype. Any other initializer that is a list in braces is refused as a failed evaluation (Section 7.8).
+
+The recorded `slang.h` writes `= {}` only on the array `uint32_t reserved[16]` and inside an inline function, so the handling of `{}` on a field of a struct type leaves the bindings of `slang-compiler-sys` unchanged. The output of the binary of SCS-60 for the headers of the recorded Slang was the same text before and after the generator gained Section 7.8, for the four tested targets and `aarch64-unknown-linux-gnu`, and for the headers of the vendored build on x86_64 Linux.
 
 A descriptor whose size field is zero or wrong is rejected or misread by Slang (Section 3.5). A struct without default member initializers gets no `Default`.
 
@@ -719,7 +721,16 @@ These are the constructs that SCS-19 refuses. Section 7.5 describes the tests.
 
 The refusal of an enumerator outside the range of `int` keeps the Rust type of each enumeration the same on every target, which a newtype over `u32` on one target and over `i32` on another would break (Section 3.11).
 
-The rule set of the slang-rhi headers can lift five of these refusals for the declarations that one of its rules names: a class with virtual methods and no UUID (SCS-72), methods that share a name (SCS-73), the members of a record that are not data and a field of type `Slang::ComPtr<T>` (SCS-74), and an aggregate passed by value in a method that becomes a placeholder slot (SCS-75). The rule set of `slang.h` lifts none.
+The rule set of the slang-rhi headers can lift these refusals for the declarations that one of its rules names:
+
+- A class with virtual methods and no UUID (SCS-72).
+- Methods that share a name, on a target of the Itanium C++ ABI only (SCS-73).
+- The members of a record that are not data (SCS-74).
+- A field of type `Slang::ComPtr<T>` (SCS-74).
+- An aggregate passed by value, and an array parameter, in a method that becomes a placeholder slot (SCS-75).
+- A default member initializer that the generator cannot evaluate, in a struct that then has no `Default` (SCS-79).
+
+The rule set of `slang.h` lifts none.
 
 The generator reports each one with the declaration, its location, and the reason (Section 7.7). It also fails on values that it cannot evaluate or that do not fit their type (Sections 5.4 and 5.5), and on two items with one Rust name (Section 5.11).
 
@@ -727,19 +738,20 @@ None of these cases occurs among the included declarations of the recorded Slang
 
 ### 7.4. Library and Binary
 
-SCS-59. The library of `slang-bindgen` MUST return the two generated texts to its caller and MUST NOT write files, start a process, or format the text. It MUST NOT write any comment or inner attribute into either text (SCS-13). A build script that runs a formatter would add a process, a time limit, and a failure mode to every user's build for text that nobody reads, and an inner documentation comment breaks `include!`.
+SCS-59. The library of `slang-bindgen` MUST return the generated texts to its caller and MUST NOT write files, start a process, or format the text. It MUST NOT write any comment or inner attribute into either Rust text (SCS-13). A build script that runs a formatter would add a process, a time limit, and a failure mode to every user's build for text that nobody reads, and an inner documentation comment breaks `include!`.
 
 The library's public API is:
 
 - The function `generate`, which takes the header directory and the target triple and returns `Result<Generated>`.
-- The function `generate_slang_rhi` of Section 7.8, for the slang-rhi headers.
-- The struct `Generated`, which is `#[non_exhaustive]` and holds the two generated texts in the public fields `bindings` and `symbols`, both from the same parse, and the field `abi_probe` of SCS-78.
+- The function `generate_slang_rhi(rhi_header_dir, config_dir, slang_header_dir, target)` of Section 7.8, for the slang-rhi headers, which also returns the ABI probe.
+- The struct `Generated`, which is `#[non_exhaustive]` and holds the two generated texts in the public fields `bindings` and `symbols`, both from the same parse, and the field `abi_probe: Option<String>` of SCS-78, which `generate` sets to `None`.
 - The types `Error`, `ErrorKind`, and `Location` with the alias `Result` (Section 7.7).
 
 The library has these private modules:
 
 - `parse` turns one parse of libclang into a model.
-- `rules` holds the rule set.
+- `rules` holds the two rule sets `SLANG` and `SLANG_RHI`.
+- `probe` writes the ABI probe of SCS-78.
 - `check` selects the declarations by the rules and validates the selection against every refusal of SCS-19.
 - `emit` writes the Rust text.
 - `model` defines the model.
@@ -769,7 +781,19 @@ The tests in the generator's `ffi` modules parse small synthetic headers with li
 - The generated list of C functions of Section 5.1, and the absence of any comment or inner attribute in either text.
 - The error when a process already holds libclang.
 - Three generations in one process, twice on one thread and once on another, which give the same text (SCS-67). No test on Linux can show the crash at the end of a process on Windows.
-- Each construct of Section 7.8 on synthetic headers: a reference to an external declaration and one that the bindings of `slang-compiler-sys` would lack, a class without a UUID, overloads with and without a rule and for a target of the Microsoft ABI, a record with constructors and a `Slang::ComPtr<T>` field, a placeholder slot, the initializers of SCS-9, a parse through the C++ shim headers, and the text of the ABI probe of SCS-78.
+- Each construct of Section 7.8 on synthetic headers, in the module `tests::ffi::slang_rhi`:
+  - A reference to an external declaration, and one that the bindings of `slang-compiler-sys` would lack.
+  - A class without a UUID, with and without a rule, and with a base or a destructor.
+  - Overloads with and without a rule, their refusal and the absence of the slot function for each spelling of a target that libclang resolves to the Microsoft ABI, and, for `x86_64-pc-windows-gnu`, the Itanium C++ ABI.
+  - A record with constructors and a `Slang::ComPtr<T>` field, and a member or a template without a rule.
+  - A placeholder slot, and an aggregate by value without a rule.
+  - The evaluation in place of scoped enumerations, expressions, and empty braces, and the refusal of a nested list in braces.
+  - A struct that a rule of SCS-79 names, the propagation to the records that hold it, a struct that no rule names, and stale rules of SCS-79.
+  - The pointer constants of SCS-80 from both casts, a pointer field that names one, and the refused forms.
+  - A parameter of SCS-81 next to a callback of another direction, and stale rules of SCS-81 and of the other new kinds.
+  - A parse through the C++ shim headers, the text of the ABI probe, the slot function and `VTABLE_SLOTS` in `symbols`, and a missing config or Slang header directory.
+
+  Pure unit tests in the modules, which Miri runs, check the decision of SCS-73 for normalized triples, the marking of the parameters of SCS-81, and the range of the pointer constants of SCS-80.
 
 The integration-test binary `tests/generator/` runs the binary of SCS-60 in its module `ffi`. Its tests cover:
 
@@ -808,14 +832,14 @@ The location is the file name without its directory and the line. Its method `ki
 
 | Kind | Failure |
 | --- | --- |
-| `Io` | The header directory, the main header `slang.h` in it, or the shim directory cannot be read |
+| `Io` | A header directory, the main header `slang.h` or `slang-rhi.h` in it, the directory of the configured header of `generate_slang_rhi`, or the shim directory cannot be read |
 | `Libclang` | libclang cannot be loaded, or the process already holds a libclang instance |
-| `Target` | libclang loaded but refuses to parse `slang.h` for the target |
+| `Target` | libclang loaded but refuses to parse the main header for the target |
 | `Diagnostic` | The parse reports a diagnostic of error severity or above (SCS-58) |
 | `UnmatchedDeclaration` | Declarations or macros match no rule (SCS-2) |
-| `StaleRule` | Rules decide nothing (SCS-39) |
-| `Unsupported` | An included declaration uses a construct of SCS-19, or a type that libclang does not report |
-| `Evaluation` | A macro or a default member initializer cannot be evaluated or does not fit its type |
+| `StaleRule` | Rules decide nothing (SCS-39), including a rule of SCS-79 or SCS-81 |
+| `Unsupported` | An included declaration uses a construct of SCS-19, or a type that libclang does not report, a reference of SCS-71 names a type that `generate` does not emit in the form that it needs, overloads exist on a target of the Microsoft ABI (SCS-73), or a member has no rule (SCS-74) |
+| `Evaluation` | A macro, a default member initializer, or a pointer constant cannot be evaluated or does not fit its type (SCS-76, SCS-80) |
 | `NameCollision` | Two generated items would have the same Rust name (Section 5.11) |
 
 The errors of `UnmatchedDeclaration` and `StaleRule` list every unmatched declaration and every stale rule at once, so that one run shows the whole change to the rule set.
@@ -843,35 +867,77 @@ A second function adds to the published API of `slang-bindgen` and changes nothi
 
 The parse of the slang-rhi headers reads `slang-rhi.h` with the arguments `-x c++ -std=c++20 -target <target> -nostdinc -isystem <shim directory> -I<rhi header directory> -I<config directory> -I<Slang header directory> -DSLANG_USER_CONFIG="slang-user-config.h"`. slang-rhi compiles as C++20 with that definition in the public interface of its CMake target (`external/slang-rhi/CMakeLists.txt:1020-1030`), so its consumers parse its headers with both. The config directory holds the file `slang-rhi-config.h` that the configure step of slang-rhi writes, so the parse sees the macro values that the library was built with.
 
-SCS-71. In the rule set `SLANG_RHI`, every declaration of a Slang header, which are `slang.h`, `slang-deprecated.h`, `slang-com-ptr.h`, `slang-com-helper.h`, and the headers that they include, MUST take the action `External`, which emits nothing and writes each reference to it as the path `::slang_compiler_sys::<name>`, with the name of Section 5.11. The generator MUST fail with an error of kind `Unsupported` that names the type when an external reference names an item that the rule set `SLANG` does not emit for the same headers and target.
+SCS-71. In the rule set `SLANG_RHI`, every declaration of a Slang header, which are `slang.h`, `slang-deprecated.h`, `slang-com-ptr.h`, `slang-com-helper.h`, and the headers that they include, MUST take the action `External`, which emits nothing and writes each reference to it as the path `::slang_compiler_sys::<name>`, with the name of Section 5.11. The generator MUST fail with an error of kind `Unsupported` that names the type when an external reference names an item that the rule set `SLANG` does not emit for the same headers and target. A reference through a pointer MUST name an item that `SLANG` emits, as an included or an opaque type, and a reference by value MUST name an included type.
 
-One native type then has one Rust type. A second copy of `ISlangUnknown` or `slang::IComponentType` in `slang-rhi-sys` would be a distinct Rust type, and every pointer passed between the two crates would need a cast that no check covers. The generator decides the item set of `SLANG` from the same parse, so the check needs no build of `slang-compiler-sys`.
+One native type then has one Rust type. A second copy of `ISlangUnknown` or `slang::IComponentType` in `slang-rhi-sys` would be a distinct Rust type, and every pointer passed between the two crates would need a cast that no check covers.
 
-SCS-72. A class with pure virtual methods, no UUID, no base, no data member, and no virtual destructor MUST be generated, where a rule of the rule set names it, as an interface struct with a vtable struct whose first field is the first method and with thunks, and MUST NOT implement `Interface`. The generator MUST refuse such a class with a virtual destructor or a base.
+`generate_slang_rhi` decides the item set of `SLANG` by a second run of the whole pipeline of `generate` with the rule set `SLANG` on the Slang header directory and the same target, in the same libclang instance, before it parses `slang-rhi.h`. The check then compares each reference with the names that `generate` emits for those headers, which is exact, and needs no build of `slang-compiler-sys`. A selection from the parse of `slang-rhi.h` alone would apply the rules of `SLANG` to a translation unit that they were not written for.
 
-A destructor adds one or two slots whose number differs between ABIs, and a base adds a vtable prefix, so a class with either has no layout that the generator can state. Without `Interface`, no checked cast of COM-3 applies to the class, because it answers no `queryInterface`.
+SCS-72. A class with pure virtual methods, no UUID, no base, no data member, and no virtual destructor MUST be generated, where a rule of the rule set names it, as an interface struct with a vtable struct whose first field is the first method and with thunks, and MUST NOT implement `Interface`. The generator MUST refuse such a class with a virtual destructor or a base. Every interface of slang-rhi with a UUID MUST implement the trait `::slang_compiler_sys::Interface` of SCS-10 with a `::slang_compiler_sys::SlangUUID`, and the rule set MUST NOT emit a trait of its own.
 
-SCS-73. Virtual methods that share a name MUST be generated only where a rule of the rule set gives each of them, identified by its qualified name and the list of its parameter types as libclang spells it, a distinct Rust name, and only for a target of the Itanium C++ ABI, which is every target except those whose environment is `msvc`. Their slots MUST follow declaration order. For a target of the Microsoft ABI, the generator MUST fail with an error of kind `Unsupported` that names each such method.
+A destructor adds one or two slots whose number differs between ABIs, and a base adds a vtable prefix, so a class with either has no layout that the generator can state. Without `Interface`, no checked cast of COM-3 applies to the class, because it answers no `queryInterface`. One trait keeps one Rust concept for the one native concept of an interface with a UUID, so a checked cast of the safe crates works across both crates.
+
+SCS-73. Virtual methods that share a name MUST be generated only where a rule of the rule set gives each of them, identified by its qualified name and the list of its parameter types as libclang spells it, a distinct Rust name, and only for a target of the Itanium C++ ABI. Their slots MUST follow declaration order. For a target of the Microsoft ABI, the generator MUST fail with an error of kind `Unsupported` that names each such method with its parameters and its location.
+
+The generator MUST decide the ABI from the triple of the translation unit as libclang normalizes it, which `TranslationUnit::get_target` returns, and not from the text of the target that its caller passes. A normalized triple whose third component is `windows` and whose fourth component starts with `msvc` is a target of the Microsoft ABI, and every other triple is a target of the Itanium C++ ABI. The text of the caller's target appears only in messages.
 
 The Itanium C++ ABI places the virtual functions of a class in its vtable in declaration order [ITANIUM-ABI]. The order that the Microsoft compiler gives to overloads is not established (Section 15, SA-19), and a wrong order calls the wrong method with the wrong arguments. A non-virtual member function of an interface is not part of its vtable, and a rule excludes it by name and kind (SCS-74).
 
-SCS-74. The generator MUST ignore the constructors, destructors, operators, and other non-virtual member functions of a record or an interface only where a rule names them, and MUST map a field of type `Slang::ComPtr<T>` to `*mut T` only where a rule names the template. The record remains subject to every other refusal of SCS-19 and to the layout assertions of SCS-12.
+libclang normalizes several spellings to the `msvc` environment, such as `x86_64-windows-msvc`, `x86_64-pc-win32`, `x86_64-pc-windows`, and `aarch64-windows-msvc`, and others to environments that are not `msvc`, such as `x86_64-pc-windows-gnu`, `x86_64-w64-mingw32`, and `x86_64-unknown-uefi`. A test of the caller's fourth component would miss the first group, and the bindings of such a target would place overloads in an order that nothing checks.
 
-`Slang::ComPtr<T>` holds exactly one pointer to `T` (header `slang-com-ptr.h`), and the layout assertions compare the size and the offset of the field with what libclang reports for the target. A function that takes such a record by `const` reference copies each `ComPtr` and so adds its own reference, while Rust never runs a C++ constructor or destructor of the record. The safety contract of `slang-rhi-sys` therefore requires the caller to keep its own reference to each object that such a field names until the call returns (Section 6.4 of `docs/design/slang-rhi-sys.md`).
+libclang exposes no kind of C++ ABI, so the decision rests on the normalized triple. A Clang that gives the Microsoft ABI to a target whose environment is not `msvc`, such as a UEFI target, would not be detected (Section 15, SA-22).
 
-SCS-75. A virtual method that SCS-19 refuses only because it takes or returns an aggregate by value MUST, where a rule names it, be kept as a vtable field of type `*const ::core::ffi::c_void` with the name of the method and no thunk. Every later slot then keeps its position, as SCS-4 requires, and the method cannot be called from Rust.
+SCS-74. The generator MUST ignore the constructors, destructors, operators, and other non-virtual member functions of a record or an interface only where a rule names them, and MUST map a field of type `Slang::ComPtr<T>` to `*mut T` only where a rule names the template. The record remains subject to every other refusal of SCS-19 and to the layout assertions of SCS-12. In a rule set that has member rules, which is `SLANG_RHI`, a member of an included record or interface that is neither data nor a virtual method and that no rule names MUST fail with an error of kind `Unsupported` that lists each such member with its kind and location.
+
+The rule set `SLANG` has no member rules and keeps ignoring the non-virtual members of its records without a rule, because `generate` and the bindings of `slang-compiler-sys` stay unchanged (SCS-70). The strict check of `SLANG_RHI` turns a new member of a later slang-rhi into a reviewed decision, as SCS-2 intends. A macro rule MAY name the header that it applies to, so that `SLANG_RHI` scopes its rules for the macros of the Slang headers to those headers.
+
+`Slang::ComPtr<T>` holds exactly one pointer to `T` (header `slang-com-ptr.h`), and the layout assertions compare the size and the offset of the field with what libclang reports for the target. A function that takes such a record by `const` reference copies each `ComPtr` and so adds its own reference, while Rust never runs a C++ constructor or destructor of the record.
+
+The safety contract of `slang-rhi-sys` therefore requires the caller to keep its own reference to each object that such a field names until the call returns (Section 6.4 of `docs/design/slang-rhi-sys.md`).
+
+SCS-75. A virtual method that SCS-19 refuses only because it takes or returns an aggregate by value MUST, where a rule names it, be kept as a vtable field of type `*const ::core::ffi::c_void` with the name of the method and no thunk. Every later slot then keeps its position, as SCS-4 requires, and the method cannot be called from Rust. A method that the rule names MAY also take an array parameter, which the placeholder keeps without a declaration as well.
 
 The calling convention of an aggregate passed by value differs between the tested targets: the Microsoft x64 ABI passes most such structs by a hidden pointer, and the System V and AArch64 ABIs pass small ones in registers. A placeholder keeps the vtable exact without a declaration that one target would get wrong.
 
-SCS-76. An initializer that SCS-9 cannot express, such as a nested list in braces, MUST fail as an error of kind `Evaluation`, and the rule set then excludes the record that holds it, which becomes an opaque type where an included declaration uses it by pointer (SCS-4).
+The methods `clearTextureFloat`, `clearTextureUint`, and `clearTextureSint` of `ICommandEncoder` take an array `T values[4]` besides an aggregate by value. A placeholder that refused array parameters would drop the whole interface, which the compute path needs, while a placeholder declares no parameter of any kind.
+
+SCS-76. In the rule set `SLANG_RHI`, the generator MUST evaluate each default member initializer in place, on the expression of the initializer that libclang reports for the field, and MUST refuse a value that does not fit the type of the field with an error of kind `Evaluation` instead of converting it. An initializer that it cannot evaluate, such as a list in braces, MUST fail as an error of kind `Evaluation` that names the struct and the field, unless a rule of SCS-79 names the struct. The rule set `SLANG` keeps the evaluation of SCS-9.
+
+The evaluation of SCS-9 compiles the expression `R{}.field` in a synthetic translation unit, which fails for a record that is not a literal type, such as `Binding`, whose `Slang::ComPtr<T>` members have constructors. The evaluation in place needs no such expression, and a refusal of a value that does not fit keeps the generated `Default` equal to the C++ default.
+
+SCS-79. The rule set MUST be able to name a struct whose default member initializers the generator cannot reproduce, with the reason in plain words, in its rules `without_default`, and the generator MUST then emit the struct and its layout assertions without an implementation of `Default`. It MUST also emit no `Default` for every included record that holds such a struct by value, directly, through a typedef, or in an array, until no further record changes. A rule that names no included struct, or a struct whose defaults the bindings reproduce, MUST fail with an error of kind `StaleRule`.
+
+The documentation of such a struct MUST say that it has no `Default` and why, which is the reason of the rule or the field that holds a struct without `Default`, and the documentation of each of its fields MUST give the C++ default member initializer as the tokens of the header after `=`, or say that the field has none. The generator MUST return an internal error when an emitted `Default` would need the `Default` of such a struct.
+
+A struct without `Default` stays usable, because a caller states every field, and the documentation gives the value of each C++ default. An exclusion of the struct, which this design first required, would drop every interface method that takes it, such as the texture and sampler methods. The check of stale rules removes a rule whose struct a later generator can reproduce, so a `Default` appears as soon as it is correct.
+
+SCS-80. The generator MUST read the value of a constant of a pointer type only when its initializer is a `reinterpret_cast` or a cast in C style, and the operand of that cast has an unsigned integer type of the size of a pointer and evaluates to an integer. It MUST emit such a constant as `::core::ptr::without_provenance_mut` or `::core::ptr::without_provenance` of that address, and MUST refuse every other value with an error of kind `Evaluation`, including an address outside the range of `usize` of the target.
+
+In the rule set `SLANG_RHI`, a default member initializer of a pointer field that names such a constant, through no conversion, MUST be reproduced by the path of the constant. The generator MUST refuse it with an error of kind `Evaluation` when the named item is not an emitted constant of the same type as the field, such as when the initializer converts the constant to another pointer type.
+
+The constant `kInvalidCUDAStream` of slang-rhi is `reinterpret_cast<void*>(~uintptr_t{0})`, which libclang does not evaluate as a variable. The cast of an unsigned integer of the size of a pointer is the one form whose address is exact, and the constant has internal linkage and no symbol, so no test at run time can compare it. The reproduction by the path makes the defaults of `SubmitDesc` and `HeapAllocDesc` equal to their C++ defaults.
+
+SCS-81. The rule set MUST be able to name, in its rules `called_callbacks`, a parameter of a method whose type is a function pointer that the library hands to Rust for Rust to call, as `Owner::method::parameter` with the Rust name of the method. The generator MUST declare the type of such a parameter `Option<unsafe extern "C-unwind" fn(..)>` in the vtable field and in the thunk, and MUST keep `"C"` for every other function pointer. A rule that names no parameter of a function pointer type MUST fail with an error of kind `StaleRule`.
+
+The direction of the call decides the ABI, as FFI-7 states. A function pointer that a program supplies and slang-rhi calls, such as the callbacks of `ExecuteCallbackDesc`, stays `"C"`, so that a panic aborts at the boundary. A function pointer that slang-rhi hands to a task pool that a program implements, such as `func` and `payloadDeleter` of `ITaskPool::submitTask`, runs C++ code of slang-rhi when Rust calls it, so an exception from it enters Rust, which is undefined behaviour through `"C"`.
+
+The header does not show the direction, so a rule states it, and the ABI probe cannot check it, because C++ has no unwinding ABI.
 
 SCS-77. The shim headers MUST provide `algorithm`, `atomic`, `iterator`, `cstddef`, `cstdint`, and `assert.h` with the declarations that `slang-com-ptr.h` and `slang-com-helper.h` use, which are `std::nullptr_t`, `std::size_t`, the fixed-width integer types, `std::equal`, `std::size`, and the macro `assert`, and nothing else. The generator MUST treat every declaration of a shim header as excluded without a rule.
 
 The slang-rhi headers include `slang-com-ptr.h`, which includes `<algorithm>`, `<atomic>`, and `<iterator>` (header `slang-com-helper.h:9-12`), and `slang-rhi-device.h` includes `<cstdint>` and `<cstddef>`. A parse against the standard library of the host would make the text depend on the machine that runs the generator, which SCS-58 forbids, and a shim of the whole standard library would be a large file that nobody reviews. `slang.h` includes none of these headers, so the new shims leave the bindings of `slang-compiler-sys` unchanged.
 
-SCS-78. The field `abi_probe` of `Generated` MUST be `None` for `generate` and MUST hold, for `generate_slang_rhi`, the text of a C++ translation unit that the build script of `slang-rhi-sys` compiles with the compiler that builds slang-rhi. The translation unit MUST contain a `static_assert` of the size, the alignment, and the offset of each field of every generated struct, with the values of the Rust layout assertions. For a target of the Itanium C++ ABI, it MUST also define one `extern "C"` function that writes the byte offset of the vtable slot of every generated method, in the order of the generated vtable fields, which it reads from the representation of a pointer to a virtual member function.
+SCS-78. The field `abi_probe` of `Generated` MUST be `None` for `generate` and MUST hold, for `generate_slang_rhi`, the text of a C++ translation unit that the build script of `slang-rhi-sys` compiles with the compiler that builds slang-rhi. The translation unit MUST contain a `static_assert` of the size, the alignment, and the offset of each field of every generated struct, with the values of the Rust layout assertions, and of the size of every generated enumeration whose underlying type is an integer of fixed width, with the signedness of every enumeration with a fixed underlying type. It MUST assert the fields of an anonymous member through its parent, with `offsetof` of the parent and the offset of the member added, and the fields of a named field of an anonymous type through `decltype` of that field.
 
-libclang computes both the Rust layout assertions and the order of the vtable fields, so a defect in libclang or in the generator would make both wrong in the same way. The compiler that builds slang-rhi is the authority on its ABI, and a test of `slang-rhi-sys` compares each offset that the function writes with the `offset_of!` of the matching field (Section 9 of `docs/design/slang-rhi-sys.md`). The Itanium C++ ABI represents a pointer to a virtual member function by the byte offset of its slot plus one [ITANIUM-ABI], so the probe needs no object of any interface. AArch64 targets are reported to use a variant that keeps the offset without the added one and marks a virtual function in the adjustment field, which the probe follows on such a target (Section 15, SA-21).
+For a target of the Itanium C++ ABI, it MUST also define the function `extern "C" std::size_t slang_rhi_sys_abi_probe_slots(std::size_t* out, std::size_t capacity)`, which writes the byte offset of the vtable slot of every generated method, placeholders included, in the order of the generated vtable fields, into at most `capacity` elements of `out`, and returns the number of slots. It MUST read each slot from the representation of the pointer `static_cast<R (C::*)(P...)>(&C::m)`, with `const` where the method is `const`, so that the compiler also checks the canonical signature of the method and selects the right overload. For such a target, `symbols` MUST also hold the declaration of that function and the constant `VTABLE_SLOTS`, which pairs each method with the `offset_of!` of its field in the generated vtable struct, in the same order.
+
+The assertions of enumerations catch an underlying type that libclang and the compiler disagree on, which no assertion of a struct shows when the enumeration appears only as a parameter. The cast to the exact member pointer type fails to compile when a parameter type of the bindings differs from the header.
+
+libclang computes both the Rust layout assertions and the order of the vtable fields, so a defect in libclang or in the generator would make both wrong in the same way. The compiler that builds slang-rhi is the authority on its ABI, and a test of `slang-rhi-sys` compares each offset that the function writes with the `offset_of!` of the matching field (Section 9 of `docs/design/slang-rhi-sys.md`).
+
+The Itanium C++ ABI represents a pointer to a virtual member function by the byte offset of its slot plus one [ITANIUM-ABI], so the probe needs no object of any interface. AArch64 targets are reported to use a variant that keeps the offset without the added one and marks a virtual function in the adjustment field, which the probe follows when the compiler defines `__aarch64__` or `__arm__` (Section 15, SA-21).
+
+For a target of the Microsoft ABI, the probe holds the assertions of layout only, and SCS-73 refuses the headers of slang-rhi there, because they hold 16 overloaded virtual methods. The code step of `slang-rhi-sys` for Windows settles SA-19 with the probe, extended to the Microsoft ABI, before the generator emits any binding of slang-rhi for that ABI (Section 7.3 of `docs/design/slang-rhi-sys.md`).
 
 `Generated` is `#[non_exhaustive]`, so the new field changes nothing for a caller of `generate`. The binary of SCS-60 and the recipe `check-slang-call-guard` stay on the Slang headers. Whether the checker also covers calls into slang-rhi is RHQ-1 of `docs/design/slang-rhi.md`.
 
@@ -1051,6 +1117,14 @@ The 27 options of `SLANG_OPTIONS` select a release build, `SLANG_LIB_TYPE=STATIC
 - The debug information of the release build and its split form, and sccache.
 
 They also exclude Dawn and Tint. With the Microsoft toolchain, the build script adds `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` when `CARGO_CFG_TARGET_FEATURE` holds `crt-static`, and `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` otherwise, and it adds `-DSLANG_ENABLE_SPIRV_TOOLS_MIMALLOC=OFF`, so that no build needs the submodule `external/mimalloc`, which `slang-src` does not require (Section 3.4 of the `slang-src` design).
+
+SCS-82. On the vendored route, the build script MUST pass `-DSLANG_ENABLE_DXIL=ON` as an option of the target for a target of Windows with the Microsoft toolchain, and `-DSLANG_ENABLE_DXIL=OFF` for every other target, and `SLANG_OPTIONS` MUST NOT hold the option. The crate documentation MUST state that a program on Windows that compiles a shader to DXIL needs `dxcompiler.dll` of the DirectX Shader Compiler on its `PATH` or beside its executable at run time, which the Windows SDK ships, and that providing it is the user's responsibility.
+
+The D3D12 backend of slang-rhi compiles every shader to DXIL on a device of shader model 6 or later, such as WARP, through Slang's pass-through to the DirectX Shader Compiler, and `SLANG_ENABLE_DXIL=OFF` compiles that pass-through out of Slang (Section 7.3 of `docs/design/slang-rhi-sys.md`). The owner decided that slang-rhi is supported on Windows with D3D12, with Slang built with DXIL support and with no download, and that the program provides `dxcompiler.dll` (Section 4.1 of that design). Other targets keep the option off, because no backend of their slang-rhi needs DXIL, and their entries of the shared folder then stay unchanged.
+
+The option is an argument of the configure step, so it is an input of the entry key of SCS-56, and a build for Windows with the option builds a new entry beside an entry without it. With `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`, the configure step with DXIL support on Windows reaches no network: Slang's `cmake/FetchDXC.cmake` prints that it fetches a prebuilt DXC, then a CMake warning about the unpopulated source directory of `dxc`, and the build then compiles Slang's caller of DXC from the header `external/dxc/dxcapi.h` of the tree. That configure step depends on the policy CMP0170 staying unset (Section 15, SA-23).
+
+Without `dxcompiler.dll` at run time, the creation of a compute pipeline on a D3D12 device of shader model 6 fails, and Slang reports `failed to load downstream compiler 'dxc'` and `pass-through compiler not found`. The DLL of the Windows SDK 10.0.26100.0, of version 1.9.2602, is the DXC commit that `cmake/FetchDXC.cmake` of the recorded Slang names, and a dispatch worked with it alone, without `dxil.dll`. This requirement is designed and not implemented (Section 15.12 of the architecture design). `SLANG_OPTIONS` still holds `-DSLANG_ENABLE_DXIL=OFF` for every target.
 
 When every step passes, the build script emits these instructions, in this order, after the rerun instructions of Section 9.5. The rerun instruction for the stamp file of the entry comes after the warning of SCS-65 on an untested target, because the build script knows the entry only once it has computed the key in step 7. In this listing, `<lib>` and `<include>` stand for the directories `lib` and `include` of the entry in the shared folder, and the link instructions after `lz4` depend on the target. This listing is the one for Linux:
 
@@ -1560,11 +1634,11 @@ The change in the last column confirms or corrects it, states the result in the 
 | SA-15 | The headers of Slang releases near the recorded one generate without a change of the rule set, so that another Slang version is best effort and not impossible | Section 4.2 | A run of the binary of SCS-60 on the headers of the newest Slang release when the recorded Slang next moves |
 | SA-17 | On a machine with another version of Visual Studio than that of the hosted Windows runner, or with several installations, the lookup of SCS-68 finds a compiler that builds Slang, and the path of `cl.exe` in the entry key tells the installations apart | SCS-68, SCS-56 | A vendored build on such a machine, by the owner or a developer with one |
 | SA-18 | With the Microsoft toolchain, the ten system libraries of SCS-69 resolve every Windows API symbol that any Rust program can pull out of Slang's archives and those of `slang-glslang-sys`. The test binaries of `test-vendored` link with them on the hosted Windows runner, which confirms the ten for the objects that those binaries pull in, including `SHFileOperationW` of `slang-io.cpp.obj` | SCS-69 | A link on Windows of a program that uses more of Slang than the tests do, such as the examples package with the feature `vendored` |
-| SA-19 | The Microsoft compiler does not place the overloads of one virtual method name in declaration order, so the declaration order of SCS-73 holds only on targets of the Itanium C++ ABI | SCS-73 | The ABI probe of SCS-78, extended to the Microsoft ABI, in the code step of `slang-rhi-sys` that tests Windows (Section 7 of `docs/design/slang-rhi-sys.md`). Until then the generator refuses such overloads for that ABI |
-| SA-20 | No field of the recorded `slang.h` whose type is a struct with default member initializers is written `= {}`, so the change of SCS-9 for such fields leaves the bindings of `slang-compiler-sys` unchanged | SCS-9 | A comparison of the output of the binary of SCS-60 for the recorded headers before and after the code step that implements Section 7.8 |
-| SA-21 | On AArch64 targets, a pointer to a virtual member function holds the byte offset of the slot without the added one and marks a virtual function in its adjustment field | SCS-78 | The ABI probe on `aarch64-unknown-linux-gnu` or on macOS, when `slang-rhi-sys` first builds there. M9 builds it on x86_64 Linux only |
-
-The next assumption takes SA-22.
+| SA-19 | The Microsoft compiler does not place the overloads of one virtual method name in declaration order, so the declaration order of SCS-73 holds only on targets of the Itanium C++ ABI | SCS-73 | The ABI probe of SCS-78, extended to the Microsoft ABI, in the code step of `slang-rhi-sys` for Windows, before any binding of slang-rhi is emitted for that ABI (Section 7.3 of `docs/design/slang-rhi-sys.md`). Until then the generator refuses such overloads for that ABI |
+| SA-21 | On AArch64 targets, a pointer to a virtual member function holds the byte offset of the slot without the added one and marks a virtual function in its adjustment field | SCS-78 | The ABI probe compiled and run on `aarch64-unknown-linux-gnu` or on macOS, when `slang-rhi-sys` first builds there |
+| SA-22 | Every Clang that the generator loads gives the Microsoft C++ ABI only to a target that it normalizes to Windows with the `msvc` environment, as libclang 19 does, which gives a UEFI target the Itanium C++ ABI | SCS-73, SCS-78 | A check of each new version of libclang that the development container or CI installs, until libclang exposes the kind of C++ ABI. A later Clang that gives a UEFI target the Microsoft ABI would not be detected |
+| SA-23 | With `FETCHCONTENT_FULLY_DISCONNECTED=ON` and the policy CMP0170 unset, the configure step of Slang with `SLANG_ENABLE_DXIL=ON` on Windows warns about the unpopulated source directory of `dxc` and goes on, while CMP0170 set to `NEW` would make the warning an error. Neither Slang nor the build script sets the policy | SCS-82 | The code step of `slang-rhi-sys` for Windows, which runs the configure step through the build script and decides whether to redirect the source directory of `dxc` to an empty directory, as RSYS-18 of `docs/design/slang-rhi-sys.md` does for WinPixEventRuntime |
+The next assumption takes SA-24.
 
 Assumption A-6 of the architecture design, that a dependency's build script cannot set the rpath of the final binary, also applies to this design and stays where the architecture design records it.
 
@@ -1783,11 +1857,15 @@ This table lists every labelled requirement of this document with a one-line sum
 | SCS-68 | 9.3 | With the Microsoft toolchain, the vendored route finds `cl.exe` with `find-msvc-tools`, gives its environment to the `cmake` runs only, and stops when it finds none. |
 | SCS-69 | 9.3 | After the C++ standard library, the vendored route links the system libraries of its kind of target: `pthread` and `dl` on Linux, none on macOS, and CMake's ten default libraries with the Microsoft toolchain. |
 | SCS-70 | 7.8 | `generate_slang_rhi` and the rule set `SLANG_RHI` serve the slang-rhi headers, and `generate` and `SLANG` stay unchanged. |
-| SCS-71 | 7.8 | Declarations of the Slang headers are external, written as paths into `slang_compiler_sys`, and a reference to an item that `SLANG` does not emit fails. |
-| SCS-72 | 7.8 | A named class with pure virtual methods and no UUID, base, data, or virtual destructor becomes an interface without `Interface`. |
-| SCS-73 | 7.8 | Overloaded virtual methods get distinct Rust names by rule and declaration order, only for Itanium targets, and fail for the Microsoft ABI. |
-| SCS-74 | 7.8 | Non-virtual members of a named record or interface are ignored, and a named `Slang::ComPtr<T>` field becomes `*mut T`. |
-| SCS-75 | 7.8 | A named method with an aggregate by value keeps its slot as an untyped placeholder field without a thunk. |
-| SCS-76 | 7.8 | An initializer that SCS-9 cannot express fails as `Evaluation`, and the rule set excludes its record. |
+| SCS-71 | 7.8 | Declarations of the Slang headers are external, written as paths into `slang_compiler_sys`, and a reference to an item that a second run of `SLANG` does not emit in the needed form fails. |
+| SCS-72 | 7.8 | A named class with pure virtual methods and no UUID, base, data, or virtual destructor becomes an interface without `Interface`, and the interfaces with a UUID implement `::slang_compiler_sys::Interface`. |
+| SCS-73 | 7.8 | Overloaded virtual methods get distinct Rust names by rule and declaration order, only for Itanium targets, and fail for a target that libclang normalizes to the Microsoft ABI. |
+| SCS-74 | 7.8 | Non-virtual members of a named record or interface are ignored, a named `Slang::ComPtr<T>` field becomes `*mut T`, and with member rules an unnamed member fails. |
+| SCS-75 | 7.8 | A named method with an aggregate by value, also with array parameters, keeps its slot as an untyped placeholder field without a thunk. |
+| SCS-76 | 7.8 | `SLANG_RHI` evaluates default member initializers in place, refuses a value that does not fit, and fails on one it cannot evaluate unless SCS-79 names the struct. |
 | SCS-77 | 7.8 | Minimal C++ shim headers for what `slang-com-ptr.h` and `slang-com-helper.h` use, whose declarations are always excluded. |
-| SCS-78 | 7.8 | `Generated::abi_probe` holds, for slang-rhi, a C++ translation unit that asserts every struct layout and reports every vtable slot offset on Itanium targets. |
+| SCS-78 | 7.8 | `Generated::abi_probe` holds, for slang-rhi, a C++ translation unit that asserts every struct layout and enumeration and reports every vtable slot offset on Itanium targets, with `VTABLE_SLOTS` in `symbols`. |
+| SCS-79 | 7.8 | A struct that a rule `without_default` names, and every record that holds it by value, gets no `Default` and documents why and each C++ initializer, and a stale such rule fails. |
+| SCS-80 | 7.8 | A pointer constant is read only from a cast of an unsigned integer of pointer size, and a pointer field that names it defaults to its path. |
+| SCS-81 | 7.8 | A function pointer parameter that a rule `called_callbacks` names, which Rust calls, is `"C-unwind"`, and every other callback stays `"C"`. |
+| SCS-82 | 9.3 | The vendored Slang builds with DXIL support for Windows with the Microsoft toolchain only, and a program there provides `dxcompiler.dll`. |

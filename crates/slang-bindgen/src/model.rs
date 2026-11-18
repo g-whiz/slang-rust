@@ -4,6 +4,7 @@ use crate::error::Location;
 pub(crate) struct Model {
     pub(crate) items: Vec<Item>,
     pub(crate) macros: Vec<Macro>,
+    pub(crate) microsoft_abi: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,11 +35,20 @@ pub(crate) enum ItemKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Interface {
+    pub(crate) com: bool,
     pub(crate) bases: Vec<String>,
     pub(crate) uuid: Option<Guid>,
     pub(crate) methods: Vec<Method>,
+    pub(crate) members: Vec<Member>,
     pub(crate) has_fields: bool,
     pub(crate) has_virtual_destructor: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Member {
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) location: Location,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,9 +83,26 @@ impl Guid {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Method {
     pub(crate) name: String,
+    pub(crate) rust: Option<String>,
     pub(crate) location: Location,
     pub(crate) signature: Signature,
     pub(crate) pure: bool,
+    pub(crate) placeholder: bool,
+    pub(crate) spelled_params: Vec<String>,
+    pub(crate) canonical: CanonicalSignature,
+}
+
+impl Method {
+    pub(crate) fn rust_name(&self) -> &str {
+        self.rust.as_deref().unwrap_or(&self.name)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CanonicalSignature {
+    pub(crate) result: String,
+    pub(crate) params: Vec<String>,
+    pub(crate) is_const: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +111,7 @@ pub(crate) struct Signature {
     pub(crate) result: Ty,
     pub(crate) variadic: bool,
     pub(crate) convention: String,
+    pub(crate) called_from_rust: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +126,7 @@ pub(crate) struct Record {
     pub(crate) size: usize,
     pub(crate) align: usize,
     pub(crate) fields: Vec<Field>,
+    pub(crate) members: Vec<Member>,
     pub(crate) has_bases: bool,
 }
 
@@ -109,6 +138,7 @@ pub(crate) struct Field {
     pub(crate) offset_bits: usize,
     pub(crate) bit_width: Option<usize>,
     pub(crate) init: Init,
+    pub(crate) spelling: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -118,6 +148,7 @@ pub(crate) enum Init {
     Zero,
     Expression,
     Value(Value),
+    Constant(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -183,6 +214,7 @@ pub(crate) enum Ty {
     Pointer { pointee: Box<Ty>, is_const: bool },
     Array { element: Box<Ty>, len: usize },
     Callback(Box<Signature>),
+    Template { template: String, args: Vec<Ty> },
     Unsupported(String),
 }
 

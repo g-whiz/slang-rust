@@ -108,6 +108,39 @@ impl Host for System {
     fn process_id(&self) -> u32 {
         std::process::id()
     }
+
+    fn generate(
+        &self,
+        rhi_headers: &Path,
+        config_dir: &Path,
+        slang_headers: &Path,
+        target: &str,
+    ) -> Result<Generated, GenerationError> {
+        let generated =
+            slang_bindgen::generate_slang_rhi(rhi_headers, config_dir, slang_headers, target)
+                .map_err(|error| generation_failure(&error))?;
+        Ok(Generated {
+            bindings: generated.bindings,
+            symbols: generated.symbols,
+            abi_probe: generated.abi_probe,
+        })
+    }
+}
+
+fn generation_failure(error: &slang_bindgen::Error) -> GenerationError {
+    let kind = if error.kind() == slang_bindgen::ErrorKind::Libclang {
+        GenerationErrorKind::Libclang
+    } else {
+        GenerationErrorKind::Other
+    };
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        message.push_str(", caused by: ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    GenerationError { kind, message }
 }
 
 fn system_command(invocation: &Invocation) -> Command {

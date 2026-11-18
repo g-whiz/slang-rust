@@ -1,11 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::emit::TypeNames;
 use crate::error::{Error, ErrorKind, Location, Result};
 use crate::model::{
-    CType, Constant, Evaluation, Field, Function, Init, Interface, Item, ItemKind, Macro, Model,
-    Prim, Record, Signature, Ty, Underlying, Value,
+    CType, Constant, Evaluation, Field, Function, Init, Interface, Item, ItemKind, Macro, Member,
+    Method, Model, Prim, Record, Signature, Ty, Underlying, Value,
 };
-use crate::rules::{Action, MacroAction, RuleSet};
+use crate::rules::{Action, MacroAction, NameRule, RuleSet, matches};
 
 const C_CONVENTION: &str = "Cdecl";
 
@@ -13,7 +14,16 @@ const C_CONVENTION: &str = "Cdecl";
 pub(crate) struct Selection {
     pub(crate) items: Vec<Item>,
     pub(crate) excluded: Vec<Item>,
+    pub(crate) external: Vec<Item>,
     pub(crate) macros: Vec<SelectedMacro>,
+    pub(crate) without_default: BTreeMap<String, WithoutDefault>,
+    pub(crate) microsoft_abi: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WithoutDefault {
+    Rule(&'static str),
+    Holds { field: String, held: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,7 +35,7 @@ pub(crate) struct SelectedMacro {
     pub(crate) value: Option<Value>,
 }
 
-pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
+pub(crate) fn select(model: Model, rules: &RuleSet, target: &str) -> Result<Selection> {
     let mut used = Used {
         declarations: vec![false; rules.declarations.len()],
         macros: vec![false; rules.macros.len()],
@@ -36,7 +46,252 @@ pub(crate) fn select(model: Model, rules: &RuleSet) -> Result<Selection> {
     let macros = match_macros(model.macros, rules, &mut used, &mut unmatched);
     unmatched.check()?;
     used.check(rules)?;
-    Ok(partition(model.items, &decisions, macros))
+    let mut selection = partition(model.items, &decisions, macros);
+    selection.microsoft_abi = model.microsoft_abi;
+    apply_class_rules(&mut selection, rules, target)?;
+    Ok(selection)
+}
+
+pub(crate) fn is_microsoft_abi(normalized_triple: &str) -> bool {
+    let mut parts = normalized_triple.split('-').skip(2);
+    parts.next() == Some("windows")
+        && parts
+            .next()
+            .is_some_and(|environment| environment.starts_with("msvc"))
+}
+
+fn position(rules: &[NameRule], name: &str) -> Option<usize> {
+    rules.iter().position(|rule| matches(rule.pattern, name))
+}
+
+#[derive(Default)]
+struct ClassRulesUsed {
+    members: Vec<bool>,
+    templates: Vec<bool>,
+    uuidless: Vec<bool>,
+    overloads: Vec<bool>,
+    placeholders: Vec<bool>,
+    called_callbacks: Vec<bool>,
+}
+
+fn apply_class_rules(selection: &mut Selection, rules: &RuleSet, target: &str) -> Result<()> {
+    let mut used = ClassRulesUsed {
+        members: vec![false; rules.members.map_or(0, <[NameRule]>::len)],
+        templates: vec![false; rules.templates.len()],
+        uuidless: vec![false; rules.uuidless.len()],
+        overloads: vec![false; rules.overloads.len()],
+        placeholders: vec![false; rules.placeholders.len()],
+        called_callbacks: vec![false; rules.called_callbacks.len()],
+    };
+    let mut unmatched_members = Vec::new();
+    let mut microsoft_overloads = Vec::new();
+    let microsoft_abi = selection.microsoft_abi;
+    for item in &mut selection.items {
+        let name = item.name.cxx.clone();
+        match &mut item.kind {
+            ItemKind::Interface(interface) => {
+                if !interface.com
+                    && let Some(position) = position(rules.uuidless, &name)
+                {
+                    used.uuidless[position] = true;
+                }
+                match_members(rules, &interface.members, &mut used, &mut unmatched_members);
+                name_overloads(
+                    &name,
+                    &mut interface.methods,
+                    rules,
+                    microsoft_abi,
+                    &mut used,
+                    &mut microsoft_overloads,
+                );
+                for method in &mut interface.methods {
+                    let qualified = format!("{name}::{}", method.rust_name());
+                    if let Some(position) = position(rules.placeholders, &qualified) {
+                        used.placeholders[position] = true;
+                        method.placeholder = true;
+                    }
+                    mark_called_callbacks(&qualified, method, rules, &mut used);
+                }
+            }
+            ItemKind::Record(record) => {
+                match_members(rules, &record.members, &mut used, &mut unmatched_members);
+                for field in &record.fields {
+                    mark_templates(&field.ty, rules, &mut used);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some((location, _)) = microsoft_overloads.first() {
+        let names: Vec<&str> = microsoft_overloads
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect();
+        return Err(Error::at(
+            ErrorKind::Unsupported,
+            location,
+            format!(
+                "virtual methods share a name on target {target}, whose C++ ABI orders such methods in a vtable in a way that is not established, so the bindings cannot place them: {}",
+                names.join(", ")
+            ),
+        ));
+    }
+    if let Some(first) = unmatched_members.first() {
+        let location = first.location.clone();
+        let descriptions: Vec<String> = unmatched_members
+            .iter()
+            .map(|member| format!("{} ({}, {})", member.name, member.kind, member.location))
+            .collect();
+        return Err(Error::at(
+            ErrorKind::Unsupported,
+            &location,
+            format!(
+                "{} members of included records and interfaces are not data and not virtual methods, and no rule ignores them: {}",
+                descriptions.len(),
+                descriptions.join(", ")
+            ),
+        ));
+    }
+    stale_class_rules(rules, &used)
+}
+
+fn match_members(
+    rules: &RuleSet,
+    members: &[Member],
+    used: &mut ClassRulesUsed,
+    unmatched: &mut Vec<Member>,
+) {
+    let Some(member_rules) = rules.members else {
+        return;
+    };
+    for member in members {
+        match position(member_rules, &member.name) {
+            Some(position) => used.members[position] = true,
+            None => unmatched.push(member.clone()),
+        }
+    }
+}
+
+fn mark_templates(ty: &Ty, rules: &RuleSet, used: &mut ClassRulesUsed) {
+    match ty {
+        Ty::Template { template, .. } => {
+            if let Some(position) = position(rules.templates, template) {
+                used.templates[position] = true;
+            }
+        }
+        Ty::Array { element, .. } => mark_templates(element, rules, used),
+        _ => {}
+    }
+}
+
+fn name_overloads(
+    owner: &str,
+    methods: &mut [Method],
+    rules: &RuleSet,
+    microsoft_abi: bool,
+    used: &mut ClassRulesUsed,
+    microsoft: &mut Vec<(Location, String)>,
+) {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for method in methods.iter() {
+        *counts.entry(method.name.clone()).or_default() += 1;
+    }
+    if microsoft_abi {
+        for method in methods
+            .iter()
+            .filter(|method| counts.get(&method.name).copied().unwrap_or_default() > 1)
+        {
+            microsoft.push((
+                method.location.clone(),
+                format!(
+                    "{owner}::{}({}) ({})",
+                    method.name,
+                    method.spelled_params.join(", "),
+                    method.location
+                ),
+            ));
+        }
+        return;
+    }
+    for method in methods.iter_mut() {
+        if counts.get(&method.name).copied().unwrap_or_default() < 2 {
+            continue;
+        }
+        let qualified = format!("{owner}::{}", method.name);
+        if let Some(position) = rules.overloads.iter().position(|rule| {
+            rule.method == qualified
+                && rule.params.len() == method.spelled_params.len()
+                && rule
+                    .params
+                    .iter()
+                    .zip(&method.spelled_params)
+                    .all(|(wanted, spelled)| wanted == spelled)
+        }) {
+            used.overloads[position] = true;
+            method.rust = Some(rules.overloads[position].rust.to_owned());
+        }
+    }
+}
+
+fn mark_called_callbacks(
+    qualified: &str,
+    method: &mut Method,
+    rules: &RuleSet,
+    used: &mut ClassRulesUsed,
+) {
+    for param in &mut method.signature.params {
+        let (Some(name), Ty::Callback(signature)) = (&param.name, &mut param.ty) else {
+            continue;
+        };
+        if let Some(position) = position(rules.called_callbacks, &format!("{qualified}::{name}")) {
+            used.called_callbacks[position] = true;
+            signature.called_from_rust = true;
+        }
+    }
+}
+
+fn stale_class_rules(rules: &RuleSet, used: &ClassRulesUsed) -> Result<()> {
+    let mut stale = Vec::new();
+    let mut name_rules = |kind: &str, list: &[NameRule], used: &[bool]| {
+        for (rule, used) in list.iter().zip(used) {
+            if !used {
+                stale.push(format!(
+                    "the {kind} rule {} ({})",
+                    rule.pattern, rule.reason
+                ));
+            }
+        }
+    };
+    name_rules("member", rules.members.unwrap_or_default(), &used.members);
+    name_rules("template", rules.templates, &used.templates);
+    name_rules("interface", rules.uuidless, &used.uuidless);
+    name_rules("placeholder", rules.placeholders, &used.placeholders);
+    name_rules(
+        "called callback",
+        rules.called_callbacks,
+        &used.called_callbacks,
+    );
+    for (rule, used) in rules.overloads.iter().zip(&used.overloads) {
+        if !used {
+            stale.push(format!(
+                "the overload rule {}({}) ({})",
+                rule.method,
+                rule.params.join(", "),
+                rule.reason
+            ));
+        }
+    }
+    if stale.is_empty() {
+        return Ok(());
+    }
+    Err(Error::new(
+        ErrorKind::StaleRule,
+        format!(
+            "{} rules of the rule set decide no declaration or macro of the headers, so remove or correct them: {}",
+            stale.len(),
+            stale.join(", ")
+        ),
+    ))
 }
 
 #[derive(Default)]
@@ -82,7 +337,15 @@ fn match_declarations(
     let mut decisions = Decisions::default();
     for item in items.iter().filter(|item| item.owner.is_none()) {
         let file = item.location.file();
-        if let ItemKind::Enum(enumeration) = &item.kind
+        let external = rules
+            .declaration_position(file, &item.name.cxx)
+            .filter(|position| rules.declarations[*position].action == Action::External);
+        if let Some(position) = external {
+            used.declarations[position] = true;
+            decisions
+                .actions
+                .insert(item.name.cxx.clone(), Action::External);
+        } else if let ItemKind::Enum(enumeration) = &item.kind
             && enumeration.unnamed
         {
             let Some(position) = rules.unnamed_enum_position(file, &enumeration.enumerators) else {
@@ -129,7 +392,7 @@ fn match_macros(
 ) -> Vec<SelectedMacro> {
     let mut selected = Vec::new();
     for Macro { name, location } in macros {
-        let Some(position) = rules.macro_position(&name) else {
+        let Some(position) = rules.macro_position(location.file(), &name) else {
             unmatched.record(format!("macro {name} ({location})"), &location);
             continue;
         };
@@ -155,6 +418,7 @@ fn partition(items: Vec<Item>, decisions: &Decisions, macros: Vec<SelectedMacro>
         .collect();
     let mut included = Vec::new();
     let mut excluded = Vec::new();
+    let mut external = Vec::new();
     for mut item in items {
         let root = root_owner(&owners, &item.name.cxx);
         if let ItemKind::Enum(enumeration) = &mut item.kind
@@ -162,16 +426,19 @@ fn partition(items: Vec<Item>, decisions: &Decisions, macros: Vec<SelectedMacro>
         {
             enumeration.constants_of = Some((*typedef).to_owned());
         }
-        if decisions.actions.get(root) == Some(&Action::Include) {
-            included.push(item);
-        } else {
-            excluded.push(item);
+        match decisions.actions.get(root) {
+            Some(Action::Include) => included.push(item),
+            Some(Action::External) => external.push(item),
+            _ => excluded.push(item),
         }
     }
     Selection {
         items: included,
         excluded,
+        external,
         macros,
+        without_default: BTreeMap::new(),
+        microsoft_abi: false,
     }
 }
 
@@ -182,26 +449,121 @@ enum Slot {
 
 pub(crate) fn evaluate(
     selection: &mut Selection,
+    rules: &RuleSet,
     evaluate: impl FnOnce(&[Evaluation]) -> Result<Vec<Value>>,
 ) -> Result<()> {
-    let (evaluations, slots) = evaluations(selection)?;
-    if evaluations.is_empty() {
-        return Ok(());
-    }
-    for (slot, value) in slots.into_iter().zip(evaluate(&evaluations)?) {
-        match slot {
-            Slot::Macro(position) => selection.macros[position].value = Some(value),
-            Slot::Field(item, field) => {
-                if let ItemKind::Record(record) = &mut selection.items[item].kind {
-                    record.fields[field].init = Init::Value(value);
+    let (evaluations, slots) = evaluations(selection, rules)?;
+    if !evaluations.is_empty() {
+        for (slot, value) in slots.into_iter().zip(evaluate(&evaluations)?) {
+            match slot {
+                Slot::Macro(position) => selection.macros[position].value = Some(value),
+                Slot::Field(item, field) => {
+                    if let ItemKind::Record(record) = &mut selection.items[item].kind {
+                        record.fields[field].init = Init::Value(value);
+                    }
                 }
             }
         }
     }
+    selection.without_default = without_default(selection, rules)?;
     Ok(())
 }
 
-fn evaluations(selection: &Selection) -> Result<(Vec<Evaluation>, Vec<Slot>)> {
+fn without_default(
+    selection: &Selection,
+    rules: &RuleSet,
+) -> Result<BTreeMap<String, WithoutDefault>> {
+    let mut marked = BTreeMap::new();
+    let mut stale = Vec::new();
+    for rule in rules.without_default {
+        let mut named = false;
+        for item in &selection.items {
+            let ItemKind::Record(record) = &item.kind else {
+                continue;
+            };
+            if !matches(rule.pattern, &item.name.cxx) {
+                continue;
+            }
+            named = true;
+            if record
+                .fields
+                .iter()
+                .any(|field| field.init == Init::Expression)
+            {
+                marked.insert(item.name.cxx.clone(), WithoutDefault::Rule(rule.reason));
+            } else {
+                stale.push(format!(
+                    "the rule without Default {} ({}), whose struct {} has a default that the bindings reproduce",
+                    rule.pattern, rule.reason, item.name.cxx
+                ));
+            }
+        }
+        if !named {
+            stale.push(format!(
+                "the rule without Default {} ({}), which names no included struct",
+                rule.pattern, rule.reason
+            ));
+        }
+    }
+    if !stale.is_empty() {
+        return Err(Error::new(
+            ErrorKind::StaleRule,
+            format!(
+                "{} rules of the rule set decide no declaration or macro of the headers, so remove or correct them: {}",
+                stale.len(),
+                stale.join(", ")
+            ),
+        ));
+    }
+    let kinds: HashMap<&str, &ItemKind> = selection
+        .items
+        .iter()
+        .map(|item| (item.name.cxx.as_str(), &item.kind))
+        .collect();
+    loop {
+        let mut added = Vec::new();
+        for item in &selection.items {
+            let ItemKind::Record(record) = &item.kind else {
+                continue;
+            };
+            if marked.contains_key(&item.name.cxx) {
+                continue;
+            }
+            let holds = record.fields.iter().find_map(|field| {
+                let held = held_record(&field.ty, &kinds)?;
+                marked.contains_key(held).then(|| WithoutDefault::Holds {
+                    field: field
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| "(anonymous member)".to_owned()),
+                    held: held.to_owned(),
+                })
+            });
+            if let Some(holds) = holds {
+                added.push((item.name.cxx.clone(), holds));
+            }
+        }
+        if added.is_empty() {
+            return Ok(marked);
+        }
+        marked.extend(added);
+    }
+}
+
+fn held_record<'a>(ty: &'a Ty, kinds: &HashMap<&str, &'a ItemKind>) -> Option<&'a str> {
+    match ty {
+        Ty::Array { element, .. } => held_record(element, kinds),
+        Ty::Named(name) => match kinds.get(name.as_str())? {
+            ItemKind::Record(_) => Some(name),
+            ItemKind::Typedef(inner) => held_record(inner, kinds),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn evaluations(selection: &Selection, rules: &RuleSet) -> Result<(Vec<Evaluation>, Vec<Slot>)> {
+    let in_place = rules.initializers_in_place;
     let mut evaluations = Vec::new();
     let mut slots = Vec::new();
     for (position, selected) in selection.macros.iter().enumerate() {
@@ -219,6 +581,9 @@ fn evaluations(selection: &Selection) -> Result<(Vec<Evaluation>, Vec<Slot>)> {
         let ItemKind::Record(record) = &item.kind else {
             continue;
         };
+        if position(rules.without_default, &item.name.cxx).is_some() {
+            continue;
+        }
         for (field_position, field) in record.fields.iter().enumerate() {
             if field.init != Init::Expression {
                 continue;
@@ -228,6 +593,15 @@ fn evaluations(selection: &Selection) -> Result<(Vec<Evaluation>, Vec<Slot>)> {
                 "the default member initializer of {}::{field_name}",
                 item.name.cxx
             );
+            if in_place {
+                return Err(Error::at(
+                    ErrorKind::Evaluation,
+                    &field.location,
+                    format!(
+                        "cannot evaluate {what}, because libclang returned no integer or floating-point value for the initializer"
+                    ),
+                ));
+            }
             if item.name.cxx.contains('(') {
                 return Err(Error::at(
                     ErrorKind::Unsupported,
@@ -318,34 +692,61 @@ pub(crate) struct Validator<'a> {
     target: &'a str,
     included: HashMap<&'a str, &'a Item>,
     excluded: HashMap<&'a str, &'a Item>,
+    external: HashMap<&'a str, &'a Item>,
+    external_types: Option<&'a TypeNames>,
 }
 
-pub(crate) fn validate(selection: &Selection, rules: &RuleSet, target: &str) -> Result<()> {
-    let validator = Validator::new(selection, rules, target);
+pub(crate) fn validate(
+    selection: &Selection,
+    rules: &RuleSet,
+    target: &str,
+    external_types: Option<&TypeNames>,
+) -> Result<()> {
+    let validator = Validator::new(selection, rules, target, external_types);
     validator.validate()
 }
 
 impl<'a> Validator<'a> {
-    pub(crate) fn new(selection: &'a Selection, rules: &'a RuleSet, target: &'a str) -> Self {
+    pub(crate) fn new(
+        selection: &'a Selection,
+        rules: &'a RuleSet,
+        target: &'a str,
+        external_types: Option<&'a TypeNames>,
+    ) -> Self {
+        let by_name = |items: &'a [Item]| {
+            items
+                .iter()
+                .map(|item| (item.name.cxx.as_str(), item))
+                .collect::<HashMap<_, _>>()
+        };
         Self {
             selection,
             rules,
             target,
-            included: selection
-                .items
-                .iter()
-                .map(|item| (item.name.cxx.as_str(), item))
-                .collect(),
-            excluded: selection
-                .excluded
-                .iter()
-                .map(|item| (item.name.cxx.as_str(), item))
-                .collect(),
+            included: by_name(&selection.items),
+            excluded: by_name(&selection.excluded),
+            external: by_name(&selection.external),
+            external_types,
         }
     }
 
     pub(crate) fn included(&self, cxx: &str) -> Option<&'a Item> {
-        self.included.get(cxx).copied()
+        self.included
+            .get(cxx)
+            .or_else(|| self.external.get(cxx))
+            .copied()
+    }
+
+    pub(crate) fn is_external(&self, cxx: &str) -> bool {
+        !self.included.contains_key(cxx) && self.external.contains_key(cxx)
+    }
+
+    pub(crate) fn uuid_item(&self) -> Option<&'a Item> {
+        self.selection
+            .items
+            .iter()
+            .chain(&self.selection.external)
+            .find(|item| item.name.rust.as_deref() == Some(self.rules.uuid_type))
     }
 
     pub(crate) fn excluded(&self, cxx: &str) -> Option<&'a Item> {
@@ -467,6 +868,19 @@ impl<'a> Validator<'a> {
             location,
             &format!("constant {name}"),
         )?;
+        if let Ty::Pointer { .. } = self.resolve(&constant.ty) {
+            let (min, max) = Prim::Usize.range();
+            return match value {
+                Value::Integer(address) if (min..=max).contains(&address) => Ok(()),
+                _ => Err(Error::at(
+                    ErrorKind::Evaluation,
+                    location,
+                    format!(
+                        "the pointer constant {name} has a value that is not an address of the target"
+                    ),
+                )),
+            };
+        }
         self.check_value(&constant.ty, value, location, &format!("constant {name}"))
     }
 
@@ -616,7 +1030,7 @@ impl<'a> Validator<'a> {
             ));
         }
         self.ty(&field.ty, Context::Field, &field.location, &what)?;
-        match field.init {
+        match &field.init {
             Init::Null
                 if !matches!(
                     self.resolve(&field.ty),
@@ -628,17 +1042,63 @@ impl<'a> Validator<'a> {
                     format!("{what} is initialized with nullptr but is not a pointer"),
                 ))
             }
+            Init::Expression
+                if matches!(
+                    self.selection.without_default.get(name),
+                    Some(WithoutDefault::Rule(_))
+                ) =>
+            {
+                Ok(())
+            }
             Init::Expression => Err(Error::at(
                 ErrorKind::Evaluation,
                 &field.location,
                 format!("the default member initializer of {what} was not evaluated"),
             )),
-            Init::Value(value) => self.check_value(&field.ty, value, &field.location, &what),
+            Init::Value(value) => self.check_value(&field.ty, *value, &field.location, &what),
+            Init::Constant(constant) => {
+                match self.included(constant.as_str()).map(|item| &item.kind) {
+                    Some(ItemKind::Constant(Constant { ty, value: Some(_) }))
+                        if self.resolve(ty) == self.resolve(&field.ty) =>
+                    {
+                        Ok(())
+                    }
+                    _ => Err(Error::at(
+                        ErrorKind::Evaluation,
+                        &field.location,
+                        format!(
+                            "the default member initializer of {what} names {constant}, which the bindings do not declare as a constant of the type of the field"
+                        ),
+                    )),
+                }
+            }
             Init::None | Init::Null | Init::Zero => Ok(()),
         }
     }
 
     fn interface(&self, item: &'a Item, interface: &'a Interface) -> Result<()> {
+        if !interface.com {
+            if position(self.rules.uuidless, &item.name.cxx).is_none() {
+                return Err(Self::unsupported(
+                    &item.location,
+                    format!(
+                        "{} is a class with virtual methods and no UUID, which the bindings cannot express",
+                        item.name.cxx
+                    ),
+                ));
+            }
+            if !interface.bases.is_empty() {
+                return Err(Self::unsupported(
+                    &item.location,
+                    format!(
+                        "class {} has virtual methods, no UUID, and a base class, whose vtable prefix the bindings cannot state",
+                        item.name.cxx
+                    ),
+                ));
+            }
+            Self::interface_shape(item, interface)?;
+            return self.interface_methods(item, interface);
+        }
         Self::interface_shape(item, interface)?;
         self.interface_uuid(item, interface)?;
         self.interface_methods(item, interface)
@@ -687,11 +1147,7 @@ impl<'a> Validator<'a> {
             ));
         }
         if !matches!(
-            self.selection
-                .items
-                .iter()
-                .find(|candidate| candidate.name.rust.as_deref() == Some(self.rules.uuid_type))
-                .map(|candidate| &candidate.kind),
+            self.uuid_item().map(|candidate| &candidate.kind),
             Some(ItemKind::Record(record)) if record.fields.len() == 4
         ) {
             return Err(Self::unsupported(
@@ -710,16 +1166,17 @@ impl<'a> Validator<'a> {
         let mut names = HashSet::new();
         for base in self.chain(item, interface)?.iter().skip(1) {
             for method in &base.methods {
-                names.insert(method.name.as_str());
+                names.insert(method.rust_name());
             }
         }
         for method in &interface.methods {
             let what = format!("method {name}::{}", method.name);
-            if !names.insert(method.name.as_str()) {
+            if !names.insert(method.rust_name()) {
                 return Err(Self::unsupported(
                     &method.location,
                     format!(
-                        "{what} overloads or overrides another method of the same name, so its vtable slot cannot be told from the declaration order"
+                        "{what} overloads or overrides another method of the same name, so its vtable slot cannot be told from the declaration order, and no rule names it with its parameter types ({})",
+                        method.spelled_params.join(", ")
                     ),
                 ));
             }
@@ -740,7 +1197,65 @@ impl<'a> Validator<'a> {
                     ),
                 ));
             }
-            self.signature(&method.signature, &method.location, &what, false)?;
+            if method.placeholder {
+                self.placeholder(&method.signature, &method.location, &what)?;
+            } else {
+                self.signature(&method.signature, &method.location, &what, false)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn by_value_aggregate(&self, ty: &'a Ty) -> bool {
+        let Ty::Named(name) = self.resolve(ty) else {
+            return false;
+        };
+        self.included(name)
+            .or_else(|| self.excluded(name))
+            .is_some_and(|item| matches!(item.kind, ItemKind::Record(_)))
+    }
+
+    fn placeholder(&self, signature: &'a Signature, location: &Location, what: &str) -> Result<()> {
+        if signature.variadic {
+            return Err(Self::unsupported(
+                location,
+                format!("{what} is variadic, which the bindings cannot declare"),
+            ));
+        }
+        let mut aggregate = false;
+        for (position, param) in signature.params.iter().enumerate() {
+            if self.by_value_aggregate(&param.ty) {
+                aggregate = true;
+                continue;
+            }
+            if matches!(param.ty, Ty::Array { .. }) {
+                continue;
+            }
+            let param_name = param.name.clone().unwrap_or_else(|| format!("#{position}"));
+            self.ty(
+                &param.ty,
+                Context::Value,
+                location,
+                &format!("parameter {param_name} of {what}"),
+            )?;
+        }
+        if self.by_value_aggregate(&signature.result) {
+            aggregate = true;
+        } else if signature.result != Ty::Void {
+            self.ty(
+                &signature.result,
+                Context::Value,
+                location,
+                &format!("the return value of {what}"),
+            )?;
+        }
+        if !aggregate {
+            return Err(Self::unsupported(
+                location,
+                format!(
+                    "a rule keeps {what} as a placeholder slot, but it passes no aggregate by value, so the bindings can declare it"
+                ),
+            ));
         }
         Ok(())
     }
@@ -841,10 +1356,28 @@ impl<'a> Validator<'a> {
                 true,
             ),
             Ty::Named(name) => self.named(name, context, location, what),
+            Ty::Template { template, args } => {
+                let ([arg], Some(_), Context::Field) = (
+                    args.as_slice(),
+                    position(self.rules.templates, template),
+                    context,
+                ) else {
+                    return Err(Self::unsupported(
+                        location,
+                        format!(
+                            "{what} has the type of the template {template}, which no rule maps to a pointer to its one argument in a field"
+                        ),
+                    ));
+                };
+                self.ty(arg, Context::Pointee, location, what)
+            }
         }
     }
 
     fn named(&self, name: &str, context: Context, location: &Location, what: &str) -> Result<()> {
+        if self.is_external(name) {
+            self.external_reference(name, context, location, what)?;
+        }
         if let Some(item) = self.included(name) {
             return match &item.kind {
                 ItemKind::Typedef(inner) => {
@@ -903,6 +1436,36 @@ impl<'a> Validator<'a> {
         Err(Self::unsupported(
             location,
             format!("{what} refers to {name}, which the headers do not declare"),
+        ))
+    }
+
+    fn external_reference(
+        &self,
+        name: &str,
+        context: Context,
+        location: &Location,
+        what: &str,
+    ) -> Result<()> {
+        let rust = self
+            .included(name)
+            .and_then(|item| item.name.rust.as_deref());
+        let crate_name = self.rules.external_crate.unwrap_or("the external crate");
+        let found = match (rust, self.external_types) {
+            (Some(rust), Some(types)) => {
+                types.included.contains(rust)
+                    || matches!(context, Context::Pointee | Context::Typedef)
+                        && types.opaque.contains(rust)
+            }
+            _ => false,
+        };
+        if found {
+            return Ok(());
+        }
+        Err(Self::unsupported(
+            location,
+            format!(
+                "{what} refers to the Slang type {name}, which the bindings of {crate_name} do not declare in a form that this use needs"
+            ),
         ))
     }
 
@@ -1074,7 +1637,10 @@ mod tests {
         Selection {
             items,
             excluded: Vec::new(),
+            external: Vec::new(),
             macros: Vec::new(),
+            without_default: BTreeMap::new(),
+            microsoft_abi: false,
         }
     }
 
@@ -1089,7 +1655,7 @@ mod tests {
     }
 
     fn refusal(items: Vec<Item>) -> Error {
-        validate(&selection(items), &SLANG, "test-target").expect_err("validation fails")
+        validate(&selection(items), &SLANG, "test-target", None).expect_err("validation fails")
     }
 
     fn assert_refusal(error: &Error, kind: ErrorKind, message: &str) {
@@ -1112,18 +1678,64 @@ mod tests {
         );
     }
 
-    #[test]
-    fn validate_refuses_a_pointer_with_a_value_other_than_nullptr() {
-        let pointer = Ty::Pointer {
+    fn void_pointer() -> Ty {
+        Ty::Pointer {
             pointee: Box::new(Ty::Void),
             is_const: true,
-        };
-        let error = refusal(vec![constant(pointer, Value::Integer(8))]);
+        }
+    }
+
+    #[test]
+    fn validate_refuses_a_pointer_field_with_a_value_other_than_nullptr() {
+        let record = item(
+            "R",
+            ItemKind::Record(Record {
+                union: false,
+                size: 8,
+                align: 8,
+                fields: vec![Field {
+                    name: Some("pointer".to_owned()),
+                    location: Location::new("slang.h", 1),
+                    ty: void_pointer(),
+                    offset_bits: 0,
+                    bit_width: None,
+                    init: Init::Value(Value::Integer(8)),
+                    spelling: None,
+                }],
+                members: Vec::new(),
+                has_bases: false,
+            }),
+        );
+        let error = refusal(vec![record]);
         assert_refusal(
             &error,
             ErrorKind::Unsupported,
-            "constant C is a pointer initialized with a value other than nullptr",
+            "field R::pointer is a pointer initialized with a value other than nullptr",
         );
+    }
+
+    #[test]
+    fn validate_accepts_a_pointer_constant_with_an_address_and_refuses_any_other_value() {
+        for address in [0, i128::from(u64::MAX)] {
+            validate(
+                &selection(vec![constant(void_pointer(), Value::Integer(address))]),
+                &SLANG,
+                "test-target",
+                None,
+            )
+            .unwrap_or_else(|error| panic!("{address}: {error}"));
+        }
+        for value in [
+            Value::Integer(-1),
+            Value::Integer(i128::from(u64::MAX) + 1),
+            Value::Float(1.0),
+        ] {
+            assert_refusal(
+                &refusal(vec![constant(void_pointer(), value)]),
+                ErrorKind::Evaluation,
+                "the pointer constant C has a value that is not an address of the target",
+            );
+        }
     }
 
     #[test]
@@ -1141,7 +1753,9 @@ mod tests {
                     offset_bits: 0,
                     bit_width: None,
                     init: Init::None,
+                    spelling: None,
                 }],
+                members: Vec::new(),
                 has_bases: false,
             }),
         );
@@ -1158,7 +1772,9 @@ mod tests {
                     offset_bits: 0,
                     bit_width: None,
                     init: Init::Value(Value::Integer(1)),
+                    spelling: None,
                 }],
+                members: Vec::new(),
                 has_bases: false,
             }),
         );
@@ -1209,8 +1825,233 @@ mod tests {
             ]),
             &SLANG,
             "test-target",
+            None,
         )
         .expect("the values fit");
+    }
+
+    #[test]
+    fn is_microsoft_abi_holds_for_a_normalized_windows_triple_of_the_msvc_environment_only() {
+        assert!(is_microsoft_abi("x86_64-pc-windows-msvc19.33.0"));
+        assert!(is_microsoft_abi("x86_64-unknown-windows-msvc19.33.0"));
+        assert!(is_microsoft_abi("aarch64-unknown-windows-msvc19.33.0"));
+        assert!(is_microsoft_abi("x86_64-pc-windows-msvc"));
+        assert!(!is_microsoft_abi("x86_64-pc-windows-gnu"));
+        assert!(!is_microsoft_abi("x86_64-w64-windows-gnu"));
+        assert!(!is_microsoft_abi("x86_64-pc-windows-gnullvm"));
+        assert!(!is_microsoft_abi("x86_64-pc-windows-itanium"));
+        assert!(!is_microsoft_abi("x86_64-pc-windows-cygnus"));
+        assert!(!is_microsoft_abi("x86_64-unknown-linux-gnu"));
+        assert!(!is_microsoft_abi("arm64-apple-macosx10.4.0"));
+        assert!(!is_microsoft_abi("x86_64-unknown-linux-msvc"));
+        assert!(!is_microsoft_abi("msvc"));
+    }
+
+    fn method(name: &str, params: &[&str]) -> Method {
+        Method {
+            name: name.to_owned(),
+            rust: None,
+            location: Location::new("slang-rhi.h", 1),
+            signature: Signature {
+                params: Vec::new(),
+                result: Ty::Void,
+                variadic: false,
+                convention: C_CONVENTION.to_owned(),
+                called_from_rust: false,
+            },
+            pure: true,
+            placeholder: false,
+            spelled_params: params.iter().map(|param| (*param).to_owned()).collect(),
+            canonical: crate::model::CanonicalSignature::default(),
+        }
+    }
+
+    fn rhi_interface(members: Vec<Member>, methods: Vec<Method>) -> Item {
+        Item {
+            name: Name {
+                cxx: "rhi::IThing".to_owned(),
+                rust: Some("IThing".to_owned()),
+            },
+            location: Location::new("slang-rhi.h", 1),
+            owner: None,
+            kind: ItemKind::Interface(Interface {
+                com: true,
+                bases: Vec::new(),
+                uuid: None,
+                methods,
+                members,
+                has_fields: false,
+                has_virtual_destructor: false,
+            }),
+        }
+    }
+
+    const OVERLOADS: &[crate::rules::OverloadRule] = &[
+        crate::rules::OverloadRule {
+            method: "rhi::IThing::read",
+            params: &["int"],
+            rust: "read",
+            reason: "a test overload",
+        },
+        crate::rules::OverloadRule {
+            method: "rhi::IThing::read",
+            params: &["const char *"],
+            rust: "read_name",
+            reason: "a test overload",
+        },
+    ];
+
+    const TEST_RHI: RuleSet = RuleSet {
+        members: Some(&[NameRule {
+            pattern: "rhi::IThing::helper",
+            reason: "a test member",
+        }]),
+        overloads: OVERLOADS,
+        placeholders: &[NameRule {
+            pattern: "rhi::IThing::read_name",
+            reason: "a test placeholder",
+        }],
+        uuidless: &[],
+        templates: &[],
+        ..SLANG
+    };
+
+    fn member(name: &str) -> Member {
+        Member {
+            name: name.to_owned(),
+            kind: "Method".to_owned(),
+            location: Location::new("slang-rhi.h", 2),
+        }
+    }
+
+    #[test]
+    fn apply_class_rules_names_overloads_and_placeholders_by_rule() {
+        let mut selection = selection(vec![rhi_interface(
+            vec![member("rhi::IThing::helper")],
+            vec![
+                method("read", &["int"]),
+                method("other", &[]),
+                method("read", &["const char *"]),
+            ],
+        )]);
+        apply_class_rules(&mut selection, &TEST_RHI, "x86_64-unknown-linux-gnu")
+            .expect("every rule decides something");
+        let ItemKind::Interface(interface) = &selection.items[0].kind else {
+            panic!("the item is an interface");
+        };
+        let names: Vec<(&str, bool)> = interface
+            .methods
+            .iter()
+            .map(|method| (method.rust_name(), method.placeholder))
+            .collect();
+        assert_eq!(
+            names,
+            [("read", false), ("other", false), ("read_name", true)]
+        );
+    }
+
+    #[test]
+    fn apply_class_rules_refuses_a_member_without_a_rule_and_overloads_on_the_microsoft_abi() {
+        let mut members = selection(vec![rhi_interface(
+            vec![member("rhi::IThing::helper"), member("rhi::IThing::other")],
+            vec![method("read", &["int"]), method("read", &["const char *"])],
+        )]);
+        let error = apply_class_rules(&mut members, &TEST_RHI, "x86_64-unknown-linux-gnu")
+            .expect_err("the member has no rule");
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert_eq!(
+            error.message(),
+            "1 members of included records and interfaces are not data and not virtual methods, and no rule ignores them: rhi::IThing::other (Method, slang-rhi.h:2)"
+        );
+        let mut overloads = selection(vec![rhi_interface(
+            vec![member("rhi::IThing::helper")],
+            vec![method("read", &["int"]), method("read", &["const char *"])],
+        )]);
+        overloads.microsoft_abi = true;
+        let error = apply_class_rules(&mut overloads, &TEST_RHI, "x86_64-pc-windows-msvc")
+            .expect_err("the Microsoft ABI refuses overloads");
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert!(
+            error
+                .message()
+                .ends_with("rhi::IThing::read(int) (slang-rhi.h:1), rhi::IThing::read(const char *) (slang-rhi.h:1)"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn apply_class_rules_marks_only_the_callback_parameter_that_a_rule_names_as_called_from_rust() {
+        let callback = || {
+            Ty::Callback(Box::new(Signature {
+                params: Vec::new(),
+                result: Ty::Void,
+                variadic: false,
+                convention: C_CONVENTION.to_owned(),
+                called_from_rust: false,
+            }))
+        };
+        let mut submit = method("submit", &[]);
+        submit.signature.params = ["func", "deleter", "payload"]
+            .into_iter()
+            .zip([callback(), callback(), Ty::Prim(Prim::U64)])
+            .map(|(name, ty)| crate::model::Param {
+                name: Some(name.to_owned()),
+                ty,
+            })
+            .collect();
+        let mut selection = selection(vec![rhi_interface(
+            vec![member("rhi::IThing::helper")],
+            vec![
+                submit,
+                method("read", &["int"]),
+                method("read", &["const char *"]),
+            ],
+        )]);
+        let mut rules = TEST_RHI;
+        rules.called_callbacks = &[NameRule {
+            pattern: "rhi::IThing::submit::func",
+            reason: "a test callback",
+        }];
+        apply_class_rules(&mut selection, &rules, "x86_64-unknown-linux-gnu")
+            .expect("every rule decides something");
+        let ItemKind::Interface(interface) = &selection.items[0].kind else {
+            panic!("the item is an interface");
+        };
+        let called: Vec<Option<bool>> = interface.methods[0]
+            .signature
+            .params
+            .iter()
+            .map(|param| match &param.ty {
+                Ty::Callback(signature) => Some(signature.called_from_rust),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(called, [Some(true), Some(false), None]);
+        rules.called_callbacks = &[NameRule {
+            pattern: "rhi::IThing::submit::payload",
+            reason: "a test callback",
+        }];
+        let error = apply_class_rules(&mut selection, &rules, "x86_64-unknown-linux-gnu")
+            .expect_err("the rule names no callback");
+        assert_eq!(error.kind(), ErrorKind::StaleRule);
+        assert!(
+            error.message().contains(
+                "the called callback rule rhi::IThing::submit::payload (a test callback)"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn apply_class_rules_reports_every_rule_of_a_new_kind_that_decides_nothing() {
+        let mut selection = selection(Vec::new());
+        let error = apply_class_rules(&mut selection, &TEST_RHI, "x86_64-unknown-linux-gnu")
+            .expect_err("the rules decide nothing");
+        assert_eq!(error.kind(), ErrorKind::StaleRule);
+        assert!(
+            error.message().starts_with("4 rules of the rule set"),
+            "{error}"
+        );
     }
 
     #[test]
