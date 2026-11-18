@@ -1450,7 +1450,7 @@ These requirements hold for three reasons:
 The `justfile` computes the variable with the `just` functions `os()`, `env()`, and `quote()`, so it holds the assignment as text and no recipe exports anything. This example shows the command that `just test` runs on Linux when `VULKAN_SDK` is `/tmp/vulkan-sdk/x86_64` and `LD_LIBRARY_PATH` is empty:
 
 ```sh
-LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --profile default --no-tests=warn
+LD_LIBRARY_PATH='/tmp/vulkan-sdk/x86_64/lib' CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --profile default --no-tests=warn
 ```
 
 On Windows, and when `VULKAN_SDK` is unset or empty, the variable is empty and the command starts with `CARGO_BUILD_WARNINGS=deny`.

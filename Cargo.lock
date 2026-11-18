@@ -3698,6 +3698,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slang-rhi"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "bitflags 2.13.2",
+ "slang-compiler",
+ "slang-compiler-sys",
+ "slang-rhi-sys",
+]
+
+[[package]]
 name = "slang-rhi-sys"
 version = "0.1.0-alpha.2"
 dependencies = [

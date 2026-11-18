@@ -132,9 +132,9 @@ It also uses the terms that Section 2.2 of `docs/rust-coding-standards.md` defin
 
 ### 3.1. Workspace Members
 
-This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`. The rows of `slang-rhi-sys` and `slang-rhi` are the crates of M9, which their design documents specify (Section 15.12), and `slang-rhi` is planned.
+This table lists the members of the workspace. The examples form one workspace member, the unpublished package `slang-rust-examples`. The rows of `slang-rhi-sys` and `slang-rhi` are the crates of M9, which their design documents specify (Section 15.12).
 
-`slang-src` and `slang-glslang-sys` exist only for a vendored build, and their build scripts clone and build native code. `slang-rhi-sys` and the planned `slang-rhi` always build Slang and slang-rhi from source (Section 4.1 of `docs/design/slang-rhi-sys.md`). The workspace leaves these four out of its default members, and every recipe that builds the default excludes them, as `docs/design/tooling.md` specifies.
+`slang-src` and `slang-glslang-sys` exist only for a vendored build, and their build scripts clone and build native code. `slang-rhi-sys` and `slang-rhi` always build Slang and slang-rhi from source (Section 4.1 of `docs/design/slang-rhi-sys.md`). The workspace leaves these four out of its default members, and every recipe that builds the default excludes them, as `docs/design/tooling.md` specifies.
 
 | Member | Directory | Responsibility | Published | Milestone |
 | --- | --- | --- | --- | --- |
@@ -148,7 +148,7 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Yes | M7 |
 | `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Yes | M1, M7 |
 | `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
-| `slang-rhi` | `crates/slang-rhi/`, planned | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
+| `slang-rhi` | `crates/slang-rhi/` | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
 
 ### 3.2. Dependency Direction
@@ -214,7 +214,7 @@ M10 makes `slang-rhi` a dependency of `slango` behind the opt-in feature `rhi`, 
 
 ### 3.3. Unsafe Code
 
-Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, and `slang-rhi-sys`, and in the planned `slang-rhi`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. `slang-glslang-sys` declares the one foreign function that returns its loader, in an `unsafe extern "C"` block, and has no other unsafe code (SGL-13 of `docs/design/slang-glslang-sys.md`). The other crates have none:
+Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. `slang-glslang-sys` declares the one foreign function that returns its loader, in an `unsafe extern "C"` block, and has no other unsafe code (SGL-13 of `docs/design/slang-glslang-sys.md`). The other crates have none:
 
 - `slang-src` runs git and `slang-bindgen` parses headers, both through safe APIs (SRC-2 of `docs/design/slang-src.md` and SCS-57 of `docs/design/slang-compiler-sys.md`).
 - `slango` loads every shader through wgpu's validated path (SLO-2 of `docs/design/slango.md`).
@@ -223,7 +223,7 @@ Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, `slang-glsla
 
 A later feature of `slango` or `slang-slint` may need unsafe code, such as for shader passthrough or for interoperation with Slint or wgpu-hal. Each such need follows the procedure of Section 4.4 of the coding standard, and the design document of that crate decides it (Section 17, Q-19).
 
-The crates `slang-rhi-sys` and `slang-rhi` of M9 hold unsafe code, as `slang-compiler-sys` and `slang-compiler` do, and Hard Rule 7 of `AGENTS.md` lists them. `slang-rhi-sys` includes the generated declarations of slang-rhi, which are unsafe foreign items (RSYS-2 of `docs/design/slang-rhi-sys.md`). The planned `slang-rhi` calls them and the reflection functions of `slang-compiler-sys` to give a safe API, with its unsafe code in four private modules (RHI-2 of `docs/design/slang-rhi.md`).
+The crates `slang-rhi-sys` and `slang-rhi` of M9 hold unsafe code, as `slang-compiler-sys` and `slang-compiler` do, and Hard Rule 7 of `AGENTS.md` lists them. `slang-rhi-sys` includes the generated declarations of slang-rhi, which are unsafe foreign items (RSYS-2 of `docs/design/slang-rhi-sys.md`). `slang-rhi` calls them and the reflection functions of `slang-compiler-sys` to give a safe API, with its unsafe code in its private modules (RHI-2 of `docs/design/slang-rhi.md`).
 
 ### 3.4. Design Documents per Crate
 
@@ -538,7 +538,7 @@ Each crate of the workspace has the licence of its kind, as this table shows. Th
 | --- | --- | --- |
 | A `-sys` or `-src` crate, which binds or builds Slang or a part of the Slang tree | `slang-compiler-sys`, `slang-src`, `slang-glslang-sys`, and `slang-rhi-sys` | `Apache-2.0 WITH LLVM-exception` |
 | The Slint view | `slang-slint` | `GPL-3.0-or-later` |
-| Every other crate | `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, the binding generator `slang-bindgen`, the planned `slang-rhi`, and the unpublished examples package | `MIT OR Apache-2.0` |
+| Every other crate | `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, the binding generator `slang-bindgen`, `slang-rhi`, and the unpublished examples package | `MIT OR Apache-2.0` |
 
 ARCH-36. Every crate MUST carry the licence that the table assigns to its kind, and a new crate MUST take that licence when it is created.
 
@@ -980,7 +980,7 @@ The design addresses each part, mostly through the rules that Section 20 of the 
 - Untrusted input: `slang-compiler` returns errors instead of panicking (ERR-5), and its design document states which files Slang can read through include paths and module search paths. The crates treat text passed to Slang as trusted input and do not guard against defects of Slang (Section 1.6 of `docs/design/slang-compiler.md`).
 
   Slang reads standard modules, the files of some options, and downstream compilers directly from the operating system. An application that compiles untrusted source and needs isolation therefore runs the compiler in a separate process (Sections 8.6 and 17 of `docs/design/slang-compiler.md`).
-- Unsafe code: the crates rely on the native library matching the bindings, which the generation from the headers of the linked Slang (ARCH-33) and the run-time check (ARCH-34) secure, and on the reference counting and lifetime contracts of the Slang API, which Section 12 of the coding standard constrains. Unsafe code stays in four crates, and in the planned `slang-rhi` (Section 3.3), and generated declarations are never written by hand (ARCH-33, COM-9).
+- Unsafe code: the crates rely on the native library matching the bindings, which the generation from the headers of the linked Slang (ARCH-33) and the run-time check (ARCH-34) secure, and on the reference counting and lifetime contracts of the Slang API, which Section 12 of the coding standard constrains. Unsafe code stays in the five crates of Section 3.3, and generated declarations are never written by hand (ARCH-33, COM-9).
 - Build scripts: only `slang-src` reaches the network, to clone the recorded commit by its full hash over HTTPS only, without tags or history, and no build script writes outside `OUT_DIR` except into the shared folder in the Cargo target directory (ARCH-35, Section 14 of `docs/design/slang-src.md`). ARCH-27 keeps the vendored build out of the source tree, and ARCH-5 and ARCH-28 stop the build instead of searching for a library elsewhere or falling back.
 - Dependencies: the exact version of `slang-src` fixes the recorded commit for each version of the crates that depend on it, the dynamic route links whichever SDK the user installed, and cargo-deny checks the advisories, licences, and sources of every crate, including the dependencies of the generator, which now compile on every user's machine.
 - CI: every download whose upstream publishes a SHA-256 checksum is verified against it, as Hard Rule 7 of `AGENTS.md` requires, and `docs/design/tooling.md` specifies how. No file in the repository contains a secret.
@@ -1016,7 +1016,7 @@ This table summarizes the Cargo feature `vendored`, which selects the vendored r
 
 `slang-src`, `slang-glslang-sys`, and `slang-bindgen` have no Cargo features. `--all-features` enables `vendored`, so the recipes pass an explicit list of features (`docs/design/tooling.md`).
 
-`slang-rhi-sys` and the planned `slang-rhi` have no Cargo features in M9. They always enable `vendored` through their dependencies, so a build graph that holds either links the vendored Slang (Section 4.1 of `docs/design/slang-rhi-sys.md`).
+`slang-rhi-sys` and `slang-rhi` have no Cargo features in M9. They always enable `vendored` through their dependencies, so a build graph that holds either links the vendored Slang (Section 4.1 of `docs/design/slang-rhi-sys.md`).
 
 ### 19.2. Environment Variables
 
@@ -1053,7 +1053,7 @@ This table lists the failure modes that this document defines, how each is repor
 
 ### 19.5. Logs
 
-This document defines no logs. No crate of the workspace emits logs or has a logging dependency (Section 18.5 of `docs/design/slang-compiler.md`, Section 17.5 of `docs/design/slango.md`, SLS-4 of `docs/design/slang-slint.md`, and SLM-4 of `docs/design/slango-macros.md`). The planned `slang-rhi-sys` and `slang-rhi` emit no logs either, and slang-rhi reports its messages through a debug callback that the user supplies (Section 14.5 of `docs/design/slang-rhi.md`). Whether each later crate emits logs is open (Section 17, Q-16).
+This document defines no logs. No crate of the workspace emits logs or has a logging dependency (Section 18.5 of `docs/design/slang-compiler.md`, Section 17.5 of `docs/design/slango.md`, SLS-4 of `docs/design/slang-slint.md`, and SLM-4 of `docs/design/slango-macros.md`). `slang-rhi-sys` and `slang-rhi` emit no logs either, and slang-rhi reports its messages through a debug callback that the user supplies (Section 14.5 of `docs/design/slang-rhi.md`). Whether each later crate emits logs is open (Section 17, Q-16).
 
 ## 20. References
 

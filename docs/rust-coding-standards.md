@@ -31,7 +31,7 @@ This document applies to every Rust crate, build script, example, test, and tool
 - `slang-bindgen`: the binding generator, a published library crate that parses the Slang headers with libclang and returns the raw bindings as text, with a thin binary.
 - Examples of varying complexity, which double as a testbed.
 
-The crate `slang-rhi-sys` builds slang-rhi from source and holds its raw bindings, which its build script generates with the binding generator, and the safe crate `slang-rhi` is planned (Section 15.12 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binary of `slang-bindgen` and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. The library of `slang-bindgen` is a library crate, to which every rule for library crates applies. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
+The crate `slang-rhi-sys` builds slang-rhi from source and holds its raw bindings, which its build script generates with the binding generator, and the safe crate `slang-rhi` wraps them for the compute path (Section 15.12 of `docs/design/architecture.md`). Rules ERR-1 and ERR-2 apply to library crates only, because the binary of `slang-bindgen` and the examples are applications, which may report errors through `Box<dyn std::error::Error>`. The library of `slang-bindgen` is a library crate, to which every rule for library crates applies. A crate that wraps a native library provides a safe interface on the assumption that the library behaves as documented, and does not guard against a defect of the library, as Hard Rule 14 of `AGENTS.md` states for Slang.
 
 This document does not govern documentation, commit messages, or the design of any particular crate. The writing guide covers documentation, and the design documents in `docs/design/` cover each crate.
 
@@ -82,7 +82,7 @@ This document uses the terms that Section 2.2 of the writing guide defines, incl
 - writing guide: The guide `docs/writing-documentation.md`.
 - binding generator: The crate `slang-bindgen`, whose library parses the Slang headers with libclang and returns the raw bindings of a `-sys` crate as text, and whose thin binary writes that text into files.
 - `-sys` crate: A crate that contains only the raw declarations of a native library and the build script that links it. Here, `slang-compiler-sys` and `slang-glslang-sys`.
-- safe crate: A crate that wraps a `-sys` crate in an API through which safe Rust cannot cause undefined behaviour. Here, `slang-compiler`.
+- safe crate: A crate that wraps a `-sys` crate in an API through which safe Rust cannot cause undefined behaviour. Here, `slang-compiler` and `slang-rhi`.
 - library crate: Any crate in the repository other than the examples.
 - native library: The compiled Slang library that a `-sys` crate links.
 - interface: An object type of the Slang API, in the style of COM. Code reaches it through a pointer to an object whose first field points to a vtable, and a reference count controls its lifetime.
@@ -277,7 +277,7 @@ A lint exception has to be fulfilled in every target and feature combination tha
 
 Nine kinds of lint exception are expected and follow fixed forms:
 
-- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`), and `slang-rhi-sys`, which includes the generated bindings of slang-rhi (RSYS-2 of `docs/design/slang-rhi-sys.md`). Any other crate that needs `unsafe` records the reason in its design document first.
+- A crate that calls foreign code opts out of `unsafe_code` at its crate root with `#![expect(unsafe_code, reason = "...")]`. The crates that do so are `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, which declares the one foreign function that returns its loader (SGL-13 of `docs/design/slang-glslang-sys.md`), `slang-rhi-sys`, which includes the generated bindings of slang-rhi (RSYS-2 of `docs/design/slang-rhi-sys.md`), and `slang-rhi`, which calls them (RHI-2 of `docs/design/slang-rhi.md`). Any other crate that needs `unsafe` records the reason in its design document first.
 
   The workspace denies `unsafe_code` instead of forbidding it, because `forbid` cannot be overridden even by `#[expect]`. A crate adds the opt-out together with its first `unsafe` code, because the expectation is unfulfilled, and fails the check, in a crate that contains none.
 - The integration-test binary of such a crate is a crate of its own and inherits the workspace lints, so a test that calls native code needs its own exception. The module that holds such tests, which is named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), carries `#[expect(unsafe_code, reason = "...")]` on its declaration in `main.rs`, such as `mod ffi;` in `crates/slang-compiler-sys/tests/sys/main.rs`, and not on the root of the test binary, so the other test modules keep the denial of `unsafe_code` (LINT-1).
@@ -286,7 +286,7 @@ Nine kinds of lint exception are expected and follow fixed forms:
 - A crate-private item that only unit tests use, until a later change adds its caller, carries `#[cfg_attr(not(test), expect(dead_code, reason = "..."))]`, whose reason says why no caller exists outside the unit tests and that the unit tests use the item. A plain `#[expect(dead_code)]` would be unfulfilled in the build with `cfg(test)`, in which the tests use the item, so `cfg_attr` applies the exception only to the build without tests. When the later change adds the caller, the expectation becomes unfulfilled and fails the check, so the exception cannot outlive its reason.
 
   No item of the workspace carries this form.
-- A call of a foreign function with an unwinding ABI, which FFI-7 requires for every function of Slang, carries `#[expect(ffi_unwind_calls, reason = "...")]`. In `slang-compiler-sys` and `slang-rhi-sys`, it sits on the module `bindings`, next to the exception of the generated code, and in `slang-compiler-sys` also on the smoke test. In `slang-compiler`, it sits on each direct call of a C function, each inside the guard of FFI-7.
+- A call of a foreign function with an unwinding ABI, which FFI-7 requires for every function of Slang, carries `#[expect(ffi_unwind_calls, reason = "...")]`. In `slang-compiler-sys` and `slang-rhi-sys`, it sits on the module `bindings`, next to the exception of the generated code, and in `slang-compiler-sys` also on the smoke test. In `slang-compiler` and `slang-rhi`, it sits on each direct call of a C function, each inside the guard of FFI-7.
 
   Its reason says that Slang is C++ and that the call runs inside the abort of an escaping exception, and names no rule. In a test that calls C functions of Slang directly, it sits on the narrowest item that holds the calls, with a reason that says that an exception that escaped would unwind into the test, which is defined and fails it.
 - The private supertrait of a sealed trait (API-8), and each private type that appears only in the signatures of its methods, carries `#[expect(unnameable_types, reason = "...")]`, because the workspace warns on `unnameable_types` and such an item is unnameable by construction. In `slango`, the supertraits `SealedValue`, `SealedVertexElement`, and `SealedElement` and the type `ValueType` of the private module `marshal::sealed` carry it.
@@ -548,24 +548,24 @@ These commands run the checks of the tools from `cargo fmt` to `cargo deny`. In 
 
 ```sh
 cargo fmt --all --check -- <files>
-CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets
-CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
-CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys
-CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-deps
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets
+CARGO_BUILD_WARNINGS=deny cargo nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
+CARGO_BUILD_WARNINGS=deny cargo test --doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi
+CARGO_BUILD_WARNINGS=deny cargo doc --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-deps
 cargo deny check
 ```
 
-Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
+Every command that passes `--workspace` also passes `--exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi`, and no command passes `--all-features`, which would enable the feature `vendored` and build Slang from source in every check (SYS-7). Section 3.1 of `docs/design/tooling.md` gives the reasons, with TOOL-32, and says how a later feature enters the commands. A recipe leaves out each of these arguments that names a package or a feature that the workspace does not have (TOOL-32).
 
 These commands run the checks of the tools from `cargo hack` to Miri. The first two check the features, and the third checks the MSRV. The feature powerset includes every combination of one feature, so no separate command for each single feature is needed. The features of `slango` are checked in the second command, without the combination with no features, which stops on purpose with a compile error (TOOL-48 of `docs/design/tooling.md`).
 
 ```sh
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slango --all-targets --feature-powerset --exclude-features vendored
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slango --all-targets --feature-powerset --exclude-features vendored
 CARGO_BUILD_WARNINGS=deny cargo hack check -p slango --all-targets --feature-powerset --exclude-features vendored --exclude-no-default-features
-CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --all-targets --rust-version
+CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets --rust-version
 cargo machete
-cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
-cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --no-tests=warn
+cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
+cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
 typos
 taplo fmt --check
 actionlint
@@ -574,7 +574,7 @@ actionlint
 This command runs the check of `cargo semver-checks`, which compares each crate of the release with a library target, except `slang-src` and `slang-glslang-sys`, with its last release on crates.io, with the default features of each crate (TOOL-38 of `docs/design/tooling.md`):
 
 ```sh
-cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --default-features
+cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --default-features
 ```
 
 The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.
@@ -1276,6 +1276,12 @@ An object that a foreign library keeps outlives every borrow of the caller. A fo
 
 Reason: dropping a future is how async Rust cancels, so every `.await` is a point where the operation can stop, and the lints of Section 4.5 catch only guards of known types. [IR-88]
 
+**CONC-8.** Hold one crate-private `static` `Mutex<()>` during every call through a process-wide native object that any thread can reach and whose library states no threading rule for it, and make no other call while holding it. Check the per-thread guard of CONC-4, where the crate has one, before taking the lock, recover a poisoned lock with `PoisonError::into_inner`, and state the lock and the calls that it covers in the design document of the crate. This rule is an exception to the ban on library statics of CONC-4.
+
+Reason: a type that is neither `Send` nor `Sync` keeps one handle on one thread, but a process-wide object is reached from every thread through a global function of the library, so no value that the caller holds can keep two threads apart. The lock guards no data, so a panic leaves nothing invalid, and a reentrant call that waited for a lock its own thread holds would deadlock.
+
+The lock holds within one version of the crate only, as the guard of CONC-4 does, because two versions of the crate in one build each get their own `static`, while the `links` key of the `-sys` crate (FFI-2) allows one copy of the native library. The design document therefore states this limit. The sources state the bounds of `Send` and `Sync` and the cost of statics, and do not address a native object without a threading rule, so the rest of the rule is project-defined. [S-1] [S-6] [S-10]
+
 ## 14. Testing
 
 **TEST-1.** Put unit tests in a `#[cfg(test)] mod tests` in the file they test, integration tests in `tests/` that use only the crate's public API under its crate name, and examples in `examples/`. Name a test after the function and the condition, such as `compile_module_rejects_empty_source`, without the word "should". In the unpublished examples package, which has no library target, a binary MAY be a directory under `src/bin/` whose module the integration-test binary also compiles with a `#[path]` attribute.
@@ -1569,10 +1575,11 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | CONC-1 | Each public type's `Send` and `Sync` status is decided, documented, and asserted in a test. |
 | CONC-2 | Lock guards live in their own short-lived binding, never in a `match` or `while let` scrutinee. |
 | CONC-3 | Poisoned locks are recovered or turned into errors on purpose. |
-| CONC-4 | No hidden threads, no library statics except a documented per-thread guard for a native library, no changes to the process environment. |
+| CONC-4 | No hidden threads, no library statics except a documented per-thread guard for a native library and the lock of CONC-8, no changes to the process environment. |
 | CONC-5 | Atomic orderings match their purpose, and `SeqCst` prompts a review. |
 | CONC-6 | A blocking core, async only for external waits, no `Send + 'static` bounds unless spawning or on a trait whose objects a foreign library keeps and calls. |
 | CONC-7 | Every public `async fn` documents its cancel safety and holds nothing across `.await`. |
+| CONC-8 | Every call through a process-wide native object without a threading rule holds one crate-private `static` `Mutex<()>`, taken after the per-thread guard and recovered when poisoned. |
 | TEST-1 | Standard locations for unit tests, integration tests, and examples, and descriptive test names, a module of an example binary that the test binary of the examples includes with `#[path]` when the module needs a test, and modules that several example binaries share under `examples/src/shared/`. |
 | TEST-2 | Snapshot tests with `insta` for text and structured output, with deterministic output. |
 | TEST-3 | Tests that need the native library or a GPU are tagged so they can be filtered. |

@@ -123,6 +123,19 @@ Reference counts are atomic (`src/core/com-object.h:22-70`), and an object frees
 
 `rhiGetInstance` creates the `IRHI` once under a mutex and never frees it on its own (`src/rhi.cpp:469-479`). `rhiDestroyInstance` frees it, but while a device lives it first fails an assertion that aborts the process in every build type (`src/rhi.cpp:138-144`, `src/core/assert.cpp:21-29`).
 
+A method with an out-parameter of an interface pointer returns it with one reference added, as COM convention requires. A reading of the Vulkan backend confirmed this for every method of the compute path. `returnComPtr` adds the reference (`src/reference.h:102-122`), and these methods return through it:
+
+- `IRHI::createDevice` (`src/rhi.cpp:345`, `:354`).
+- `IDevice::createBuffer` (`src/vulkan/vk-buffer.cpp:457`).
+- `IDevice::createShaderProgram` (`src/vulkan/vk-device.cpp:2537`).
+- `IDevice::createComputePipeline` (`src/vulkan/vk-pipeline.cpp`, after line 870, and for a virtual pipeline `src/device.cpp:761`).
+- `IDevice::getQueue` (`src/vulkan/vk-device.cpp:1865`).
+- `ICommandQueue::createCommandEncoder` (`src/vulkan/vk-command.cpp:1983`).
+- `ICommandEncoder::finish` (`src/vulkan/vk-command.cpp:2201`).
+- `IShaderObject::getEntryPoint` of a root object (`src/shader-object.cpp:820`).
+
+`IDevice::getSlangSession` adds the reference explicitly (`src/device.cpp:686-690`).
+
 Three methods return a pointer that carries no reference:
 
 | Method | Object | Valid until |
@@ -606,7 +619,6 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| RSA-7 | A method with an out-parameter of an interface pointer returns it with one reference added, as COM convention requires | RSYS-12, the safe crate | The code step of the safe crate, by a reading of `src/` for each method that it calls, recorded in `docs/design/slang-rhi.md` |
 | RSA-8 | `cmake/CMakeRC.cmake` is under the MIT licence of its upstream project, while the file in the tree carries no licence text | RSYS-16 | A reading of the upstream repository of CMakeRC, by the owner or an agent with network access |
 
 ## 14. Open Questions

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-15 |
+| Date | 2026-11-18 |
 | Applies to | Agents that write, review, or extend Rust code in this repository, and the standards document `docs/rust-coding-standards.md` |
 
 ## Abstract
@@ -483,7 +483,7 @@ These sources cover threads, atomics, locks, `Send`, and `Sync`.
 | [IR-61] | 3 | Data parallelism with `join`, and sequential fallback. |
 | [IR-24] | 3 | Recipes for threads, channels, and atomics. |
 
-Rules: CONC-1 to CONC-5, FFI-9. Section 17 of the standards document records the conflict over `Send` handles.
+Rules: CONC-1 to CONC-5, CONC-8, FFI-9. Section 17 of the standards document records the conflict over `Send` handles.
 
 ### 2.27. Async and Cancellation
 
@@ -1992,7 +1992,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It explains why the rules on opaque types, `Send` and `Sync`, `PhantomData`, variance, and panics at the boundary exist.
 - Consult when: designing an owning handle over a foreign object, deciding `Send` and `Sync`, writing a callback trampoline, or using `PhantomData` for a child object tied to a lifetime.
 - Chapters: `ffi.html`, `phantom-data.html`, `send-and-sync.html`, `leaking.html`, `working-with-unsafe.html`, `unwinding.html`, `subtyping.html`, `dropck.html`, and `obrm.html`.
-- Cited by: FFI-3, FFI-4, FFI-6, FFI-7, FFI-8, FFI-9, OWN-4, UNS-2, UNS-3, UNS-4, UNS-7. Sections 1.3, 17, and 18.
+- Cited by: CONC-8, FFI-3, FFI-4, FFI-6, FFI-7, FFI-8, FFI-9, OWN-4, UNS-2, UNS-3, UNS-4, UNS-7. Sections 1.3, 17, and 18.
 
 **[S-2] The bindgen User Guide**
 
@@ -2060,7 +2060,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It defines how to document unsafe contracts and the vocabulary used in review: soundness, validity and safety invariants, and provenance. It also states what `catch_unwind` does with a foreign exception, and that a function whose ABI string is `X` may be called through a function pointer whose ABI string is `X-unwind`.
 - Consult when: writing a `# Safety` section or a safety comment, deciding whether an API is sound or merely valid, deciding whether `catch_unwind` can handle an exception from foreign code, or storing a non-unwinding function in a field whose type has an `-unwind` ABI.
 - Chapters: `glossary.html` of the guidelines, the notes of `std::panic::catch_unwind` on foreign exceptions, and the section on ABI compatibility of the primitive type `fn`.
-- Cited by: FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7. Section 1.3.
+- Cited by: CONC-8, FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7. Section 1.3.
 
 **[S-7] The Edition Guide: Rust 2024**
 
@@ -2116,7 +2116,7 @@ The catalogue holds 106 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It is a recent organizational standard with a chapter on AI, and it contains the guidelines M-SYS-CRATES, M-ESCAPE-HATCHES, M-UNSAFE, and M-FFI-NAMING.
 - Consult when: deciding the crate split and names, the public API of the safe wrapper (builders, errors, `Clone`, `Send`), documentation sections, lint configuration, or API design for AI agents.
 - Chapters: about, checklist, universal, `libs/interop`, `libs/ux`, `libs/resilience`, `libs/building`, macros, apps, ffi, correctness, performance, project, docs, ai, and agents.
-- Cited by: API-4, API-6, API-7, API-10, CONC-1, CONC-4, DEP-1, DEP-2, DEP-3, DEP-4, ERR-1, ERR-2, ERR-5, FFI-1, FFI-7, FFI-9, OWN-5, SYS-7, TEST-6, TEST-7, TEST-9, TYPE-1, UNS-1, UNS-3. Sections 1.3 and 17.
+- Cited by: API-4, API-6, API-7, API-10, CONC-1, CONC-4, CONC-8, DEP-1, DEP-2, DEP-3, DEP-4, ERR-1, ERR-2, ERR-5, FFI-1, FFI-7, FFI-9, OWN-5, SYS-7, TEST-6, TEST-7, TEST-9, TYPE-1, UNS-1, UNS-3. Sections 1.3 and 17.
 
 **[S-11] RFC 2945: C-unwind ABI**
 
@@ -2222,13 +2222,13 @@ This table lists every entry whose read status is partial or unreachable, with w
 | [IR-67] | Partial | About 20 text slides. Image slides and the video were not read. | No rule |
 | [IR-69] | Partial | An archive copy with 5 of 12 comments. Reddit blocks direct fetches. | API-13 |
 | [IR-72] | Partial | Slide text as summarized. No video or transcript. | SIMP-1, SIMP-4 |
-| [S-1] | Partial | Nine pages, one of them a stub. Several chapters were not read. | 11 rules |
+| [S-1] | Partial | Nine pages, one of them a stub. Several chapters were not read. | 12 rules |
 | [S-2] | Partial | Thirteen pages and the `Builder` reference. Several pages were not read. | FFI-10 |
 | [S-5] | Partial | Four pages in full, and one rule of the page on panics. | FFI-3, FFI-5, FFI-7, UNS-7 |
-| [S-6] | Partial | The keyword page, the glossary, and parts of the documentation of `catch_unwind` and of the primitive type `fn`. The layout and validity chapters were not read. | FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7 |
+| [S-6] | Partial | The keyword page, the glossary, and parts of the documentation of `catch_unwind` and of the primitive type `fn`. The layout and validity chapters were not read. | CONC-8, FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7 |
 | [S-7] | Partial | Thirteen chapters. One chapter returned 404. | CONC-2, CONC-4, FFI-3 |
 | [S-9] | Partial | The build configuration page only. | FFI-7 |
-| [S-10] | Partial | Every chapter. The FAQ, the change log, and the agent version were not read. | 24 rules |
+| [S-10] | Partial | Every chapter. The FAQ, the change log, and the agent version were not read. | 25 rules |
 | [S-11] | Partial | Consulted for the `-unwind` ABIs. The sections read in full are not recorded. | FFI-7 |
 
 Section 3 gives the full list of rules that cite each source.

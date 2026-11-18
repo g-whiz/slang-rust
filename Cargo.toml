@@ -5,6 +5,7 @@ members = [
     "crates/slang-compiler",
     "crates/slang-compiler-sys",
     "crates/slang-glslang-sys",
+    "crates/slang-rhi",
     "crates/slang-rhi-sys",
     "crates/slang-slint",
     "crates/slang-src",
@@ -33,6 +34,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/g-whiz/slang-rust"
 
 [workspace.dependencies]
+bitflags = "2.13.2"
 clang = { version = "2.1.0", features = ["runtime", "clang_10_0"] }
 clang-sys = { version = "1.9.1", features = ["runtime", "clang_10_0"] }
 find-msvc-tools = "0.1.15"
@@ -45,6 +47,7 @@ slang-bindgen = { path = "crates/slang-bindgen", version = "=0.1.0-alpha.2" }
 slang-compiler = { path = "crates/slang-compiler", version = "=0.1.0-alpha.2" }
 slang-compiler-sys = { path = "crates/slang-compiler-sys", version = "=0.1.0-alpha.2" }
 slang-glslang-sys = { path = "crates/slang-glslang-sys", version = "=0.1.0-alpha.2" }
+slang-rhi-sys = { path = "crates/slang-rhi-sys", version = "=0.1.0-alpha.2" }
 slang-slint = { path = "crates/slang-slint", version = "=0.1.0-alpha.2" }
 slang-src = { path = "crates/slang-src", version = "=0.1.0-alpha.2.slang.2026.17.0.25.gc7954ebd1" }
 slango = { path = "crates/slango", version = "=0.1.0-alpha.2" }
