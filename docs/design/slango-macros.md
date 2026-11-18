@@ -3,12 +3,12 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-17 |
+| Date | 2026-11-18 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
 
-This document specifies milestone M6: the crate `slango-macros`, the library crate `slango-codegen`, and the changes to `slango` that both need. The procedural macro `shader!` of `slango-macros` compiles a Slang file during the compilation of a Rust crate and generates typed Rust bindings to its compute kernels, and `slango-codegen` holds the generator. The document starts from the facts about compiling Slang inside a procedural macro and, on those facts, defines the generated items and the hidden module of `slango` through which they reach the runtime core.
+This document specifies milestone M6: the crate `slango-macros`, the library crate `slango-codegen`, and the changes to `slango` that both need. The procedural macro `shader!` of `slango-macros` compiles a Slang file during the compilation of a Rust crate and generates typed Rust bindings to its compute kernels, and `slango-codegen` holds the generator. The document starts from the facts about compiling Slang inside a procedural macro and, on those facts, defines the generated items and the hidden module of `slango` through which they reach the runtime core. For M10, the generated code carries the loading path and the struct layouts of each backend of `slango` inside hidden helper macros of `slango`, which keep only those of the backend that the program's `slango` is built with: the precompiled SPIR-V and the std430 structs on the backend `wgpu`, and the embedded Slang source of the shader and of every module that it imports, compiled when the module loads, with packed structs on the backend `rhi`.
 
 ## 1. Introduction
 
@@ -38,7 +38,7 @@ These are not part of M6:
 
 - Typed render pipelines, typed draws, and vertex layouts, which are deferred with no milestone assigned.
 - An entry point for a build script that writes the generated code into `OUT_DIR`. It needs Slang in the build script and its own tracking, so it is not free, and it is deferred with no milestone assigned.
-- A mode that embeds the Slang source and compiles it at run time, because it cannot resolve an `import` (Section 3.5).
+- A mode that embeds only the Slang source of the shader and compiles it at run time, because it cannot resolve an `import` (Section 3.5). M10 embeds the source of the shader and of every module that it imports for the backend `rhi` instead, and loads the imported modules first (SLM-24).
 - A program that runs without the Slang library (Section 12, SLMQ-1).
 - A re-export of the macro by `slango` (Section 12, SLMQ-2).
 - A cache of the generated code that lets a crate build without Slang, as `sqlx` keeps one. Documentation is built in CI instead of on docs.rs, so it does not need one (Section 13 of `docs/design/architecture.md`).
@@ -114,6 +114,10 @@ A load from an embedded, encoded snapshot takes about a millisecond, while a loa
 
 An embedded source that imports another file fails with `cannot open file 'common.slang'`, because `load_module_from_source` sets no search path (run). The precompiled snapshot resolves the import at build time (run).
 
+An `import` resolves first to a module that the session holds under the name in the `import` declaration (`slang-session.cpp:1543` of the Slang source, read). That name is not derived from a path: `import my_helpers` finds the file `my-helpers.slang` (`slang-session.cpp:1640-1650`, read), and only the module knows its name. An `import` that the session does not hold falls back to a search of the file system relative to the path of the importing module (read).
+
+The files that Slang reports as read by a module, through `Module::dependency_file_paths`, come in this order: the module's own file, then its `#include`d files, then the files of the modules that it imports, each importer before what it imports (`slang-module.cpp:28`, `slang-translation-unit.cpp:243`, `slang-session.cpp:2054`, `slang-check-decl.cpp:17132`, and `slang-linkable.cpp:69-75`, read). A depfile of `slangc` for a shader that includes one file and imports a module that imports another lists them in that order (run). The list therefore holds files that are not modules, such as `#include`d files and the parts of a module that `__include` adds.
+
 ### 3.6. The Vendored Route
 
 With a statically linked Slang and no SDK, the macro library and the program have no Slang library as a needed library (run). The saxpy kernels run. Without the loader of `slang-glslang-sys`, a kernel with a structure fails at load with `UnsupportedShader` and naga's `UnsupportedInstruction(Function, CopyLogical)`, because Slang skips `spirv-opt` without `slang-glslang` (run, and read, Section 3.11 of `docs/design/slang-compiler.md`).
@@ -176,6 +180,8 @@ The owner decided:
 9. The separate published library crate `slango-codegen` for the generator (SLM-1).
 10. The element type check of `bind` is exact for a plain element and keeps the stride check for a structure (SLM-5).
 
+For M10, the owner decided on 2026-11-18 how the generated code loads on each backend of `slango`, and that a build of `slango` has exactly one backend, which decisions 2 and 5 of Section 4.6 of `docs/design/slango.md` state. SLM-24 to SLM-26 implement them.
+
 ### 4.2. Packages and Dependencies
 
 SLM-1. The generator MUST live in the library crate `slango-codegen`, and `slango-macros` MUST hold only the macro entry point, its path resolution, its build script, and the conversion of errors to compile errors. A procedural macro crate exports nothing but macros, and Miri runs the pure tests of the generator in a library crate (Section 3.9), so a generator inside the macro crate could leave its pure tests without Miri.
@@ -184,7 +190,7 @@ The owner approved `slango-codegen` as a separate published crate, and Sections 
 
 `slango-codegen` has two public functions, and both return a `proc_macro2::TokenStream`:
 
-- `generate` takes the path of a Slang file, makes a relative path absolute against the working directory with `std::path::absolute`, calls `precompile_file`, and so Slang, and generates from its result. A path that cannot be made absolute, such as the empty path, fails with kind `Compile`. The generated `include_bytes!` then names every file by an absolute path whatever path the caller passed, without relying on Slang to return absolute paths, which the recorded Slang does but does not document.
+- `generate` takes the path of a Slang file, makes a relative path absolute against the working directory with `std::path::absolute`, calls `precompile_file`, and so Slang, and generates from its result. A path that cannot be made absolute, such as the empty path, fails with kind `Compile`. The generated `include_str!` then names every file by an absolute path whatever path the caller passed, without relying on Slang to return absolute paths, which the recorded Slang does but does not document.
 - `generate_precompiled` takes the result of `precompile_file` and is pure. It is `#[doc(hidden)]`, and its documentation states that it is exempt from semantic versioning like the hidden type that it takes, so that a change of `slango::__private` is not a breaking change of `slango-codegen` that no tool sees. It stays `pub`, because the integration test of the crate generates from a `Precompiled` whose paths and bytes it redacts, which keeps the snapshots independent of the machine. The crate documentation does not name it, because a link to a hidden item points to no page.
 
 Only the tests format the tokens with `prettyplease`.
@@ -231,7 +237,18 @@ slango-macros = { version = "0.1.0-alpha.2", features = ["vendored"] }
 
 The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.
 
-The recipes do not check the separation of host and target features for a crate that depends on both crates. When `slango-macros` is the package under test, Cargo unifies the features of its dependencies with those of its development dependency `slango`, so the test binary does not keep the two copies apart. The need for the feature on both crates is an assumption that no recipe checks. It is expected to hold on every platform, and the expected failure with the feature on only one crate is the error of `slang-compiler-sys` that `VULKAN_SDK` is not set.
+Neither crate has a feature `rhi`, by design. The user enables the backend in one place, the dependency on `slango`, and the generated code follows it through the helper macros of SLM-25.
+
+The macro's copy of `slango` only compiles the shader at build time and creates no device, so it keeps the `wgpu` that SLO-30 of `docs/design/slango.md` names, whatever backend the program's copy has. Section 4.7 of that design states why the exclusion of the two features does not reach the macro's copy.
+
+The other option was a feature `rhi` on `slango-macros` and `slango-codegen`, which the user would enable in addition to the feature `rhi` of `slango`, because Cargo resolves the features of the macro's dependencies apart from those of the program. It was rejected for two reasons:
+
+- A user who enables the backend on `slango` and forgets the macro would get generated code of the other backend, which fails to compile against the program's `slango`, with an error far from the cause.
+- The macro would have to choose between the backends at build time from a feature of the host copy, while what matters is the backend of the target copy, which the macro cannot see.
+
+The helper macros need no knowledge of the target copy at build time, because the generated code names them through `::slango`, which resolves in the user's crate to the program's copy (SLM-25).
+
+The recipes do not check the separation of host and target features for a crate that depends on both crates. When `slango-macros` is the package under test, Cargo unifies the features of its dependencies with those of its development dependency `slango`, so the test binary does not keep the two copies apart. A test build of `slango-macros` with the feature `rhi` of `slango` would therefore give one copy of `slango` both features, which SLO-29 of `docs/design/slango.md` stops. The `gpu` tests of the generated code on the backend `rhi` therefore run in the examples package, which uses the macro as an ordinary dependency (Section 10). The need for the feature on both crates is an assumption that no recipe checks. It is expected to hold on every platform, and the expected failure with the feature on only one crate is the error of `slang-compiler-sys` that `VULKAN_SDK` is not set.
 
 ## 5. Changes to `slango`
 
@@ -239,7 +256,7 @@ The recipes do not check the separation of host and target features for a crate 
 
 This check changes the behaviour of `slango` for every user, macro or not.
 
-SLM-5. The layout snapshot MUST record the element type of each structured buffer in its storage buffer record. When the recorded element is a scalar or a vector, `Call::bind` and `Draw::bind` MUST report `ErrorKind::InvalidArgument` naming the parameter unless the Rust element type has the same scalar and component count. When the recorded element is a structure, they MUST keep the check of the stride alone.
+SLM-5. The layout snapshot MUST record the element type of each structured buffer in its storage buffer record. When the recorded element is a scalar or a vector, `Call::bind` and `Draw::bind` MUST report `ErrorKind::InvalidArgument` naming the parameter unless the Rust element type has the same scalar and component count. When the recorded element is a structure, they MUST keep the check of the stride alone, except for a type that implements `StructElement`, which SLM-26 also checks by the offset of each field.
 
 A check of the stride alone reads wrong values without an error (Section 1.1), while a buffer of structures must stay usable without the macro.
 
@@ -262,9 +279,10 @@ SLM-6. `slango` MUST provide the module `#[doc(hidden)] pub mod __private`, thro
 
 The module holds:
 
-- `precompile_file`, which compiles a file exactly as `Device::load_module` does, with the same session, search path, and reflection walk (SLO-5 and SLO-7 of `docs/design/slango.md`). It returns a `Precompiled`, which holds the interface description and the encoded snapshot.
-- The types of the interface description: kernels with their name, thread group size, and parameters, each parameter with its path, kind, and type, including the Slang name of a structure and the element type of a structured buffer, and the files that Slang read.
-- `load_precompiled`, which decodes an encoded snapshot and loads it with no call into Slang.
+- `precompile_file`, which compiles a file exactly as `Device::load_module` does on the backend `wgpu`, with the same session, search path, and reflection walk (SLO-5 and SLO-7 of `docs/design/slango.md`). It returns a `Precompiled`, which holds the interface description and the encoded snapshot. From M10, it also compiles the file a second time in a session with the SPIR-V target and the scalar layout, reads the layout of each element structure there without generating code, and adds that packed layout to the description, and it records the imported modules of SLM-24 (SLM-26). `precompile_file` exists in both builds of `slango`, and the macro calls it in its own copy, which has the feature `wgpu` (Section 4.3).
+- The types of the interface description: kernels with their name, thread group size, and parameters, each parameter with its path, kind, and type, including the Slang name of a structure, the element type of a structured buffer, and, from M10, the packed layout of each element structure, and the files that Slang read and the imported modules.
+- `Embedded` and `load_embedded`, which replace `load_precompiled` in M10. `Embedded` is defined in the backend module of the build (SLO-34 of `docs/design/slango.md`), so it holds the encoded snapshot in a build with `wgpu` and the embedded sources of SLM-24 in a build with `rhi`. On the backend `wgpu`, `load_embedded` decodes the encoded snapshot and loads it with no call into Slang, as `load_precompiled` did. On the backend `rhi`, it compiles the embedded sources in a session of their own and loads the shader through the load of SLO-37 of `docs/design/slango.md`.
+- The helper macros `wgpu_only!` and `rhi_only!` of SLM-25.
 - `ENCODING_VERSION`, the version of the encoding (Section 5.3).
 - The trait for generated structs (Section 5.4).
 - `slang_type`, which names the Slang type of a scalar or a vector, such as `float3`. `slango` uses it for the same type in its own errors, so the generator names a type exactly as the check of a bound buffer does.
@@ -283,7 +301,7 @@ The interface description has these properties:
 
 ### 5.3. The Encoding
 
-SLM-7. The encoding MUST be private to `slango`, little-endian, and versioned by a magic header with a version number, and `load_precompiled` MUST reject a byte string of another version or with trailing bytes with `ErrorKind::InvalidArgument`.
+SLM-7. The encoding MUST be private to `slango`, little-endian, and versioned by a magic header with a version number, and its decoder, which `load_embedded` calls on the backend `wgpu`, MUST reject a byte string of another version or with trailing bytes with `ErrorKind::InvalidArgument`.
 
 An encoding that decodes wrongly would load a kernel with wrong bindings.
 
@@ -291,8 +309,8 @@ The layout types stay crate-private. The generated code also asserts at compile 
 
 The encoding has these properties:
 
-- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 2, as a little-endian `u32`. The version changes whenever the bytes of the encoding, or the meaning of any of them, change. Version 2 added to the rejection record of a vertex or fragment entry point a tag byte, 0 or 1, and, after the detail, the text of the source error of a `Compile` rejection (Section 7.4 of `docs/design/slango.md`).
-- `load_precompiled` also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic and bounds every count by the bytes left before it allocates.
+- The bytes start with an 8-byte magic header, followed by `ENCODING_VERSION`, which is 2, as a little-endian `u32`, and 3 from M10. The version changes whenever the bytes of the encoding, or the meaning of any of them, change. Version 2 added to the rejection record of a vertex or fragment entry point a tag byte, 0 or 1, and, after the detail, the text of the source error of a `Compile` rejection (Section 7.4 of `docs/design/slango.md`). Version 3 adds the row stride to the shape of a matrix (SLO-46 of that design).
+- The decoder also rejects truncated or malformed bytes with `ErrorKind::InvalidArgument`. The decoder does not panic and bounds every count by the bytes left before it allocates.
 - The decoder accepts at most 256 levels of nested arrays or structures, and only bindings in descriptor sets up to 255, so that a load creates a bounded number of bind group layouts.
 - The encoder returns `ErrorKind::UnsupportedParameter` for a snapshot that the decoder would reject, such as one with a count above `u32::MAX` or a binding in a descriptor set above 255. So it never writes bytes that the decoder refuses.
 
@@ -300,7 +318,7 @@ Section 10 lists the tests of the encoding.
 
 ### 5.4. Generated Structs and the Seal
 
-SLM-8. `slango` MUST provide in `__private` the trait `StructElement`, with the Slang name, the stride, and the conversion to and from little-endian bytes at the reflected offsets, and MUST implement `Element` and `Value` for every type that implements it. `VertexElement` MUST reject such a type at the draw.
+SLM-8. `slango` MUST provide in `__private` the trait `StructElement`, with the Slang name, the stride, from M10 the name and offset of each field (SLM-26), and the conversion to and from little-endian bytes at the reflected offsets, and MUST implement `Element` and `Value` for every type that implements it. `VertexElement` MUST reject such a type at the draw.
 
 Generated structs need the sealed traits, and the hidden trait is the only way in that does not unseal them for users.
 
@@ -322,7 +340,9 @@ SLM-10. The macro MUST resolve a relative path against the directory of the invo
 
 ### 6.2. Rebuild Tracking
 
-SLM-11. The expansion MUST contain `const _: &[u8] = include_bytes!("<absolute path>");` for the file and for every file that Slang read, so that Cargo rebuilds the crate when any of them changes (Section 3.4).
+SLM-11. The expansion MUST contain `const _: &str = include_str!("<absolute path>");` for the file and for every file that Slang read, outside the helper macros of SLM-25, so that Cargo rebuilds the crate when any of them changes, on either backend (Section 3.4).
+
+`include_str!` tracks a file the way `include_bytes!` does. The embedded sources of SLM-24 include the files of the modules again with `include_str!`, inside the helper macro of the backend `rhi`. A file that is not valid UTF-8 fails to compile at the inclusion, which matches the load of `slango`, which reads every file as text (Section 7.1 of `docs/design/slango.md`). A `const _` that nothing uses puts nothing into the program.
 
 The generated code therefore contains absolute paths of the build machine. When `proc_macro::tracked::path` is stable, a change replaces the trick with it. A new file that changes how an `import` resolves does not trigger a rebuild (Section 14.6).
 
@@ -352,9 +372,44 @@ A panic shows as `proc macro panicked` without the structure of the error (Secti
 
 ### 7.1. The Shader and Its Kernels
 
-SLM-15. The macro MUST generate a struct `Shader` with `Shader::load(&slango::Device) -> slango::Result<Shader>`, which loads the embedded snapshot with `load_precompiled` and looks up every kernel, a public field and a kernel struct for each compute entry point, and `Shader::module`, which returns the `slango::Module`. A lookup at load means no later call fails for a missing kernel.
+SLM-15. The macro MUST generate a struct `Shader` with `Shader::load(&slango::Device) -> slango::Result<Shader>`, which loads the embedded module with `load_embedded` and the `Embedded` constant of the build's backend (SLM-24) and looks up every kernel, a public field and a kernel struct for each compute entry point, and `Shader::module`, which returns the `slango::Module`. A lookup at load means no later call fails for a missing kernel.
 
 SLM-16. Each kernel struct MUST have the constant `THREAD_GROUP_SIZE: [u32; 3]`, a method `dispatch(&self, args: &XxxArgs<'_>, elements: [u32; 3]) -> slango::Result<()>`, a method `dispatch_groups` with the same arguments and workgroup counts, and `kernel`, which returns the `slango::Kernel`. `dispatch` and `dispatch_groups` MUST create the call with `Kernel::call`, set every argument with the public setter and its literal path, and dispatch, so every runtime check of `slango` still runs (ARCH-17).
+
+SLM-24. The generated code MUST define the constant `EMBEDDED` of the type `slango::__private::Embedded` twice, once inside each helper macro of SLM-25, and `Shader::load` MUST pass it to `slango::__private::load_embedded`. The constant of the backend `wgpu` MUST hold the encoded snapshot. The constant of the backend `rhi` MUST hold, as the embedded sources, the shader and every module that it imports, each with its module name, its absolute path, and its text through `include_str!`, with every module after each module that it imports and the shader last. On the backend `rhi`, `load_embedded` MUST create one session for the load as SLO-37 of `docs/design/slango.md` states, load each imported module from its source under its module name in the given order, and then load the shader as `Device::load_module_from_source` does.
+
+This implements the owner's decisions 2 and 6 of Section 4.6 of `docs/design/slango.md`. A shader program of the backend `rhi` needs a program of a session that reproduces the device session (SLO-37 of that design), so it cannot use the SPIR-V of the macro's session, and it needs the source. The source of the shader alone cannot resolve an `import` (Section 3.5), so the backend loads the imported modules first, under the names that their `import` declarations use, so that each `import` finds its module in the session (SLMA-6).
+
+The macro records the imported modules at build time from `Session::loaded_modules` of the session of `precompile_file`, with the name and the file path of each module, and not from the list of files that Slang read, which holds files that are not modules and no module names (Section 3.5). It orders them by their imports: a module comes after every other module whose file appears in its own list of files read (`Module::dependency_file_paths`), and the macro reports a compile error for a cycle. The order therefore rests on no order of a list of Slang.
+
+The macro still compiles the shader at build time with the session of the backend `wgpu` (Section 5.2). That compile checks the shader, gives the interface description from which the generator emits the typed bindings, and gives the encoded snapshot. On the backend `rhi`, the load walks the shader again in the session of the load, and the generated dispatch sets every argument by its path through the runtime API (SLM-16), so the offsets that the backend `rhi` uses come from that walk and not from the build.
+
+The expansion already holds the absolute paths of the build machine (SLM-11). On the backend `rhi` they also reach the program, as the paths of the modules in the diagnostics of Slang, which the design accepts because the paths name the files that the diagnostics concern.
+
+They have one more effect. An `#include` of the shader, or an `__include` that adds a part to a module, resolves on the backend `rhi` only through the file system, relative to the embedded path, because the embedded sources hold modules and not the files that they include. Such a shader therefore loads on the backend `rhi` only on a machine that holds the included files at their paths of the build machine, and there it reads the files as they are when the program runs, not as they were when the macro ran. A custom file system could serve them from the embedded text, but slang-rhi takes no file system and `slang-compiler` defers its own (Section 15.22 of the architecture design), so the design records this limit (Section 14.6) and does not embed included files.
+
+SLM-25. `slango` MUST provide in `__private` two macros, `wgpu_only!` and `rhi_only!`, each defined with `macro_rules!` under the `cfg` of its backend feature to expand to its input, and under the opposite `cfg` to expand to nothing. The generated code MUST put every item that only one backend needs inside the macro of that backend, and name the macros by their full paths through `::slango::__private`.
+
+A `macro_rules!` macro is expanded in the crate that calls it, but its definition is fixed when the crate that defines it compiles. The generated code expands in the user's crate, where `::slango` names the program's own copy of `slango`, which is a target dependency with the program's backend feature (Section 4.3). So `wgpu_only!` keeps its items exactly when the program's `slango` has the backend `wgpu`, and the macro, which runs with its own copy of `slango` on the host, needs to know nothing of the program's backend. The generated code then carries only the loading path and the struct layouts of the program's backend after expansion, as decision 5 of Section 4.6 of `docs/design/slango.md` requires.
+
+The macros are `#[doc(hidden)]` and exported from the root of `slango` as `macro_rules!` requires, and `__private` re-exports them. The code step that adds them extends the coding standard with a rule for this pattern, as Hard Rule 13 of `AGENTS.md` requires.
+
+These items of the generated code sit inside a helper macro:
+
+| Item | `wgpu_only!` | `rhi_only!` |
+| --- | --- | --- |
+| The constant `EMBEDDED` | The encoded snapshot | The embedded sources |
+| The element form of each generated struct (Section 7.3) | The std430 layout of the macro's session | The packed layout of SLM-26 |
+| The `const` block of layout assertions of each element struct | The std430 offsets and size | The packed offsets and size |
+| The assertion of `ENCODING_VERSION` | Present | Absent, because the backend `rhi` reads no encoded snapshot |
+
+Everything else, which is `Shader`, the kernel structs, the arguments structs, the uniform form of each struct, and the tracking of SLM-11, sits outside both macros, because it is the same on both backends.
+
+SLM-26. For each element structure, the macro MUST emit the element form of Section 7.3 twice, with the std430 layout of the macro's session inside `wgpu_only!` and with the packed layout that `precompile_file` reads from the session with the scalar layout inside `rhi_only!`. Both forms MUST have the same name, the same public fields, and the same `new`. At a dispatch or a draw, the check of the element of SLM-5 MUST compare, for a buffer of a type that implements `StructElement`, the stride and the offset of each field with the structure that the snapshot of the device's load records, and MUST fail with `ErrorKind::InvalidArgument` that names the struct and the first field that differs.
+
+A build has one backend, so a generated struct has one layout in the program, that of its backend, and its bytes are what the shader reads. The packed layout comes from the scalar layout of SPIR-V, which the macro can compile on any machine, while the layout of DXIL would need `dxcompiler` at build time. The two agree for every structure that was measured (Section 3.11 of `docs/design/slango.md`), and that they agree for every structure that a generated struct may hold is SLMA-7. On both backends, the offsets and the stride that the program uses come from the reflection of its own load, and the full check of SLM-26 makes a mismatch, such as one that SLMA-7 would miss on D3D12, fail at the call instead of corrupting the elements.
+
+The second compile of `precompile_file` reads only type layouts, so it generates no code and needs no `dxcompiler`. It costs one more compile of the module in each expansion of the macro.
 
 The arguments struct `XxxArgs<'a>` has one public field for every parameter of the kernel, including a parameter that the compiled code does not use, so the generated API does not change when an optimization drops a parameter. It has the lifetime only when it holds a reference.
 
@@ -393,6 +448,7 @@ The element form is built as follows:
 - A `const` block asserts that `size_of` equals the stride that Slang gives the structure and that `offset_of!` of each field equals its reflected offset. Each assertion has a message that names the struct, and the field for an offset.
 - The implementation of `StructElement` gives the Slang name and the stride. `write_bytes` appends each scalar as little-endian bytes in the order of the offsets, and zero for each padding. `read_bytes` returns `None` for bytes of another length, and otherwise reads each scalar at its offset with checked slicing, so it cannot panic.
 - A nested structure of an element is an element struct of its own, emitted before the struct that holds it. The outer struct holds it as a field at its reflected offset, and writes and reads it through its own implementation of `StructElement`.
+- From M10, the element form, with its assertions and its implementation of `StructElement`, is emitted once for each backend, with the offsets and the stride of that backend's layout, inside the helper macro of that backend (SLM-26).
 
 The uniform form is a plain struct with public fields, `new`, and the same derives, and with no `#[repr(C)]`, padding, or assertions. Its fields are the leaves and the nested structures whose path is the path of the structure followed by one name, in the order of their first leaf among the parameters. A leaf may be any plain value of SLM-17, such as a `bool`, a matrix, or an array.
 
@@ -485,9 +541,9 @@ At run time, generated code returns `slango::Error`. A load of an encoded snapsh
 
 ## 9. Threading
 
-SLM-21. `Shader` and every kernel struct MUST be `Send` and `Sync` without a manual implementation, asserted in a test of the generated code (CONC-1), because they hold only `slango` types, which are both (SLO-17 of `docs/design/slango.md`).
+SLM-21. `Shader`, every kernel struct, and every arguments struct MUST be neither `Send` nor `Sync`, with no implementation and no marker of their own, asserted by `compile_fail` cases of the generated code (CONC-1). They hold `slango` types or references to them, which are neither from version 0.2 (SLO-17 of `docs/design/slango.md`), so the compiler derives the absence of both.
 
-An arguments struct holds references to buffers, textures, and samplers, which are `Sync`, so it is `Send` and `Sync` too. The macro starts no thread.
+The generated structs of Slang structures hold plain data only and stay `Send` and `Sync`, as the hidden trait `StructElement` requires. The macro starts no thread.
 
 ## 10. Tests
 
@@ -526,6 +582,14 @@ Further `ffi` tests of `slango-codegen` check:
 - The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a move of the recorded Slang can change it (SLM-22).
 - The module `ffi` also compares the size, stride, and field offsets of generated structs with what `precompile_file` reflects. They cover tail padding, a gap between fields, arrays, nested structures, and a `new` of eight arguments.
 - The module `gpu` runs saxpy through `dispatch` and through `dispatch_groups` with a count that stops inside the last group, against values computed on the CPU. It also runs a kernel over a buffer of particles with a nested structure, a uniform structure `Step` that nests the structure `Wind`, and a uniform `Motion` that the element form of `Motion` serves. It compares the whole buffer exactly with values computed on the CPU.
+
+From M10, the generated code runs on the backend `rhi` in the tests of the examples package, not of `slango-macros`, because a test build of `slango-macros` cannot keep the macro's copy of `slango` apart from the copy of its tests (Section 4.3):
+
+- The `gpu` tests of `slango-macros` keep running on the backend `wgpu` in every recipe that runs them today.
+- The examples test binary gains a module of `gpu` tests that call the macro on the test shaders of `slango-macros` under `tests/macros/shaders/`, by a relative path, so that one set of shaders serves both packages. They run on the build's backend through the helper of SLO-43 of `docs/design/slango.md`, so `test-rhi` runs them on the backend `rhi` on lavapipe and on WARP (TOOL-53 of `docs/design/tooling.md`). They cover saxpy, the structures with padding and nesting of the module `gpu` of `slango-macros`, and a shader that imports a module that imports another, which checks SLMA-6 and the order of SLM-24.
+- The example `typed-kernel`, whose structure `Particle` has 4 bytes of tail padding on the backend `wgpu` and none on the backend `rhi`, runs on both backends through its `gpu` test, which checks SLMA-7 on lavapipe and on WARP.
+- The tests of the tokens of `slango-codegen` check both helper macros, both forms of each element struct, and the embedded sources in their order, and its `ffi` tests check the imported modules that `precompile_file` records, with their names and order, and the packed layouts of the test shaders against the scalar layout.
+- A test of `slango` checks that a buffer of a generated struct whose field offsets differ from the reflected structure, with an equal stride, fails the check of SLM-26.
 
 On the vendored route, `test-vendored` runs only the modules `bindings` and `structs` of `slango-macros`, with only its feature `vendored` (Section 4.3). The trybuild case of `ffi` cannot run there. trybuild passes the features of the crate under test to the project that it generates, but not those of its development dependency `slango`, so the `slango` of that project takes the dynamic route and stops without `VULKAN_SDK`. That is a limit of the test harness, not of the crates. The `gpu` tests do not run on the vendored route either.
 
@@ -579,6 +643,8 @@ The change that confirms or corrects it states the result in Section 3 and in th
 | --- | --- | --- | --- |
 | SLMA-3 | An exact version requirement on `slango` makes Cargo resolve the user's `slango` to the same version | SLM-2 | A build of a crate that depends on `slango-macros` and `slango` from crates.io, once crates.io holds a second version of `slango` |
 | SLMA-5 | The rpath alone, without `DYLD_LIBRARY_PATH`, lets the macro library load on macOS | SLM-12 on macOS | A macOS build with no library path set, which CI does not run |
+| SLMA-6 | A session that holds a module loaded from source under the name of an `import` resolves that `import` to it without reading a file, as a reading of `slang-session.cpp:1543` indicates (Section 3.5) | SLM-24 | The `gpu` test of a shader with two levels of `import` on the backend `rhi`, in the examples package, in the code step that brings the macro to that backend |
+| SLMA-7 | For every element structure that a generated struct supports, whose fields are 32-bit scalars, vectors, arrays whose stride equals the size of their element, and such structures (Section 7.3), the layout of DXIL equals the scalar layout of SPIR-V in size and in every field offset. Section 3.11 of `docs/design/slango.md` measured seven structures | SLM-26 on D3D12 | The `gpu` tests of the generated code on WARP, in the code step that brings the macro to the backend `rhi`, where the check of SLM-26 fails a mismatch. If a structure differs, the macro reflects the packed layout from a session with the DXIL target where `dxcompiler` is available, or the design records the structures that bind on Vulkan only |
 
 ## 12. Open Questions
 
@@ -628,6 +694,9 @@ CI builds and tests both crates on Linux, Windows, and macOS. On macOS, the CI j
 | Slang aborts during an expansion | rustc exits with `SIGABRT` after one line on standard error | Report it as a defect of Slang (Hard Rule 14) |
 | naga rejects the embedded SPIR-V | `UnsupportedShader` at `Shader::load` | Build with the Slang of the Vulkan SDK, or enable `vendored` on `slango-macros`, so that the macro's copy of Slang has the loader of `slang-glslang-sys` (Section 3.6) |
 | The encoded snapshot is of another version | A compile error from the version assertion, or `InvalidArgument` at load | Use the matching versions (SLM-2) |
+| A generated struct does not match the layout that the load reflects | `InvalidArgument` at the dispatch, naming the struct and the field (SLM-26) | Report it, because it means that SLMA-7 or the versions do not hold |
+| A shader with `#include` loads on the backend `rhi` on a machine without the included files | `Compile` at `Shader::load`, with Slang's text | Replace the `#include` with an `import`, or run where the files are (SLM-24) |
+| The program's dependencies give `slango` both backend features | The compile error of SLO-29 of `docs/design/slango.md` | Ask every crate of the graph for the same backend |
 
 ### 14.4. Logs
 
@@ -647,6 +716,9 @@ These are properties of the design, recorded and not guarded against:
 - A new file that changes how an `import` resolves does not trigger a rebuild (Section 3.4).
 - A documentation build of a crate that calls the macro needs Slang, and docs.rs, which has none, is not supported (Section 3.8).
 - The feature `vendored` of `slango` does not reach the macro's copy of Slang, so a program without a Vulkan SDK at build time enables it on `slango-macros` as well (Section 4.3).
+- On the backend `rhi`, the program embeds the text of the shader and of every module that it imports, with their absolute paths on the build machine (SLM-24).
+- On the backend `rhi`, an `#include` or an `__include` of the shader resolves only through the file system at its path of the build machine, so such a shader loads only where those files exist, and reads them as they are when the program runs (SLM-24).
+- Each expansion compiles the module twice, once more for the packed layouts of SLM-26.
 
 These are not determined: the macro in rust-analyzer and in a cross build that links, and the rpath alone on macOS without `DYLD_LIBRARY_PATH` (SLMA-5).
 
@@ -675,15 +747,18 @@ This table lists every labelled requirement of this document with a one-line sum
 | SLM-8 | 5.4 | The hidden trait `StructElement` gives generated structs `Element` and `Value`. |
 | SLM-9 | 6.1 | One macro, `shader!`, which takes one string literal. |
 | SLM-10 | 6.1 | Paths resolve against the invoking file, with no fallback. |
-| SLM-11 | 6.2 | The expansion includes every file that Slang read with `include_bytes!`. |
+| SLM-11 | 6.2 | The expansion includes every file that Slang read with `include_str!`, outside the helper macros. |
 | SLM-12 | 6.3 | The build script prints only the rpath on Linux and macOS and its rerun instruction for `VULKAN_SDK`. |
 | SLM-14 | 6.5 | Every failure is a compile error at the literal, never a panic. |
-| SLM-15 | 7.1 | `Shader` loads the embedded snapshot and looks up every kernel. |
+| SLM-15 | 7.1 | `Shader` loads the embedded module with `load_embedded` and looks up every kernel. |
 | SLM-16 | 7.1 | Each kernel struct dispatches through the public call API with literal paths. |
 | SLM-17 | 7.2 | Parameters map to field types by the table of Section 7.2. |
 | SLM-18 | 7.3 | Element structs are `#[repr(C)]` with padding, `new`, layout assertions, and `StructElement`. |
 | SLM-19 | 7.4 | Names follow fixed rules, and a conflict is a compile error. |
 | SLM-20 | 8 | `slango-codegen` has one `Error` type with three kinds. |
-| SLM-21 | 9 | `Shader` and kernel structs are `Send` and `Sync`, asserted in a test. |
+| SLM-21 | 9 | `Shader`, kernel structs, and arguments structs are neither `Send` nor `Sync`, asserted by `compile_fail` cases. |
 | SLM-22 | 10 | A move of the recorded Slang updates the expected text of the compile-fail tests. |
 | SLM-23 | 4.3 | Each crate has one Cargo feature, `vendored`, off by default, which only forwards to the crate below. |
+| SLM-24 | 7.1 | The generated code embeds the encoded snapshot for the backend `wgpu` and the sources of the shader and its imported modules, in the order of their imports, for the backend `rhi`, which compiles them in a session of their own at load. |
+| SLM-25 | 7.1 | The hidden macros `wgpu_only!` and `rhi_only!` of `slango` keep the items of the backend of the program's `slango` and drop the others. |
+| SLM-26 | 7.1 | Each element struct is emitted in the std430 layout for `wgpu` and in the packed layout for `rhi`, and `bind` checks its stride and field offsets against reflection. |

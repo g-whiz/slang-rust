@@ -385,19 +385,19 @@ A crate above `slang-compiler` that compiles untrusted source and must survive s
 
 `slango` makes calling Slang code from Rust simple, in the way that SlangPy does for Python. SlangPy's portable core is reported to consist of kernels generated from Slang reflection and cached per call signature, automatic broadcasting of arguments with an explicit `map()`, a unified tensor type, automatic differentiation through Slang's `bwds`, and a device layer (Section 16, A-9).
 
-`slango` calls existing compute entry points only, which are functions marked `[shader("compute")]`, on wgpu, with bindings built from reflection. It does not generate a kernel around a plain Slang function. Generated kernels, broadcasting over array arguments, and differentiable functions belong to later milestones, whose designs decide which parts of SlangPy's core `slango` provides.
+`slango` calls existing compute entry points only, which are functions marked `[shader("compute")]`, on the one backend of the build, with bindings built from reflection. It does not generate a kernel around a plain Slang function. Generated kernels, broadcasting over array arguments, and differentiable functions belong to later milestones, whose designs decide which parts of SlangPy's core `slango` provides.
 
-The wrappers of `slang-compiler` stay on the thread that created them, and its reflection handles borrow the program they came from (Section 7). A load of `slango` therefore compiles on the calling thread, copies what the kernels need into a private, owned layout snapshot, and releases every Slang object before it returns.
+The wrappers of `slang-compiler` stay on the thread that created them, and its reflection handles borrow the program they came from (Section 7). A load of `slango` therefore compiles on the calling thread, copies what the kernels need into a private, owned layout snapshot, and, on the backend `wgpu`, releases every Slang object before it returns.
 
-The public types of `slango` therefore hold only wgpu objects and owned data, and they are `Send` and `Sync`. A call sets each parameter by name (Sections 4.1, 7.1, 9.1, and 11 of `docs/design/slango.md`).
+The public types of `slango` hold the objects of their backend and owned data. From version 0.2, which M10 brings, the types that hold a GPU object are neither `Send` nor `Sync` on either backend, because the objects of slang-rhi are neither (Section 11 of `docs/design/slango.md`). A call sets each parameter by name (Sections 4.1, 7.1, and 9.1 of that design). On the backend `rhi` of M10, a device keeps its global session, each load creates a session of its own that reproduces the device's session, and its modules keep their Slang objects, because slang-rhi generates the code of a pipeline from the session of its program (Section 7.6 of that design).
 
 ### 8.2. Runtime Backend
 
-The runtime backend of `slango` is wgpu first. Its design does not rule out a slang-rhi backend later. Section 14.4 gives the reason.
+The runtime backend of `slango` is wgpu first, and M10 adds slang-rhi as a second backend behind the opt-in feature `rhi` (Section 15.13). Section 14.4 gives the reason.
 
 ARCH-15. `slango` MUST keep its backend-specific types behind a narrow internal boundary and MUST expose wgpu types only in one clearly separated public module. A later slang-rhi backend then adds code without changing the rest of the public API, while wgpu types that appear throughout the API would make that backend a breaking change everywhere.
 
-This constraint does not ask for a backend trait, which SIMP-2 of the coding standard forbids before a second backend exists. Section 6 of `docs/design/slango.md` defines the boundary.
+This constraint does not ask for a backend trait. With two backends, the features `wgpu` and `rhi` of `slango` exclude each other, so each build compiles the private module of exactly one backend, and `slango` offers no public trait over the backends (SLO-29 and SLO-34 of `docs/design/slango.md`). Section 6 of that design defines the boundary.
 
 ### 8.3. Patterns From vulkano
 
@@ -424,7 +424,7 @@ ARCH-17. `slango-macros` MUST generate code that calls the same core of `slango`
 
 ### 8.5. Shader Target
 
-`slango` compiles shaders to SPIR-V only, for compute and for rendering. Section 14.9 gives the reason for SPIR-V first. A shader target configurable per backend, such as MSL on macOS, is deferred with no milestone assigned (Section 15.22, Section 17, Q-23), for the reason that Section 1.5 of `docs/design/slango.md` states.
+The backend `wgpu` of `slango` compiles shaders to SPIR-V only, for compute and for rendering. Section 14.9 gives the reason for SPIR-V first. A shader target of that backend configurable per graphics API, such as MSL on macOS, is deferred with no milestone assigned (Section 15.22, Section 17, Q-23), for the reason that Section 1.5 of `docs/design/slango.md` states. The backend `rhi` of M10 compiles to the target that slang-rhi chooses for its device, SPIR-V on Vulkan and DXIL on D3D12 (SLO-37 of that design).
 
 wgpu's SPIR-V reader rejects some valid SPIR-V modules (Section 3.5 of `docs/design/slango.md`). wgpu offers a shader passthrough path, which runs SPIR-V (Section 3.2 of that document) and is reported to cover other targets (Section 16, A-11).
 
@@ -459,10 +459,10 @@ The examples are complete programs that also serve as the integration testbed, a
 | Number | Example | Needs | Milestone | Automated check |
 | --- | --- | --- | --- | --- |
 | 1 | `compile-and-reflect`, a command-line program that compiles Slang source and prints its reflection | Slang, no GPU | M2 | Runs headless in CI |
-| 2 | `compute-kernel`, a compute kernel. A broadcasting case and a differentiable function that uses Slang's automatic differentiation arrive with those features in M16 (Sections 8.1 and 15.19) | Slang and any adapter | M3 | Runs headless in CI on a software adapter |
-| 3 | `windowed-renderer`, a windowed renderer with winit and shader hot reload | Slang, a display, and an adapter | M4 | Built in CI on the three platforms and run locally, with its scene drawn offscreen by tests in CI (Section 13.5 of `docs/design/slango.md`) |
-| 4 | `shader-playground`, a Slint application with a `slang-slint` view and sliders bound to shader parameters | Slang, a display, and an adapter | M5 | Built in CI and run locally, with its scene drawn offscreen by tests (Section 10 of `docs/design/slang-slint.md`) |
-| 5 | `typed-kernel`, a headless compute kernel called through the typed bindings of `slango-macros`, with a generated struct for a Slang structure | Slang at build time and any adapter | M6 | Runs headless in the GPU tier on a software adapter (Section 10 of `docs/design/slango-macros.md`) |
+| 2 | `compute-kernel`, a compute kernel. A broadcasting case and a differentiable function that uses Slang's automatic differentiation arrive with those features in M16 (Sections 8.1 and 15.19) | Slang and any adapter | M3 | Runs headless in CI on a software adapter, on the backend `rhi` too from M10 (Section 13.7 of `docs/design/slango.md`) |
+| 3 | `windowed-renderer`, a windowed renderer with winit and shader hot reload | Slang, a display, and an adapter | M4 | Built in CI on the three platforms and run locally, with its scene drawn offscreen by tests in CI (Section 13.5 of `docs/design/slango.md`), on the backend `rhi` too from M10, while its window stays on wgpu |
+| 4 | `shader-playground`, a Slint application with a `slang-slint` view and sliders bound to shader parameters | Slang, a display, and an adapter | M5 | Built in CI and run locally, with its scene drawn offscreen by tests (Section 10 of `docs/design/slang-slint.md`), on the backend `rhi` too from M10, while its window stays on wgpu |
+| 5 | `typed-kernel`, a headless compute kernel called through the typed bindings of `slango-macros`, with a generated struct for a Slang structure | Slang at build time and any adapter | M6 | Runs headless in the GPU tier on a software adapter (Section 10 of `docs/design/slango-macros.md`), on the backend `rhi` too from M10 |
 | 6 | A path-tracing renderer demo, which shows the ray tracing of `slango` | Not designed | M14 | Not designed |
 | 7 | A renderer with hull, domain, and geometry stages | Not designed | M12 | Not designed |
 | 8 | A renderer with a mesh shading pipeline | Not designed | M13 | Not designed |
@@ -582,7 +582,7 @@ The separate `-sys` crate changes only when Slang changes. It is the one package
 
 ### 14.4. wgpu as the Default Backend, slang-rhi as an Opt-In Backend
 
-`slango` uses wgpu as its first and only backend. slang-rhi publishes no binaries in its tree, declares no version, and needs a C++20 build with CMake (Section 3.1 of `docs/design/slang-rhi-sys.md`). When M3 began, binding it would have put a C++ build on every user's machine, which the default route avoided.
+`slango` uses wgpu as its first backend. slang-rhi publishes no binaries in its tree, declares no version, and needs a C++20 build with CMake (Section 3.1 of `docs/design/slang-rhi-sys.md`). When M3 began, binding it would have put a C++ build on every user's machine, which the default route avoided.
 
 Slint accepts wgpu textures directly (Section 3.4 of `docs/design/slang-slint.md`), so a wgpu backend serves `slang-slint` without any bridge. A slang-rhi backend would add targets that wgpu does not offer, which include CUDA, the CPU, and OptiX (Section 3.4 of `docs/design/slang-rhi-sys.md`). That is why ARCH-15 keeps a later slang-rhi backend possible without building an abstraction now.
 
@@ -656,7 +656,7 @@ Several milestones replace requirements of this document that the code satisfies
 | M7 | Rework of the native crates: `slang-bindgen`, `slang-src`, `slang-glslang-sys`, and `slang-compiler-sys` with the opt-in feature `vendored` | M6 | `docs/design/slang-compiler-sys.md`, revised, and `docs/design/slang-src.md` and `docs/design/slang-glslang-sys.md`, new |
 | M8 | Forward-compatibility pass of `slango` and the first release | M7 | The publishing sections of `docs/design/tooling.md` and `docs/design/slango.md`, revised |
 | M9 | `slang-rhi-sys`, `slang-rhi`, and additive reflection in `slang-compiler` | M7 | `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, new, and `docs/design/slang-compiler-sys.md`, `docs/design/slang-compiler.md`, and `docs/design/slang-src.md`, revised |
-| M10 | The opt-in `rhi` backend of `slango`, with wgpu kept as the default backend | M9 | `docs/design/slango.md`, `docs/design/slango-macros.md`, and `docs/design/slang-slint.md`, revised |
+| M10 | The opt-in `rhi` backend of `slango`, with wgpu kept as the default backend | M9 | `docs/design/slango.md`, `docs/design/slango-macros.md`, `docs/design/slang-slint.md`, `docs/design/slang-rhi.md`, `docs/design/slang-rhi-sys.md`, and `docs/design/tooling.md`, revised |
 | M11 | The second release | M10 | The release procedure in `docs/design/tooling.md` |
 | M12 | Render pipelines with hull, domain, and geometry stages, and example 7 | M10 | A design in `docs/design/slango.md` |
 | M13 | Mesh shading pipelines and example 8 | M10 | A design in `docs/design/slango.md` |
@@ -819,20 +819,40 @@ Several milestones replace requirements of this document that the code satisfies
   - `slango-macros` and `slango-codegen` reworked for the `rhi` backend.
   - The five existing examples on both backends.
 
-  Which shader target the slang-rhi backend compiles to for each device backend is open (Section 17, Q-36).
+  The slang-rhi backend compiles to the target that slang-rhi chooses for each device backend, SPIR-V on Vulkan and DXIL on D3D12 (SLO-37 of `docs/design/slango.md`), which answers Q-36.
 - Owner decisions that bind it:
   - wgpu stays the default backend, behind the default feature `wgpu` of M8, and slang-rhi is opt-in through the feature `rhi`. M10 adds a backend and does not switch the default.
-  - The wgpu backend keeps compute kernels and vertex plus fragment pipelines, stays free of unsafe code, and reports an unsupported error for every other pipeline kind.
-  - `slang-slint` stays on wgpu. A Slint view shows compute output and vertex plus fragment output only, so ARCH-20 stays.
+  - The wgpu backend keeps compute kernels and vertex plus fragment pipelines, stays free of unsafe code, and reports an unsupported error for every other pipeline kind.  - `slang-slint` stays on wgpu. A Slint view shows compute output and vertex plus fragment output only, so ARCH-20 stays.
   - A breaking version 0.2 of `slango` is accepted if the `rhi` backend needs one (Section 15.11).
-- Replaces: ARCH-15 with Section 8.2, and the parts of Sections 3.3, 8.5, and 8.6 that assume wgpu is the only backend. ARCH-19 then binds the wgpu feature.
+  - On 2026-11-18, the owner decided six more points, which Section 4.6 of `docs/design/slango.md` states:
+    - The public types of `slango` that hold a GPU object lose `Send` and `Sync` on both backends in version 0.2.
+    - The generated code of `slango-macros` loads precompiled SPIR-V on wgpu and compiles the embedded Slang source on slang-rhi.
+    - Compute parity comes before rendering within M10.
+    - The scenes of the two windowed examples draw offscreen on slang-rhi in the tests, while their windows stay on wgpu.
+    - The features `wgpu` and `rhi` of `slango` exclude each other.
+    - Each load on slang-rhi creates its own Slang session.
+- Code steps, in this order, each on its own branch with its own CI run, and each merged when it is verified. The compute phase comes before the rendering phase. Each step adds the commands of TOOL-53 of `docs/design/tooling.md` that its own work makes pass, and a filter in the recipe leaves out the tests of what a later step adds (Section 13.7 of `docs/design/slango.md`):
+  1. The version 0.2 boundary of `slango`, on wgpu alone and with no feature `rhi` yet:
+     - The shared modules and the private backend module of wgpu, with the crate root that compiles exactly one backend and the message of SLO-29 for neither or both (SLO-28, SLO-29, SLO-34 of `docs/design/slango.md`), and the change of SIMP-2 in the coding standard.
+     - The loss of `Send` and `Sync` with the marker field and the `compile_fail` cases in `slango`, `slango-macros`, and `slang-slint`, the removal of the `gpu` tests that dispatch and draw from several threads, including `gpu/render/sharing.rs`, and the rule CONC-9 in the coding standard (SLO-17).
+     - The check of one buffer bound read-only and read-write (SLO-44), and the row stride of matrices with `ENCODING_VERSION` 3 (SLO-46).
+     - The features `wgpu`, the default, and `vendored` of the examples package, with `slango` without default features, the optional dependencies of the windowed programs, and `required-features`, and the second command of `check-features` for the examples package (TOOL-48).
+
+     It builds no slang-rhi.
+  2. The compute phase of `slang-rhi`: `create_slang_session` with `CompileSession`, the objects of constant buffers and parameter blocks, and the limits of a device (RHI-22, RHI-29, and RHI-30 of `docs/design/slang-rhi.md`), with the test of RHA-8.
+  3. Compute on the backend `rhi` of `slango`: the feature `rhi` with the optional dependency on `slang-rhi`, `publish = false` on `slango`, `slango-codegen`, and `slango-macros` with their removal from `release_packages` (TOOL-54), the backend module of `rhi`, the device, the load in a session of its own, the kernels, buffers, the call, the kind `Unsupported` for rendering until step 6, and the mapping of errors (SLO-33 and SLO-36 to SLO-40, and SLO-42). It also adds the `ffi` tests of the walk on the layouts of the backend, and the commands of TOOL-53 for `slango`, with the filter of the tests of rendering.
+  4. The macro on the backend `rhi`: the helper macros, the embedded sources with `load_embedded`, the imported modules in the order of their imports, and the packed struct layouts with the check of their field offsets (SLM-24 to SLM-26 of `docs/design/slango-macros.md`), with the rule of the coding standard for the helper macros. It also adds the feature `rhi` of the examples package, the module of `gpu` tests of the generated code in the examples package, and the commands of TOOL-53 for the examples package, with the filter of the scenes, so that `compute-kernel` and `typed-kernel` run on the backend `rhi`.
+  5. The rendering phase of `slang-rhi`: textures, samplers, render pipelines, render passes, and the reading of textures (RHI-23 to RHI-28 of `docs/design/slang-rhi.md`).
+  6. Rendering on the backend `rhi` of `slango`: textures with their zeroed creation, samplers, render pipelines with their checks of semantics and streams, and the draw (SLO-41, SLO-45, and Sections 8.3 and 9.7 of `docs/design/slango.md`). It also changes the shader of `shader-playground` and the shader of the one `gpu` render test, which both read the vertex index, to take their positions from a vertex buffer. It adds the scene of `shader-playground` drawn into a texture of its own on the backend `rhi`, and the removal of both filters of TOOL-53, so that the tests of rendering, of the conventions, and of both scenes run on the backend `rhi`.
+  7. The crate documentation of `slango`, `slango-macros`, `slango-codegen`, `slang-slint`, and `slang-rhi`, with the migration to version 0.2 of Section 17.6 of `docs/design/slango.md`, the crate READMEs, and the documents that the exit criteria name.
+- Replaces: ARCH-15 with Section 8.2, the parts of Sections 3.3, 8.1, 8.5, and 8.6 that assume wgpu is the only backend, and SLO-17 of `docs/design/slango.md`. ARCH-19 then binds the wgpu feature. The design answers Q-36 (Section 17).
 - Depends on: M9.
-- Design document, which exists before any code of the milestone: `docs/design/slango.md`, `docs/design/slango-macros.md`, and `docs/design/slang-slint.md`, revised.
-- Exit criteria: every check passes, including the GPU tier on both backends on the adapters that the design names, and the five examples run on both backends. A build of `slango` with its default features builds no slang-rhi. `AGENTS.md`, `README.md`, and this document are updated.
+- Design document, which exists before any code of the milestone: `docs/design/slango.md`, `docs/design/slango-macros.md`, and `docs/design/slang-slint.md`, revised, and `docs/design/slang-rhi.md`, `docs/design/slang-rhi-sys.md`, and `docs/design/tooling.md`, revised for the additions that the backend needs.
+- Exit criteria: every check passes, including the GPU tier on the backend `wgpu` on lavapipe, WARP, and hosted Metal, and on the backend `rhi` on lavapipe in the CI job `vendored` on Linux and on WARP in that job on Windows (Section 13.7 of `docs/design/slango.md`). `compute-kernel` and `typed-kernel` run on both backends, the scenes of `windowed-renderer` and `shader-playground` draw offscreen on both backends in their `gpu` tests while their windows stay on wgpu, and `compile-and-reflect`, which creates no device, runs unchanged. A build of `slango` with its default features builds no slang-rhi, and a build with both backend features stops with the error of SLO-29 of `docs/design/slango.md`. `AGENTS.md`, `README.md`, and this document are updated.
 
 ### 15.14. M11: The Second Release
 
-- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, with their hosted documentation and the check for breaking changes extended to the new crates, after the owner's go-ahead (ARCH-24).
+- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, with their hosted documentation and the check for breaking changes extended to the new crates, after the owner's go-ahead (ARCH-24). The release returns `slango`, `slango-codegen`, and `slango-macros` to `release_packages` and removes their `publish = false`, which M10 sets (TOOL-54 of `docs/design/tooling.md`).
 - Owner decisions that bind it: the second release follows once M10 has added the opt-in `rhi` backend to `slango`, and nothing is published without the owner's explicit go-ahead.
 - Depends on: M10.
 - Design document, which exists before any code of the milestone: the release procedure in `docs/design/tooling.md`, extended to these crates.
@@ -936,7 +956,7 @@ The design document or milestone in the last column confirms or corrects it, and
 | A-9 | SlangPy's portable core is kernels generated from reflection and cached per call signature, broadcasting with an explicit `map()`, a unified tensor type, automatic differentiation through `bwds`, and a device layer | Sections 8.1 and 14.8 | The design of M16, which adds generated kernels. Section 3.7 of `docs/design/slango.md` finds it consistent with SlangPy's documentation |
 | A-11 | wgpu offers a shader passthrough path for targets other than SPIR-V | Section 8.5 | The design of the configurable shader target. Section 3.2 of `docs/design/slango.md` confirms the path for SPIR-V |
 | A-14 | Slint has no public Vulkan hook, and its wgpu API can change in minor releases | Section 9 | The design of a change that widens the Slint range of SLS-1 of `docs/design/slang-slint.md` or needs a Vulkan hook |
-| A-22 | wgpu 30 offers no tessellation, geometry stage, or cooperative vectors, and offers ray tracing pipelines and mesh shaders only as experimental features | Sections 14.4 and 15.20 | The design of M10 |
+| A-22 | wgpu 30 offers no tessellation, geometry stage, or cooperative vectors, and offers ray tracing pipelines and mesh shaders only as experimental features | Sections 14.4 and 15.20 | The designs of M12, M13, M14, and M17, each for the pipeline kind or feature that it adds. The design of M10 adds only compute and vertex plus fragment pipelines, which wgpu 30 offers, so it does not need the assumption |
 | A-23 | Slang offers no reflection of hit groups | Section 15.17 | The design of M14 |
 | A-24 | Slang offers no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source | Section 15.19 | The design of M16 |
 | A-26 | The recorded Slang holds the module `slang.neural` under `source/standard-modules/neural`, marks it experimental, and needs the experimental feature flag to use it | Section 15.20 | The design of M17 |
@@ -958,8 +978,9 @@ Each row is a question that this document leaves open. The design document in th
 | Q-23 | How is the shader target configured per backend? | The design of the configurable shader target | Deferred with no milestone assigned (Section 15.22) |
 | Q-24 | Can the windows of examples 3 and 4 be checked headless, and how? | A design document, written when a CI runner can show a window | Not scheduled |
 | Q-29 | What is the design of the path-tracing demo? | The design of M14 | M14 |
-| Q-36 | Which shader target does the slang-rhi backend of `slango` compile to for each device backend, and does the answer settle Q-23? | `docs/design/slango.md` | M10 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
+
+SLO-37 of `docs/design/slango.md` answers Q-36: the slang-rhi backend of `slango` compiles to the target that slang-rhi chooses for each device backend, SPIR-V on Vulkan and DXIL on D3D12, because each load compiles in a session that reproduces the device's own session (RHI-30 of `docs/design/slang-rhi.md`). The answer does not settle Q-23, which concerns the backend `wgpu`.
 
 Q-39 is answered by the owner's decision of 2026-11-17: `slang-rhi-sys` always uses the vendored Slang, so the feature `rhi` of `slango` implies `vendored` (Section 4.1 of `docs/design/slang-rhi-sys.md`). Q-35 is answered for Linux with the Vulkan backend, which builds without any download (Section 5.2 of that design), and by the owner's decisions of 2026-11-18 for Windows and macOS: Windows is to build the D3D12 backend offline, and macOS stays without slang-rhi until Slang's tree holds a newer metal-cpp (Sections 4.1, 7.3, and 7.4 of that design).
 

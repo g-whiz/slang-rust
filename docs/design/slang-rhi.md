@@ -8,7 +8,7 @@
 
 ## Abstract
 
-This document specifies `slang-rhi`, the safe Rust crate over the raw bindings of `slang-rhi-sys`, in the scope of milestone M9: the path of one compute dispatch. A program lists the adapters of a backend, opens a device with a global session of `slang-compiler`, creates a shader program from a linked Slang program of the device's session and a compute pipeline from it, creates buffers, encodes a compute pass that binds parameters by name and dispatches, submits the work, and reads a buffer back. The document defines the ownership of every object, the borrows that turn the unowned pointers of slang-rhi into lifetimes, the checks that keep a safe call within valid use of the graphics API, the errors, the threading rules that follow from slang-rhi documenting none, the guards around calls into native code, the tests, and what waits for M10.
+This document specifies `slang-rhi`, the safe Rust crate over the raw bindings of `slang-rhi-sys`, in the scope of milestone M9: the path of one compute dispatch. A program lists the adapters of a backend, opens a device with a global session of `slang-compiler`, creates a shader program from a linked Slang program of the device's session and a compute pipeline from it, creates buffers, encodes a compute pass that binds parameters by name and dispatches, submits the work, and reads a buffer back. The document defines the ownership of every object, the borrows that turn the unowned pointers of slang-rhi into lifetimes, the checks that keep a safe call within valid use of the graphics API, the errors, the threading rules that follow from slang-rhi documenting none, the guards around calls into native code, the tests, and the additions of M10. M10 adds what the backend `rhi` of `slango` needs, in two phases: sessions of their own that reproduce the device session, the objects of constant buffers and parameter blocks, and the limits of a device for compute, and then textures, samplers, render pipelines, render passes, and the reading of textures for rendering.
 
 ## 1. Introduction
 
@@ -284,13 +284,13 @@ The closure takes the bounds `Send + Sync + 'static`, which CONC-6 of the coding
 
 RHI-7. `Device::create_shader_program(&self, program: &slang_compiler::LinkedProgram) -> Result<ShaderProgram>` MUST check that the program belongs to the session of the device, by comparing the raw pointer of the session that `LinkedProgram::session` returns with that of `slang_session`, and that the program has no specialization parameter left, and MUST fail with the kind `InvalidArgument` otherwise. It MUST pass the program as `slangGlobalScope` with no entry points and the linking style `SingleProgram`, pass and read the diagnostics out-parameter, and collect the messages of Slang during the call (Section 8.3).
 
-slang-rhi takes the Slang session from the program and generates code for the target at index 0 of that session (Section 3.3 of the sys design, Section 3). The device's session has exactly one target, the one that the device runs, so only a program of that session gets code that the device runs. The crate adopts the session with a target count of 1. With no entry points, slang-rhi uses the linked program as it is (`src/shader.cpp:58-62`), so the program that the caller linked is the program that runs. `LinkedProgram::session` is an addition to `slang-compiler` (SLC-40 of the `slang-compiler` design).
+slang-rhi takes the Slang session from the program and generates code for the target at index 0 of that session (`src/shader.cpp:58`, Section 3.3 of the sys design, Section 3). The device's session has exactly one target, the one that the device runs, so a program of that session gets code that the device runs. A program of any other session could get code of another target, which the device would run as if it were its own. From M10, a program of a session that reproduces the device session takes the same checks through `CompileSession::create_shader_program` instead (RHI-30). The crate adopts the session with a target count of 1. With no entry points, slang-rhi uses the linked program as it is (`src/shader.cpp:58-62`), so the program that the caller linked is the program that runs. `LinkedProgram::session` is an addition to `slang-compiler` (SLC-40 of the `slang-compiler` design).
 
 The crate reads the specialization parameter count through `IComponentType::getSpecializationParamCount` of the linked program, inside the guards of Section 8, because `slang-compiler` offers no safe accessor for it. A count other than 0 is the condition under which slang-rhi creates a virtual pipeline and generates its code at the first dispatch (Section 3), outside the collector, where the crate could not return the diagnostics. The refusal names the count and says to specialize the program before it is linked.
 
 `create_shader_program` also reads the stages of the program's entry points through the reflection of `slang-compiler`, for the check of `create_compute_pipeline`, so it fails with the kind `Slang` when that reflection fails.
 
-A failure has the kind `Compile` and holds as its diagnostics the text of the out-parameter, when slang-rhi fills it, or else the collected messages of Slang. Warnings on success are dropped in M9, because the result type carries no diagnostics. Whether to return them, as `slang-compiler` does with `Compiled`, is RHQ-4.
+A failure has the kind `Compile` and holds as its diagnostics the text of the out-parameter, when slang-rhi fills it, or else the collected messages of Slang. Warnings on success are dropped, because the result type carries no diagnostics. This answers RHQ-4 by a choice of the design of M10: the one user of the crate, the backend `rhi` of `slango`, returns no warning of Slang on either backend (SLO-42 of `docs/design/slango.md`), so a result type with warnings would carry data that no caller reads. Returning them later is an additive change of the result type of new methods, so the simplest answer costs nothing now.
 
 `Device::create_compute_pipeline(&self, program: &ShaderProgram) -> Result<ComputePipeline>` MUST fail with the kind `InvalidArgument`, before any call into slang-rhi, when the shader program belongs to another device, or when its linked program does not have exactly one entry point, whose stage is compute. Otherwise it creates the pipeline with the default compilation policy and collects the messages of Slang during the call.
 
@@ -371,9 +371,11 @@ RHI-12. Every failure of the crate MUST be its one type `Error`, which is `Send`
 
 ## 7. Threading
 
-RHI-13. No type of the crate that holds a pointer of slang-rhi or a wrapper of `slang-compiler`, which are `DeviceOptions`, `Device`, `ShaderProgram`, `ComputePipeline`, `Buffer`, `Queue`, `CommandEncoder`, `ComputePass`, `ShaderObject`, and `CommandBuffer`, MUST be `Send` or `Sync`. `Adapter`, `DeviceInfo`, `BufferDesc`, `ShaderOffset`, the enumerations, `BufferUsage`, and `Error` MUST be `Send` and `Sync`. Each auto trait that a type implements gets a compile-time assertion test (CONC-1).
+RHI-13. No type of the crate that holds a pointer of slang-rhi or a wrapper of `slang-compiler`, which are `DeviceOptions`, `Device`, `ShaderProgram`, `ComputePipeline`, `Buffer`, `Queue`, `CommandEncoder`, `ComputePass`, `ShaderObject`, and `CommandBuffer`, and from M10 `CompileSession`, `Texture`, `TextureView`, `Sampler`, `RenderPipeline`, and `RenderPass`, MUST be `Send` or `Sync`. `Adapter`, `DeviceInfo`, `BufferDesc`, `ShaderOffset`, the enumerations, `BufferUsage`, and `Error`, and from M10 the value types of Section 11, MUST be `Send` and `Sync`. Each auto trait that a type implements gets a compile-time assertion test (CONC-1).
 
-slang-rhi documents no threading rule for its objects (Section 3.3 of the sys design), so FFI-9 of the coding standard forbids `Send` and `Sync` for them. The wrappers of `slang-compiler` that a device holds are neither (SLC-21 of the `slang-compiler` design). The `rhi` backend of `slango` in M10 therefore cannot make its public types `Send` and `Sync` on this crate without a documented rule, which the owner accepted as a possible breaking version 0.2 of `slango` (Section 15.11 of the architecture design, RHQ-2).
+slang-rhi documents no threading rule for its objects (Section 3.3 of the sys design), so FFI-9 of the coding standard forbids `Send` and `Sync` for them. The wrappers of `slang-compiler` that a device holds are neither (SLC-21 of the `slang-compiler` design). The `rhi` backend of `slango` therefore cannot make its public types `Send` and `Sync` on this crate, and the owner decided on 2026-11-18 that `slango` gives up both traits on both backends in version 0.2 (Section 4.6 of `docs/design/slango.md`).
+
+The types that M10 adds follow the same rule, as RHI-13 lists them.
 
 RHI-14. The crate MUST make every call through the `IRHI` instance, which are `rhiGetInstance`, `getAdapter`, and `createDevice`, while it holds one crate-private `static` `Mutex<()>`, MUST check the per-thread guard of Section 8.2 before it takes the lock, and MUST NOT call `rhiDestroyInstance`.
 
@@ -494,18 +496,94 @@ The tests run under the debug device of slang-rhi only, and none runs under the 
 - A message of the debug callback from a thread of the driver.
 - That the SPIR-V that the device runs is optimized, beyond the absence of a message about `spirv-opt`.
 
-## 11. Out of Scope Until M10
+## 11. Additions for M10
 
-These parts of slang-rhi are not wrapped in M9. M10 adds those that the `rhi` backend of `slango` needs, in the design of `docs/design/slango.md`:
+M10 adds to the crate what the backend `rhi` of `slango` needs (Sections 7.6 to 9.7 of `docs/design/slango.md`), in the two phases of the owner's decision 3 of Section 4.6 of that design. Every addition keeps the rule of RHI-20: the crate checks every condition of valid use that a safe call could break and that it can check, before the native call, because slang-rhi checks nothing without its debug device.
 
-- Render pipelines, render passes, textures, texture views, samplers, input layouts, and surfaces.
-- Fences, mapped buffers, copy and clear commands, and timestamp queries.
-- Buffers with a format, and the typed buffer ranges that need them.
-- Lookup of nested fields and of array elements by name, the fields of a `ConstantBuffer` or `ParameterBlock` parameter, specialization arguments of shader objects, and shader objects other than the root object and its entry points.
-- Other queues, several command buffers in one submission with fences, and the persistent caches.
+### 11.1. The Compute Phase
+
+RHI-30. `Device::create_slang_session(&self, search_paths: &[&Path]) -> Result<CompileSession>` MUST create a `slang_compiler::Session` from the global session of the device, with exactly the settings with which slang-rhi creates the device session: the one target of the device's compile target and profile, `forceGLSLScalarBufferLayout` on the SPIR-V target, the row-major matrix layout, and every other setting of `src/slang-context.h`, which the crate reproduces, and with the given search paths. `CompileSession` MUST hold its `Device` and its session, MUST offer `session(&self) -> &slang_compiler::Session`, and MUST offer `create_shader_program(&self, program: &slang_compiler::LinkedProgram) -> Result<ShaderProgram>`, which MUST check that the program belongs to its session, by comparing the raw pointer of the session of the program with that of its own, and MUST then do what `Device::create_shader_program` does under RHI-7.
+
+The backend `rhi` of `slango` creates a session of its own for each load (owner decision 6 of Section 4.6 of `docs/design/slango.md`), because one device session for all loads fails a reload of a changed file and reuses stale imported modules (Section 3.11 of that design). slang-rhi takes the session from the program and generates code for target 0 of that session (`src/shader.cpp:58`), so a program of a session with the device's target and settings gets the code that the device session would give. Only the check of RHI-7 against the device session refuses it.
+
+The `CompileSession` holds its session alive, so the comparison of raw pointers cannot match a later session at the same address. A program of any other session still fails with the kind `InvalidArgument`.
+
+A `CompileSession` keeps its session, and the modules that it loads, until the `CompileSession`, every program of it, and every shader program created from them are dropped, so a program that creates a session for each load releases each load's Slang objects when it drops them. That the reproduced settings are complete is RHA-8. The reproduction reads the settings that the device reports, such as its compile target and profile, where slang-rhi reports them, and repeats the others from the source of slang-rhi, so a newer slang-rhi that changes them needs the reproduction changed, which the test of RHA-8 shows.
+
+RHI-22. `ShaderObject::object(&mut self, offset: ShaderOffset) -> Result<ShaderObject<'_>>` MUST return the object of a `ConstantBuffer`, `cbuffer`, or `ParameterBlock` parameter through `IShaderObject::getObject`. Before the call, it MUST check that the binding range of the offset is a range of sub-objects of the object and that the array index is below the binding count of that range, and MUST fail with the kind `InvalidArgument` otherwise. A null object from `getObject` MUST give an error of the kind `Failed` instead of a value, because `getObject` itself checks neither the kind of the range nor the array index and returns a null entry for some ranges (`src/shader-object.cpp:121-130`). The returned value MUST own its reference and borrow its parent mutably, as the value of `entry_point` does.
+
+`offset_of`, `set_data`, `set_buffer`, and the setters of Section 11.2 on the returned object find and set the fields of the element type of the parameter under RHI-10 and RHI-11, so a constant buffer and a parameter block, nested to any depth, are reached one object at a time. The crate-private kind of a binding range gains a kind for a range of sub-objects, beside the kinds of buffers, and `set_buffer` keeps refusing that kind. This replaces the limit of Section 6.7 that `set_data` refuses a `ConstantBuffer` or `ParameterBlock` parameter: the parameter itself still has no uniform data, and its fields are set through its object.
+
+slang-rhi creates the object of each such parameter of a root object when the pipeline is bound, so `getObject` returns it without a prior `setObject` (RHA-5).
+
+RHI-29. `DeviceInfo` MUST offer the limits of the device that the checks of the crate use, which are the maximum thread group counts of a dispatch, the maximum size of a buffer, the maximum width and height of a two-dimensional texture, the maximum number of vertex streams, and the maximum number of vertex input elements, read once by `Device::new` from `DeviceInfo::limits` of slang-rhi (`maxComputeDispatchThreadGroups`, `maxBufferSize`, `maxTextureDimension2D`, `maxVertexStreams`, and `maxVertexInputElements` of `include/slang-rhi.h`).
+
+`slango` runs the checks of a dispatch, a buffer, and a draw before it calls the crate, with the same limits, so that a mistake gets the text and the kind of `slango` on both of its backends (SLO-39 and SLO-40 of `docs/design/slango.md`). `maxBufferSize` is in the headers (`include/slang-rhi.h:3125`), and the review of the design read `maxComputeDispatchThreadGroups`, `maxTextureDimension2D`, and `maxVertexStreams` as filled on both backends (`src/vulkan/vk-device.cpp:1599-1615`, `src/d3d12/d3d12-device.cpp:798-814`). The crate does not check the size of a buffer against `maxBufferSize` itself (RHQ-8).
+
+A kernel with a `ConstantBuffer` and a global `uniform` still fails on D3D12 (RKB-2). The crate does not guard against it (Section 3.1).
+
+### 11.2. The Rendering Phase
+
+The rendering phase covers two-dimensional textures with one mip level, one layer, and one sample, samplers, render pipelines with a vertex and a fragment entry point, render passes with one colour target and an optional depth target, and the reading of a texture. Every call that it makes takes its descriptors by pointer or reference, and none is a placeholder slot of `slang-rhi-sys` (RSYS-10 of the sys design), so the rendering phase needs no change of the generator (Section 6.2 of the sys design).
+
+The crate writes every field of the three raw structs without `Default` that it uses, `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment`, with the C++ default of each field that it does not choose, and a unit test compares each such value with the default in the documentation of the generated field.
+
+RHI-23. `Device::create_texture(&self, desc: &TextureDesc, initial: Option<&[u8]>) -> Result<Texture>` MUST create a two-dimensional texture with one mip level, one layer, and one sample in `DeviceLocal` memory. It MUST fail with the kind `InvalidArgument` before the native call when a width or height is 0 or above the limit of RHI-29, when the usage is empty or holds a bit outside `TextureUsage::all()`, when a depth format has a usage other than `DEPTH_STENCIL`, when a colour format has `DEPTH_STENCIL`, when `initial` is given for a depth format, or when the length of `initial` is not the width times the height times the size of a pixel. A `Texture` MUST hold its default view, from `ITexture::getDefaultView`.
+
+`TextureDesc::new(size: [u32; 2], format: Format, usage: TextureUsage)` is the crate's own descriptor. `Format` is a `#[non_exhaustive]` enumeration of `Rgba8Unorm`, `Rgba8UnormSrgb`, `Bgra8Unorm`, `Bgra8UnormSrgb`, and `D32Float`, the formats that `slango` uses, and `TextureUsage` is a set of flags of `bitflags` with `SHADER_RESOURCE`, `RENDER_TARGET`, `DEPTH_STENCIL`, `COPY_SOURCE`, and `COPY_DESTINATION`. A wider set waits for a user that needs it.
+
+`createTexture` reads as many bytes from the initial data as the descriptor implies, so a short slice is a read out of bounds in native code, which the length check prevents, as RHI-8 does for buffers. The initial data is one `SubresourceData` whose rows are the width times the size of a pixel apart, with rows from the top. Initial data reaches the texture through `createTexture`, so the placeholder slot `uploadTextureData` is not needed.
+
+RHI-24. `Device::create_sampler(&self, desc: &SamplerDesc) -> Result<Sampler>` MUST create a sampler from the crate's own `SamplerDesc`, whose fields are the filter of minification and magnification, the mip filter, and the address mode of each axis, and MUST write the other fields of the raw descriptor as the reduction `Average`, the comparison `Never`, an anisotropy of 1, a bias of 0, a level of detail from 0 to 1000, and a border colour of zero.
+
+The filters of the crate's `SamplerDesc` default to `Point`, and its address modes to `ClampToEdge`, the defaults of wgpu, because the defaults of slang-rhi, `Linear` and `Wrap`, differ from them, and `slango` sets every field anyway (Section 8.3 of `docs/design/slango.md`).
+
+RHI-25. `ShaderObject::set_texture(&mut self, offset: ShaderOffset, texture: &Texture) -> Result<()>` and `ShaderObject::set_sampler(&mut self, offset: ShaderOffset, sampler: &Sampler) -> Result<()>` MUST check, before the call, every condition of RHI-11 that does not concern buffers, that the binding range is a read-only texture range or a sampler range, that the texture has the usage `SHADER_RESOURCE`, and that the texture or sampler belongs to the device of the object. They MUST pass a `Binding` of the type `Texture` with the default view, or of the type `Sampler` with the sampler, while the borrowed value keeps its own reference through the call.
+
+A combined texture and sampler, such as `Sampler2D`, and a texture range that a shader writes stay refused, because `slango` rejects both (SLO-24 of `docs/design/slango.md`).
+
+RHI-26. `Device::create_render_pipeline(&self, program: &ShaderProgram, desc: &RenderPipelineDesc) -> Result<RenderPipeline>` MUST check, before any native call, that the program belongs to the device and has exactly one vertex and one fragment entry point, that the colour format is a colour format and the depth format, when there is one, is `D32Float`, that the vertex streams number at most the limit of vertex streams of RHI-29 and at most 16, the size of the arrays of `RenderState`, each with a stride above zero, that every attribute has a semantic name, and that the input elements, including the fillers below, number at most the limit of vertex input elements of RHI-29. Each check MUST fail with the kind `InvalidArgument`. It MUST create the input layout and the render pipeline with a list of triangles, counter-clockwise front faces, one colour target, and the depth test `Less` with depth writes when the descriptor has a depth format, and MUST collect the messages of Slang during the creation, as RHI-7 does for a compute pipeline.
+
+The crate's `RenderPipelineDesc` holds the colour format, a blend of `Replace` or `Alpha`, an optional depth format, a cull mode of `None` or `Back`, and the vertex streams. Each vertex stream holds one attribute at offset 0, with its format, its stride, its step per vertex or per instance, its location, and its semantic name and index from reflection. The crate builds the input element of each attribute so that the backend matches it with the shader's input of that location, by the rule of the backend (RHA-6), with these rules:
+
+- The Vulkan backend gives each input element the location of its index (`src/vulkan/vk-device.cpp:2506`), so the crate lists one element for each location from 0 to the highest used location. An unused location below it gets a filler element of the format `R32Float` at offset 0 of the stream of the first attribute, with the semantic name `SLANG_RHI_UNUSED` and the location as its semantic index, which no input of a shader of `slango` has, because Slang gives every varying input of a vertex entry point the semantic that the shader declares.
+- An attribute without a semantic name is refused, because the D3D12 backend copies a null semantic name into its input layout (`src/d3d12/d3d12-device.cpp:1699-1709`).
+- A stream that steps per instance has the instance data step rate 1, because the field has no default and D3D12 needs 1 for one value per instance (`src/d3d12/d3d12-device.cpp:1714`).
+
+`Alpha` sets the colour blend to the source alpha and its inverse with the operation `Add`, and the alpha blend to one and the inverse source alpha, which is wgpu's `BlendState::ALPHA_BLENDING`. With the pipeline compilation mode `Serial`, slang-rhi generates the code of the program at this call (RHI-5), so a failure of that compile has the kind `Compile` with the collected messages, as for a compute pipeline.
+
+RHI-27. `CommandEncoder::render_pass<R>(&mut self, desc: &RenderPassDesc<'_>, f: impl FnOnce(&mut RenderPass<'_>) -> Result<R>) -> Result<R>` MUST begin the pass, run `f`, and end the pass on every path, including a panic of `f`, as RHI-9 requires of a compute pass. Before the pass begins, it MUST check that every texture of the descriptor belongs to the encoder's device, that the pass has a colour target or a depth target, that a colour target has a colour format and `RENDER_TARGET`, that a depth target has `D32Float`, `DEPTH_STENCIL`, and, beside a colour target, the size of the colour target, and that a clear depth is from 0 to 1. Before each draw, `RenderPass` MUST check that a pipeline is bound whose colour format and depth format equal those of the pass, that a buffer with `VERTEX_BUFFER` of the device is set for each vertex stream of the pipeline and holds the count of vertices or instances at its stride, that a buffer with `INDEX_BUFFER` of the device that holds the count of indices is set for a draw with indices, and that no texture set on an object of the pass with `set_texture` is a target of the pass. Each check MUST fail with the kind `InvalidArgument`. The pass MUST keep one record of the textures that `set_texture` set during the pass, which every `ShaderObject` of the pass writes to, including the objects that `object` returns, so that the last check sees a texture set on a constant buffer or a parameter block as well.
+
+The crate's `RenderPassDesc` holds an optional colour target with a load of its contents or a clear to a colour, and an optional depth target with a load or a clear to a depth, and at least one of the two. A pass with a depth target alone and no draw is how `slango` clears a new depth texture (SLO-45 of `docs/design/slango.md`), and a draw in such a pass fails the check of the colour format of its pipeline. `RenderPass` offers `bind_pipeline`, which returns the root object of the pipeline as `ComputePass::bind_pipeline` does, `set_vertex_buffers`, `set_index_buffer`, `draw(vertex_count, instance_count)`, and `draw_indexed(index_count, instance_count)`. Each draw sets the render state first: one viewport and one scissor rectangle over the whole colour target with the depth range 0 to 1, the vertex buffers, and the index buffer with 32-bit indices.
+
+A texture that a pass both samples and draws into breaks valid use of Vulkan and D3D12, and slang-rhi does not check it, so the crate does. The crate does not read the values of an index buffer, so an index past the end of a vertex buffer reaches the driver, and what the vertex fetch then reads rests on whether the device bounds such a fetch, through the feature `robustBufferAccess` on Vulkan (RHA-7).
+
+RHI-28. `Device::read_texture(&self, texture: &Texture, out: &mut [u8]) -> Result<()>` MUST check, before the native call, that the texture belongs to the device, has a colour format and `COPY_SOURCE`, and that the length of `out` is the width times the height times the size of a pixel. It MUST read the layout of the texture with `ITexture::getSubresourceLayout` with the row alignment `kDefaultAlignment` of the bindings, and the texture with `IDevice::readTexture` into a buffer of the crate of the `sizeInBytes` of that layout, because `readTexture` copies `sizeInBytes` bytes into it (`src/device.cpp:942`), and copy each row into `out` without the padding of the row pitch.
+
+`readTexture` takes pointers only, so it needs no placeholder slot. The row pitch of slang-rhi is aligned to the platform, so the crate removes the padding, and `out` holds the rows from the top, as `slango` returns them (Section 8.1 of `docs/design/slango.md`).
+
+### 11.3. Not Wrapped in M10
+
+These parts of slang-rhi stay unwrapped:
+
+- Surfaces, which no window of M10 needs (Section 4.6 of `docs/design/slango.md`).
+- Fences, mapped buffers, timestamp queries, other queues, several command buffers in one submission with fences, and the persistent caches.
+- Copy and clear commands, indirect draws, and every other method of a placeholder slot (RSYS-10 of the sys design).
+- Buffers with a format and the typed buffer ranges that need them, textures of other shapes, arrays, mip levels, and samples, and combined textures and samplers.
+- Lookup of nested fields and of array elements by name, specialization arguments of shader objects, and shader objects that the program does not create.
 - Native handles, interoperation with other APIs, and acceleration structures, which M14 needs.
 
-A user who needs one of them in M9 reaches it through `slang-rhi-sys` under its safety contract.
+A user who needs one of them reaches it through `slang-rhi-sys` under its safety contract.
+
+### 11.4. Tests of the Additions
+
+The additions follow the tiers of Section 10:
+
+- The fake for Miri gains `IRenderPassEncoder`, so that the unit tests cover the closure of RHI-27 with a panic of `f`, and the pure checks of RHI-22 to RHI-28 run under Miri as those of RHI-11 do (RHI-16).
+- The `gpu` tests cover `create_slang_session` with the comparison of RHA-8, a shader program of a `CompileSession`, and the refusal of a program of another session by both `create_shader_program` methods (RHI-30).
+- The `gpu` tests on lavapipe and WARP cover the fields of a `ConstantBuffer`, a `cbuffer`, and nested parameter blocks set through `object`, a texture created with initial data and read back, each check of RHI-23 to RHI-28, a draw with and without indices into a texture with a depth target, a sampled texture, and the refusal of a texture that a pass both samples and draws into.
+- The test of the fields of a `ConstantBuffer` checks that `object` sets them instead of `set_data`, in a kernel without a global `uniform`, which avoids RKB-2 on D3D12.
+- A unit test compares the fields that the crate writes into `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment` with the C++ defaults that the generated documentation of each field states.
 
 ## 12. Crate Documentation
 
@@ -563,7 +641,7 @@ The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C lib
 | No Vulkan loader, driver, or adapter on Linux, or no D3D12 adapter on Windows | `ErrorKind::NoDevice` from `Device::new` | Install the Vulkan loader and a driver, such as lavapipe, or use a Windows with D3D12 |
 | No `dxcompiler.dll` on Windows | `ErrorKind::Compile` from `create_compute_pipeline`, by a reading of the source (Section 7.3 of the sys design) | Put the directory of `dxcompiler.dll` of the Windows SDK on `PATH`, or copy the DLL beside the executable |
 | An adapter of another device type, or one that slang-rhi no longer lists | `ErrorKind::InvalidArgument` from `Device::new` | Pass an adapter of `adapters` for the device type of the options |
-| A program of another session | `ErrorKind::InvalidArgument` from `create_shader_program` | Load and link the program through `Device::slang_session` |
+| A program of another session | `ErrorKind::InvalidArgument` from `create_shader_program` | Load and link the program through `Device::slang_session`, or through the session of a `CompileSession` and its own `create_shader_program` (RHI-30) |
 | A program with a specialization parameter left | `ErrorKind::InvalidArgument` from `create_shader_program` | Specialize the program before it is linked |
 | A program without exactly one compute entry point, or a shader program of another device | `ErrorKind::InvalidArgument` from `create_compute_pipeline` | Link one compute entry point on the same device |
 | A shader that does not compile for the device | `ErrorKind::Compile` with the diagnostics | Fix the shader source that the diagnostics name |
@@ -585,7 +663,14 @@ The crate emits no logs and has no logging dependency. slang-rhi reports its mes
 
 Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in the section that relies on it, and removes the row. An identifier is never reused.
 
-No assumption is open. RHA-1 to RHA-4 were confirmed, and Sections 3, 6.4, 6.5, 6.7, and 7 state the results.
+RHA-1 to RHA-4 were confirmed, and Sections 3, 6.4, 6.5, 6.7, and 7 state the results.
+
+| Identifier | Assumption | What depends on it | Where it is confirmed |
+| --- | --- | --- | --- |
+| RHA-5 | slang-rhi creates the object of each `ConstantBuffer`, `cbuffer`, and `ParameterBlock` parameter of a root object, and of the objects below it, when the pipeline is bound, so `IShaderObject::getObject` returns it without a prior `setObject` | RHI-22 | A reading of `src/shader-object.cpp` and the `gpu` tests of RHI-22, in the code step of the compute phase. If it does not hold, the crate creates the object with `IDevice::createShaderObject` and sets it with `setObject` before it returns it |
+| RHA-6 | The Vulkan backend of slang-rhi gives each input element the location of its index in `InputLayoutDesc`, and the D3D12 backend matches each element by its semantic name and index, so an input layout that lists one element for each location from 0 to the highest used location, with the semantic of the shader's input there, matches the shader on both | RHI-26 | A reading of the input layouts of both backends and a `gpu` test of a vertex entry point with an unused attribute between two used ones, on lavapipe and on WARP, in the code step of the rendering phase |
+| RHA-7 | A device of slang-rhi on Vulkan enables `robustBufferAccess`, so a vertex fetch past the end of a vertex buffer reads within the buffer or zero | Section 11.2 | A reading of the device creation of the Vulkan backend, in the code step of the rendering phase. If it does not hold, the case joins the conditions that the crate does not check, as RHQ-7 and RHQ-8 do |
+| RHA-8 | The settings that `create_slang_session` reproduces are all the settings with which slang-rhi creates the device session, so a program of a `CompileSession` gets the same layouts and the same code as the same program of the device session | RHI-30, and SLO-37 of `docs/design/slango.md` | A `gpu` test in the code step of the compute phase that compiles the test shaders of `slango` in the device session and in a `CompileSession` of the same device, on lavapipe and on WARP, and compares the reflected layouts and the code of each entry point byte for byte. If they differ, the crate reproduces the missing setting |
 
 ## 16. Open Questions
 
@@ -594,9 +679,8 @@ Each row is a question that this document leaves open. The owner in the third co
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | RHQ-1 | Should `check-slang-call-guard` check that every call of this crate into slang-rhi and into Slang sits alone in its abort guard, as it checks for `slang-compiler`? Extending the checker changes a mechanism that `AGENTS.md` declares frozen, and leaving it out keeps a deterministic check as a judgement rule (Section 8.1) | The owner of the project, by a decision | Not assigned |
-| RHQ-2 | Will slang-rhi document which of its objects tolerate use from several threads, so that the types of this crate and of the `rhi` backend of `slango` can be `Send` and `Sync`? | The owner, through an issue in the slang-rhi repository, `shader-slang/slang-rhi`, for which `docs/upstream-reports.md` holds no entry yet | M10 |
+| RHQ-2 | Will slang-rhi document which of its objects tolerate use from several threads, so that the types of this crate and of the `rhi` backend of `slango` can be `Send` and `Sync`? The owner's decision of 2026-11-18 removes both traits from `slango` without waiting for an answer (Section 7), so M10 does not need it | The owner, through an issue in the slang-rhi repository, `shader-slang/slang-rhi`, for which `docs/upstream-reports.md` holds no entry yet | Not assigned |
 | RHQ-3 | Can the crate free the debug callback object of a device, if slang-rhi offers a notice when a native device is freed? | This document, after RHQ-2 is asked upstream | Not assigned |
-| RHQ-4 | Should `create_shader_program` and `create_compute_pipeline` return the warnings of Slang on success, as `slang-compiler` does with `Compiled`? | This document | M10 |
 | RHQ-5 | Should the wrappers get the raw accessors `from_raw`, `into_raw`, and `as_raw` that COM-11 of the coding standard asks of every interface wrapper? The crate has none, so a program that combines it with other native code cannot hand over or adopt an object (Section 5.1) | The owner of the project, by a decision | Not assigned |
 | RHQ-6 | Should the crate offer the validation layer of the graphics API through `IRHI::enableDebugLayers`, which affects the whole process and cannot be turned off again? The crate does not call it, so the `gpu` tests run under the debug device of slang-rhi only, and no test has the Khronos layer check valid use (Section 10.4) | The owner of the project, by a decision | Not assigned |
 | RHQ-7 | Should `Device::new` require the Vulkan feature `nullDescriptor`, on which a buffer parameter without a bound buffer relies? The crate documents the limit and does not check it. D3D12 binds a null descriptor without a feature, so the question concerns Vulkan only (Section 6.7) | The owner of the project, by a decision | Not assigned |
@@ -638,3 +722,12 @@ This table lists every labelled requirement of this document with a one-line sum
 | RHI-19 | 8.3 | A per-thread collector returns the messages of Slang with the call of the same thread that caused them. |
 | RHI-20 | 9.1 | The crate checks every condition of valid use of the graphics API that a safe call could break and that it can check. |
 | RHI-21 | 6.7 | `submit` takes its command buffers, checks their device, and releases them after the call. |
+| RHI-22 | 11.1 | `ShaderObject::object` returns the checked object of a constant buffer or parameter block, which borrows its parent, and an error for a null object. |
+| RHI-23 | 11.2 | `create_texture` creates a checked two-dimensional texture of five formats with its default view and checked initial data. |
+| RHI-24 | 11.2 | `create_sampler` creates a sampler from the crate's descriptor and writes every other raw field explicitly. |
+| RHI-25 | 11.2 | `set_texture` and `set_sampler` check the range, the usage, and the device, and keep a reference through the call. |
+| RHI-26 | 11.2 | `create_render_pipeline` checks the program, formats, semantics, vertex streams, and input elements, and creates a pipeline of triangles with one colour target. |
+| RHI-27 | 11.2 | A render pass exists only inside a closure that ends it on every path, may hold a depth target alone, and each draw checks its pipeline, buffers, counts, and targets against one record of the pass. |
+| RHI-28 | 11.2 | `read_texture` checks the texture and the output, reads `sizeInBytes` at the default alignment, and returns the rows without padding. |
+| RHI-29 | 11.1 | `DeviceInfo` offers the limits of dispatches, buffers, textures, vertex streams, and vertex input elements that the checks use. |
+| RHI-30 | 11.1 | `create_slang_session` returns a `CompileSession` that reproduces the device session, whose own `create_shader_program` accepts programs of its session. |
