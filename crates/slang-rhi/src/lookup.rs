@@ -216,6 +216,8 @@ fn range_kind(binding_type: SlangBindingType) -> RangeKind {
         SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_RAW_BUFFER => RangeKind::MutableBuffer,
         SlangBindingType::SLANG_BINDING_TYPE_TYPED_BUFFER
         | SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER => RangeKind::TypedBuffer,
+        SlangBindingType::SLANG_BINDING_TYPE_CONSTANT_BUFFER
+        | SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK => RangeKind::SubObject,
         _ => RangeKind::Other,
     }
 }
@@ -228,7 +230,7 @@ mod tests {
     use crate::shader_object::RangeKind;
 
     #[test]
-    fn range_kind_tells_raw_buffers_by_access_from_typed_buffers_and_the_rest() {
+    fn range_kind_tells_raw_buffers_by_access_from_typed_buffers_objects_and_the_rest() {
         let cases = [
             (
                 SlangBindingType::SLANG_BINDING_TYPE_RAW_BUFFER,
@@ -246,6 +248,14 @@ mod tests {
                 SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER,
                 RangeKind::TypedBuffer,
             ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_CONSTANT_BUFFER,
+                RangeKind::SubObject,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK,
+                RangeKind::SubObject,
+            ),
         ];
         for (binding_type, kind) in cases {
             assert_eq!(range_kind(binding_type), kind, "{binding_type:?}");
@@ -254,8 +264,7 @@ mod tests {
             SlangBindingType::SLANG_BINDING_TYPE_UNKNOWN,
             SlangBindingType::SLANG_BINDING_TYPE_SAMPLER,
             SlangBindingType::SLANG_BINDING_TYPE_TEXTURE,
-            SlangBindingType::SLANG_BINDING_TYPE_CONSTANT_BUFFER,
-            SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK,
+            SlangBindingType::SLANG_BINDING_TYPE_EXISTENTIAL_VALUE,
             SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE,
             SlangBindingType::SLANG_BINDING_TYPE_PUSH_CONSTANT,
         ] {

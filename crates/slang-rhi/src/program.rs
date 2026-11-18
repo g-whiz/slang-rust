@@ -1,6 +1,6 @@
 use std::ptr::{self, NonNull};
 
-use slang_compiler::{Blob, LinkedProgram, Stage};
+use slang_compiler::{Blob, LinkedProgram, Session, Stage};
 use slang_compiler_sys::{IComponentType, ISlangBlob};
 use slang_rhi_sys::{IComputePipeline, IDevice, IShaderProgram};
 
@@ -12,9 +12,13 @@ use crate::owned::Owned;
 /// A shader program of a device, which holds a linked Slang program for that
 /// device.
 ///
-/// Create one with [`Device::create_shader_program`], and a compute pipeline
-/// from it with [`Device::create_compute_pipeline`]. A shader program holds
-/// its [`Device`], so the device lives at least as long as the program.
+/// Create one with [`Device::create_shader_program`] or
+/// [`CompileSession::create_shader_program`](crate::CompileSession::create_shader_program),
+/// and a compute pipeline from it with [`Device::create_compute_pipeline`]. A
+/// shader program holds its [`Device`], so the device lives at least as long
+/// as the program, and a shader program of a
+/// [`CompileSession`](crate::CompileSession) also holds the Slang session of
+/// that compile session.
 ///
 /// A shader program is neither [`Send`] nor [`Sync`], because slang-rhi
 /// documents no rule for the use of its objects from several threads.
@@ -41,6 +45,7 @@ use crate::owned::Owned;
 #[derive(Debug)]
 pub struct ShaderProgram {
     raw: Owned<IShaderProgram>,
+    _session: Option<Session>,
     device: Device,
     one_compute_entry_point: bool,
 }
@@ -102,14 +107,14 @@ fn diagnostics(messages: &[String]) -> Option<String> {
     }
 }
 
-/// Returns whether a linked program has exactly one entry point, and that
-/// entry point is a compute kernel.
-fn has_one_compute_entry_point(program: &LinkedProgram, device: &Device) -> Result<bool> {
+/// Returns whether a linked program of `session` has exactly one entry point,
+/// and that entry point is a compute kernel.
+fn has_one_compute_entry_point(program: &LinkedProgram, session: &Session) -> Result<bool> {
     if program.entry_point_count() != 1 {
         return Ok(false);
     }
     let slang = |error| Error::slang(Operation::CreateShaderProgram, error);
-    let target = device.slang_session().target_index(0).map_err(slang)?;
+    let target = session.target_index(0).map_err(slang)?;
     let layout = program.layout(target).map_err(slang)?.into_value();
     let mut stages = Vec::new();
     for entry_point in layout.entry_point_layouts() {
@@ -149,7 +154,10 @@ impl Device {
     /// Load and link the program through [`Device::slang_session`], because
     /// slang-rhi generates the code of a program for the target of the
     /// program's own session, and only the device's session has the target
-    /// that the device runs. slang-rhi uses the linked program as it is, with
+    /// that the device runs. A program of a session that
+    /// [`Device::create_slang_session`] created goes to
+    /// [`CompileSession::create_shader_program`](crate::CompileSession::create_shader_program)
+    /// instead. slang-rhi uses the linked program as it is, with
     /// its entry points. The crate takes only a program without a
     /// specialization parameter left, such as one of a generic entry point or
     /// of a global parameter of an interface type, so specialize it with
@@ -177,8 +185,21 @@ impl Device {
                 "the program belongs to another session than the session of the device",
             ));
         }
+        self.shader_program(program, self.slang_session(), None)
+    }
+
+    /// Creates a shader program from `program`, a linked program of
+    /// `session`, after the caller has checked that `session` is the session
+    /// of the device or one with its settings, which `compile_session` holds
+    /// for the shader program when it is not the session of the device.
+    pub(crate) fn shader_program(
+        &self,
+        program: &LinkedProgram,
+        session: &Session,
+        compile_session: Option<Session>,
+    ) -> Result<ShaderProgram> {
         check_specialized(program)?;
-        let one_compute_entry_point = has_one_compute_entry_point(program, self)?;
+        let one_compute_entry_point = has_one_compute_entry_point(program, session)?;
         let desc = slang_rhi_sys::ShaderProgramDesc {
             linkingStyle: slang_rhi_sys::LinkingStyle::SingleProgram,
             slangGlobalScope: program.as_raw().as_ptr(),
@@ -191,9 +212,10 @@ impl Device {
         let mut blob: *mut ISlangBlob = ptr::null_mut();
         let (result, messages) = guard::call_collecting("IDevice::createShaderProgram", || {
             // SAFETY: `device` is live while `self` lives, `desc` is a live
-            // descriptor whose global scope is the live linked program of the
-            // session of the device, which slang-rhi keeps a reference of, and
-            // `out` and `blob` are live out-pointers.
+            // descriptor whose global scope is the live linked program of a
+            // session with the target and settings of the device's session,
+            // which slang-rhi keeps a reference of, and `out` and `blob` are
+            // live out-pointers.
             unsafe {
                 IDevice::createShaderProgram(device, &raw const desc, &raw mut out, &raw mut blob)
             }
@@ -201,9 +223,9 @@ impl Device {
         let mut text = NonNull::new(blob).and_then(|blob| {
             // SAFETY: slang-rhi returns the diagnostics blob with one
             // reference added for the caller, created by the Slang that
-            // `slang-compiler` links through the session of the device, and
+            // `slang-compiler` links through the session of the program, and
             // the blob is used on this thread only.
-            unsafe { Blob::from_raw(blob, self.slang_session().clone()) }
+            unsafe { Blob::from_raw(blob, session.clone()) }
                 .ok()
                 .map(|blob| String::from_utf8_lossy(blob.as_bytes()).into_owned())
                 .filter(|text| !text.is_empty())
@@ -218,6 +240,7 @@ impl Device {
             .ok_or_else(|| Error::null(Operation::CreateShaderProgram))?;
         Ok(ShaderProgram {
             raw,
+            _session: compile_session,
             device: self.clone(),
             one_compute_entry_point,
         })

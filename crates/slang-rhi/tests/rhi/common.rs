@@ -6,10 +6,10 @@
 use std::io::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use slang_compiler::{Component, GlobalSession, LinkedProgram, Session, Toggle};
+use slang_compiler::{Component, GlobalSession, LinkedProgram, Session, TargetFormat, Toggle};
 use slang_rhi::{
     Buffer, BufferDesc, BufferUsage, ComputePipeline, DebugMessageSource, DebugMessageType, Device,
-    DeviceOptions, DeviceType, ErrorKind,
+    DeviceOptions, DeviceType,
 };
 
 /// The device type of the platform, whose backend `slang-rhi-sys` builds.
@@ -18,6 +18,13 @@ pub(crate) const DEVICE_TYPE: DeviceType = DeviceType::D3d12;
 /// The device type of the platform, whose backend `slang-rhi-sys` builds.
 #[cfg(not(windows))]
 pub(crate) const DEVICE_TYPE: DeviceType = DeviceType::Vulkan;
+
+/// The format of the code of a device of [`DEVICE_TYPE`].
+#[cfg(windows)]
+pub(crate) const TARGET_FORMAT: TargetFormat = TargetFormat::Dxil;
+/// The format of the code of a device of [`DEVICE_TYPE`].
+#[cfg(not(windows))]
+pub(crate) const TARGET_FORMAT: TargetFormat = TargetFormat::Spirv;
 
 /// The name that slang-rhi gives the graphics API of [`DEVICE_TYPE`].
 #[cfg(windows)]
@@ -194,33 +201,4 @@ pub(crate) fn double(device: &Device) -> Vec<f32> {
         .expect("the queue receives the work");
     queue.wait_on_host().expect("the queue finishes the work");
     read(device, &values)
-}
-
-/// Checks that `set_data` refuses the parameter `name` of the kernel
-/// `source`, whose uniform data lives in a buffer of its own, and accepts the
-/// uniform `scale` next to it when the kernel declares one.
-pub(crate) fn assert_uniform_data_of_a_block_is_refused(module: &str, source: &str, name: &str) {
-    let (options, messages) = options(Toggle::Off);
-    let device = open(&options);
-    let pipeline = pipeline(&device, module, source);
-    let queue = device.queue().expect("the device has a queue");
-    let mut encoder = queue.encoder().expect("slang-rhi creates an encoder");
-    let result = encoder
-        .compute_pass(|pass| {
-            let mut root = pass.bind_pipeline(&pipeline)?;
-            let offset = root.offset_of(name)?.expect("the kernel declares it");
-            let result = (
-                offset.uniform_size(),
-                root.set_data(offset, &[0; 4]).map_err(|error| error.kind()),
-            );
-            if let Some(scale) = root.offset_of("scale")? {
-                assert_eq!(scale.uniform_size(), 4);
-                root.set_data(scale, &1.0_f32.to_le_bytes())?;
-            }
-            Ok(result)
-        })
-        .expect("the pass records");
-    assert_eq!(result, (0, Err(ErrorKind::InvalidArgument)));
-    drop(encoder);
-    assert_eq!(messages.errors(), []);
 }

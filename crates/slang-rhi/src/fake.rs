@@ -346,12 +346,18 @@ impl FakeBuffer {
     }
 }
 
-/// The state of a fake shader object: the objects of its entry points and
-/// the resources that its bindings hold, each with a reference that the
-/// object owns.
+/// The object of a parameter of a fake shader object, at its binding range
+/// index and array index.
+type SubObject = ((u32, u32), NonNull<IShaderObject>);
+
+/// The state of a fake shader object: the objects of its entry points, its
+/// objects of parameters by binding range index and array index, and the
+/// resources that its bindings hold, each with a reference that the object
+/// owns.
 #[derive(Default)]
 struct ShaderObjectState {
     entry_points: RefCell<Vec<NonNull<IShaderObject>>>,
+    objects: RefCell<Vec<SubObject>>,
     held: RefCell<Vec<NonNull<IResource>>>,
 }
 
@@ -361,6 +367,11 @@ impl Drop for ShaderObjectState {
             // SAFETY: the object owns one reference to each entry point, and
             // releases it once, here.
             unsafe { IShaderObject::release(entry_point.as_ptr()) };
+        }
+        for (_, object) in self.objects.take() {
+            // SAFETY: the object owns one reference to each object of a
+            // parameter, and releases it once, here.
+            unsafe { IShaderObject::release(object.as_ptr()) };
         }
         for resource in self.held.take() {
             // SAFETY: the object owns one reference to each resource that a
@@ -380,7 +391,7 @@ static SHADER_OBJECT_VTABLE: Shared<IShaderObjectVtbl> = Shared(IShaderObjectVtb
     getEntryPointCount: unwinding1(shader_object_entry_point_count),
     getEntryPoint: unwinding3(shader_object_entry_point),
     setData: unwinding4(shader_object_set_data),
-    getObject: unwinding3(unexpected3),
+    getObject: unwinding3(shader_object_object),
     setObject: unwinding3(unexpected3),
     setBinding: unwinding3(shader_object_set_binding),
     setDescriptorHandle: unwinding3(unexpected3),
@@ -428,6 +439,36 @@ unsafe extern "system" fn shader_object_entry_point(
     unsafe { IShaderObject::addRef(entry_point.as_ptr()) };
     // SAFETY: the crate passes a live out-pointer.
     unsafe { out.write(entry_point.as_ptr()) };
+    SlangResult::SLANG_OK
+}
+
+unsafe extern "system" fn shader_object_object(
+    this: *mut IShaderObject,
+    offset: *const ShaderOffset,
+    out: *mut *mut IShaderObject,
+) -> SlangResult {
+    // SAFETY: as in `shader_object_entry_point_count`.
+    let object = unsafe { ShaderObjectObject::from_this(this) };
+    // SAFETY: the crate passes a live offset.
+    let offset = unsafe { &*offset };
+    let key = (offset.bindingRangeIndex, offset.bindingArrayIndex);
+    let found = object
+        .state
+        .objects
+        .borrow()
+        .iter()
+        .find(|(position, _)| *position == key)
+        .map(|(_, found)| *found);
+    let raw = found.map_or(ptr::null_mut(), |found| {
+        // SAFETY: the object owns a reference to the live object of the
+        // parameter, and the reference that this adds is the one that the
+        // caller receives.
+        unsafe { IShaderObject::addRef(found.as_ptr()) };
+        found.as_ptr()
+    });
+    // SAFETY: the crate passes a live out-pointer. Like slang-rhi, the fake
+    // writes null and succeeds for an entry without an object.
+    unsafe { out.write(raw) };
     SlangResult::SLANG_OK
 }
 
@@ -506,6 +547,26 @@ impl FakeShaderObject {
         // SAFETY: `root` is a live fake shader object.
         let root = unsafe { ShaderObjectObject::from_this(root.as_ptr()) };
         root.state.entry_points.borrow_mut().push(entry_point);
+    }
+
+    /// Adds `object` as the object of the parameter at the binding range
+    /// `range` and the array index `index` of `parent`, which takes a
+    /// reference of its own to it.
+    pub(crate) fn add_object(
+        parent: NonNull<IShaderObject>,
+        (range, index): (u32, u32),
+        object: NonNull<IShaderObject>,
+    ) {
+        // SAFETY: the test passes two live fake shader objects, and the
+        // reference that this adds is the one that `parent` owns.
+        unsafe { IShaderObject::addRef(object.as_ptr()) };
+        // SAFETY: `parent` is a live fake shader object.
+        let parent = unsafe { ShaderObjectObject::from_this(parent.as_ptr()) };
+        parent
+            .state
+            .objects
+            .borrow_mut()
+            .push(((range, index), object));
     }
 
     /// Releases one reference of a fake shader object.

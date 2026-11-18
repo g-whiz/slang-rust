@@ -94,9 +94,12 @@
 //! creates, and compiles through a session of its own, which
 //! [`Device::slang_session`] returns. Load and link every program of the
 //! device through that session, because a shader program takes only a
-//! program of the device's session. The global sessions that `slang-compiler`
-//! creates carry the loader of the SPIR-V optimizer, so the SPIR-V code of a
-//! Vulkan device is optimized. SPIR-V is the shader code format of Vulkan.
+//! program of the device's session, or through a [`CompileSession`] that
+//! [`Device::create_slang_session`] creates with the settings of the device's
+//! session, whose own shader programs take its programs. The global sessions
+//! that `slang-compiler` creates carry the loader of the SPIR-V optimizer, so
+//! the SPIR-V code of a Vulkan device is optimized. SPIR-V is the shader code
+//! format of Vulkan.
 //!
 //! # Ownership and threads
 //!
@@ -159,9 +162,19 @@
 //!   raw buffer, such as a `StructuredBuffer`, a `RWStructuredBuffer`, or a
 //!   `ByteAddressBuffer`, and not a typed buffer such as `RWBuffer<float>`.
 //! - [`ShaderObject::offset_of`] finds only the parameters at the top level
-//!   by name, and not a field of a structure or an element of an array. The
-//!   fields of a `ConstantBuffer` or a `ParameterBlock` parameter cannot be
-//!   set.
+//!   of a shader object by name, and not a field of a structure or an element
+//!   of an array. The fields of a `ConstantBuffer` or a `ParameterBlock`
+//!   parameter are found and set on the object that [`ShaderObject::object`]
+//!   returns. A parameter that is a structure of several resources, such as
+//!   a structure with a `ConstantBuffer` and a buffer, is refused, because
+//!   its fields cannot be addressed by name.
+//! - On Vulkan, slang-rhi binds an array of `ConstantBuffer` parameters, such
+//!   as `ConstantBuffer<Params> constants[3];`, as if it had one element, so
+//!   every element after the first holds wrong values in the kernel.
+//! - Push-constant buffers, which a kernel declares with
+//!   `[vk::push_constant]`, are not supported. On Vulkan, slang-rhi aborts
+//!   the process at the dispatch of a kernel that declares one, whether or
+//!   not the program sets it.
 //! - A compute pipeline takes a program with exactly one compute entry point
 //!   and no specialization parameter left.
 //! - On Vulkan, a parameter that is left without a buffer works only on a
@@ -212,6 +225,7 @@
 mod buffer;
 mod callback;
 mod command;
+mod compile_session;
 mod device;
 mod error;
 #[cfg(test)]
@@ -226,6 +240,7 @@ mod shader_object;
 pub use buffer::{Buffer, BufferDesc, BufferUsage, MemoryType};
 pub use callback::{DebugMessage, DebugMessageSource, DebugMessageType};
 pub use command::{CommandBuffer, CommandEncoder, ComputePass, Queue};
+pub use compile_session::CompileSession;
 pub use device::{Adapter, AdapterType, Device, DeviceInfo, DeviceOptions, DeviceType, adapters};
 pub use error::{Error, ErrorKind, Operation, Result};
 pub use program::{ComputePipeline, ShaderProgram};

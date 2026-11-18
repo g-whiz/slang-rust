@@ -20,8 +20,8 @@ use crate::owned::Owned;
 /// names a byte position in the uniform data, a binding range, and a position
 /// in the array of that range, and it records how many bytes of uniform data
 /// and how many binding ranges its parameter has. Get one from
-/// [`ShaderObject::offset_of`], and pass it to [`ShaderObject::set_data`] or
-/// [`ShaderObject::set_buffer`].
+/// [`ShaderObject::offset_of`], and pass it to [`ShaderObject::set_data`],
+/// [`ShaderObject::set_buffer`], or [`ShaderObject::object`].
 ///
 /// Only [`ShaderObject::offset_of`] creates an offset, and only the position
 /// in the array of bindings can change, through
@@ -178,7 +178,10 @@ pub(crate) enum RangeKind {
     /// A typed buffer, such as an `RWBuffer<float>`, which needs a buffer
     /// with a format.
     TypedBuffer,
-    /// Anything else, such as a texture or a constant buffer.
+    /// The objects of a `ConstantBuffer`, a `cbuffer`, or a `ParameterBlock`,
+    /// which hold the fields of the parameter.
+    SubObject,
+    /// Anything else, such as a texture.
     Other,
 }
 
@@ -225,18 +228,25 @@ fn check_data(offset: ShaderOffset, len: usize, uniform_size: usize) -> Result<(
     }
 }
 
-/// Checks that `offset` names an existing binding of a range that takes a
-/// raw buffer, and that a buffer with the uses `usage` suits the access of
-/// that range, where `range` is the range at its binding range index, or
-/// `None` when the object has no range there.
-fn check_buffer_binding(
+/// Returns the range of `offset` after the checks that the parameter has
+/// exactly one binding range, that the object has a range at its binding
+/// range index, and that the array index is below the binding count of that
+/// range, where `range` is the range at that index, or `None` when the object
+/// has no range there.
+fn existing_range(
     offset: ShaderOffset,
     range: Option<BindingRange>,
-    usage: BufferUsage,
-) -> Result<()> {
-    let invalid = |detail: String| Err(Error::invalid(Operation::SetBuffer, detail));
+    operation: Operation,
+) -> Result<BindingRange> {
+    let invalid = |detail: String| Err(Error::invalid(operation, detail));
     if offset.binding_range_count == 0 {
         return invalid(String::from("the parameter has no binding range"));
+    }
+    if offset.binding_range_count > 1 {
+        return invalid(format!(
+            "the parameter is a structure of several resources, with {} binding ranges, and its fields cannot be addressed by name",
+            offset.binding_range_count
+        ));
     }
     let Some(range) = range else {
         return invalid(format!(
@@ -252,6 +262,20 @@ fn check_buffer_binding(
             offset.binding_range_index, offset.binding_array_index
         ));
     }
+    Ok(range)
+}
+
+/// Checks that `offset` names an existing binding of a range that takes a
+/// raw buffer, and that a buffer with the uses `usage` suits the access of
+/// that range, where `range` is the range at its binding range index, or
+/// `None` when the object has no range there.
+fn check_buffer_binding(
+    offset: ShaderOffset,
+    range: Option<BindingRange>,
+    usage: BufferUsage,
+) -> Result<()> {
+    let invalid = |detail: String| Err(Error::invalid(Operation::SetBuffer, detail));
+    let range = existing_range(offset, range, Operation::SetBuffer)?;
     match range.kind {
         RangeKind::MutableBuffer if !usage.contains(BufferUsage::UNORDERED_ACCESS) => invalid(
             String::from("a buffer that the kernel writes needs the use UNORDERED_ACCESS"),
@@ -268,9 +292,34 @@ fn check_buffer_binding(
             "the binding range {} is a typed buffer, which needs a buffer with a format, and this crate creates no buffer with a format",
             offset.binding_range_index
         )),
+        RangeKind::SubObject => invalid(format!(
+            "the binding range {} holds the object of a ConstantBuffer or a ParameterBlock, not a buffer",
+            offset.binding_range_index
+        )),
         RangeKind::Other => invalid(format!(
             "the binding range {} does not take a buffer",
             offset.binding_range_index
+        )),
+    }
+}
+
+/// Checks that `offset` names an existing binding of a range of the objects
+/// of a `ConstantBuffer`, a `cbuffer`, or a `ParameterBlock`, where `range`
+/// is the range at its binding range index, or `None` when the object has no
+/// range there.
+fn check_object(offset: ShaderOffset, range: Option<BindingRange>) -> Result<()> {
+    let range = existing_range(offset, range, Operation::GetObject)?;
+    match range.kind {
+        RangeKind::SubObject => Ok(()),
+        RangeKind::ReadOnlyBuffer
+        | RangeKind::MutableBuffer
+        | RangeKind::TypedBuffer
+        | RangeKind::Other => Err(Error::invalid(
+            Operation::GetObject,
+            format!(
+                "the binding range {} is not the object of a ConstantBuffer or a ParameterBlock",
+                offset.binding_range_index
+            ),
         )),
     }
 }
@@ -296,10 +345,12 @@ fn buffer_binding(buffer: NonNull<IBuffer>) -> Binding {
 ///
 /// [`ComputePass::bind_pipeline`](crate::ComputePass::bind_pipeline) returns
 /// the root shader object, which holds the global parameters of the program,
-/// and [`ShaderObject::entry_point`] returns the shader object of one entry
-/// point, which holds its `uniform` parameters. A shader object borrows the
-/// pass, or the root object, that it came from, so it cannot outlive them,
-/// and a pass cannot dispatch or bind another pipeline while it lives.
+/// [`ShaderObject::entry_point`] returns the shader object of one entry
+/// point, which holds its `uniform` parameters, and [`ShaderObject::object`]
+/// returns the shader object of a `ConstantBuffer`, a `cbuffer`, or a
+/// `ParameterBlock` parameter, which holds its fields. A shader object borrows
+/// the pass, or the object, that it came from, so it cannot outlive them, and
+/// a pass cannot dispatch or bind another pipeline while it lives.
 ///
 /// A shader object is neither [`Send`] nor [`Sync`], because slang-rhi
 /// documents no rule for the use of its objects from several threads.
@@ -360,9 +411,10 @@ impl ShaderObject<'_> {
     /// are not found by name, and an offset of an array starts at its first
     /// element.
     ///
-    /// The fields of a `ConstantBuffer` or a `ParameterBlock` parameter live
-    /// in an object of their own, which this crate does not reach, so such a
-    /// parameter can be found but not set.
+    /// The fields of a `ConstantBuffer`, a `cbuffer`, or a `ParameterBlock`
+    /// parameter live in an object of their own. Find the parameter here,
+    /// get its object with [`ShaderObject::object`], and find and set its
+    /// fields on that object.
     ///
     /// # Examples
     ///
@@ -436,7 +488,9 @@ impl ShaderObject<'_> {
     /// Returns an error of kind
     /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
     /// before any call into slang-rhi, when the buffer belongs to another
-    /// device, when the parameter has no binding range, when the object has
+    /// device, when the parameter has no binding range, when it is a
+    /// structure of several resources, whose fields cannot be addressed by
+    /// name, when the object has
     /// no binding range at the binding range index of `offset` or that range
     /// has no binding at its array index, when the range does not take a raw
     /// buffer, or when the buffer lacks the use that the range needs. Returns
@@ -511,6 +565,114 @@ impl ShaderObject<'_> {
         // entry point with one reference added for the caller.
         let owned =
             unsafe { Owned::adopt(out) }.ok_or_else(|| Error::null(Operation::GetEntryPoint))?;
+        Ok(ShaderObject {
+            raw: owned.as_non_null(),
+            _owned: Some(owned),
+            device: self.device,
+            borrow: PhantomData,
+        })
+    }
+
+    /// Returns the shader object of the `ConstantBuffer`, `cbuffer`, or
+    /// `ParameterBlock` parameter at `offset`, which holds the fields of the
+    /// parameter.
+    ///
+    /// Find the fields of the parameter with [`ShaderObject::offset_of`] on
+    /// the returned object, and set them with its [`ShaderObject::set_data`]
+    /// and [`ShaderObject::set_buffer`]. A parameter whose fields hold another
+    /// `ConstantBuffer` or `ParameterBlock` is reached one object at a time.
+    /// slang-rhi creates these objects when it binds the pipeline, so each
+    /// one exists without a call that sets it.
+    ///
+    /// The elements of an array of such parameters sit in one binding range,
+    /// and [`ShaderOffset::with_binding_array_index`] names the object of one
+    /// element. On Vulkan, slang-rhi binds an array of `ConstantBuffer`
+    /// parameters as if it had one element, so the values set on the object
+    /// of any element after the first do not reach the kernel as set.
+    ///
+    /// A parameter that is a structure of several resources, such as a
+    /// structure with a `ConstantBuffer` field and a buffer field, is
+    /// refused, because its fields cannot be addressed by name.
+    ///
+    /// # Examples
+    ///
+    /// This example sets the field `value` of a parameter that a kernel
+    /// declares as `ConstantBuffer<Params> constants;`:
+    ///
+    /// ```
+    /// use slang_rhi::ShaderObject;
+    ///
+    /// fn set_value(root: &mut ShaderObject<'_>, value: [f32; 4]) -> slang_rhi::Result<()> {
+    ///     if let Some(offset) = root.offset_of("constants")? {
+    ///         let mut constants = root.object(offset)?;
+    ///         if let Some(field) = constants.offset_of("value")? {
+    ///             let bytes: Vec<u8> = value.iter().flat_map(|v| v.to_le_bytes()).collect();
+    ///             constants.set_data(field, &bytes)?;
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// # let _ = set_value;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// before any call into slang-rhi, when the parameter has no binding
+    /// range, when it is a structure of several resources, when the object
+    /// has no binding range at the binding range index of `offset` or that
+    /// range has no binding at its array index, or when the range is not that
+    /// of a `ConstantBuffer`, a `cbuffer`, or a `ParameterBlock`. Returns an
+    /// error of kind [`ErrorKind::Failed`](crate::ErrorKind::Failed) when
+    /// slang-rhi returns no layout for the object or no object for the
+    /// parameter, and the error that slang-rhi reports for the lookup.
+    ///
+    /// slang-rhi returns no object only for a parameter whose element it has
+    /// no layout for, because it creates every other object when it binds
+    /// the pipeline, or fails the bind. With
+    /// [`DeviceOptions::validation`](crate::DeviceOptions::validation) on,
+    /// slang-rhi wraps the missing object in an object of its debug device,
+    /// so this function returns that object instead of an error, and the
+    /// next call on it crashes the process inside slang-rhi.
+    pub fn object(&mut self, offset: ShaderOffset) -> Result<ShaderObject<'_>> {
+        let range = self
+            .element_layout(Operation::GetObject)?
+            .binding_range(offset.binding_range_index);
+        self.sub_object(offset, range)
+    }
+
+    /// Returns the object at `offset` after the checks against `range`, the
+    /// binding range that the layout of the object reports at the binding
+    /// range index of `offset`.
+    fn sub_object(
+        &mut self,
+        offset: ShaderOffset,
+        range: Option<BindingRange>,
+    ) -> Result<ShaderObject<'_>> {
+        check_object(offset, range)?;
+        let raw = self.raw.as_ptr();
+        let offset = offset.to_raw();
+        let mut out: *mut IShaderObject = ptr::null_mut();
+        let result = guard::call("IShaderObject::getObject", || {
+            // SAFETY: the invariant of `ShaderObject` keeps `raw` live, the
+            // mutable borrow of `self` keeps every other use of it out,
+            // `offset` names an existing binding of a range of objects by
+            // the checks above, so slang-rhi reads an entry of its array of
+            // objects, and `out` is a live out-pointer.
+            unsafe { IShaderObject::getObject(raw, &raw const offset, &raw mut out) }
+        });
+        error::check(Operation::GetObject, result, None)?;
+        // SAFETY: the call succeeded, and slang-rhi returns the object with
+        // one reference added for the caller, or null for an entry without
+        // an object. Its debug device instead returns a live object of its
+        // own that wraps the null entry, which no call through the bindings
+        // can tell apart without a call into the null entry. When slang-rhi
+        // binds the pipeline, it fills every entry of a range of objects
+        // whose element layout it knows, or fails the bind, so the entry is
+        // null only for an element without a layout in slang-rhi.
+        let owned =
+            unsafe { Owned::adopt(out) }.ok_or_else(|| Error::null(Operation::GetObject))?;
         Ok(ShaderObject {
             raw: owned.as_non_null(),
             _owned: Some(owned),
@@ -600,7 +762,7 @@ mod tests {
 
     use super::{
         BindingRange, RangeKind, ShaderObject, ShaderOffset, buffer_binding, check_buffer_binding,
-        check_data,
+        check_data, check_object,
     };
     use crate::ErrorKind;
     use crate::buffer::BufferUsage;
@@ -690,6 +852,12 @@ mod tests {
             (binding(0, 4), Some(buffer_range(4)), WRITABLE),
             (binding(0, 0), Some(buffer_range(-1)), WRITABLE),
             (binding(0, 0), range(RangeKind::Other), WRITABLE),
+            (binding(0, 0), range(RangeKind::SubObject), WRITABLE),
+            (
+                ShaderOffset::new(0, 0, 0, 2),
+                range(RangeKind::MutableBuffer),
+                WRITABLE,
+            ),
             (binding(0, 0), range(RangeKind::TypedBuffer), WRITABLE),
             (
                 binding(0, 0),
@@ -721,6 +889,21 @@ mod tests {
         });
         let error = check_buffer_binding(binding(0, 0), range, WRITABLE).expect_err("typed");
         assert!(error.to_string().contains("format"), "{error}");
+    }
+
+    #[test]
+    fn a_structure_of_several_resources_is_refused_with_the_reason() {
+        let offset = ShaderOffset::new(0, 0, 3, 2);
+        let buffer = check_buffer_binding(offset, Some(buffer_range(1)), WRITABLE)
+            .expect_err("two binding ranges");
+        let object = check_object(offset, Some(object_range(1))).expect_err("two binding ranges");
+        for error in [buffer, object] {
+            assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+            assert!(
+                error.to_string().contains("structure of several resources"),
+                "{error}"
+            );
+        }
     }
 
     #[test]
@@ -834,6 +1017,123 @@ mod tests {
         unsafe { FakeShaderObject::release_raw(root) };
         // SAFETY: as above.
         unsafe { FakeBuffer::release_raw(buffer) };
+    }
+
+    fn object_range(binding_count: isize) -> BindingRange {
+        BindingRange {
+            binding_count,
+            kind: RangeKind::SubObject,
+        }
+    }
+
+    #[test]
+    fn check_object_accepts_an_existing_binding_of_a_range_of_objects() {
+        check_object(binding(0, 0), Some(object_range(1))).expect("it exists");
+        check_object(binding(2, 3), Some(object_range(4))).expect("the last element exists");
+    }
+
+    #[test]
+    fn check_object_rejects_a_missing_range_a_missing_binding_and_every_other_kind() {
+        let kind = |kind| {
+            Some(BindingRange {
+                binding_count: 1,
+                kind,
+            })
+        };
+        let cases = [
+            (ShaderOffset::new(0, 4, 0, 0), Some(object_range(1))),
+            (binding(5, 0), None),
+            (binding(0, 1), Some(object_range(1))),
+            (binding(0, 0), Some(object_range(-1))),
+            (binding(0, 0), kind(RangeKind::ReadOnlyBuffer)),
+            (binding(0, 0), kind(RangeKind::MutableBuffer)),
+            (binding(0, 0), kind(RangeKind::TypedBuffer)),
+            (binding(0, 0), kind(RangeKind::Other)),
+            (ShaderOffset::new(0, 0, 0, 2), Some(object_range(1))),
+        ];
+        for (offset, range) in cases {
+            let error = check_object(offset, range).expect_err("it is refused");
+            assert_eq!(
+                error.kind(),
+                ErrorKind::InvalidArgument,
+                "{offset:?} {range:?}"
+            );
+            assert_eq!(error.operation(), Operation::GetObject);
+            assert_eq!(error.code(), None);
+        }
+    }
+
+    #[test]
+    fn sub_object_owns_a_reference_until_it_is_dropped_and_its_data_reaches_it() {
+        let log = Log::new();
+        let constants = FakeShaderObject::create(&log, "constants");
+        let root = FakeShaderObject::create(&log, "root");
+        FakeShaderObject::add_object(root, (1, 2), constants);
+        // SAFETY: the fake object lives until the test releases it below,
+        // and nothing else uses it while the wrapper lives.
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut found = object
+            .sub_object(binding(1, 2), Some(object_range(3)))
+            .expect("the object exists");
+        found
+            .write_data(uniform(0), &[7, 7], 4)
+            .expect("the data fits");
+        drop(found);
+        drop(object);
+        assert_eq!(
+            log.events(),
+            [
+                Event::add_ref("constants", 2),
+                Event::add_ref("constants", 3),
+                Event::set_data("constants", (0, 0, 0), &[7, 7]),
+                Event::release("constants", 2),
+            ]
+        );
+        // SAFETY: the test owns the reference of `create` of each fake and
+        // releases each once. The root releases the reference that it holds
+        // to the object of its parameter when it is freed.
+        unsafe { FakeShaderObject::release_raw(root) };
+        // SAFETY: as above.
+        unsafe { FakeShaderObject::release_raw(constants) };
+        assert_eq!(
+            log.events()[4..],
+            [
+                Event::release("root", 0),
+                Event::freed("root"),
+                Event::release("constants", 1),
+                Event::release("constants", 0),
+                Event::freed("constants"),
+            ]
+        );
+    }
+
+    #[test]
+    fn sub_object_turns_a_null_object_into_an_error_and_refuses_a_bad_offset_before_the_call() {
+        let log = Log::new();
+        let root = FakeShaderObject::create(&log, "root");
+        // SAFETY: the fake object lives until the test releases it below,
+        // and nothing else uses it while the wrapper lives.
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let null = object
+            .sub_object(binding(0, 0), Some(object_range(1)))
+            .map(drop)
+            .expect_err("the parameter has no object");
+        assert_eq!(null.kind(), ErrorKind::Failed);
+        assert_eq!(null.operation(), Operation::GetObject);
+        let buffer = object
+            .sub_object(binding(0, 0), Some(buffer_range(1)))
+            .map(drop)
+            .expect_err("the range takes a buffer");
+        assert_eq!(buffer.kind(), ErrorKind::InvalidArgument);
+        let past = object
+            .sub_object(binding(0, 1), Some(object_range(1)))
+            .map(drop)
+            .expect_err("the range has one binding");
+        assert_eq!(past.kind(), ErrorKind::InvalidArgument);
+        drop(object);
+        assert_eq!(log.events(), []);
+        // SAFETY: the test owns the reference of `create` and releases it once.
+        unsafe { FakeShaderObject::release_raw(root) };
     }
 
     #[test]

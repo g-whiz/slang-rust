@@ -486,7 +486,8 @@ impl fmt::Debug for DeviceOptions {
     }
 }
 
-/// The information of a device.
+/// The information of a device, with the limits of the device that slang-rhi
+/// reports when it opens the device.
 ///
 /// # Examples
 ///
@@ -496,6 +497,11 @@ pub struct DeviceInfo {
     device_type: DeviceType,
     api_name: String,
     adapter_name: String,
+    max_compute_dispatch_thread_groups: [u32; 3],
+    max_buffer_size: u64,
+    max_texture_dimension_2d: u32,
+    max_vertex_streams: u32,
+    max_vertex_input_elements: u32,
 }
 
 impl DeviceInfo {
@@ -527,6 +533,76 @@ impl DeviceInfo {
     #[must_use]
     pub fn adapter_name(&self) -> &str {
         &self.adapter_name
+    }
+
+    /// Returns the largest number of thread groups of one dispatch along
+    /// each of the three axes, which
+    /// [`ComputePass::dispatch`](crate::ComputePass::dispatch) checks.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_compute_dispatch_thread_groups(&self) -> [u32; 3] {
+        self.max_compute_dispatch_thread_groups
+    }
+
+    /// Returns the largest size of a buffer in bytes that slang-rhi assumes,
+    /// which is 2 GiB on both graphics APIs.
+    ///
+    /// slang-rhi does not ask the device for this limit, so it is not a value
+    /// that the device reports, and a device may take larger or only smaller
+    /// buffers. [`Device::create_buffer`] does not check a size against it.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_buffer_size(&self) -> u64 {
+        self.max_buffer_size
+    }
+
+    /// Returns the largest width and height in texels of a two-dimensional
+    /// texture.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_texture_dimension_2d(&self) -> u32 {
+        self.max_texture_dimension_2d
+    }
+
+    /// Returns the largest number of vertex buffers that one draw reads.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_vertex_streams(&self) -> u32 {
+        self.max_vertex_streams
+    }
+
+    /// Returns the largest number of vertex attributes that one draw reads.
+    ///
+    /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
+    /// limit of the graphics API, the same on every device.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::info`].
+    #[must_use]
+    pub fn max_vertex_input_elements(&self) -> u32 {
+        self.max_vertex_input_elements
     }
 }
 
@@ -584,9 +660,8 @@ unsafe fn copy_text(text: *const c_char) -> String {
 pub struct Device {
     raw: Owned<IDevice>,
     session: Session,
-    _global_session: GlobalSession,
+    global_session: GlobalSession,
     info: DeviceInfo,
-    max_thread_groups: [u32; 3],
 }
 
 impl Device {
@@ -690,13 +765,18 @@ impl Device {
         // outlive this function. Its two names are null or NUL-terminated
         // strings that live as long as the device.
         let info = unsafe { info.as_ref() }.ok_or_else(|| Error::null(Operation::CreateDevice))?;
-        let max_thread_groups = info.limits.maxComputeDispatchThreadGroups;
+        let limits = &info.limits;
         let info = DeviceInfo {
             device_type: DeviceType::from_raw(info.deviceType, Operation::CreateDevice)?,
             // SAFETY: as stated above for the names.
             api_name: unsafe { copy_text(info.apiName) },
             // SAFETY: as stated above for the names.
             adapter_name: unsafe { copy_text(info.adapterName) },
+            max_compute_dispatch_thread_groups: limits.maxComputeDispatchThreadGroups,
+            max_buffer_size: limits.maxBufferSize,
+            max_texture_dimension_2d: limits.maxTextureDimension2D,
+            max_vertex_streams: limits.maxVertexStreams,
+            max_vertex_input_elements: limits.maxVertexInputElements,
         };
         let mut session: *mut ISession = ptr::null_mut();
         let result = guard::call("IDevice::getSlangSession", || {
@@ -714,9 +794,8 @@ impl Device {
         Ok(Self {
             raw,
             session,
-            _global_session: global_session,
+            global_session,
             info,
-            max_thread_groups,
         })
     }
 
@@ -735,6 +814,14 @@ impl Device {
     /// let device = Device::new(&DeviceOptions::new(GlobalSession::new()?))?;
     /// let info = device.info();
     /// println!("{} on {} ({:?})", info.api_name(), info.adapter_name(), info.device_type());
+    /// println!(
+    ///     "at most {:?} thread groups, buffers of {} bytes, textures of {} texels, {} vertex streams, and {} vertex attributes",
+    ///     info.max_compute_dispatch_thread_groups(),
+    ///     info.max_buffer_size(),
+    ///     info.max_texture_dimension_2d(),
+    ///     info.max_vertex_streams(),
+    ///     info.max_vertex_input_elements(),
+    /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
@@ -766,7 +853,11 @@ impl Device {
     }
 
     pub(crate) fn max_thread_groups(&self) -> [u32; 3] {
-        self.max_thread_groups
+        self.info.max_compute_dispatch_thread_groups
+    }
+
+    pub(crate) fn global_session(&self) -> &GlobalSession {
+        &self.global_session
     }
 }
 

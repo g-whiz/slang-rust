@@ -88,6 +88,14 @@ impl Error {
         error
     }
 
+    /// Returns the error of a device whose kind of Slang session the crate
+    /// cannot create.
+    pub(crate) fn unsupported(operation: Operation, detail: impl Into<String>) -> Self {
+        let mut error = Self::new(ErrorKind::Unsupported, operation);
+        error.detail = Some(detail.into());
+        error
+    }
+
     /// Returns the error of a failed call of `slang-compiler`.
     pub(crate) fn slang(operation: Operation, source: slang_compiler::Error) -> Self {
         let mut error = Self::new(ErrorKind::Slang, operation);
@@ -285,6 +293,13 @@ pub enum Operation {
     /// The lookup of the shader object of an entry point, by
     /// [`ShaderObject::entry_point`](crate::ShaderObject::entry_point).
     GetEntryPoint,
+    /// The lookup of the shader object of a `ConstantBuffer`, a `cbuffer`, or
+    /// a `ParameterBlock` parameter, by
+    /// [`ShaderObject::object`](crate::ShaderObject::object).
+    GetObject,
+    /// The creation of a Slang session like the session of a device, by
+    /// [`Device::create_slang_session`](crate::Device::create_slang_session).
+    CreateSlangSession,
 }
 
 impl Operation {
@@ -308,6 +323,8 @@ impl Operation {
             Self::SetData => "set uniform data",
             Self::SetBuffer => "bind a buffer",
             Self::GetEntryPoint => "get the shader object of an entry point",
+            Self::GetObject => "get the shader object of a parameter",
+            Self::CreateSlangSession => "create a Slang session for a device",
         }
     }
 }

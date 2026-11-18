@@ -11,9 +11,14 @@ use slang_rhi::{
 };
 
 use crate::common::{
-    API, DEVICE_TYPE, DOUBLE, Message, assert_uniform_data_of_a_block_is_refused, bytes, double,
-    float_buffer, link, open, options, pipeline, read,
+    API, DEVICE_TYPE, DOUBLE, Message, bytes, double, float_buffer, link, open, options, pipeline,
+    read,
 };
+
+#[cfg(test)]
+mod compile_session;
+#[cfg(test)]
+mod objects;
 
 #[test]
 fn adapters_lists_an_adapter_and_a_device_opens_on_each() {
@@ -36,6 +41,23 @@ fn a_device_of_the_default_type_opens_on_the_api_of_the_platform() {
     let device = open(&options);
     assert_eq!(device.info().device_type(), DEVICE_TYPE);
     assert_eq!(device.info().api_name(), API);
+    assert_eq!(messages.errors(), []);
+}
+
+#[test]
+fn the_information_of_a_device_holds_limits_within_the_minimums_of_both_apis() {
+    let (options, messages) = options(Toggle::Off);
+    let info = open(&options).info();
+    assert!(
+        info.max_compute_dispatch_thread_groups()
+            .iter()
+            .all(|count| *count >= 65_535),
+        "{info:?}"
+    );
+    assert!(info.max_buffer_size() > 0, "{info:?}");
+    assert!(info.max_texture_dimension_2d() >= 4096, "{info:?}");
+    assert!(info.max_vertex_streams() >= 16, "{info:?}");
+    assert!(info.max_vertex_input_elements() >= 16, "{info:?}");
     assert_eq!(messages.errors(), []);
 }
 
@@ -648,47 +670,6 @@ fn a_dispatch_past_the_limit_of_the_device_is_refused_and_one_of_zero_runs_nothi
     queue.wait_on_host().expect("the queue finishes the work");
     assert_eq!(read(&device, &values), [1.0, 2.0, 3.0, 4.0]);
     assert_eq!(messages.errors(), []);
-}
-
-#[test]
-fn the_fields_of_a_constant_buffer_cannot_be_set_as_uniform_data() {
-    const CONSTANTS: &str = r#"
-struct Params
-{
-    float4 value;
-};
-ConstantBuffer<Params> constants;
-RWStructuredBuffer<float> values;
-
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void main(uint3 thread : SV_DispatchThreadID)
-{
-    values[0] = constants.value.x;
-}
-"#;
-    assert_uniform_data_of_a_block_is_refused("constants", CONSTANTS, "constants");
-}
-
-#[test]
-fn the_fields_of_a_parameter_block_cannot_be_set_as_uniform_data() {
-    const BLOCK: &str = r#"
-struct Params
-{
-    float4 value;
-};
-ParameterBlock<Params> block;
-uniform float scale;
-RWStructuredBuffer<float> values;
-
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void main(uint3 thread : SV_DispatchThreadID)
-{
-    values[0] = block.value.x + scale;
-}
-"#;
-    assert_uniform_data_of_a_block_is_refused("block", BLOCK, "block");
 }
 
 #[test]
