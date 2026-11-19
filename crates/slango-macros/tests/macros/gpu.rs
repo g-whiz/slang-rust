@@ -12,6 +12,38 @@ mod particles {
     slango_macros::shader!("shaders/particles.slang");
 }
 
+#[expect(
+    clippy::partial_pub_fields,
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps its padding private"
+)]
+mod float_fields {
+    slango_macros::shader!("shaders/float-fields.slang");
+}
+
+#[expect(
+    clippy::partial_pub_fields,
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps its padding private"
+)]
+mod int_fields {
+    slango_macros::shader!("shaders/int-fields.slang");
+}
+
+#[expect(
+    clippy::partial_pub_fields,
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps a private field of zero size"
+)]
+mod wide_vector {
+    slango_macros::shader!("shaders/wide-vector.slang");
+}
+
+#[expect(
+    clippy::partial_pub_fields,
+    reason = "the generated `Shader` keeps its module private behind `Shader::module`, and each structure keeps its padding private"
+)]
+mod narrow_vector {
+    slango_macros::shader!("shaders/narrow-vector.slang");
+}
+
 fn inputs(count: u16) -> (Vec<f32>, Vec<f32>) {
     let x = (0..count).map(f32::from).collect();
     let y = (0..count)
@@ -129,5 +161,58 @@ fn a_kernel_over_a_buffer_of_a_generated_struct_gives_the_results_computed_on_th
         })
         .collect();
     assert_eq!(buffer.read()?, expected);
+    Ok(())
+}
+
+#[test]
+fn a_buffer_of_a_struct_binds_only_where_each_field_has_the_same_type() -> slango::Result<()> {
+    let device = Device::new(&DeviceOptions::default())?;
+    let floats = float_fields::Shader::load(&device)?;
+    let ints = int_fields::Shader::load(&device)?;
+    let item = float_fields::Item::new([2.5, 0.0, 0.0], 0.0);
+    let buffer = Buffer::from_slice(&device, &[item])?;
+    let error = ints
+        .step
+        .kernel()
+        .call()
+        .bind("items", &buffer)
+        .dispatch([1, 1, 1])
+        .expect_err("an int3 field does not hold a float3");
+    assert_eq!(error.kind(), slango::ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: the parameter `items` of the kernel `step` has elements of the structure `Item` with the field `a` of the Slang type `int3`, and the bound buffer has elements of the Rust struct `Item` with that field of the Slang type `float3`"
+    );
+    assert_eq!(buffer.read()?, [item]);
+    floats
+        .step
+        .dispatch(&float_fields::StepArgs { items: &buffer }, [1, 1, 1])?;
+    assert_eq!(
+        buffer.read()?,
+        [float_fields::Item::new([2.5, 0.0, 0.0], 3.5)]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_buffer_of_a_struct_with_a_wider_vector_of_the_same_stride_does_not_bind() -> slango::Result<()>
+{
+    let device = Device::new(&DeviceOptions::default())?;
+    let narrow = narrow_vector::Shader::load(&device)?;
+    let wide = wide_vector::Wide::new([1.0, 2.0, 3.0, 4.0]);
+    let buffer = Buffer::from_slice(&device, &[wide])?;
+    let error = narrow
+        .step
+        .kernel()
+        .call()
+        .bind("items", &buffer)
+        .dispatch([1, 1, 1])
+        .expect_err("a float3 field does not hold a float4");
+    assert_eq!(error.kind(), slango::ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: the parameter `items` of the kernel `step` has elements of the structure `Narrow` with the field `a` of the Slang type `float3`, and the bound buffer has elements of the Rust struct `Wide` with that field of the Slang type `float4`"
+    );
+    assert_eq!(buffer.read()?, [wide]);
     Ok(())
 }

@@ -1,7 +1,6 @@
 //! The operations that the backend rhi does not offer, which fail with
 //! [`ErrorKind::Unsupported`] after the checks of their arguments.
 
-use slango::__private::{load_precompiled, precompile_file};
 use slango::{
     AdapterSelection, Device, ErrorKind, RenderPipelineOptions, Sampler, SamplerOptions, Texture,
     TextureFormat,
@@ -48,16 +47,6 @@ fn a_render_pipeline_of_existing_entry_points_is_unsupported() -> slango::Result
     assert_unsupported(
         module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default()),
         "Module::render_pipeline",
-    );
-    Ok(())
-}
-
-#[test]
-fn a_precompiled_module_is_unsupported() -> slango::Result<()> {
-    let precompiled = precompile_file(&shader("scale.slang"))?;
-    assert_unsupported(
-        load_precompiled(&device(), &precompiled.encoded),
-        "load_precompiled",
     );
     Ok(())
 }

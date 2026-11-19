@@ -5,11 +5,11 @@ use super::{
     Argument, Bound, BoundSampler, BoundTexture, Entry, Plan, Source, check_workgroups, insert,
     plan, workgroup_counts,
 };
-use crate::__private::StructElement;
+use crate::__private::{StructElement, StructField, StructFieldType};
 use crate::error::{ErrorKind, Result};
 use crate::layout::{
-    Access, Binding, ElementType, KernelLayout, PlainValue, Resource, Scalar, Shape, Structure,
-    UniformBlock, Usage,
+    Access, Binding, ElementType, Field, FieldType, KernelLayout, PlainValue, Resource, Scalar,
+    Shape, Structure, UniformBlock, Usage,
 };
 use crate::marshal::{Element, Value, marshal};
 use crate::texture::TextureFormat;
@@ -408,6 +408,18 @@ struct Pair;
 impl StructElement for Pair {
     const SLANG_NAME: &'static str = "Pair";
     const STRIDE: usize = 8;
+    const FIELDS: &'static [StructField] = &[
+        StructField {
+            name: "weight",
+            offset: 0,
+            ty: StructFieldType::Plain("float"),
+        },
+        StructField {
+            name: "id",
+            offset: 4,
+            ty: StructFieldType::Plain("float"),
+        },
+    ];
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&[0; 8]);
@@ -443,6 +455,56 @@ fn a_buffer_of_a_struct_element_of_another_stride_than_the_structure_is_an_inval
     assert_eq!(
         error.to_string(),
         "cannot call a kernel: the parameter `extra.points` of the kernel `scale` has elements of 32 bytes, and the bound buffer has elements of 8 bytes"
+    );
+}
+
+/// The layout of the kernel with the structure `Pair` of 8 bytes as the
+/// element of `extra.points`, with its fields `weight` and `id` at the given
+/// offsets.
+fn pair_layout(weight: u64, id: u64) -> KernelLayout {
+    let mut layout = layout();
+    let field = |name: &str, offset| Field {
+        name: name.to_owned(),
+        offset,
+        ty: FieldType::Plain {
+            scalar: Scalar::Float32,
+            shape: Shape::Scalar,
+        },
+    };
+    if let Some(Resource::StorageBuffer {
+        stride, element, ..
+    }) = layout
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.path == "extra.points")
+        .map(|binding| &mut binding.resource)
+    {
+        *stride = 8;
+        *element = ElementType::Structure(Structure {
+            name: "Pair".to_owned(),
+            size: 8,
+            fields: vec![field("weight", weight), field("id", id)],
+        });
+    }
+    layout
+}
+
+#[test]
+fn a_buffer_of_a_struct_element_with_its_fields_at_the_reflected_offsets_binds() {
+    let mut arguments = complete();
+    insert(&mut arguments, "extra.points", buffer::<Pair>(4));
+    assert!(plan(&pair_layout(0, 4), &arguments).is_ok());
+}
+
+#[test]
+fn a_buffer_of_a_struct_element_of_the_same_stride_with_a_field_elsewhere_is_an_invalid_argument() {
+    let mut arguments = complete();
+    insert(&mut arguments, "extra.points", buffer::<Pair>(4));
+    let error = plan(&pair_layout(4, 0), &arguments).expect_err("the call is rejected");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+    assert_eq!(
+        error.to_string(),
+        "cannot call a kernel: the parameter `extra.points` of the kernel `scale` has elements of the structure `Pair` with the field `weight` at byte 4, and the bound buffer has elements of the Rust struct `Pair` with that field at byte 0"
     );
 }
 

@@ -2,157 +2,388 @@
 source: crates/slango-codegen/tests/codegen/ffi.rs
 expression: "bindings(\"nested.slang\")"
 ---
-const _: &[u8] = ::core::include_bytes!("<shaders>/nested.slang");
-const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 3,
-    "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
-);
-/// The Slang structure `Motion`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type.
-///
-/// Each public field holds the field of the same name at the
-/// offset that Slang gives it, and private fields hold the
-/// padding, so a value is created with [`Self::new`]. A
-/// [`slango::Buffer`] of the struct binds to a structured buffer
-/// of the structure.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Motion {
-    /// The field `velocity` of the Slang structure.
-    pub velocity: [f32; 2],
-    /// The field `drag` of the Slang structure.
-    pub drag: f32,
-    _padding0: [u8; 4],
+const _: &str = ::core::include_str!("<shaders>/nested.slang");
+::slango::__private::wgpu_only! {
+    const _: () = ::core::assert!(
+        ::slango::__private::ENCODING_VERSION == 3,
+        "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+    );
+    /// The module of the bindings for slango with the feature `wgpu`:
+    /// its layout snapshot with its SPIR-V, encoded when the crate
+    /// was built.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        encoded: b"<encoded snapshot>",
+    };
 }
-impl Motion {
-    /// Returns the structure with the given fields and zero in
-    /// every byte of padding.
-    #[must_use]
-    pub const fn new(velocity: [f32; 2], drag: f32) -> Self {
-        Self {
-            velocity,
-            drag,
-            _padding0: [0; 4],
+::slango::__private::rhi_only! {
+    /// The module of the bindings for slango with the feature `rhi`:
+    /// the Slang source of the module and of each module that it
+    /// imports, each after the modules that it imports, which a load
+    /// compiles for the device.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        sources: &[
+            ::slango::__private::EmbeddedSource {
+                name: "nested",
+                path: "<shaders>/nested.slang",
+                text: ::core::include_str!("<shaders>/nested.slang"),
+            },
+        ],
+    };
+}
+::slango::__private::wgpu_only! {
+    /// The Slang structure `Motion`, with the std430 layout that Slang gives it in a structured buffer for slango with the feature `wgpu`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it, and private fields hold the padding, so a value is created with [`Self::new`]. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Motion {
+        /// The field `velocity` of the Slang structure.
+        pub velocity: [f32; 2],
+        /// The field `drag` of the Slang structure.
+        pub drag: f32,
+        _padding0: [u8; 4],
+    }
+    impl Motion {
+        /// Returns the structure with the given fields and zero in every byte of padding.
+        #[must_use]
+        pub const fn new(velocity: [f32; 2], drag: f32) -> Self {
+            Self {
+                velocity,
+                drag,
+                _padding0: [0; 4],
+            }
+        }
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Motion > () == 16,
+            "the size of the struct `Motion` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Motion, velocity) == 0,
+            "the offset of the field `velocity` of the struct `Motion` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Motion, drag) == 8,
+            "the offset of the field `drag` of the struct `Motion` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Motion {
+        const SLANG_NAME: &'static str = "Motion";
+        const STRIDE: usize = 16;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "velocity",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float2"),
+            },
+            ::slango::__private::StructField {
+                name: "drag",
+                offset: 8,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.velocity {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            out.extend_from_slice(&self.drag.to_le_bytes());
+            out.extend_from_slice(&[0_u8; 4]);
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 16 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                velocity: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                ],
+                drag: f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                _padding0: [0; 4],
+            })
         }
     }
 }
-const _: () = {
-    ::core::assert!(
-        ::core::mem::size_of:: < Motion > () == 16,
-        "the size of the struct `Motion` differs from the stride that Slang gives the structure"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Motion, velocity) == 0,
-        "the offset of the field `velocity` of the struct `Motion` differs from the offset that Slang gives it"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Motion, drag) == 8,
-        "the offset of the field `drag` of the struct `Motion` differs from the offset that Slang gives it"
-    );
-};
-impl ::slango::__private::StructElement for Motion {
-    const SLANG_NAME: &'static str = "Motion";
-    const STRIDE: usize = 16;
-    fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
-        for item0 in self.velocity {
-            out.extend_from_slice(&item0.to_le_bytes());
-        }
-        out.extend_from_slice(&self.drag.to_le_bytes());
-        out.extend_from_slice(&[0_u8; 4]);
+::slango::__private::rhi_only! {
+    /// The Slang structure `Motion`, with the packed layout that Slang gives it in a structured buffer for slango with the feature `rhi`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it. The layout has no padding, and a private field of zero size rules out a struct expression, so a value is created with [`Self::new`], as in a layout with padding. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Motion {
+        /// The field `velocity` of the Slang structure.
+        pub velocity: [f32; 2],
+        /// The field `drag` of the Slang structure.
+        pub drag: f32,
+        _padding0: [u8; 0],
     }
-    fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
-        if bytes.len() != 16 {
-            return ::core::option::Option::None;
+    impl Motion {
+        /// Returns the structure with the given fields.
+        #[must_use]
+        pub const fn new(velocity: [f32; 2], drag: f32) -> Self {
+            Self {
+                velocity,
+                drag,
+                _padding0: [],
+            }
         }
-        ::core::option::Option::Some(Self {
-            velocity: [
-                f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
-                f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
-            ],
-            drag: f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
-            _padding0: [0; 4],
-        })
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Motion > () == 12,
+            "the size of the struct `Motion` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Motion, velocity) == 0,
+            "the offset of the field `velocity` of the struct `Motion` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Motion, drag) == 8,
+            "the offset of the field `drag` of the struct `Motion` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Motion {
+        const SLANG_NAME: &'static str = "Motion";
+        const STRIDE: usize = 12;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "velocity",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float2"),
+            },
+            ::slango::__private::StructField {
+                name: "drag",
+                offset: 8,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.velocity {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            out.extend_from_slice(&self.drag.to_le_bytes());
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 12 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                velocity: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                ],
+                drag: f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                _padding0: [],
+            })
+        }
     }
 }
-/// The Slang structure `Body`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type.
-///
-/// Each public field holds the field of the same name at the
-/// offset that Slang gives it, and private fields hold the
-/// padding, so a value is created with [`Self::new`]. A
-/// [`slango::Buffer`] of the struct binds to a structured buffer
-/// of the structure.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Body {
-    /// The field `position` of the Slang structure.
-    pub position: [f32; 3],
-    _padding0: [u8; 4],
-    /// The field `motion` of the Slang structure.
-    pub motion: Motion,
-    /// The field `id` of the Slang structure.
-    pub id: u32,
-    _padding1: [u8; 12],
-}
-impl Body {
-    /// Returns the structure with the given fields and zero in
-    /// every byte of padding.
-    #[must_use]
-    pub const fn new(position: [f32; 3], motion: Motion, id: u32) -> Self {
-        Self {
-            position,
-            motion,
-            id,
-            _padding0: [0; 4],
-            _padding1: [0; 12],
+::slango::__private::wgpu_only! {
+    /// The Slang structure `Body`, with the std430 layout that Slang gives it in a structured buffer for slango with the feature `wgpu`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it, and private fields hold the padding, so a value is created with [`Self::new`]. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Body {
+        /// The field `position` of the Slang structure.
+        pub position: [f32; 3],
+        _padding0: [u8; 4],
+        /// The field `motion` of the Slang structure.
+        pub motion: Motion,
+        /// The field `id` of the Slang structure.
+        pub id: u32,
+        _padding1: [u8; 12],
+    }
+    impl Body {
+        /// Returns the structure with the given fields and zero in every byte of padding.
+        #[must_use]
+        pub const fn new(position: [f32; 3], motion: Motion, id: u32) -> Self {
+            Self {
+                position,
+                motion,
+                id,
+                _padding0: [0; 4],
+                _padding1: [0; 12],
+            }
+        }
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Body > () == 48,
+            "the size of the struct `Body` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, position) == 0,
+            "the offset of the field `position` of the struct `Body` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, motion) == 16,
+            "the offset of the field `motion` of the struct `Body` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, id) == 32,
+            "the offset of the field `id` of the struct `Body` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Body {
+        const SLANG_NAME: &'static str = "Body";
+        const STRIDE: usize = 48;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "position",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float3"),
+            },
+            ::slango::__private::StructField {
+                name: "motion",
+                offset: 16,
+                ty: ::slango::__private::StructFieldType::Structure("Motion"),
+            },
+            ::slango::__private::StructField {
+                name: "motion.velocity",
+                offset: 16,
+                ty: ::slango::__private::StructFieldType::Plain("float2"),
+            },
+            ::slango::__private::StructField {
+                name: "motion.drag",
+                offset: 24,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+            ::slango::__private::StructField {
+                name: "id",
+                offset: 32,
+                ty: ::slango::__private::StructFieldType::Plain("uint"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.position {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            out.extend_from_slice(&[0_u8; 4]);
+            ::slango::__private::StructElement::write_bytes(&self.motion, out);
+            out.extend_from_slice(&self.id.to_le_bytes());
+            out.extend_from_slice(&[0_u8; 12]);
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 48 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                position: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                ],
+                _padding0: [0; 4],
+                motion: <Motion as ::slango::__private::StructElement>::read_bytes(
+                    bytes.get(16..32)?,
+                )?,
+                id: u32::from_le_bytes(*bytes.get(32..)?.first_chunk()?),
+                _padding1: [0; 12],
+            })
         }
     }
 }
-const _: () = {
-    ::core::assert!(
-        ::core::mem::size_of:: < Body > () == 48,
-        "the size of the struct `Body` differs from the stride that Slang gives the structure"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Body, position) == 0,
-        "the offset of the field `position` of the struct `Body` differs from the offset that Slang gives it"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Body, motion) == 16,
-        "the offset of the field `motion` of the struct `Body` differs from the offset that Slang gives it"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Body, id) == 32,
-        "the offset of the field `id` of the struct `Body` differs from the offset that Slang gives it"
-    );
-};
-impl ::slango::__private::StructElement for Body {
-    const SLANG_NAME: &'static str = "Body";
-    const STRIDE: usize = 48;
-    fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
-        for item0 in self.position {
-            out.extend_from_slice(&item0.to_le_bytes());
-        }
-        out.extend_from_slice(&[0_u8; 4]);
-        ::slango::__private::StructElement::write_bytes(&self.motion, out);
-        out.extend_from_slice(&self.id.to_le_bytes());
-        out.extend_from_slice(&[0_u8; 12]);
+::slango::__private::rhi_only! {
+    /// The Slang structure `Body`, with the packed layout that Slang gives it in a structured buffer for slango with the feature `rhi`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it. The layout has no padding, and a private field of zero size rules out a struct expression, so a value is created with [`Self::new`], as in a layout with padding. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Body {
+        /// The field `position` of the Slang structure.
+        pub position: [f32; 3],
+        /// The field `motion` of the Slang structure.
+        pub motion: Motion,
+        /// The field `id` of the Slang structure.
+        pub id: u32,
+        _padding0: [u8; 0],
     }
-    fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
-        if bytes.len() != 48 {
-            return ::core::option::Option::None;
+    impl Body {
+        /// Returns the structure with the given fields.
+        #[must_use]
+        pub const fn new(position: [f32; 3], motion: Motion, id: u32) -> Self {
+            Self {
+                position,
+                motion,
+                id,
+                _padding0: [],
+            }
         }
-        ::core::option::Option::Some(Self {
-            position: [
-                f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
-                f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
-                f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
-            ],
-            _padding0: [0; 4],
-            motion: <Motion as ::slango::__private::StructElement>::read_bytes(
-                bytes.get(16..32)?,
-            )?,
-            id: u32::from_le_bytes(*bytes.get(32..)?.first_chunk()?),
-            _padding1: [0; 12],
-        })
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Body > () == 28,
+            "the size of the struct `Body` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, position) == 0,
+            "the offset of the field `position` of the struct `Body` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, motion) == 12,
+            "the offset of the field `motion` of the struct `Body` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Body, id) == 24,
+            "the offset of the field `id` of the struct `Body` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Body {
+        const SLANG_NAME: &'static str = "Body";
+        const STRIDE: usize = 28;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "position",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float3"),
+            },
+            ::slango::__private::StructField {
+                name: "motion",
+                offset: 12,
+                ty: ::slango::__private::StructFieldType::Structure("Motion"),
+            },
+            ::slango::__private::StructField {
+                name: "motion.velocity",
+                offset: 12,
+                ty: ::slango::__private::StructFieldType::Plain("float2"),
+            },
+            ::slango::__private::StructField {
+                name: "motion.drag",
+                offset: 20,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+            ::slango::__private::StructField {
+                name: "id",
+                offset: 24,
+                ty: ::slango::__private::StructFieldType::Plain("uint"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.position {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            ::slango::__private::StructElement::write_bytes(&self.motion, out);
+            out.extend_from_slice(&self.id.to_le_bytes());
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 28 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                position: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                ],
+                motion: <Motion as ::slango::__private::StructElement>::read_bytes(
+                    bytes.get(12..24)?,
+                )?,
+                id: u32::from_le_bytes(*bytes.get(24..)?.first_chunk()?),
+                _padding0: [],
+            })
+        }
     }
 }
 /// The arguments of the kernel `push`, one field for each parameter.
@@ -314,9 +545,13 @@ pub struct Shader {
     module: ::slango::Module,
 }
 impl Shader {
-    /// Loads the module on `device` from the code that was compiled
-    /// when the crate was built, with no call into Slang, and looks up
-    /// each of its kernels.
+    /// Loads the module on `device` and looks up each of its kernels.
+    ///
+    /// With the feature `wgpu` of `slango`, the load creates the code
+    /// that was compiled when the crate was built, with no call into
+    /// Slang. With the feature `rhi`, it compiles the Slang source of
+    /// the module and of the modules that it imports, embedded when
+    /// the crate was built, for the device.
     ///
     /// # Errors
     ///
@@ -325,10 +560,7 @@ impl Shader {
     /// [`slango::Device::load_module`] gives, or when the version of
     /// `slango` differs from the one that generated the bindings.
     pub fn load(device: &::slango::Device) -> ::slango::Result<Self> {
-        let module = ::slango::__private::load_precompiled(
-            device,
-            b"<encoded snapshot>",
-        )?;
+        let module = ::slango::__private::load_embedded(device, &EMBEDDED)?;
         ::core::result::Result::Ok(Self {
             push: Push {
                 kernel: module.kernel("push")?.clone(),

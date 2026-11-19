@@ -282,9 +282,8 @@ wgpu. The example `windowed-renderer` does this with winit.
 //!   that the crate slang-rhi-sys names, and the build stops on every
 //!   other target. A program on Windows needs `dxcompiler.dll` on its `PATH`
 //!   at run time. The module `wgpu` does not exist in this build, which
-//!   creates no texture, sampler, or render pipeline and loads no
-//!   precompiled module of slango-macros, and returns an error of kind
-//!   [`ErrorKind::Unsupported`] for each. It runs some kernels that wgpu
+//!   creates no texture, sampler, or render pipeline, and returns an error
+//!   of kind [`ErrorKind::Unsupported`] for each. It runs some kernels that wgpu
 //!   rejects, such as kernels that use 64-bit integers or half-precision
 //!   floats, because it hands the code that Slang generates to the driver
 //!   without the validation of wgpu.
@@ -326,6 +325,70 @@ compile_error!(
     "slango needs exactly one backend: keep its default Cargo feature `wgpu`, or turn the default features off and enable its Cargo feature `rhi`, but not both"
 );
 
+/// Expands to the items that it is given in a build with the feature `wgpu`,
+/// and to nothing in a build with the feature `rhi`.
+///
+/// The code that `slango-macros` generates puts every item that only the
+/// backend wgpu needs inside this macro, and names it through the slango of
+/// the crate that calls the macro of `slango-macros`, so that the items
+/// follow the backend of that slango. It is not part of the API of this
+/// crate.
+#[cfg(all(feature = "wgpu", not(feature = "rhi")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! wgpu_only {
+    ($($item:item)*) => {
+        $($item)*
+    };
+}
+
+/// Expands to the items that it is given in a build with the feature `wgpu`,
+/// and to nothing in a build with the feature `rhi`.
+///
+/// The code that `slango-macros` generates puts every item that only the
+/// backend wgpu needs inside this macro, and names it through the slango of
+/// the crate that calls the macro of `slango-macros`, so that the items
+/// follow the backend of that slango. It is not part of the API of this
+/// crate.
+#[cfg(all(feature = "rhi", not(feature = "wgpu")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! wgpu_only {
+    ($($item:item)*) => {};
+}
+
+/// Expands to the items that it is given in a build with the feature `rhi`,
+/// and to nothing in a build with the feature `wgpu`.
+///
+/// The code that `slango-macros` generates puts every item that only the
+/// backend rhi needs inside this macro, and names it through the slango of
+/// the crate that calls the macro of `slango-macros`, so that the items
+/// follow the backend of that slango. It is not part of the API of this
+/// crate.
+#[cfg(all(feature = "rhi", not(feature = "wgpu")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! rhi_only {
+    ($($item:item)*) => {
+        $($item)*
+    };
+}
+
+/// Expands to the items that it is given in a build with the feature `rhi`,
+/// and to nothing in a build with the feature `wgpu`.
+///
+/// The code that `slango-macros` generates puts every item that only the
+/// backend rhi needs inside this macro, and names it through the slango of
+/// the crate that calls the macro of `slango-macros`, so that the items
+/// follow the backend of that slango. It is not part of the API of this
+/// crate.
+#[cfg(all(feature = "wgpu", not(feature = "rhi")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! rhi_only {
+    ($($item:item)*) => {};
+}
+
 #[cfg(any(
     all(feature = "wgpu", not(feature = "rhi")),
     all(feature = "rhi", not(feature = "wgpu"))
@@ -356,6 +419,13 @@ mod draw;
     all(feature = "wgpu", not(feature = "rhi")),
     all(feature = "rhi", not(feature = "wgpu"))
 ))]
+#[cfg_attr(
+    all(feature = "rhi", not(feature = "wgpu"), not(test)),
+    expect(
+        dead_code,
+        reason = "only the backend wgpu decodes the encoded snapshot that generated code embeds, while the backend rhi compiles the embedded sources"
+    )
+)]
 mod encoding;
 #[cfg(any(
     all(feature = "wgpu", not(feature = "rhi")),

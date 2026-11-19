@@ -7,7 +7,7 @@ use crate::Device;
 use crate::backend;
 use crate::error::{Error, ErrorKind, Result};
 use crate::kernel::Kernel;
-use crate::layout::{self, Compilation, Compiled, CompiledRender, KernelLayout, Source};
+use crate::layout::{CompiledRender, KernelLayout, Source};
 use crate::render::{RenderPipeline, RenderPipelineOptions};
 
 const READ: &str = "read a Slang file";
@@ -294,10 +294,10 @@ impl Device {
         Ok(self.module(loaded))
     }
 
-    /// Creates a module on this device from the snapshot of a precompiled
-    /// module.
-    pub(crate) fn load(&self, compiled: Compiled) -> Result<Module> {
-        let loaded = backend::Module::load_compiled(self.backend(), compiled)?;
+    /// Creates a module on this device from what generated code embeds for
+    /// the backend of the build.
+    pub(crate) fn load_embedded(&self, embedded: &backend::Embedded<'_>) -> Result<Module> {
+        let loaded = backend::Module::load_embedded(self.backend(), embedded)?;
         Ok(self.module(loaded))
     }
 
@@ -376,11 +376,4 @@ impl<'p> SourceFile<'p> {
             search_path: Some(self.directory),
         }
     }
-}
-
-/// Compiles the Slang module in a file for SPIR-V as [`Device::load_module`]
-/// does on the backend wgpu, with the directory of the file, or `.` when the
-/// path has none, as a search path.
-pub(crate) fn compile_file(path: &Path) -> Result<Compilation> {
-    layout::compile(&SourceFile::read(path)?.source())
 }

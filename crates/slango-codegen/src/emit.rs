@@ -1,14 +1,18 @@
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
+use std::path::Path;
+
 use slango::__private::{
-    Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    UniformStructure, slang_type,
+    Access, ElementType, Interface, KernelInterface, LoadedModule, Parameter, ParameterKind,
+    Precompiled, Scalar, UniformStructure, slang_type,
 };
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::names::{Scope, ident, snake_case, upper_camel_case};
 use types::{GENERATE, scalar_type, struct_type, unsupported, value_type};
 
+#[cfg(test)]
+mod pretty;
 mod structs;
 mod types;
 
@@ -21,21 +25,31 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
     let Interface {
         kernels,
         dependencies,
+        modules,
     } = interface;
     let tracking = dependencies
         .iter()
         .map(|path| {
-            let path = path.to_str().ok_or_else(|| {
-                Error::new(ErrorKind::Unsupported, GENERATE).with_detail(format!(
-                    "the path `{}` of a file that Slang read is not valid UTF-8",
-                    path.display()
-                ))
-            })?;
-            Ok(quote! { const _: &[u8] = ::core::include_bytes!(#path); })
+            let path = utf8(path)?;
+            Ok(quote! { const _: &str = ::core::include_str!(#path); })
         })
         .collect::<Result<Vec<_>>>()?;
     let version = Literal::u32_unsuffixed(slango::__private::ENCODING_VERSION);
     let encoded = Literal::byte_string(encoded);
+    let sources = in_import_order(modules)?
+        .into_iter()
+        .map(|module| {
+            let name = &module.name;
+            let path = utf8(&module.path)?;
+            Ok(quote! {
+                ::slango::__private::EmbeddedSource {
+                    name: #name,
+                    path: #path,
+                    text: ::core::include_str!(#path),
+                }
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let structures = structs::Structures::collect(kernels)?;
     let mut types = Scope::reserving(&["Shader"], "the struct `Shader`");
@@ -68,10 +82,29 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
     Ok(quote! {
         #(#tracking)*
 
-        const _: () = ::core::assert!(
-            ::slango::__private::ENCODING_VERSION == #version,
-            "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
-        );
+        ::slango::__private::wgpu_only! {
+            const _: () = ::core::assert!(
+                ::slango::__private::ENCODING_VERSION == #version,
+                "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+            );
+
+            /// The module of the bindings for slango with the feature `wgpu`:
+            /// its layout snapshot with its SPIR-V, encoded when the crate
+            /// was built.
+            const EMBEDDED: ::slango::__private::Embedded<'static> =
+                ::slango::__private::Embedded { encoded: #encoded };
+        }
+
+        ::slango::__private::rhi_only! {
+            /// The module of the bindings for slango with the feature `rhi`:
+            /// the Slang source of the module and of each module that it
+            /// imports, each after the modules that it imports, which a load
+            /// compiles for the device.
+            const EMBEDDED: ::slango::__private::Embedded<'static> =
+                ::slango::__private::Embedded {
+                    sources: &[#(#sources),*],
+                };
+        }
 
         #structure_items
 
@@ -90,9 +123,13 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
         }
 
         impl Shader {
-            /// Loads the module on `device` from the code that was compiled
-            /// when the crate was built, with no call into Slang, and looks up
-            /// each of its kernels.
+            /// Loads the module on `device` and looks up each of its kernels.
+            ///
+            /// With the feature `wgpu` of `slango`, the load creates the code
+            /// that was compiled when the crate was built, with no call into
+            /// Slang. With the feature `rhi`, it compiles the Slang source of
+            /// the module and of the modules that it imports, embedded when
+            /// the crate was built, for the device.
             ///
             /// # Errors
             ///
@@ -101,7 +138,7 @@ pub(crate) fn bindings(precompiled: &Precompiled) -> Result<TokenStream> {
             /// [`slango::Device::load_module`] gives, or when the version of
             /// `slango` differs from the one that generated the bindings.
             pub fn load(device: &::slango::Device) -> ::slango::Result<Self> {
-                let module = ::slango::__private::load_precompiled(device, #encoded)?;
+                let module = ::slango::__private::load_embedded(device, &EMBEDDED)?;
                 ::core::result::Result::Ok(Self {
                     #(#lookups)*
                     module,
@@ -317,7 +354,9 @@ fn argument(kernel: &str, parameter: &Parameter, scope: &mut Scope) -> Result<Ar
             format!(" The value of the parameter `{path}`."),
             false,
         ),
-        ParameterKind::Buffer { access, element } => {
+        ParameterKind::Buffer {
+            access, element, ..
+        } => {
             let element = element_type(kernel, path, element)?;
             let access = match access {
                 Access::ReadOnly => "reads",
@@ -419,6 +458,51 @@ fn element_type(kernel: &str, path: &str, element: &ElementType) -> Result<Token
         }
     };
     Err(unsupported(kernel, path, &reason))
+}
+
+/// Returns the text of a path of a file that Slang read, or an error when it
+/// is not valid UTF-8, which the generated code cannot name.
+fn utf8(path: &Path) -> Result<&str> {
+    path.to_str().ok_or_else(|| {
+        Error::new(ErrorKind::Unsupported, GENERATE).with_detail(format!(
+            "the path `{}` of a file that Slang read is not valid UTF-8",
+            path.display()
+        ))
+    })
+}
+
+/// Returns the modules that Slang loaded, each after every module that it
+/// imports, which is every other module whose file Slang read for it, so the
+/// module of the shader, which imports every other, comes last. It fails
+/// when no module is given or when modules import each other.
+fn in_import_order(modules: &[LoadedModule]) -> Result<Vec<&LoadedModule>> {
+    let mut remaining: Vec<&LoadedModule> = modules.iter().collect();
+    let mut ordered = Vec::with_capacity(modules.len());
+    while !remaining.is_empty() {
+        let ready = remaining.iter().position(|module| {
+            !remaining
+                .iter()
+                .any(|other| other.name != module.name && module.files.contains(&other.path))
+        });
+        let Some(ready) = ready else {
+            let names: Vec<&str> = remaining
+                .iter()
+                .map(|module| module.name.as_str())
+                .collect();
+            return Err(
+                Error::new(ErrorKind::Compile, GENERATE).with_detail(format!(
+                    "the modules `{}` import each other, so no order loads each after the modules that it imports",
+                    names.join("`, `")
+                )),
+            );
+        };
+        ordered.push(remaining.remove(ready));
+    }
+    if ordered.is_empty() {
+        return Err(Error::new(ErrorKind::Compile, GENERATE)
+            .with_detail("Slang reports no module for the shader".to_owned()));
+    }
+    Ok(ordered)
 }
 
 fn no_element(name: &str) -> String {

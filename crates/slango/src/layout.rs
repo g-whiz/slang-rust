@@ -9,8 +9,8 @@ use slang_compiler::reflection::{
 };
 use slang_compiler::{
     BindingIndex, BindingSpace, CompilerOptions, Component, EntryPoint, GlobalSession,
-    LinkedProgram, Metadata, ParameterCategory, Session, Stage, Target, TargetFormat, TargetIndex,
-    Toggle,
+    LinkedProgram, MatrixLayout, Metadata, ParameterCategory, Session, Stage, Target, TargetFormat,
+    TargetIndex, Toggle,
 };
 
 use crate::error::{Error, ErrorKind, Result};
@@ -386,11 +386,27 @@ pub(crate) struct Compiled {
 }
 
 /// One compilation of a module: its snapshot, and the paths of the files
-/// that Slang read for it, which a load does not need.
+/// that Slang read for it and the modules of its session, which a load does
+/// not need.
 #[derive(Debug)]
 pub(crate) struct Compilation {
     pub(crate) compiled: Compiled,
     pub(crate) dependencies: Vec<String>,
+    pub(crate) modules: Vec<SessionModule>,
+}
+
+/// One module that the session of a compilation held after it loaded the
+/// module of the source: the module itself or one that it imports, directly
+/// or through another module.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionModule {
+    /// The name of the module, which an `import` of it names.
+    pub(crate) name: String,
+    /// The path of the file of the module.
+    pub(crate) path: String,
+    /// The paths of the files that Slang read for the module, which include
+    /// the files of the modules that it imports.
+    pub(crate) files: Vec<String>,
 }
 
 /// The Slang source of one module, with the path that diagnostics name and
@@ -430,7 +446,12 @@ impl Role {
 /// belongs to one vertex or fragment entry point, in its metadata, its walk,
 /// or its SPIR-V, becomes the rejection of its record.
 pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
-    let (program, target, dependencies) = link(source)?;
+    let Linked {
+        program,
+        target,
+        dependencies,
+        modules,
+    } = link(source, Target::new(TargetFormat::Spirv), None)?;
     let (kernels, render) = walk_program(
         &program,
         target,
@@ -449,7 +470,57 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
     Ok(Compilation {
         compiled: Compiled { kernels, render },
         dependencies,
+        modules,
     })
+}
+
+/// The structure that is the element of one structured buffer of a kernel,
+/// with the parameter path of the buffer.
+pub(crate) type ElementStructure = (String, Structure);
+
+/// Compiles Slang source for SPIR-V with the scalar layout of buffers and
+/// the row-major matrix layout, as slang-rhi compiles for Vulkan, and
+/// returns, for each kernel by its name, the structure that is the element of
+/// each of its structured buffers, with the offsets and the size of that
+/// layout.
+///
+/// It reads the layouts of types only, and generates no code, so it reaches
+/// no downstream compiler. The usage of each binding is therefore not read.
+pub(crate) fn packed_structures(
+    source: &Source<'_>,
+) -> Result<Vec<(String, Vec<ElementStructure>)>> {
+    let mut options = CompilerOptions::default();
+    options.glsl_force_scalar_layout(Toggle::On);
+    let target = Target::new(TargetFormat::Spirv).options(options);
+    let linked = link(source, target, Some(MatrixLayout::RowMajor))?;
+    let layout = linked
+        .program
+        .layout(linked.target)
+        .map_err(Error::compile)?
+        .into_value();
+    let mut kernels = Vec::new();
+    for entry_point in layout.entry_point_layouts() {
+        if !matches!(role_of(entry_point)?, Some(Role::Kernel)) {
+            continue;
+        }
+        let Some(name) = entry_point_name(entry_point, Role::Kernel)? else {
+            continue;
+        };
+        let walk = walk(layout, entry_point, None, &name, Role::Kernel)?;
+        let structures = walk
+            .bindings
+            .into_iter()
+            .filter_map(|binding| match binding.resource {
+                Resource::StorageBuffer {
+                    element: ElementType::Structure(structure),
+                    ..
+                } => Some((binding.path, structure)),
+                _ => None,
+            })
+            .collect();
+        kernels.push((name, structures));
+    }
+    Ok(kernels)
 }
 
 /// One entry point of a linked program, with what its records read.
@@ -463,16 +534,31 @@ pub(crate) struct LinkedEntryPoint<'p> {
     target: TargetIndex,
 }
 
+/// A module linked with all its entry points, with the one target of its
+/// session, the paths of the files that Slang read, and the modules of the
+/// session.
+struct Linked {
+    program: LinkedProgram,
+    target: TargetIndex,
+    dependencies: Vec<String>,
+    modules: Vec<SessionModule>,
+}
+
 /// Compiles, composes, and links the module of `source` with all its entry
-/// points, and returns the program, its one target, and the paths of the
-/// files that Slang read.
-fn link(source: &Source<'_>) -> Result<(LinkedProgram, TargetIndex, Vec<String>)> {
+/// points in a session of its own with `target` and, when given, the matrix
+/// layout `matrix_layout`.
+fn link(
+    source: &Source<'_>,
+    target: Target,
+    matrix_layout: Option<MatrixLayout>,
+) -> Result<Linked> {
     let global = GlobalSession::new().map_err(Error::compile)?;
     let mut options = CompilerOptions::default();
     options.vulkan_use_entry_point_name(Toggle::On);
-    let mut builder = Session::builder(&global)
-        .target(Target::new(TargetFormat::Spirv))
-        .options(options);
+    let mut builder = Session::builder(&global).target(target).options(options);
+    if let Some(matrix_layout) = matrix_layout {
+        builder = builder.matrix_layout(matrix_layout);
+    }
     if let Some(search_path) = source.search_path {
         builder = builder.search_path(search_path);
     }
@@ -497,7 +583,39 @@ fn link(source: &Source<'_>) -> Result<(LinkedProgram, TargetIndex, Vec<String>)
         .map_err(Error::compile)?
         .into_value();
     let dependencies = dependencies(&module)?;
-    Ok((program, target, dependencies))
+    let modules = session
+        .loaded_modules()
+        .map_err(Error::compile)?
+        .map(|loaded| session_module(&loaded))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Linked {
+        program,
+        target,
+        dependencies,
+        modules,
+    })
+}
+
+/// Returns the record of one module that a session holds.
+fn session_module(module: &slang_compiler::Module) -> Result<SessionModule> {
+    let missing = |what: &str| {
+        Error::new(ErrorKind::Compile, LOAD).with_detail(format!(
+            "Slang reports no {what} for a module of the session"
+        ))
+    };
+    Ok(SessionModule {
+        name: module
+            .name()
+            .map_err(Error::compile)?
+            .ok_or_else(|| missing("name"))?
+            .to_owned(),
+        path: module
+            .file_path()
+            .map_err(Error::compile)?
+            .ok_or_else(|| missing("file path"))?
+            .to_owned(),
+        files: dependencies(module)?,
+    })
 }
 
 /// Returns the role of an entry point by its stage, or `None` for a stage
@@ -538,7 +656,13 @@ fn metadata(at: &LinkedEntryPoint<'_>) -> Result<Metadata> {
 /// the place of each of its bindings, in the order of the bindings.
 fn kernel_layout(at: &LinkedEntryPoint<'_>, name: String) -> Result<(KernelLayout, Vec<Place>)> {
     let metadata = metadata(at)?;
-    let walk = walk(at.layout, at.entry_point, &metadata, &name, Role::Kernel)?;
+    let walk = walk(
+        at.layout,
+        at.entry_point,
+        Some(&metadata),
+        &name,
+        Role::Kernel,
+    )?;
     let [x, y, z] = at.entry_point.compute_thread_group_size();
     let thread_group_size = [
         walk.narrow(x, "", "a thread group size")?,
@@ -606,7 +730,7 @@ pub(crate) fn walk_program<K, R>(
 /// name is `name`, with the first failure as its rejection.
 fn render_entry(at: &LinkedEntryPoint<'_>, name: String, role: Role) -> CompiledRender {
     let layout = metadata(at).and_then(|metadata| {
-        walk(at.layout, at.entry_point, &metadata, &name, role).map(|walk| RenderLayout {
+        walk(at.layout, at.entry_point, Some(&metadata), &name, role).map(|walk| RenderLayout {
             bindings: walk.bindings,
             immediates: walk.immediates,
             attributes: walk.attributes,
@@ -669,11 +793,12 @@ fn rejection(error: &Error, role: Role, name: &str) -> Rejection {
 
 /// Walks the parameters of one entry point, and its vertex attributes when
 /// it is a vertex entry point, and returns the walk with its bindings sorted
-/// by set and binding.
+/// by set and binding. Without `metadata`, every binding and attribute counts
+/// as used.
 fn walk<'a>(
     layout: ProgramLayout<'_>,
     entry_point: EntryPointLayout<'_>,
-    metadata: &'a Metadata,
+    metadata: Option<&'a Metadata>,
     name: &'a str,
     role: Role,
 ) -> Result<Walk<'a>> {
@@ -752,7 +877,9 @@ pub(crate) fn attribute_type(scalar: ScalarType, components: u64) -> Option<(Sca
 struct Walk<'a> {
     entry_point: &'a str,
     role: Role,
-    metadata: &'a Metadata,
+    /// The metadata of the entry point, from which the walk reads the usage
+    /// of each binding and attribute, or `None` when it reads no usage.
+    metadata: Option<&'a Metadata>,
     bindings: Vec<Binding>,
     /// The place of each binding, in the order of `bindings`.
     places: Vec<Place>,
@@ -770,6 +897,21 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
+    /// Returns whether the code of the entry point uses the location, or
+    /// `true` when the walk reads no usage.
+    fn is_used(
+        &self,
+        category: ParameterCategory,
+        space: BindingSpace,
+        index: BindingIndex,
+    ) -> Result<bool> {
+        self.metadata.map_or(Ok(true), |metadata| {
+            metadata
+                .is_parameter_location_used(category, space, index)
+                .map_err(Error::compile)
+        })
+    }
+
     fn variable(
         &mut self,
         variable: VariableLayout<'_>,
@@ -1091,14 +1233,11 @@ impl Walk<'_> {
             ));
         };
         let location = self.narrow(here.location, path, "a location")?;
-        let used = self
-            .metadata
-            .is_parameter_location_used(
-                ParameterCategory::VaryingInput,
-                BindingSpace::new(0),
-                BindingIndex::new(here.location),
-            )
-            .map_err(Error::compile)?;
+        let used = self.is_used(
+            ParameterCategory::VaryingInput,
+            BindingSpace::new(0),
+            BindingIndex::new(here.location),
+        )?;
         self.attributes.push(Attribute {
             path: path.to_owned(),
             location,
@@ -1193,14 +1332,7 @@ impl Walk<'_> {
         resource: Resource,
     ) -> Result<()> {
         let (category, space, index) = location_of(categories, at);
-        let used = self
-            .metadata
-            .is_parameter_location_used(
-                category,
-                BindingSpace::new(space),
-                BindingIndex::new(index),
-            )
-            .map_err(Error::compile)?;
+        let used = self.is_used(category, BindingSpace::new(space), BindingIndex::new(index))?;
         self.bindings.push(Binding {
             path: path.to_owned(),
             set: self.narrow(at.set, path, "a set")?,

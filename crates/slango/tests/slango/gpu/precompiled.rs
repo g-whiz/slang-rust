@@ -1,4 +1,7 @@
-use slango::__private::{StructElement, load_precompiled, precompile_file};
+use slango::__private::{
+    Embedded, Precompiled, StructElement, StructField, StructFieldType, load_embedded,
+    precompile_file,
+};
 use slango::{AdapterSelection, Buffer, Device, ErrorKind, Module};
 
 use crate::common::{device_with, shader};
@@ -7,21 +10,56 @@ fn device() -> Device {
     device_with(AdapterSelection::Default)
 }
 
-/// Loads a test shader twice, once from the file and once from its encoded
-/// snapshot.
+/// Loads what generated code embeds for a precompiled shader in a build with
+/// the feature `wgpu`: its encoded snapshot.
+#[cfg(feature = "wgpu")]
+fn load_precompiled(device: &Device, precompiled: &Precompiled) -> slango::Result<Module> {
+    load_embedded(
+        device,
+        &Embedded {
+            encoded: &precompiled.encoded,
+        },
+    )
+}
+
+/// Loads what generated code embeds for a precompiled shader in a build with
+/// the feature `rhi`: the source of each module of its session, read from
+/// its file, in the order in which Slang lists them, which puts each module
+/// after the modules that it imports for the test shaders.
+#[cfg(feature = "rhi")]
+#[expect(
+    clippy::expect_used,
+    reason = "the helper fails the test when the path of a module is not UTF-8 or its file cannot be read"
+)]
+fn load_precompiled(device: &Device, precompiled: &Precompiled) -> slango::Result<Module> {
+    let modules: Vec<(String, String, String)> = precompiled
+        .interface
+        .modules
+        .iter()
+        .map(|module| {
+            let path = module.path.to_str().expect("a path of UTF-8").to_owned();
+            let text = std::fs::read_to_string(&module.path).expect("the module is read");
+            (module.name.clone(), path, text)
+        })
+        .collect();
+    let sources: Vec<slango::__private::EmbeddedSource<'_>> = modules
+        .iter()
+        .map(|(name, path, text)| slango::__private::EmbeddedSource { name, path, text })
+        .collect();
+    load_embedded(device, &Embedded { sources: &sources })
+}
+
+/// Loads a test shader twice, once from the file and once from what
+/// generated code embeds for it.
 fn both(device: &Device, name: &str) -> slango::Result<[Module; 2]> {
     let precompiled = precompile_file(&shader(name))?;
     Ok([
         device.load_module(shader(name))?,
-        load_precompiled(device, &precompiled.encoded)?,
+        load_precompiled(device, &precompiled)?,
     ])
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi loads no precompiled module"
-)]
 fn a_precompiled_kernel_gives_the_results_of_the_kernel_that_a_load_compiles() -> slango::Result<()>
 {
     let device = device();
@@ -44,10 +82,6 @@ fn a_precompiled_kernel_gives_the_results_of_the_kernel_that_a_load_compiles() -
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi loads no precompiled module"
-)]
 fn a_precompiled_shader_with_an_import_runs_both_kernels_as_a_loaded_one() -> slango::Result<()> {
     let device = device();
     let mut results = Vec::new();
@@ -75,7 +109,9 @@ fn a_precompiled_shader_with_an_import_runs_both_kernels_as_a_loaded_one() -> sl
 }
 
 /// The Slang structure `Particle` of `particles.slang`, with the layout of
-/// its structured buffer: offsets 0, 12, and 16, and a stride of 32 bytes.
+/// its structured buffer: offsets 0, 12, and 16, and a stride of 32 bytes
+/// in the std430 layout of the backend wgpu and of 24 bytes in the packed
+/// layout of the backend rhi.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Particle {
     position: [f32; 3],
@@ -83,9 +119,34 @@ struct Particle {
     velocity: [f32; 2],
 }
 
+/// The tail padding of `Particle` in the layout of the build's backend.
+#[cfg(feature = "wgpu")]
+const PARTICLE_TAIL: usize = 8;
+
+/// The tail padding of `Particle` in the layout of the build's backend.
+#[cfg(feature = "rhi")]
+const PARTICLE_TAIL: usize = 0;
+
 impl StructElement for Particle {
     const SLANG_NAME: &'static str = "Particle";
-    const STRIDE: usize = 32;
+    const STRIDE: usize = 24 + PARTICLE_TAIL;
+    const FIELDS: &'static [StructField] = &[
+        StructField {
+            name: "position",
+            offset: 0,
+            ty: StructFieldType::Plain("float3"),
+        },
+        StructField {
+            name: "mass",
+            offset: 12,
+            ty: StructFieldType::Plain("float"),
+        },
+        StructField {
+            name: "velocity",
+            offset: 16,
+            ty: StructFieldType::Plain("float2"),
+        },
+    ];
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
         let scalars = self
@@ -96,7 +157,7 @@ impl StructElement for Particle {
         for scalar in scalars {
             out.extend_from_slice(&scalar.to_le_bytes());
         }
-        out.extend_from_slice(&[0; 8]);
+        out.extend_from_slice(&[0; PARTICLE_TAIL]);
     }
 
     fn read_bytes(bytes: &[u8]) -> Option<Self> {
@@ -109,7 +170,7 @@ impl StructElement for Particle {
             .iter()
             .map(|chunk| f32::from_le_bytes(*chunk))
             .collect();
-        let [px, py, pz, mass, vx, vy, _, _] = scalars[..] else {
+        let [px, py, pz, mass, vx, vy, ..] = scalars[..] else {
             return None;
         };
         Some(Self {
@@ -131,10 +192,6 @@ fn advanced(particle: Particle, step: f32) -> Particle {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi loads no precompiled module"
-)]
 fn a_precompiled_kernel_runs_over_a_buffer_of_a_struct_element() -> slango::Result<()> {
     let device = device();
     let particles: Vec<Particle> = (0_u8..5)
@@ -170,10 +227,6 @@ fn a_precompiled_kernel_runs_over_a_buffer_of_a_struct_element() -> slango::Resu
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi loads no precompiled module"
-)]
 fn a_struct_element_is_rejected_as_a_plain_value_before_any_work() -> slango::Result<()> {
     let device = device();
     let [_, module] = both(&device, "particles.slang")?;
@@ -206,6 +259,18 @@ struct Pair {
 impl StructElement for Pair {
     const SLANG_NAME: &'static str = "Particle";
     const STRIDE: usize = 8;
+    const FIELDS: &'static [StructField] = &[
+        StructField {
+            name: "weight",
+            offset: 0,
+            ty: StructFieldType::Plain("float"),
+        },
+        StructField {
+            name: "id",
+            offset: 4,
+            ty: StructFieldType::Plain("uint"),
+        },
+    ];
 
     fn write_bytes(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.weight.to_le_bytes());
@@ -224,10 +289,6 @@ impl StructElement for Pair {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi loads no precompiled module"
-)]
 fn a_buffer_of_a_struct_element_of_another_stride_is_rejected_before_any_work() -> slango::Result<()>
 {
     let device = device();
@@ -250,13 +311,85 @@ fn a_buffer_of_a_struct_element_of_another_stride_is_rejected_before_any_work() 
         assert_eq!(error.kind(), ErrorKind::InvalidArgument);
         assert_eq!(
             error.to_string(),
-            "cannot call a kernel: the parameter `particles` of the kernel `advance` has elements of 32 bytes, and the bound buffer has elements of 8 bytes"
+            format!(
+                "cannot call a kernel: the parameter `particles` of the kernel `advance` has elements of {} bytes, and the bound buffer has elements of 8 bytes",
+                Particle::STRIDE
+            )
         );
         assert_eq!(buffer.read()?, pairs);
     }
     Ok(())
 }
 
+/// A structure of the stride of `Particle` whose fields `mass` and
+/// `position` sit where the reflected structure has other fields.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Shuffled([f32; 6]);
+
+impl StructElement for Shuffled {
+    const SLANG_NAME: &'static str = "Particle";
+    const STRIDE: usize = Particle::STRIDE;
+    const FIELDS: &'static [StructField] = &[
+        StructField {
+            name: "position",
+            offset: 0,
+            ty: StructFieldType::Plain("float3"),
+        },
+        StructField {
+            name: "mass",
+            offset: 20,
+            ty: StructFieldType::Plain("float"),
+        },
+        StructField {
+            name: "velocity",
+            offset: 12,
+            ty: StructFieldType::Plain("float2"),
+        },
+    ];
+
+    fn write_bytes(&self, out: &mut Vec<u8>) {
+        for scalar in self.0 {
+            out.extend_from_slice(&scalar.to_le_bytes());
+        }
+        out.extend_from_slice(&[0; PARTICLE_TAIL]);
+    }
+
+    fn read_bytes(bytes: &[u8]) -> Option<Self> {
+        let scalars = bytes.get(..24)?.as_chunks::<4>().0;
+        let mut values = [0.0; 6];
+        for (value, chunk) in values.iter_mut().zip(scalars) {
+            *value = f32::from_le_bytes(*chunk);
+        }
+        (bytes.len() == Self::STRIDE).then_some(Self(values))
+    }
+}
+
+#[test]
+fn a_buffer_of_a_struct_element_of_the_stride_with_its_fields_elsewhere_is_rejected_before_any_work()
+-> slango::Result<()> {
+    let device = device();
+    let shuffled = [Shuffled([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])];
+    for module in both(&device, "particles.slang")? {
+        let buffer = Buffer::from_slice(&device, &shuffled)?;
+        let error = module
+            .kernel("advance")?
+            .call()
+            .set("step", 2.0_f32)
+            .set("count", 1_u32)
+            .bind("particles", &buffer)
+            .dispatch([1, 1, 1])
+            .expect_err("the fields differ");
+        assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+        assert_eq!(
+            error.to_string(),
+            "cannot call a kernel: the parameter `particles` of the kernel `advance` has elements of the structure `Particle` with the field `mass` at byte 12, and the bound buffer has elements of the Rust struct `Particle` with that field at byte 20"
+        );
+        assert_eq!(buffer.read()?, shuffled);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "wgpu")]
 #[test]
 fn an_encoded_snapshot_of_another_version_or_with_trailing_bytes_does_not_load()
 -> slango::Result<()> {
@@ -269,8 +402,49 @@ fn an_encoded_snapshot_of_another_version_or_with_trailing_bytes_does_not_load()
     let mut trailing = encoded;
     trailing.push(0);
     for bytes in [other_version, trailing, Vec::new()] {
-        let error = load_precompiled(&device, &bytes).expect_err("the bytes do not load");
+        let error = load_embedded(&device, &Embedded { encoded: &bytes })
+            .expect_err("the bytes do not load");
         assert_eq!(error.kind(), ErrorKind::InvalidArgument);
     }
+    Ok(())
+}
+
+#[cfg(feature = "rhi")]
+#[test]
+fn an_embedded_module_without_a_source_does_not_load() {
+    let error = load_embedded(&device(), &Embedded { sources: &[] }).expect_err("nothing to load");
+    assert_eq!(error.kind(), ErrorKind::InvalidArgument);
+}
+
+#[cfg(feature = "rhi")]
+#[test]
+fn embedded_sources_load_under_their_module_names_from_paths_that_do_not_exist()
+-> slango::Result<()> {
+    let helpers = std::fs::read_to_string(shader("helpers.slang")).expect("the module is read");
+    let two_kernels =
+        std::fs::read_to_string(shader("two_kernels.slang")).expect("the shader is read");
+    let sources = [
+        slango::__private::EmbeddedSource {
+            name: "helpers",
+            path: "/nonexistent/embedded/helpers.slang",
+            text: &helpers,
+        },
+        slango::__private::EmbeddedSource {
+            name: "two_kernels",
+            path: "/nonexistent/embedded/two_kernels.slang",
+            text: &two_kernels,
+        },
+    ];
+    let device = device();
+    let module = load_embedded(&device, &Embedded { sources: &sources })?;
+    let data = Buffer::from_slice(&device, &[1.0_f32, 2.0, 3.0])?;
+    module
+        .kernel("double_each")?
+        .call()
+        .set("factor", 1.0_f32)
+        .set("count", 3_u32)
+        .bind("data", &data)
+        .dispatch([3, 1, 1])?;
+    assert_eq!(data.read()?, [2.0, 4.0, 6.0]);
     Ok(())
 }

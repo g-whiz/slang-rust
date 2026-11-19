@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | Agents that write, review, or extend Rust code in this repository, and the standards document `docs/rust-coding-standards.md` |
 
 ## Abstract
@@ -333,6 +333,7 @@ Declarative macros are covered by [IR-8], [IR-44], and [IR-28]. Procedural macro
 | Source | Tier | What it contributes |
 | --- | --- | --- |
 | [IR-8] | 1 | The macro chapter: input syntax that resembles the output, attributes, scope, and visibility. |
+| [S-5] | 1 | The scope of a `macro_rules!` macro: `#[macro_export]` at the crate root, re-export with `pub use`, and the mixed-site hygiene by which the paths of an expansion resolve at the call site. |
 | [S-10] | 2 | A chapter on macros. |
 | [IR-15] | 3 | Procedural macros: `syn`, `quote`, `trybuild` compile-fail tests, and error spans. |
 | [IR-44] | 3 | Crate-private declarative macros, and renaming a macro during refactoring. |
@@ -343,7 +344,7 @@ Declarative macros are covered by [IR-8], [IR-44], and [IR-28]. Procedural macro
 | [IR-26] | 3 | Chapter 21, Macros, not read. |
 | [IR-65] | 3 | A talk on macro idioms, content not read. |
 
-Rules: SIMP-4.
+Rules: SIMP-4, SIMP-5.
 
 ### 2.19. Unsafe Code and Soundness
 
@@ -555,7 +556,7 @@ Rules: TEST-5. Section 7 of `docs/writing-documentation.md` governs API document
 
 | Source | Tier | What it contributes |
 | --- | --- | --- |
-| [S-8] | 1 | Miri: what it detects, what it cannot run, and how to set it up in CI. |
+| [S-8] | 1 | Miri: what it detects, what it cannot run, `cfg(miri)` for a test that is too slow there, and how to set it up in CI. |
 | [S-3] | 1 | Tests of generated code. The bindings are generated in the build script and kept in no file, so TEST-8 tests their link and the build tag at run time instead of comparing them with a file. |
 | [IR-17] | 2 | Test layout, naming, and snapshot tests with `insta`. |
 | [IR-13] | 2 | Property tests with `proptest`. |
@@ -571,7 +572,7 @@ Rules: TEST-5. Section 7 of `docs/writing-documentation.md` governs API document
 | [IR-84] | 3 | Testing each locking branch. |
 | [IR-9] | 1 | Syntax for unit tests and doctests. |
 
-Unit tests, doctests, snapshot tests, fuzzing, and Miri are each covered above. Rules: TEST-1 to TEST-10.
+Unit tests, doctests, snapshot tests, fuzzing, and Miri are each covered above. Rules: TEST-1 to TEST-11.
 
 ### 2.33. Lints and Tooling
 
@@ -852,7 +853,7 @@ The catalogue holds 108 entries: one for each of the 95 entries of the curated l
 - Relevance: high. It is the canonical checklist for the safe crate, the high-level crate, and the Slint integration crate.
 - Consult when: naming a public item, deciding which traits a public type implements, designing a builder, error type, feature, or sealed trait, writing rustdoc, or preparing a release.
 - Chapters: `checklist.html`, `naming.html`, `interoperability.html`, `macros.html`, `documentation.html`, `predictability.html`, `flexibility.html`, `type-safety.html`, `dependability.html`, `debuggability.html`, `future-proofing.html`, and `necessities.html`.
-- Cited by: API-1, API-2, API-3, API-4, API-5, API-6, API-7, API-8, API-10, API-11, API-12, API-14, API-15, API-16, CONC-1, DEP-1, DEP-3, ERR-1, ERR-4, OWN-1, TYPE-8. Sections 1.3, 17, and 18.
+- Cited by: API-1, API-2, API-3, API-4, API-5, API-6, API-7, API-8, API-10, API-11, API-12, API-14, API-15, API-16, CONC-1, DEP-1, DEP-3, ERR-1, ERR-4, OWN-1, SIMP-5, TYPE-8. Sections 1.3, 17, and 18.
 
 **[IR-9] Rust by Example**
 
@@ -2044,12 +2045,12 @@ The catalogue holds 108 entries: one for each of the 95 entries of the curated l
 - URL: <https://doc.rust-lang.org/reference/>.
 - Kind: book.
 - Tier: 1, named in Section 1.3 of the standards document.
-- Read status: partial. The four pages below other than `panic.html` were read in full, and the three rules named below were consulted again. Of `panic.html`, the rule `panic.unwind.ffi.undefined` was read.
+- Read status: partial. The four pages below other than `panic.html` and `macros-by-example.html` were read in full, and the three rules named below were consulted again. Of `panic.html`, the rule `panic.unwind.ffi.undefined` was read, and of `macros-by-example.html`, the rules on scope and hygiene.
 - Current: yes.
 - Relevance: high. It states exactly which invalid values, aliasing, and ABI mismatches are undefined behaviour, the edition 2024 form of extern blocks, and what happens when a panic or a foreign exception reaches the boundary of an `extern` function under each ABI.
 - Consult when: deciding whether a foreign pointer may become a reference, whether a result-code enum is valid, what `unsafe extern` and `safe fn` mean, what happens when a panic or C++ exception crosses a boundary, or which ABI string, with or without `-unwind`, a declaration needs.
-- Chapters: `behavior-considered-undefined.html`, `unsafety.html`, `panic.html` for the rule `panic.unwind.ffi.undefined` on unwinding across an FFI boundary, `items/external-blocks.html`, which holds the unwinding ABI strings under the rule `items.extern.abi.unwind`, and `items/functions.html`, which holds the unwinding table under the rule `items.fn.extern.unwind.behavior`.
-- Cited by: FFI-3, FFI-5, FFI-7, UNS-7. Sections 1.3, 17, and 18.
+- Chapters: `behavior-considered-undefined.html`, `unsafety.html`, `panic.html` for the rule `panic.unwind.ffi.undefined` on unwinding across an FFI boundary, `items/external-blocks.html`, which holds the unwinding ABI strings under the rule `items.extern.abi.unwind`, `items/functions.html`, which holds the unwinding table under the rule `items.fn.extern.unwind.behavior`, and `macros-by-example.html`, of which the rules on scope, `macro.decl.scope.*`, and on hygiene, `macro.decl.hygiene.*`, were read on 2026-11-19.
+- Cited by: FFI-3, FFI-5, FFI-7, SIMP-5, UNS-7. Sections 1.3, 17, and 18.
 
 **[S-6] Standard library documentation: keyword unsafe, `catch_unwind`, the primitive type `fn`, and the Unsafe Code Guidelines glossary**
 
@@ -2089,9 +2090,9 @@ The catalogue holds 108 entries: one for each of the 95 entries of the curated l
 - Read status: full for the README.
 - Current: yes.
 - Relevance: medium. It checks the safe wrapper's own unsafe code, but it cannot run the native Slang library.
-- Consult when: deciding which tests run under Miri, setting up its CI job, or testing the wrapper without the native library.
-- Chapters: the README sections on foreign functions, what Miri cannot do, the CI example, and nextest.
-- Cited by: TEST-7.
+- Consult when: deciding which tests run under Miri, skipping a test under Miri, setting up its CI job, or testing the wrapper without the native library.
+- Chapters: the README sections on foreign functions, what Miri cannot do, `cfg(miri)` for code that behaves differently under Miri, the CI example, and nextest.
+- Cited by: TEST-7, TEST-11.
 
 **[S-9] The Rust Performance Book: Build Configuration**
 
@@ -2253,7 +2254,7 @@ This table lists every entry whose read status is partial or unreachable, with w
 | [IR-72] | Partial | Slide text as summarized. No video or transcript. | SIMP-1, SIMP-4 |
 | [S-1] | Partial | Nine pages, one of them a stub. Several chapters were not read. | 12 rules |
 | [S-2] | Partial | Thirteen pages and the `Builder` reference. Several pages were not read. | FFI-10 |
-| [S-5] | Partial | Four pages in full, and one rule of the page on panics. | FFI-3, FFI-5, FFI-7, UNS-7 |
+| [S-5] | Partial | Four pages in full, one rule of the page on panics, and the rules on scope and hygiene of the page on macros by example. | FFI-3, FFI-5, FFI-7, SIMP-5, UNS-7 |
 | [S-6] | Partial | The keyword page, the glossary, and parts of the documentation of `catch_unwind` and of the primitive type `fn`. The layout and validity chapters were not read. | CONC-8, FFI-4, FFI-6, FFI-7, UNS-3, UNS-6, UNS-7 |
 | [S-7] | Partial | Thirteen chapters. One chapter returned 404. | CONC-2, CONC-4, FFI-3 |
 | [S-9] | Partial | The build configuration page only. | FFI-7 |

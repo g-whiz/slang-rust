@@ -8,6 +8,13 @@ mod common;
 mod ffi;
 #[cfg(test)]
 #[path = "../../src/shared/frames.rs"]
+#[cfg_attr(
+    not(feature = "wgpu"),
+    expect(
+        dead_code,
+        reason = "only the tests of the windowed examples, which build with wgpu alone, read the usage text of the shared options"
+    )
+)]
 mod frames;
 #[cfg(test)]
 mod gpu;

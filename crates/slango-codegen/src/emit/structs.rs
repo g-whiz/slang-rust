@@ -2,7 +2,7 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use slango::__private::{
     ElementType, Field, FieldType, KernelInterface, ParameterKind, Scalar, Shape, Structure,
-    UniformStructure, ValueType,
+    UniformStructure, ValueType, slang_value_type,
 };
 
 use super::types::{scalar_type, struct_type, unsupported, value_type};
@@ -24,13 +24,55 @@ struct Member<'a> {
     ty: TokenStream,
 }
 
-/// The layout of a structure in a structured buffer, with one entry in
-/// `fields` for each member of its definition, in the same order.
+/// The layout of a structure in a structured buffer on one backend of
+/// `slango`, with one entry in `fields` for each member of its definition,
+/// in the same order.
 #[derive(Debug)]
 struct Layout<'a> {
     structure: &'a Structure,
     fields: Vec<Placed>,
     tail: u64,
+}
+
+/// The layouts of a structure in a structured buffer on both backends of
+/// `slango`: the std430 layout of the backend wgpu and the packed layout of
+/// the backend rhi.
+#[derive(Debug)]
+struct Layouts<'a> {
+    wgpu: Layout<'a>,
+    rhi: Layout<'a>,
+}
+
+/// The backends of `slango`, each with the helper macro of `slango` that
+/// keeps the items of that backend.
+#[derive(Clone, Copy, Debug)]
+enum Backend {
+    Wgpu,
+    Rhi,
+}
+
+impl Backend {
+    /// Returns the path of the helper macro of `slango` that keeps the
+    /// items of the backend.
+    fn helper(self) -> TokenStream {
+        match self {
+            Self::Wgpu => quote!(::slango::__private::wgpu_only!),
+            Self::Rhi => quote!(::slango::__private::rhi_only!),
+        }
+    }
+
+    /// Returns the text that names the layout of a structure on the
+    /// backend in the documentation of a generated struct.
+    fn layout_description(self) -> &'static str {
+        match self {
+            Self::Wgpu => {
+                "the std430 layout that Slang gives it in a structured buffer for slango with the feature `wgpu`"
+            }
+            Self::Rhi => {
+                "the packed layout that Slang gives it in a structured buffer for slango with the feature `rhi`"
+            }
+        }
+    }
 }
 
 /// A field of a structure in a structured buffer, with the padding before
@@ -43,31 +85,39 @@ struct Placed {
 }
 
 /// What a field of a structure in a structured buffer holds.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Content {
     Value { scalar: Scalar, packed: Packed },
     Structure { size: u64 },
 }
 
-/// The Rust type of a field of a structure in a structured buffer, with what
-/// the field holds and its size in bytes.
+/// What a field of a structure in a structured buffer holds in the layout of
+/// one backend, with its size in bytes there.
 #[derive(Debug)]
-struct FieldShape {
-    ty: TokenStream,
+struct Held {
     content: Content,
     size: u64,
 }
 
+/// The Rust type of a field of a structure in a structured buffer, with what
+/// the field holds in the layout of each backend.
+#[derive(Debug)]
+struct FieldShape {
+    ty: TokenStream,
+    wgpu: Held,
+    rhi: Held,
+}
+
 /// A plain value whose elements follow each other with no gap, which a Rust
 /// array of the same scalars lays out alike, with its size in bytes.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Packed {
     shape: PackedShape,
     size: u64,
 }
 
 /// The shape of a [`Packed`] value.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum PackedShape {
     Scalar,
     Array { length: u64, element: Box<Packed> },
@@ -77,14 +127,14 @@ enum PackedShape {
 const SCALAR_SIZE: u64 = 4;
 
 /// A Slang structure for which the generator emits a struct, with the
-/// layout of a structured buffer when it is the element of one or a field of
-/// such an element.
+/// layouts of a structured buffer when it is the element of one or a field
+/// of such an element.
 #[derive(Debug)]
 struct Definition<'a> {
     name: &'a str,
     first: Use<'a>,
     members: Vec<Member<'a>>,
-    layout: Option<Layout<'a>>,
+    layouts: Option<Layouts<'a>>,
 }
 
 /// The structures that the kernels of a module take, each once under its
@@ -104,6 +154,7 @@ impl<'a> Structures<'a> {
             for parameter in &kernel.parameters {
                 if let ParameterKind::Buffer {
                     element: ElementType::Structure(structure),
+                    packed,
                     ..
                 } = &parameter.kind
                 {
@@ -121,7 +172,17 @@ impl<'a> Structures<'a> {
                             ),
                         ));
                     }
-                    structures.element(structure, at)?;
+                    let Some(packed) = packed else {
+                        return Err(unsupported(
+                            at.kernel,
+                            at.parameter,
+                            &format!(
+                                "Slang reports no packed layout of the structure `{}`",
+                                structure.name
+                            ),
+                        ));
+                    };
+                    structures.element(structure, packed, at)?;
                 }
             }
             for structure in &kernel.structures {
@@ -131,95 +192,134 @@ impl<'a> Structures<'a> {
         Ok(structures)
     }
 
-    fn element(&mut self, structure: &'a Structure, at: Use<'a>) -> Result<()> {
+    /// Records the structure that is the element of a structured buffer,
+    /// or a field of one, with its layout on the backend wgpu, `structure`,
+    /// and on the backend rhi, `packed`, and every structure that it holds.
+    fn element(
+        &mut self,
+        structure: &'a Structure,
+        packed: &'a Structure,
+        at: Use<'a>,
+    ) -> Result<()> {
+        let same_fields = packed.name == structure.name
+            && packed.fields.len() == structure.fields.len()
+            && packed
+                .fields
+                .iter()
+                .zip(&structure.fields)
+                .all(|(left, right)| left.name == right.name);
+        if !same_fields {
+            return Err(unsupported(
+                at.kernel,
+                at.parameter,
+                &format!(
+                    "Slang gives the structure `{}` other fields in the packed layout",
+                    structure.name
+                ),
+            ));
+        }
         let mut members = Vec::with_capacity(structure.fields.len());
-        let mut fields = Vec::with_capacity(structure.fields.len());
-        let mut end = 0_u64;
-        for field in &structure.fields {
-            let FieldShape { ty, content, size } = self.field_shape(structure, field, at)?;
-            let padding = field.offset.checked_sub(end).ok_or_else(|| {
-                field_error(
-                    structure,
-                    field,
-                    at,
-                    &format!("at the offset {}, inside the field before it", field.offset),
-                )
-            })?;
-            end = field.offset.checked_add(size).ok_or_else(|| {
-                field_error(
-                    structure,
-                    field,
-                    at,
-                    &format!("at the offset {}, beyond any Rust struct", field.offset),
-                )
-            })?;
+        let mut wgpu = Vec::with_capacity(structure.fields.len());
+        let mut rhi = Vec::with_capacity(structure.fields.len());
+        for (field, packed_field) in structure.fields.iter().zip(&packed.fields) {
+            let FieldShape {
+                ty,
+                wgpu: on_wgpu,
+                rhi: on_rhi,
+            } = self.field_shape(structure, field, packed_field, at)?;
             members.push(Member {
                 name: &field.name,
                 ty,
             });
-            fields.push(Placed {
-                padding,
-                offset: field.offset,
-                content,
-            });
+            wgpu.push(on_wgpu);
+            rhi.push(on_rhi);
         }
-        let tail = structure.size.checked_sub(end).ok_or_else(|| {
-            unsupported(
-                at.kernel,
-                at.parameter,
-                &format!(
-                    "the structure `{}` has a size of {} bytes, which ends before its last field",
-                    structure.name, structure.size
-                ),
-            )
-        })?;
+        let layouts = Layouts {
+            wgpu: place(structure, wgpu, at)?,
+            rhi: place(packed, rhi, at)?,
+        };
         self.define(Definition {
             name: &structure.name,
             first: at,
             members,
-            layout: Some(Layout {
-                structure,
-                fields,
-                tail,
-            }),
+            layouts: Some(layouts),
         })
     }
 
-    /// Returns the Rust type, the content, and the size of a field of a
-    /// structure in a structured buffer, and records the structure that the
-    /// field holds, if any.
+    /// Returns the Rust type of a field of a structure in a structured
+    /// buffer and what it holds on each backend, from the field of the
+    /// layout of the backend wgpu, `field`, and the field of the packed
+    /// layout, `packed`, and records the structure that the field holds, if
+    /// any.
     fn field_shape(
         &mut self,
         structure: &Structure,
         field: &'a Field,
+        packed: &'a Field,
         at: Use<'a>,
     ) -> Result<FieldShape> {
-        match &field.ty {
-            FieldType::Value(value) => {
-                let packed =
-                    packed(value).map_err(|what| field_error(structure, field, at, &what))?;
+        match (&field.ty, &packed.ty) {
+            (FieldType::Value(value), FieldType::Value(packed_value)) => {
+                let shape = |value: &ValueType| {
+                    self::packed(value).map_err(|what| field_error(structure, field, at, &what))
+                };
+                let on_wgpu = shape(value)?;
+                let on_rhi = shape(packed_value)?;
+                if on_rhi.size != on_wgpu.size
+                    || value_type(packed_value).to_string() != value_type(value).to_string()
+                {
+                    return Err(field_error(
+                        structure,
+                        field,
+                        at,
+                        "of another type or size in the packed layout",
+                    ));
+                }
                 Ok(FieldShape {
                     ty: value_type(value),
-                    size: packed.size,
-                    content: Content::Value {
-                        scalar: value.scalar,
-                        packed,
+                    wgpu: Held {
+                        size: on_wgpu.size,
+                        content: Content::Value {
+                            scalar: value.scalar,
+                            packed: on_wgpu,
+                        },
+                    },
+                    rhi: Held {
+                        size: on_rhi.size,
+                        content: Content::Value {
+                            scalar: value.scalar,
+                            packed: on_rhi,
+                        },
                     },
                 })
             }
-            FieldType::Structure(inner) => {
-                self.element(inner, at)?;
+            (FieldType::Structure(inner), FieldType::Structure(packed_inner)) => {
+                self.element(inner, packed_inner, at)?;
                 Ok(FieldShape {
                     ty: struct_type(&inner.name)?,
-                    content: Content::Structure { size: inner.size },
-                    size: inner.size,
+                    wgpu: Held {
+                        content: Content::Structure { size: inner.size },
+                        size: inner.size,
+                    },
+                    rhi: Held {
+                        content: Content::Structure {
+                            size: packed_inner.size,
+                        },
+                        size: packed_inner.size,
+                    },
                 })
             }
-            FieldType::Other { name } => Err(field_error(
+            (FieldType::Other { name }, _) => Err(field_error(
                 structure,
                 field,
                 at,
                 &format!("of the type `{name}`"),
+            )),
+            _ => Err(field_error(
+                structure,
+                field,
+                at,
+                "of another type in the packed layout",
             )),
         }
     }
@@ -283,7 +383,7 @@ impl<'a> Structures<'a> {
                 parameter: &structure.path,
             },
             members: children.into_iter().map(|(_, member)| member).collect(),
-            layout: None,
+            layouts: None,
         })
     }
 
@@ -307,8 +407,11 @@ impl<'a> Structures<'a> {
                 .all(|(left, right)| {
                     left.name == right.name && left.ty.to_string() == right.ty.to_string()
                 });
-        let same_layout = match (&existing.layout, &definition.layout) {
-            (Some(left), Some(right)) => left.structure == right.structure,
+        let same_layout = match (&existing.layouts, &definition.layouts) {
+            (Some(left), Some(right)) => {
+                left.wgpu.structure == right.wgpu.structure
+                    && left.rhi.structure == right.rhi.structure
+            }
             _ => true,
         };
         if !(same_members && same_layout) {
@@ -322,8 +425,8 @@ impl<'a> Structures<'a> {
                 "the structure `{name}` of the parameter `{parameter}` of the kernel `{kernel}` and the structure `{name}` of the parameter `{other_parameter}` of the kernel `{other_kernel}` are different structures that both become the Rust name `{name}`"
             )));
         }
-        if existing.layout.is_none() {
-            existing.layout = definition.layout;
+        if existing.layouts.is_none() {
+            existing.layouts = definition.layouts;
         }
         Ok(())
     }
@@ -362,9 +465,24 @@ impl Definition<'_> {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        match &self.layout {
+        match &self.layouts {
             None => Ok(self.uniform_items(name, &fields)),
-            Some(layout) => self.element_items(name, &fields, layout, &mut scope),
+            Some(Layouts { wgpu, rhi }) => {
+                let on_wgpu =
+                    self.element_items(name, &fields, wgpu, Backend::Wgpu, &mut scope.clone())?;
+                let on_rhi = self.element_items(name, &fields, rhi, Backend::Rhi, &mut scope)?;
+                let wgpu_only = Backend::Wgpu.helper();
+                let rhi_only = Backend::Rhi.helper();
+                Ok(quote! {
+                    #wgpu_only {
+                        #on_wgpu
+                    }
+
+                    #rhi_only {
+                        #on_rhi
+                    }
+                })
+            }
         }
     }
 
@@ -417,6 +535,7 @@ impl Definition<'_> {
         name: &Ident,
         fields: &[Ident],
         layout: &Layout<'_>,
+        backend: Backend,
         scope: &mut Scope,
     ) -> Result<TokenStream> {
         let mut parts = Parts::default();
@@ -431,6 +550,10 @@ impl Definition<'_> {
             parts.field(name, field, declaration, placed, &member.ty);
         }
         parts.padding(layout.tail, self.name, scope)?;
+        let padded = parts.paddings > 0;
+        if !padded {
+            parts.seal(self.name, scope)?;
+        }
         let Parts {
             declarations,
             zeroes,
@@ -443,20 +566,29 @@ impl Definition<'_> {
         let expect = many_arguments(fields.len());
         let slang_name = self.name;
         let size = Literal::u64_unsuffixed(layout.structure.size);
+        let mut struct_fields = Vec::new();
+        offsets(layout.structure, "", 0, &mut struct_fields);
         let doc = format!(
-            " The Slang structure `{slang_name}`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type."
+            " The Slang structure `{slang_name}`, with {}, a buffer in GPU memory that holds an array of elements of one type.",
+            backend.layout_description()
         );
         let size_message = format!(
             "the size of the struct `{slang_name}` differs from the stride that Slang gives the structure"
         );
+        let private = if padded {
+            " Each public field holds the field of the same name at the offset that Slang gives it, and private fields hold the padding, so a value is created with [`Self::new`]. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure."
+        } else {
+            " Each public field holds the field of the same name at the offset that Slang gives it. The layout has no padding, and a private field of zero size rules out a struct expression, so a value is created with [`Self::new`], as in a layout with padding. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure."
+        };
+        let new_doc = if padded {
+            " Returns the structure with the given fields and zero in every byte of padding."
+        } else {
+            " Returns the structure with the given fields."
+        };
         Ok(quote! {
             #[doc = #doc]
             ///
-            /// Each public field holds the field of the same name at the
-            /// offset that Slang gives it, and private fields hold the
-            /// padding, so a value is created with [`Self::new`]. A
-            /// [`slango::Buffer`] of the struct binds to a structured buffer
-            /// of the structure.
+            #[doc = #private]
             #[repr(C)]
             #[derive(Clone, Copy, Debug, PartialEq)]
             pub struct #name {
@@ -464,8 +596,7 @@ impl Definition<'_> {
             }
 
             impl #name {
-                /// Returns the structure with the given fields and zero in
-                /// every byte of padding.
+                #[doc = #new_doc]
                 #[must_use]
                 #expect
                 pub const fn new(#(#fields: #types),*) -> Self {
@@ -484,6 +615,9 @@ impl Definition<'_> {
             impl ::slango::__private::StructElement for #name {
                 const SLANG_NAME: &'static str = #slang_name;
                 const STRIDE: usize = #size;
+                const FIELDS: &'static [::slango::__private::StructField] = &[
+                    #(#struct_fields),*
+                ];
 
                 fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
                     #(#writes)*
@@ -534,6 +668,20 @@ impl Parts {
         Ok(())
     }
 
+    /// Adds a private field of zero size and alignment 1 to a structure
+    /// without padding, which changes neither its size nor its layout.
+    fn seal(&mut self, structure: &str, scope: &mut Scope) -> Result<()> {
+        let field = scope.take(
+            format!("_padding{}", self.paddings),
+            format!("the padding of the structure `{structure}`"),
+        )?;
+        self.declarations.push(quote!(#field: [u8; 0],));
+        let empty = quote!(#field: [],);
+        self.zeroes.push(empty.clone());
+        self.reads.push(empty);
+        Ok(())
+    }
+
     fn field(
         &mut self,
         name: &Ident,
@@ -567,6 +715,86 @@ impl Parts {
                     #field: <#ty as ::slango::__private::StructElement>::read_bytes(bytes.get(#offset..#end)?)?,
                 });
             }
+        }
+    }
+}
+
+/// Returns the layout of `structure` from what each of its fields holds in
+/// that layout, in the order of the fields, with the padding before each
+/// field and after the last.
+fn place<'a>(structure: &'a Structure, sized: Vec<Held>, at: Use<'_>) -> Result<Layout<'a>> {
+    let mut fields = Vec::with_capacity(sized.len());
+    let mut end = 0_u64;
+    for (field, Held { content, size }) in structure.fields.iter().zip(sized) {
+        let padding = field.offset.checked_sub(end).ok_or_else(|| {
+            field_error(
+                structure,
+                field,
+                at,
+                &format!("at the offset {}, inside the field before it", field.offset),
+            )
+        })?;
+        end = field.offset.checked_add(size).ok_or_else(|| {
+            field_error(
+                structure,
+                field,
+                at,
+                &format!("at the offset {}, beyond any Rust struct", field.offset),
+            )
+        })?;
+        fields.push(Placed {
+            padding,
+            offset: field.offset,
+            content,
+        });
+    }
+    let tail = structure.size.checked_sub(end).ok_or_else(|| {
+        unsupported(
+            at.kernel,
+            at.parameter,
+            &format!(
+                "the structure `{}` has a size of {} bytes, which ends before its last field",
+                structure.name, structure.size
+            ),
+        )
+    })?;
+    Ok(Layout {
+        structure,
+        fields,
+        tail,
+    })
+}
+
+/// Appends the tokens of the name, the offset, and the type of each field of
+/// `structure`, which starts at `base` under the path `prefix`, with each
+/// field of a nested structure after the field that holds it.
+fn offsets(structure: &Structure, prefix: &str, base: u64, out: &mut Vec<TokenStream>) {
+    for field in &structure.fields {
+        let path = if prefix.is_empty() {
+            field.name.clone()
+        } else {
+            format!("{prefix}.{}", field.name)
+        };
+        let offset = base.saturating_add(field.offset);
+        let literal = Literal::u64_unsuffixed(offset);
+        let ty = match &field.ty {
+            FieldType::Value(value) => {
+                let name = slang_value_type(value);
+                quote!(::slango::__private::StructFieldType::Plain(#name))
+            }
+            FieldType::Structure(inner) => {
+                let name = &inner.name;
+                quote!(::slango::__private::StructFieldType::Structure(#name))
+            }
+            FieldType::Other { name } => {
+                quote!(::slango::__private::StructFieldType::Plain(#name))
+            }
+        };
+        out.push(quote! {
+            ::slango::__private::StructField { name: #path, offset: #literal, ty: #ty }
+        });
+        if let FieldType::Structure(inner) = &field.ty {
+            offsets(inner, &path, offset, out);
         }
     }
 }

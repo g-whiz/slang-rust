@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
-use crate::layout::{self, Binding, Compilation, CompiledKernel, KernelLayout, Resource};
+use crate::layout::{
+    self, Binding, Compilation, CompiledKernel, ElementStructure, KernelLayout, Resource,
+};
 
 /// The description of a compiled Slang module that the generator of
-/// `slango-codegen` reads: its kernels and the files that Slang read.
+/// `slango-codegen` reads: its kernels, the files that Slang read, and the
+/// modules that it loaded.
 #[expect(
     clippy::exhaustive_structs,
     reason = "the module has no stability promise, and the tests of the generator build it with a literal"
@@ -16,6 +19,29 @@ pub struct Interface {
     /// The paths of the files that Slang read to compile the module: the
     /// file itself and every file that it imports.
     pub dependencies: Vec<PathBuf>,
+    /// The module and every module that it imports, directly or through
+    /// another module, in the order in which Slang lists the modules of its
+    /// session.
+    pub modules: Vec<LoadedModule>,
+}
+
+/// A module that Slang loaded to compile a module: the module itself or one
+/// that it imports.
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "the module has no stability promise, and the tests of the generator build it with a literal"
+)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadedModule {
+    /// The name of the module, which an `import` of it names, such as
+    /// `my_helpers` for the file `my-helpers.slang`.
+    pub name: String,
+    /// The path of the file of the module.
+    pub path: PathBuf,
+    /// The paths of the files that Slang read for the module: its own file,
+    /// the files that it includes, and the files of the modules that it
+    /// imports.
+    pub files: Vec<PathBuf>,
 }
 
 /// The description of one kernel, a compute entry point of a module.
@@ -70,8 +96,13 @@ pub enum ParameterKind {
     Buffer {
         /// Whether the kernel can write the buffer.
         access: Access,
-        /// The type of the elements of the buffer.
+        /// The type of the elements of the buffer, with the layout of a
+        /// structure that `slango` with the feature `wgpu` gives it.
         element: ElementType,
+        /// The structure of the elements with the packed layout that
+        /// `slango` with the feature `rhi` gives it, the scalar layout of
+        /// SPIR-V, when the elements are a structure, and `None` otherwise.
+        packed: Option<Structure>,
     },
     /// A `Texture2D` with `float` results, which
     /// [`Call::texture`](crate::Call::texture) binds.
@@ -119,6 +150,39 @@ pub enum Scalar {
 #[must_use]
 pub fn slang_type(scalar: Scalar, components: u32) -> String {
     layout::slang_type(layout_scalar(scalar), components)
+}
+
+/// Returns the name of the Slang type of a plain value, such as `float3`,
+/// `float2x3`, or `int3[4]`, with the lengths of nested arrays from the
+/// outermost to the innermost.
+///
+/// The name tells apart every scalar type, vector, matrix, and array, so two
+/// plain values have the same name exactly when they have the same type.
+#[must_use]
+pub fn slang_value_type(value: &ValueType) -> String {
+    let mut lengths = String::new();
+    let mut shape = &value.shape;
+    while let Shape::Array {
+        length, element, ..
+    } = shape
+    {
+        lengths.push('[');
+        lengths.push_str(&length.to_string());
+        lengths.push(']');
+        shape = element;
+    }
+    let name = layout::slang_scalar_name(layout_scalar(value.scalar));
+    match shape {
+        Shape::Scalar | Shape::Array { .. } => format!("{name}{lengths}"),
+        Shape::Vector { length } => format!("{name}{length}{lengths}"),
+        Shape::Matrix { rows, columns } => format!("{name}{rows}x{columns}{lengths}"),
+    }
+}
+
+/// Returns the name that [`slang_value_type`] gives a reflected plain value
+/// of `scalar` and `shape`.
+pub(crate) fn slang_layout_type(scalar: layout::Scalar, shape: &layout::Shape) -> String {
+    slang_value_type(&value_type(scalar, shape))
 }
 
 /// How the scalars of a plain value are arranged.
@@ -260,16 +324,40 @@ pub struct UniformStructure {
     pub name: String,
 }
 
-/// Returns the description of the kernels of a compilation and of the files
-/// that Slang read for it.
-pub(super) fn describe(compilation: &Compilation) -> Interface {
+/// Returns the description of the kernels of a compilation, of the files
+/// that Slang read for it, and of the modules that it loaded, with the packed
+/// structure of each structured buffer of each kernel by its name.
+pub(super) fn describe(
+    compilation: &Compilation,
+    packed: &[(String, Vec<ElementStructure>)],
+) -> Interface {
     Interface {
-        kernels: compilation.compiled.kernels.iter().map(kernel).collect(),
+        kernels: compilation
+            .compiled
+            .kernels
+            .iter()
+            .map(|compiled| {
+                let structures = packed
+                    .iter()
+                    .find(|(name, _)| *name == compiled.layout.name)
+                    .map_or(&[][..], |(_, structures)| structures.as_slice());
+                kernel(compiled, structures)
+            })
+            .collect(),
         dependencies: compilation.dependencies.iter().map(PathBuf::from).collect(),
+        modules: compilation
+            .modules
+            .iter()
+            .map(|module| LoadedModule {
+                name: module.name.clone(),
+                path: PathBuf::from(&module.path),
+                files: module.files.iter().map(PathBuf::from).collect(),
+            })
+            .collect(),
     }
 }
 
-fn kernel(kernel: &CompiledKernel) -> KernelInterface {
+fn kernel(kernel: &CompiledKernel, packed: &[ElementStructure]) -> KernelInterface {
     let KernelLayout {
         name,
         thread_group_size,
@@ -277,7 +365,8 @@ fn kernel(kernel: &CompiledKernel) -> KernelInterface {
         immediates,
         structures,
     } = &kernel.layout;
-    let mut parameters: Vec<Parameter> = bindings.iter().flat_map(binding).collect();
+    let mut parameters: Vec<Parameter> =
+        bindings.iter().flat_map(|at| binding(at, packed)).collect();
     parameters.extend(immediates.iter().flat_map(values));
     KernelInterface {
         name: name.clone(),
@@ -293,7 +382,7 @@ fn kernel(kernel: &CompiledKernel) -> KernelInterface {
     }
 }
 
-fn binding(binding: &Binding) -> Vec<Parameter> {
+fn binding(binding: &Binding, packed: &[ElementStructure]) -> Vec<Parameter> {
     let parameter = |kind| {
         vec![Parameter {
             path: binding.path.clone(),
@@ -309,6 +398,10 @@ fn binding(binding: &Binding) -> Vec<Parameter> {
                 layout::Access::ReadWrite => Access::ReadWrite,
             },
             element: element_type(element),
+            packed: packed
+                .iter()
+                .find(|(path, _)| *path == binding.path)
+                .map(|(_, structure)| self::structure(structure)),
         }),
         Resource::UniformBuffer(block) => values(block),
         Resource::SampledTexture => parameter(ParameterKind::Texture),

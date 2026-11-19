@@ -2,69 +2,182 @@
 source: crates/slango-codegen/tests/codegen/ffi.rs
 expression: "bindings(\"uniform.slang\")"
 ---
-const _: &[u8] = ::core::include_bytes!("<shaders>/uniform.slang");
-const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 3,
-    "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
-);
-/// The Slang structure `Light`, with the layout that Slang gives it in a structured buffer, a buffer in GPU memory that holds an array of elements of one type.
-///
-/// Each public field holds the field of the same name at the
-/// offset that Slang gives it, and private fields hold the
-/// padding, so a value is created with [`Self::new`]. A
-/// [`slango::Buffer`] of the struct binds to a structured buffer
-/// of the structure.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Light {
-    /// The field `colour` of the Slang structure.
-    pub colour: [f32; 3],
-    /// The field `intensity` of the Slang structure.
-    pub intensity: f32,
+const _: &str = ::core::include_str!("<shaders>/uniform.slang");
+::slango::__private::wgpu_only! {
+    const _: () = ::core::assert!(
+        ::slango::__private::ENCODING_VERSION == 3,
+        "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+    );
+    /// The module of the bindings for slango with the feature `wgpu`:
+    /// its layout snapshot with its SPIR-V, encoded when the crate
+    /// was built.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        encoded: b"<encoded snapshot>",
+    };
 }
-impl Light {
-    /// Returns the structure with the given fields and zero in
-    /// every byte of padding.
-    #[must_use]
-    pub const fn new(colour: [f32; 3], intensity: f32) -> Self {
-        Self { colour, intensity }
+::slango::__private::rhi_only! {
+    /// The module of the bindings for slango with the feature `rhi`:
+    /// the Slang source of the module and of each module that it
+    /// imports, each after the modules that it imports, which a load
+    /// compiles for the device.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        sources: &[
+            ::slango::__private::EmbeddedSource {
+                name: "uniform",
+                path: "<shaders>/uniform.slang",
+                text: ::core::include_str!("<shaders>/uniform.slang"),
+            },
+        ],
+    };
+}
+::slango::__private::wgpu_only! {
+    /// The Slang structure `Light`, with the std430 layout that Slang gives it in a structured buffer for slango with the feature `wgpu`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it. The layout has no padding, and a private field of zero size rules out a struct expression, so a value is created with [`Self::new`], as in a layout with padding. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Light {
+        /// The field `colour` of the Slang structure.
+        pub colour: [f32; 3],
+        /// The field `intensity` of the Slang structure.
+        pub intensity: f32,
+        _padding0: [u8; 0],
+    }
+    impl Light {
+        /// Returns the structure with the given fields.
+        #[must_use]
+        pub const fn new(colour: [f32; 3], intensity: f32) -> Self {
+            Self {
+                colour,
+                intensity,
+                _padding0: [],
+            }
+        }
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Light > () == 16,
+            "the size of the struct `Light` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Light, colour) == 0,
+            "the offset of the field `colour` of the struct `Light` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Light, intensity) == 12,
+            "the offset of the field `intensity` of the struct `Light` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Light {
+        const SLANG_NAME: &'static str = "Light";
+        const STRIDE: usize = 16;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "colour",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float3"),
+            },
+            ::slango::__private::StructField {
+                name: "intensity",
+                offset: 12,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.colour {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            out.extend_from_slice(&self.intensity.to_le_bytes());
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 16 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                colour: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                ],
+                intensity: f32::from_le_bytes(*bytes.get(12..)?.first_chunk()?),
+                _padding0: [],
+            })
+        }
     }
 }
-const _: () = {
-    ::core::assert!(
-        ::core::mem::size_of:: < Light > () == 16,
-        "the size of the struct `Light` differs from the stride that Slang gives the structure"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Light, colour) == 0,
-        "the offset of the field `colour` of the struct `Light` differs from the offset that Slang gives it"
-    );
-    ::core::assert!(
-        ::core::mem::offset_of!(Light, intensity) == 12,
-        "the offset of the field `intensity` of the struct `Light` differs from the offset that Slang gives it"
-    );
-};
-impl ::slango::__private::StructElement for Light {
-    const SLANG_NAME: &'static str = "Light";
-    const STRIDE: usize = 16;
-    fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
-        for item0 in self.colour {
-            out.extend_from_slice(&item0.to_le_bytes());
-        }
-        out.extend_from_slice(&self.intensity.to_le_bytes());
+::slango::__private::rhi_only! {
+    /// The Slang structure `Light`, with the packed layout that Slang gives it in a structured buffer for slango with the feature `rhi`, a buffer in GPU memory that holds an array of elements of one type.
+    ///
+    /// Each public field holds the field of the same name at the offset that Slang gives it. The layout has no padding, and a private field of zero size rules out a struct expression, so a value is created with [`Self::new`], as in a layout with padding. A [`slango::Buffer`] of the struct binds to a structured buffer of the structure.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Light {
+        /// The field `colour` of the Slang structure.
+        pub colour: [f32; 3],
+        /// The field `intensity` of the Slang structure.
+        pub intensity: f32,
+        _padding0: [u8; 0],
     }
-    fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
-        if bytes.len() != 16 {
-            return ::core::option::Option::None;
+    impl Light {
+        /// Returns the structure with the given fields.
+        #[must_use]
+        pub const fn new(colour: [f32; 3], intensity: f32) -> Self {
+            Self {
+                colour,
+                intensity,
+                _padding0: [],
+            }
         }
-        ::core::option::Option::Some(Self {
-            colour: [
-                f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
-                f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
-                f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
-            ],
-            intensity: f32::from_le_bytes(*bytes.get(12..)?.first_chunk()?),
-        })
+    }
+    const _: () = {
+        ::core::assert!(
+            ::core::mem::size_of:: < Light > () == 16,
+            "the size of the struct `Light` differs from the stride that Slang gives the structure"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Light, colour) == 0,
+            "the offset of the field `colour` of the struct `Light` differs from the offset that Slang gives it"
+        );
+        ::core::assert!(
+            ::core::mem::offset_of!(Light, intensity) == 12,
+            "the offset of the field `intensity` of the struct `Light` differs from the offset that Slang gives it"
+        );
+    };
+    impl ::slango::__private::StructElement for Light {
+        const SLANG_NAME: &'static str = "Light";
+        const STRIDE: usize = 16;
+        const FIELDS: &'static [::slango::__private::StructField] = &[
+            ::slango::__private::StructField {
+                name: "colour",
+                offset: 0,
+                ty: ::slango::__private::StructFieldType::Plain("float3"),
+            },
+            ::slango::__private::StructField {
+                name: "intensity",
+                offset: 12,
+                ty: ::slango::__private::StructFieldType::Plain("float"),
+            },
+        ];
+        fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {
+            for item0 in self.colour {
+                out.extend_from_slice(&item0.to_le_bytes());
+            }
+            out.extend_from_slice(&self.intensity.to_le_bytes());
+        }
+        fn read_bytes(bytes: &[u8]) -> ::core::option::Option<Self> {
+            if bytes.len() != 16 {
+                return ::core::option::Option::None;
+            }
+            ::core::option::Option::Some(Self {
+                colour: [
+                    f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),
+                    f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),
+                ],
+                intensity: f32::from_le_bytes(*bytes.get(12..)?.first_chunk()?),
+                _padding0: [],
+            })
+        }
     }
 }
 /// The Slang structure `Params`, which a kernel takes as a plain value.
@@ -208,9 +321,13 @@ pub struct Shader {
     module: ::slango::Module,
 }
 impl Shader {
-    /// Loads the module on `device` from the code that was compiled
-    /// when the crate was built, with no call into Slang, and looks up
-    /// each of its kernels.
+    /// Loads the module on `device` and looks up each of its kernels.
+    ///
+    /// With the feature `wgpu` of `slango`, the load creates the code
+    /// that was compiled when the crate was built, with no call into
+    /// Slang. With the feature `rhi`, it compiles the Slang source of
+    /// the module and of the modules that it imports, embedded when
+    /// the crate was built, for the device.
     ///
     /// # Errors
     ///
@@ -219,10 +336,7 @@ impl Shader {
     /// [`slango::Device::load_module`] gives, or when the version of
     /// `slango` differs from the one that generated the bindings.
     pub fn load(device: &::slango::Device) -> ::slango::Result<Self> {
-        let module = ::slango::__private::load_precompiled(
-            device,
-            b"<encoded snapshot>",
-        )?;
+        let module = ::slango::__private::load_embedded(device, &EMBEDDED)?;
         ::core::result::Result::Ok(Self {
             shade: Shade {
                 kernel: module.kernel("shade")?.clone(),

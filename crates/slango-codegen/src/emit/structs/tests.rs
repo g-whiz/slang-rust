@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use slango::__private::{
-    Access, ElementType, Field, FieldType, Interface, KernelInterface, Parameter, ParameterKind,
-    Precompiled, Scalar, Shape, Structure, UniformStructure, ValueType,
+    Access, ElementType, Field, FieldType, Interface, KernelInterface, LoadedModule, Parameter,
+    ParameterKind, Precompiled, Scalar, Shape, Structure, UniformStructure, ValueType,
 };
 
 use crate::{ErrorKind, generate_precompiled};
@@ -79,6 +79,7 @@ fn buffer(path: &str, element: Structure) -> Parameter {
         path: path.to_owned(),
         kind: ParameterKind::Buffer {
             access: Access::ReadWrite,
+            packed: Some(element.clone()),
             element: ElementType::Structure(element),
         },
     }
@@ -120,6 +121,11 @@ fn precompiled(kernels: Vec<KernelInterface>) -> Precompiled {
         interface: Interface {
             kernels,
             dependencies: vec![PathBuf::from("/tmp/shaders/structs.slang")],
+            modules: vec![LoadedModule {
+                name: "structs".to_owned(),
+                path: PathBuf::from("/tmp/shaders/structs.slang"),
+                files: vec![PathBuf::from("/tmp/shaders/structs.slang")],
+            }],
         },
         encoded: vec![1, 2, 3],
     }
@@ -127,8 +133,7 @@ fn precompiled(kernels: Vec<KernelInterface>) -> Precompiled {
 
 fn format(kernels: Vec<KernelInterface>) -> String {
     let tokens = generate_precompiled(&precompiled(kernels)).expect("the bindings");
-    let file = syn::parse2::<syn::File>(tokens).expect("the bindings parse as a Rust file");
-    prettyplease::unparse(&file)
+    super::super::pretty::unparse(tokens)
 }
 
 fn error(kernels: Vec<KernelInterface>) -> (ErrorKind, String) {
@@ -142,11 +147,62 @@ fn assert_contains(text: &str, lines: &[&str]) {
     }
 }
 
+/// Returns the items inside every call of the helper macro `helper` of
+/// `slango` in formatted bindings, without the indentation of the call.
+fn form(text: &str, helper: &str) -> String {
+    let start = format!("::slango::__private::{helper}! {{\n");
+    let mut items = String::new();
+    for call in text.split(&start).skip(1) {
+        let body = call.split("\n}\n").next().unwrap_or(call);
+        for line in body.lines() {
+            items.push_str(line.strip_prefix("    ").unwrap_or(line));
+            items.push('\n');
+        }
+    }
+    items
+}
+
+fn wgpu_form(text: &str) -> String {
+    form(text, "wgpu_only")
+}
+
+fn rhi_form(text: &str) -> String {
+    form(text, "rhi_only")
+}
+
+/// Returns a buffer of `element` whose packed layout is `packed`.
+fn packed_buffer(path: &str, element: Structure, packed: Structure) -> Parameter {
+    Parameter {
+        path: path.to_owned(),
+        kind: ParameterKind::Buffer {
+            access: Access::ReadWrite,
+            element: ElementType::Structure(element),
+            packed: Some(packed),
+        },
+    }
+}
+
+/// The structure `Particle` of [`particle`] in the packed layout, with no
+/// tail padding.
+fn packed_particle() -> Structure {
+    let mut packed = particle();
+    packed.size = 24;
+    packed
+}
+
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn an_element_gets_fields_at_its_offsets_with_tail_padding_and_layout_assertions() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
+    assert!(
+        text.contains("pub particles: &'a ::slango::Buffer<Particle>,"),
+        "{text}"
+    );
     assert_contains(
-        &text,
+        &wgpu_form(&text),
         &[
             "#[repr(C)]\n#[derive(Clone, Copy, Debug, PartialEq)]\npub struct Particle {\n    /// The field `position` of the Slang structure.\n    pub position: [f32; 3],\n    /// The field `mass` of the Slang structure.\n    pub mass: f32,\n    /// The field `velocity` of the Slang structure.\n    pub velocity: [f32; 2],\n    _padding0: [u8; 8],\n}",
             "pub const fn new(position: [f32; 3], mass: f32, velocity: [f32; 2]) -> Self {\n        Self {\n            position,\n            mass,\n            velocity,\n            _padding0: [0; 8],\n        }\n    }",
@@ -154,17 +210,127 @@ fn an_element_gets_fields_at_its_offsets_with_tail_padding_and_layout_assertions
             "::core::mem::offset_of!(Particle, position) == 0,",
             "::core::mem::offset_of!(Particle, mass) == 12,",
             "::core::mem::offset_of!(Particle, velocity) == 16,",
-            "impl ::slango::__private::StructElement for Particle {\n    const SLANG_NAME: &'static str = \"Particle\";\n    const STRIDE: usize = 32;",
-            "pub particles: &'a ::slango::Buffer<Particle>,",
+            "impl ::slango::__private::StructElement for Particle {\n    const SLANG_NAME: &'static str = \"Particle\";\n    const STRIDE: usize = 32;\n    const FIELDS: &'static [::slango::__private::StructField] = &[\n        ::slango::__private::StructField {\n            name: \"position\",\n            offset: 0,\n            ty: ::slango::__private::StructFieldType::Plain(\"float3\"),\n        },\n        ::slango::__private::StructField {\n            name: \"mass\",\n            offset: 12,\n            ty: ::slango::__private::StructFieldType::Plain(\"float\"),\n        },\n        ::slango::__private::StructField {\n            name: \"velocity\",\n            offset: 16,\n            ty: ::slango::__private::StructFieldType::Plain(\"float2\"),\n        },\n    ];",
         ],
     );
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
+fn each_backend_gets_the_element_form_of_its_layout_inside_its_helper_macro() {
+    let text = format(vec![kernel(
+        "step",
+        vec![packed_buffer("particles", particle(), packed_particle())],
+    )]);
+    let (wgpu, rhi) = (wgpu_form(&text), rhi_form(&text));
+    for form in [&wgpu, &rhi] {
+        assert_eq!(form.matches("pub struct Particle {").count(), 1, "{text}");
+        assert_contains(
+            form,
+            &[
+                "pub const fn new(position: [f32; 3], mass: f32, velocity: [f32; 2]) -> Self {",
+                "::core::mem::offset_of!(Particle, velocity) == 16,",
+                "impl ::slango::__private::StructElement for Particle {",
+            ],
+        );
+    }
+    assert_contains(
+        &wgpu,
+        &[
+            "_padding0: [u8; 8],",
+            "::core::mem::size_of:: < Particle > () == 32,",
+            "const STRIDE: usize = 32;",
+            "out.extend_from_slice(&[0_u8; 8]);",
+        ],
+    );
+    assert_contains(
+        &rhi,
+        &[
+            "pub velocity: [f32; 2],\n    _padding0: [u8; 0],\n}",
+            "/// Returns the structure with the given fields.\n    #[must_use]",
+            "velocity,\n            _padding0: [],\n        }",
+            "The layout has no padding, and a private field of zero size rules out a struct expression",
+            "::core::mem::size_of:: < Particle > () == 24,",
+            "const STRIDE: usize = 24;",
+            "if bytes.len() != 24 {",
+        ],
+    );
+    assert!(!rhi.contains("[0_u8;"), "{rhi}");
+    assert!(!rhi.contains("private fields hold the padding"), "{rhi}");
+    assert!(
+        wgpu.contains("private fields hold the padding") && !wgpu.contains("zero size"),
+        "{wgpu}"
+    );
+    assert!(
+        wgpu.contains("std430 layout") && rhi.contains("packed layout"),
+        "{text}"
+    );
+    let outside = text
+        .split("::slango::__private::wgpu_only! {")
+        .next()
+        .unwrap_or(&text);
+    assert!(!outside.contains("pub struct Particle"), "{text}");
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
+fn the_fields_of_an_element_list_each_nested_field_by_its_path_and_its_offset_from_the_start() {
+    let text = format(vec![kernel("settle", vec![buffer("bodies", body())])]);
+    assert_contains(
+        &wgpu_form(&text),
+        &[
+            "name: \"motion\",\n            offset: 16,",
+            "name: \"motion.velocity\",\n            offset: 16,",
+            "name: \"motion.drag\",\n            offset: 24,",
+            "name: \"id\",\n            offset: 32,",
+        ],
+    );
+}
+
+#[test]
+fn an_element_without_a_packed_layout_or_with_other_packed_fields_is_unsupported() {
+    let mut without = buffer("particles", particle());
+    if let ParameterKind::Buffer { packed, .. } = &mut without.kind {
+        *packed = None;
+    }
+    assert_eq!(
+        error(vec![kernel("step", vec![without])]),
+        (
+            ErrorKind::Unsupported,
+            "cannot generate the bindings: the parameter `particles` of the kernel `step` is not supported, because Slang reports no packed layout of the structure `Particle`".to_owned()
+        )
+    );
+    let mut renamed = packed_particle();
+    if let Some(field) = renamed.fields.first_mut() {
+        field.name = "place".to_owned();
+    }
+    assert_eq!(
+        error(vec![kernel(
+            "step",
+            vec![packed_buffer("particles", particle(), renamed)]
+        )]),
+        (
+            ErrorKind::Unsupported,
+            "cannot generate the bindings: the parameter `particles` of the kernel `step` is not supported, because Slang gives the structure `Particle` other fields in the packed layout".to_owned()
+        )
+    );
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn write_bytes_appends_each_scalar_and_zero_padding_in_the_order_of_the_offsets() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
     assert_contains(
-        &text,
+        &wgpu_form(&text),
         &[
             "fn write_bytes(&self, out: &mut ::std::vec::Vec<u8>) {\n        for item0 in self.position {\n            out.extend_from_slice(&item0.to_le_bytes());\n        }\n        out.extend_from_slice(&self.mass.to_le_bytes());\n        for item0 in self.velocity {\n            out.extend_from_slice(&item0.to_le_bytes());\n        }\n        out.extend_from_slice(&[0_u8; 8]);\n    }",
         ],
@@ -172,10 +338,14 @@ fn write_bytes_appends_each_scalar_and_zero_padding_in_the_order_of_the_offsets(
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn read_bytes_reads_each_scalar_at_its_offset_after_checking_the_length() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
     assert_contains(
-        &text,
+        &wgpu_form(&text),
         &[
             "if bytes.len() != 32 {\n            return ::core::option::Option::None;\n        }",
             "position: [\n                f32::from_le_bytes(*bytes.get(0..)?.first_chunk()?),\n                f32::from_le_bytes(*bytes.get(4..)?.first_chunk()?),\n                f32::from_le_bytes(*bytes.get(8..)?.first_chunk()?),\n            ],",
@@ -186,6 +356,10 @@ fn read_bytes_reads_each_scalar_at_its_offset_after_checking_the_length() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_gap_between_fields_gets_its_own_padding_and_an_array_is_read_at_its_stride() {
     let grid = value(
         Scalar::Int32,
@@ -217,11 +391,13 @@ fn a_gap_between_fields_gets_its_own_padding_and_an_array_is_read_at_its_stride(
         vec![buffer("gaps", gap), buffer("grids", grid)],
     )]);
     assert_contains(
-        &text,
+        &wgpu_form(&text),
         &[
             "pub weight: f32,\n    _padding0: [u8; 12],\n    /// The field `colour` of the Slang structure.\n    pub colour: [u32; 4],\n}",
             "out.extend_from_slice(&self.weight.to_le_bytes());\n        out.extend_from_slice(&[0_u8; 12]);\n        for item0 in self.colour {",
-            "pub cells: [[i32; 2]; 2],\n}",
+            "pub cells: [[i32; 2]; 2],\n    _padding0: [u8; 0],\n}",
+            "ty: ::slango::__private::StructFieldType::Plain(\"int[2][2]\"),",
+            "ty: ::slango::__private::StructFieldType::Plain(\"uint4\"),",
             "for item0 in self.cells {\n            for item1 in item0 {\n                out.extend_from_slice(&item1.to_le_bytes());\n            }\n        }",
             "i32::from_le_bytes(*bytes.get(12..)?.first_chunk()?),\n                ],\n            ],",
         ],
@@ -229,10 +405,14 @@ fn a_gap_between_fields_gets_its_own_padding_and_an_array_is_read_at_its_stride(
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_nested_element_is_its_own_struct_written_and_read_through_its_implementation() {
     let text = format(vec![kernel("settle", vec![buffer("bodies", body())])]);
     assert_contains(
-        &text,
+        &wgpu_form(&text),
         &[
             "pub struct Motion {",
             "pub position: [f32; 3],\n    _padding0: [u8; 4],\n    /// The field `motion` of the Slang structure.\n    pub motion: Motion,\n    /// The field `id` of the Slang structure.\n    pub id: u32,\n    _padding1: [u8; 12],\n}",
@@ -249,14 +429,20 @@ fn a_nested_element_is_its_own_struct_written_and_read_through_its_implementatio
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_structure_that_two_kernels_and_a_nested_field_use_is_emitted_once() {
     let text = format(vec![
         kernel("push", vec![buffer("motions", motion())]),
         kernel("settle", vec![buffer("bodies", body())]),
         kernel("again", vec![buffer("bodies", body())]),
     ]);
-    assert_eq!(text.matches("pub struct Motion {").count(), 1, "{text}");
-    assert_eq!(text.matches("pub struct Body {").count(), 1, "{text}");
+    for form in [wgpu_form(&text), rhi_form(&text)] {
+        assert_eq!(form.matches("pub struct Motion {").count(), 1, "{text}");
+        assert_eq!(form.matches("pub struct Body {").count(), 1, "{text}");
+    }
     assert_contains(
         &text,
         &[
@@ -300,6 +486,10 @@ fn shade() -> KernelInterface {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_uniform_structure_is_a_plain_struct_whose_leaves_are_set_by_their_paths() {
     let text = format(vec![shade()]);
     assert_contains(
@@ -317,6 +507,10 @@ fn a_uniform_structure_is_a_plain_struct_whose_leaves_are_set_by_their_paths() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_uniform_structure_inside_a_constant_buffer_is_named_by_its_whole_path() {
     let mut parameters = vec![leaf("settings.tint", float(4))];
     parameters.extend(light_leaves("settings.light"));
@@ -334,6 +528,10 @@ fn a_uniform_structure_inside_a_constant_buffer_is_named_by_its_whole_path() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn an_element_that_is_also_a_uniform_value_is_emitted_once_in_the_element_form() {
     let light = structure(
         "Light",
@@ -358,12 +556,19 @@ fn an_element_that_is_also_a_uniform_value_is_emitted_once_in_the_element_form()
         ],
     ] {
         let text = format(kernels);
-        assert_eq!(text.matches("pub struct Light {").count(), 1, "{text}");
+        assert_eq!(text.matches("pub struct Light {").count(), 2, "{text}");
+        for form in [wgpu_form(&text), rhi_form(&text)] {
+            assert_contains(
+                &form,
+                &[
+                    "#[repr(C)]\n#[derive(Clone, Copy, Debug, PartialEq)]\npub struct Light {",
+                    "impl ::slango::__private::StructElement for Light {",
+                ],
+            );
+        }
         assert_contains(
             &text,
             &[
-                "#[repr(C)]\n#[derive(Clone, Copy, Debug, PartialEq)]\npub struct Light {",
-                "impl ::slango::__private::StructElement for Light {",
                 "pub extra: Light,",
                 ".set(\"extra.intensity\", args.extra.intensity)",
             ],
@@ -372,6 +577,10 @@ fn an_element_that_is_also_a_uniform_value_is_emitted_once_in_the_element_form()
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_uniform_structure_without_leaves_still_gets_its_field() {
     let text = format(vec![with_structures(
         kernel(
@@ -570,6 +779,10 @@ fn a_resource_inside_a_uniform_structure_is_unsupported() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_keyword_field_becomes_a_raw_identifier_in_the_struct_and_in_the_call() {
     let element = structure(
         "Tagged",
@@ -761,6 +974,10 @@ fn two_different_structures_with_one_name_conflict() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn new_of_more_than_seven_fields_expects_the_lint_of_too_many_arguments() {
     let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
     let fields = |count: usize| {
@@ -778,6 +995,7 @@ fn new_of_more_than_seven_fields_expects_the_lint_of_too_many_arguments() {
         "main",
         vec![buffer("eights", eight), buffer("sevens", seven)],
     )]);
+    let text = wgpu_form(&text);
     assert_eq!(text.matches(expect).count(), 1, "{text}");
     assert!(
         text.find(expect).unwrap() < text.find("pub struct Seven").unwrap(),

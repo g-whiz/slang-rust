@@ -687,7 +687,7 @@ The crate builds the input layout from the streams by these rules:
 - With no stream, the pointer to the input layout is null, which both backends accept.
 - A pipeline without a depth format turns depth writes off and gives the depth format `Undefined`. `RenderPipeline` holds its input layout, and a failure of `createInputLayout` or `createRenderPipeline` has the kind `Compile`.
 
-These checks replace the former assumption RHA-6, which expected a matched layout from fillers for unused locations on both backends, and which the test of an unused input on WARP refuted (Section 10.4).
+These checks replace the former assumption RHA-6, which expected a matched layout from fillers for unused locations on both backends, and which the test of an unused input on WARP refuted (Sections 3 and 11.2).
 
 `Alpha` sets the colour blend to the source alpha and its inverse with the operation `Add`, and the alpha blend to one and the inverse source alpha, which is wgpu's `BlendState::ALPHA_BLENDING`. With the pipeline compilation mode `Serial`, slang-rhi generates the code of the program at this call (RHI-5), so a failure of that compile has the kind `Compile` with the collected messages, as for a compute pipeline.
 

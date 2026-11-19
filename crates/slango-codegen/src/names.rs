@@ -83,7 +83,7 @@ pub(crate) fn ident(name: &str, what: &str) -> Result<Ident> {
 /// The Rust names already taken in one scope of the generated code, each
 /// with the Slang item that took it, so that a second item with the same
 /// name is reported with both.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Scope {
     taken: Vec<(String, String)>,
 }

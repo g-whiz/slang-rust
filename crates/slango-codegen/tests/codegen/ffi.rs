@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use slango::__private::{Access, ElementType, ParameterKind, Scalar, precompile_file};
+use slango::__private::{
+    Access, ElementType, FieldType, ParameterKind, Scalar, Structure, precompile_file,
+};
 use slango_codegen::{ErrorKind, generate};
 
 use crate::common::{bindings, failure, same_file, shader};
@@ -22,7 +24,7 @@ fn generate_includes_each_file_by_its_absolute_path_and_embeds_the_encoded_snaps
     for dependency in dependencies {
         assert!(dependency.is_absolute(), "{dependency:?}");
         let include = format!(
-            "include_bytes ! ({:?})",
+            "include_str ! ({:?})",
             dependency.to_str().expect("a UTF-8 path")
         );
         assert!(tokens.contains(&include), "{include}\n{tokens}");
@@ -65,15 +67,16 @@ fn an_imported_file_is_among_the_files_read_and_included() {
             && parameter.kind == ParameterKind::Buffer {
                 access: Access::ReadWrite,
                 element: ElementType::Plain { scalar: Scalar::Float32, components: 1 },
+                packed: None,
             }
     ));
     let text = bindings("imports.slang");
     assert!(
-        text.contains("::core::include_bytes!(\"<shaders>/common.slang\");"),
+        text.contains("::core::include_str!(\"<shaders>/common.slang\");"),
         "{text}"
     );
     assert!(
-        text.contains("::core::include_bytes!(\"<shaders>/imports.slang\");"),
+        text.contains("::core::include_str!(\"<shaders>/imports.slang\");"),
         "{text}"
     );
 }
@@ -187,14 +190,14 @@ fn generate_resolves_a_relative_path_and_includes_each_file_by_an_absolute_path(
         .expect("the bindings of the shader")
         .to_string();
     let includes = tokens
-        .split("include_bytes ! (")
+        .split("include_str ! (")
         .skip(1)
         .map(|rest| {
             let literal = rest.split(')').next().expect("a closing parenthesis");
             PathBuf::from(literal.trim().trim_matches('"'))
         })
         .collect::<Vec<_>>();
-    assert_eq!(includes.len(), 2, "{tokens}");
+    assert_eq!(includes.len(), 4, "{tokens}");
     for include in &includes {
         assert!(include.is_absolute(), "{include:?}");
     }
@@ -220,4 +223,106 @@ fn generate_reports_a_path_that_cannot_be_resolved_as_a_compile_error() {
             .contains("cannot resolve `` against the working directory"),
         "{error}"
     );
+}
+
+/// Returns the name, the offset, and the nesting of each field of a
+/// structure, each nested field after the field that holds it.
+fn layout(structure: &Structure) -> Vec<(String, u64)> {
+    let mut fields = Vec::new();
+    for field in &structure.fields {
+        fields.push((field.name.clone(), field.offset));
+        if let FieldType::Structure(inner) = &field.ty {
+            fields.extend(
+                layout(inner)
+                    .into_iter()
+                    .map(|(name, offset)| (format!("{}.{name}", field.name), offset)),
+            );
+        }
+    }
+    fields
+}
+
+#[test]
+fn the_packed_layout_of_each_element_structure_is_the_scalar_layout_of_spirv() {
+    let precompiled = precompile_file(&shader("nested.slang")).expect("the module compiles");
+    let mut elements = Vec::new();
+    for kernel in &precompiled.interface.kernels {
+        for parameter in &kernel.parameters {
+            if let ParameterKind::Buffer {
+                element: ElementType::Structure(element),
+                packed: Some(packed),
+                ..
+            } = &parameter.kind
+            {
+                elements.push((parameter.path.clone(), element.clone(), packed.clone()));
+            }
+        }
+    }
+    let bodies = elements
+        .iter()
+        .find(|(path, ..)| path == "bodies")
+        .expect("the buffer of bodies");
+    let motions = elements
+        .iter()
+        .find(|(path, ..)| path == "motions")
+        .expect("the buffer of motions");
+    let named = |fields: &[(&str, u64)]| -> Vec<(String, u64)> {
+        fields
+            .iter()
+            .map(|(name, offset)| ((*name).to_owned(), *offset))
+            .collect()
+    };
+    assert_eq!(bodies.1.size, 48);
+    assert_eq!(
+        layout(&bodies.1),
+        named(&[
+            ("position", 0),
+            ("motion", 16),
+            ("motion.velocity", 0),
+            ("motion.drag", 8),
+            ("id", 32)
+        ])
+    );
+    assert_eq!(bodies.2.size, 28);
+    assert_eq!(
+        layout(&bodies.2),
+        named(&[
+            ("position", 0),
+            ("motion", 12),
+            ("motion.velocity", 0),
+            ("motion.drag", 8),
+            ("id", 24)
+        ])
+    );
+    assert_eq!((motions.1.size, motions.2.size), (16, 12));
+}
+
+#[test]
+fn the_modules_of_an_import_are_recorded_and_embedded_with_the_shader_last() {
+    let precompiled = precompile_file(&shader("imports.slang")).expect("the module compiles");
+    let names: Vec<&str> = precompiled
+        .interface
+        .modules
+        .iter()
+        .map(|module| module.name.as_str())
+        .collect();
+    assert_eq!(names, ["common", "imports"]);
+    for module in &precompiled.interface.modules {
+        assert!(module.path.is_absolute(), "{}", module.path.display());
+        assert!(
+            module
+                .files
+                .iter()
+                .any(|file| same_file(file, &module.path)),
+            "{module:?}"
+        );
+    }
+    let text = bindings("imports.slang");
+    let common = text
+        .find("name: \"common\",\n                path: \"<shaders>/common.slang\",")
+        .expect("the embedded module common");
+    let imports = text
+        .find("name: \"imports\",\n                path: \"<shaders>/imports.slang\",")
+        .expect("the embedded shader");
+    assert!(common < imports, "{text}");
 }

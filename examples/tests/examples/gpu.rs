@@ -1,6 +1,6 @@
+mod generated;
 #[cfg(feature = "wgpu")]
 mod shader_playground;
-#[cfg(feature = "wgpu")]
 mod windowed_renderer;
 
 use std::process::Output;

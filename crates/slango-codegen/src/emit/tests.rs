@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use slango::__private::{
-    Access, ElementType, Interface, KernelInterface, Parameter, ParameterKind, Precompiled, Scalar,
-    Shape, ValueType,
+    Access, ElementType, Interface, KernelInterface, LoadedModule, Parameter, ParameterKind,
+    Precompiled, Scalar, Shape, ValueType,
 };
 
 use crate::{ErrorKind, generate_precompiled};
@@ -19,6 +19,7 @@ fn buffer(access: Access, scalar: Scalar, components: u32) -> ParameterKind {
     ParameterKind::Buffer {
         access,
         element: ElementType::Plain { scalar, components },
+        packed: None,
     }
 }
 
@@ -43,6 +44,11 @@ fn precompiled(kernels: Vec<KernelInterface>) -> Precompiled {
         interface: Interface {
             kernels,
             dependencies: vec![PathBuf::from("/tmp/shaders/saxpy.slang")],
+            modules: vec![LoadedModule {
+                name: "saxpy".to_owned(),
+                path: PathBuf::from("/tmp/shaders/saxpy.slang"),
+                files: vec![PathBuf::from("/tmp/shaders/saxpy.slang")],
+            }],
         },
         encoded: vec![1, 2, 3],
     }
@@ -50,8 +56,7 @@ fn precompiled(kernels: Vec<KernelInterface>) -> Precompiled {
 
 fn format(precompiled: &Precompiled) -> String {
     let tokens = generate_precompiled(precompiled).expect("the bindings of the interface");
-    let file = syn::parse2::<syn::File>(tokens).expect("the bindings parse as a Rust file");
-    prettyplease::unparse(&file)
+    super::pretty::unparse(tokens)
 }
 
 fn error(precompiled: &Precompiled) -> (ErrorKind, String) {
@@ -72,11 +77,34 @@ fn saxpy() -> KernelInterface {
     )
 }
 
-const SAXPY: &str = r#"const _: &[u8] = ::core::include_bytes!("/tmp/shaders/saxpy.slang");
-const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 3,
-    "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
-);
+const SAXPY: &str = r#"const _: &str = ::core::include_str!("/tmp/shaders/saxpy.slang");
+::slango::__private::wgpu_only! {
+    const _: () = ::core::assert!(
+        ::slango::__private::ENCODING_VERSION == 3,
+        "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+    );
+    /// The module of the bindings for slango with the feature `wgpu`:
+    /// its layout snapshot with its SPIR-V, encoded when the crate
+    /// was built.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        encoded: b"\x01\x02\x03",
+    };
+}
+::slango::__private::rhi_only! {
+    /// The module of the bindings for slango with the feature `rhi`:
+    /// the Slang source of the module and of each module that it
+    /// imports, each after the modules that it imports, which a load
+    /// compiles for the device.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        sources: &[
+            ::slango::__private::EmbeddedSource {
+                name: "saxpy",
+                path: "/tmp/shaders/saxpy.slang",
+                text: ::core::include_str!("/tmp/shaders/saxpy.slang"),
+            },
+        ],
+    };
+}
 /// The arguments of the kernel `saxpy`, one field for each parameter.
 ///
 /// Each field holds the value or the resource that the call gives the
@@ -99,6 +127,10 @@ pub struct SaxpyArgs<'a> {
 "#;
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn saxpy_gives_tracking_the_version_check_and_typed_arguments() {
     let text = format(&precompiled(vec![saxpy()]));
     assert!(text.starts_with(SAXPY), "{text}");
@@ -119,13 +151,17 @@ fn saxpy_gives_tracking_the_version_check_and_typed_arguments() {
     );
     assert!(
         text.contains(
-            "let module = ::slango::__private::load_precompiled(device, b\"\\x01\\x02\\x03\")?;\n        ::core::result::Result::Ok(Self {\n            saxpy: Saxpy {\n                kernel: module.kernel(\"saxpy\")?.clone(),\n            },\n            module,\n        })"
+            "let module = ::slango::__private::load_embedded(device, &EMBEDDED)?;\n        ::core::result::Result::Ok(Self {\n            saxpy: Saxpy {\n                kernel: module.kernel(\"saxpy\")?.clone(),\n            },\n            module,\n        })"
         ),
         "{text}"
     );
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn each_scalar_maps_to_its_rust_type_and_is_set() {
     let text = format(&precompiled(vec![kernel(
         "scalars",
@@ -153,6 +189,10 @@ fn each_scalar_maps_to_its_rust_type_and_is_set() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn vectors_matrices_and_arrays_map_to_arrays_nested_from_the_outermost_length() {
     let array = |length, element| Shape::Array {
         length,
@@ -198,6 +238,10 @@ fn vectors_matrices_and_arrays_map_to_arrays_nested_from_the_outermost_length() 
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn buffers_of_built_in_elements_are_borrowed_and_bound() {
     let text = format(&precompiled(vec![kernel(
         "buffers",
@@ -224,6 +268,10 @@ fn buffers_of_built_in_elements_are_borrowed_and_bound() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn textures_and_samplers_are_borrowed_and_given_by_their_own_calls() {
     let text = format(&precompiled(vec![kernel(
         "sample",
@@ -244,6 +292,10 @@ fn textures_and_samplers_are_borrowed_and_given_by_their_own_calls() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_field_of_a_named_constant_buffer_is_its_own_field_set_by_its_path() {
     let text = format(&precompiled(vec![kernel(
         "tint",
@@ -257,6 +309,10 @@ fn a_field_of_a_named_constant_buffer_is_its_own_field_set_by_its_path() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_kernel_without_parameters_has_empty_arguments_that_its_dispatch_reads() {
     let text = format(&precompiled(vec![kernel("clear", Vec::new())]));
     assert!(text.contains("pub struct ClearArgs {}"), "{text}");
@@ -267,6 +323,10 @@ fn a_kernel_without_parameters_has_empty_arguments_that_its_dispatch_reads() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn shader_looks_up_every_kernel_under_its_snake_case_name() {
     let mut second = kernel("scaleTwice", Vec::new());
     second.thread_group_size = [8, 4, 2];
@@ -283,6 +343,10 @@ fn shader_looks_up_every_kernel_under_its_snake_case_name() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn every_file_that_slang_read_is_included_to_track_it() {
     let mut precompiled = precompiled(Vec::new());
     precompiled.interface.dependencies = vec![
@@ -292,10 +356,120 @@ fn every_file_that_slang_read_is_included_to_track_it() {
     let text = format(&precompiled);
     assert!(
         text.starts_with(
-            "const _: &[u8] = ::core::include_bytes!(\"/tmp/shaders/main.slang\");\nconst _: &[u8] = ::core::include_bytes!(\"/tmp/shaders/common.slang\");\n"
+            "const _: &str = ::core::include_str!(\"/tmp/shaders/main.slang\");\nconst _: &str = ::core::include_str!(\"/tmp/shaders/common.slang\");\n"
         ),
         "{text}"
     );
+}
+
+fn module(name: &str, files: &[&str]) -> LoadedModule {
+    let path = |file: &str| PathBuf::from(format!("/tmp/shaders/{file}.slang"));
+    LoadedModule {
+        name: name.replace('-', "_"),
+        path: path(name),
+        files: files.iter().map(|file| path(file)).collect(),
+    }
+}
+
+/// Returns the names of the embedded sources of formatted bindings, in their
+/// order.
+fn embedded_names(text: &str) -> Vec<&str> {
+    text.split("::slango::__private::EmbeddedSource {\n                name: \"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect()
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
+fn the_embedded_sources_put_each_module_after_the_modules_that_it_imports() {
+    let mut precompiled = precompiled(vec![saxpy()]);
+    precompiled.interface.modules = vec![
+        module("main", &["main", "lighting", "colour-space", "noise"]),
+        module("noise", &["noise"]),
+        module("lighting", &["lighting", "colour-space"]),
+        module("colour-space", &["colour-space"]),
+    ];
+    let text = format(&precompiled);
+    assert_eq!(
+        embedded_names(&text),
+        ["noise", "colour_space", "lighting", "main"]
+    );
+    assert!(
+        text.contains(
+            "name: \"colour_space\",\n                path: \"/tmp/shaders/colour-space.slang\",\n                text: ::core::include_str!(\"/tmp/shaders/colour-space.slang\"),"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_import_order_puts_each_module_after_the_modules_that_it_imports() {
+    let modules = [
+        module("main", &["main", "lighting", "colour-space", "noise"]),
+        module("noise", &["noise"]),
+        module("lighting", &["lighting", "colour-space"]),
+        module("colour-space", &["colour-space"]),
+    ];
+    let ordered = super::in_import_order(&modules).expect("the modules import no cycle");
+    let names: Vec<&str> = ordered.iter().map(|module| module.name.as_str()).collect();
+    assert_eq!(names, ["noise", "colour_space", "lighting", "main"]);
+}
+
+#[test]
+fn modules_that_import_each_other_or_no_module_are_a_compile_error() {
+    let mut cyclic = precompiled(vec![saxpy()]);
+    cyclic.interface.modules = vec![
+        module("main", &["main", "left", "right"]),
+        module("left", &["left", "right"]),
+        module("right", &["right", "left"]),
+    ];
+    assert_eq!(
+        error(&cyclic),
+        (
+            ErrorKind::Compile,
+            "cannot generate the bindings: the modules `main`, `left`, `right` import each other, so no order loads each after the modules that it imports".to_owned()
+        )
+    );
+    let mut empty = precompiled(vec![saxpy()]);
+    empty.interface.modules.clear();
+    assert_eq!(
+        error(&empty),
+        (
+            ErrorKind::Compile,
+            "cannot generate the bindings: Slang reports no module for the shader".to_owned()
+        )
+    );
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
+fn shader_loads_its_embedded_module_and_names_no_item_of_one_backend_outside_its_helper() {
+    let text = format(&precompiled(vec![saxpy()]));
+    let mut inside = false;
+    let mut outside = String::new();
+    for line in text.lines() {
+        if line.starts_with("::slango::__private::") && line.ends_with("! {") {
+            inside = true;
+        } else if inside && line == "}" {
+            inside = false;
+        } else if !inside {
+            outside.push_str(line);
+            outside.push('\n');
+        }
+    }
+    assert!(
+        text.contains("::slango::__private::load_embedded(device, &EMBEDDED)"),
+        "{text}"
+    );
+    assert_eq!(text.matches("const EMBEDDED:").count(), 2, "{text}");
+    assert!(!outside.contains("ENCODING_VERSION =="), "{text}");
 }
 
 #[cfg(unix)]
@@ -316,6 +490,10 @@ fn a_file_whose_path_is_not_utf8_is_unsupported() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
+)]
 fn a_keyword_becomes_a_raw_identifier_set_by_its_slang_name() {
     let text = format(&precompiled(vec![kernel(
         "loop",
@@ -379,6 +557,7 @@ fn a_buffer_without_a_built_in_element_type_is_unsupported() {
                 ParameterKind::Buffer {
                     access: Access::ReadWrite,
                     element,
+                    packed: None,
                 },
             )],
         )]);

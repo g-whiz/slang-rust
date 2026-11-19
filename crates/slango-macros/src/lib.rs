@@ -21,6 +21,10 @@
 //! crate depends on `slango` directly, under that name, as well as on this
 //! crate. `slango` does not re-export the macro.
 //!
+//! The generated code follows the backend of the `slango` of the calling
+//! crate, its feature `wgpu` or `rhi`, as the documentation of [`shader!`]
+//! describes, so this crate has no feature that chooses the backend.
+//!
 //! # Examples
 //!
 //! This example calls the macro for a Slang file beside the Rust file and
@@ -68,8 +72,10 @@
 //! # Lints
 //!
 //! The generated `Shader` keeps its module in a private field beside the
-//! public field of each kernel. A generated struct with padding keeps the
-//! padding in private fields. A crate that enables the Clippy lint
+//! public field of each kernel. A generated struct of the element of a
+//! structured buffer keeps its padding, or a field of zero size where its
+//! layout has no padding, in private fields. A crate that enables the Clippy
+//! lint
 //! `clippy::partial_pub_fields` therefore puts an `#[expect]` of that lint,
 //! with a reason, on the module that calls the macro.
 //!
@@ -95,7 +101,26 @@
 //! - A release build compiles `slango` and its dependencies twice, once for
 //!   the program and once for the macro, which runs inside the compiler.
 //! - The program loads the Slang library when it starts, through `slango`,
-//!   although `Shader::load` makes no call into Slang.
+//!   although `Shader::load` makes no call into Slang with the feature `wgpu`
+//!   of `slango`.
+//! - Each call compiles the Slang file twice, once more for the layout of
+//!   structures with the feature `rhi` of `slango`.
+//! - That second compilation does not define the preprocessor macros that a
+//!   device defines for its graphics API, such as `__VULKAN__` or
+//!   `__D3D12__`. Where the structures or the kernels of a file depend on
+//!   them, the generated bindings can differ from what `Shader::load`
+//!   reflects with the feature `rhi`, and the load or a dispatch then fails
+//!   with an error of `slango` instead of running with the wrong layout.
+//! - With the feature `rhi` of `slango`, the program holds the text of the
+//!   Slang file and of every module that it imports, with their absolute
+//!   paths on the machine that built the crate.
+//! - With the feature `rhi` of `slango`, a file that the Slang file or a
+//!   module that it imports includes with `#include`, or a part of a module
+//!   that it adds with `__include`, is not embedded. `Shader::load` reads it
+//!   from its path on the machine that built the crate, as it is when the
+//!   program runs, and fails with the error kind `Compile` of `slango` where
+//!   that file does not exist. A module that `import` names is embedded and
+//!   has no such limit.
 //!
 //! # Features
 //!
@@ -174,8 +199,8 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 /// macro generates these items in the module:
 ///
 /// - `Shader`, with `Shader::load`, which loads the module on a
-///   [`slango::Device`](../slango/struct.Device.html) from the compiled code
-///   that the crate embeds, and `Shader::module`, which returns the
+///   [`slango::Device`](../slango/struct.Device.html) from what the crate
+///   embeds, and `Shader::module`, which returns the
 ///   [`slango::Module`](../slango/struct.Module.html).
 /// - For each compute entry point, a kernel struct whose name is the name of
 ///   the entry point in upper camel case, such as `Saxpy` for `saxpy`, and
@@ -207,13 +232,60 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 /// that Slang gives it there, the size of the structure and the offset in
 /// bytes of each field. Its struct is `#[repr(C)]`, holds private padding,
 /// unused bytes, wherever the layout has a gap, and asserts its size and the
-/// offset of each field at compile time. It binds as the element of a
+/// offset of each field at compile time. Where the layout has no gap, the
+/// struct holds instead one private field of zero size, which changes
+/// neither its size nor its layout. It binds as the element of a
 /// [`slango::Buffer`](../slango/struct.Buffer.html), and code creates it with
-/// `new`, because the private padding rules out a struct literal.
+/// `new`, because the private field rules out a struct literal, so the same
+/// code compiles with either layout.
+///
+/// For a structure `Wide` of eight 4-byte fields, which has no gap in either
+/// layout, `new` creates a value:
+///
+/// ```no_run
+/// # mod layouts {
+/// #     slango_macros::shader!("../tests/macros/shaders/layouts.slang");
+/// # }
+/// let wide = layouts::Wide::new(0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0);
+/// ```
+///
+/// A struct expression does not compile, because of the private field. The
+/// compiler gives that error no error code:
+///
+/// ```compile_fail
+/// # mod layouts {
+/// #     slango_macros::shader!("../tests/macros/shaders/layouts.slang");
+/// # }
+/// let wide = layouts::Wide { a: 0.0, b: 0.0, c: 0.0, d: 0.0, e: 0, f: 0, g: 0, h: 0 };
+/// ```
 ///
 /// A structure that is only a value has no padding, because a dispatch sets
 /// each of its fields by its path through the runtime API of `slango`, so
 /// every check of `slango` still runs.
+///
+/// The generated code follows the backend of the `slango` of the calling
+/// crate, which a build has exactly one of:
+///
+/// - With the feature `wgpu` of `slango`, the crate embeds the code that the
+///   macro compiled, and `Shader::load` creates it on the device with no call
+///   into Slang. A struct of the element of a structured buffer has the
+///   std430 layout that Slang gives the structure for the GPU code of wgpu.
+/// - With the feature `rhi` of `slango`, the crate embeds the Slang source of
+///   the file and of every module that it imports, and `Shader::load`
+///   compiles them for the device, so each load takes about as long as a load
+///   of the file with [`slango::Device::load_module`](../slango/struct.Device.html#method.load_module).
+///   A struct of the element of a structured buffer has the packed layout
+///   that Slang gives the structure there, in which a structure has no
+///   padding between scalars, vectors, and arrays.
+///
+/// The macro still compiles the file while the crate builds, so that a
+/// mistake in the file is a compile error on either backend. A dispatch
+/// checks that the stride of a struct and the offset and the type of each of
+/// its fields match those that the load reflects, and fails with the error
+/// kind `InvalidArgument` of `slango`, naming the struct and the field, where
+/// they differ. A field of another scalar type or number of components, such
+/// as an `int3` where the struct holds a `float3`, fails even at the same
+/// offset.
 ///
 /// The crate builds again whenever the Slang file or a file that it imports
 /// changes.

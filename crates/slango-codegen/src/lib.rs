@@ -16,6 +16,15 @@
 //! requires `slango` of exactly its own version, and a crate that contains
 //! the generated code depends on the `slango` of that version.
 //!
+//! This crate always enables the feature `wgpu` of its `slango`, because
+//! `slango` builds only with one backend, and the generator needs one
+//! whatever backend the generated code runs on. A program whose `slango` has the feature `rhi` can
+//! therefore use this crate only as a build dependency, or through
+//! `slango-macros`, whose `slango` belongs to the build of the macro. As a
+//! normal dependency of such a program, it shares the program's `slango`,
+//! Cargo enables both backend features on it, and the build of `slango`
+//! stops with an error.
+//!
 //! Every failure is an [`Error`]. Its [`Error::kind`] is
 //! [`ErrorKind::Compile`] when Slang cannot read or compile the file,
 //! [`ErrorKind::Unsupported`] when the generator has no Rust type for a
@@ -127,14 +136,26 @@ fn generate_file(path: &Path) -> Result<TokenStream> {
 ///
 /// # Examples
 ///
-/// This example generates the bindings of a module without kernels, which
-/// hold only the struct `Shader`:
+/// This example generates the bindings of a module without kernels and
+/// without imports, which hold only the struct `Shader`:
 ///
 /// ```
-/// use slango::__private::{Interface, Precompiled};
+/// use std::path::PathBuf;
 ///
+/// use slango::__private::{Interface, LoadedModule, Precompiled};
+///
+/// let path = PathBuf::from("/tmp/shaders/empty.slang");
+/// let module = LoadedModule {
+///     name: "empty".to_owned(),
+///     path: path.clone(),
+///     files: vec![path],
+/// };
 /// let precompiled = Precompiled {
-///     interface: Interface { kernels: Vec::new(), dependencies: Vec::new() },
+///     interface: Interface {
+///         kernels: Vec::new(),
+///         dependencies: Vec::new(),
+///         modules: vec![module],
+///     },
 ///     encoded: Vec::new(),
 /// };
 /// let tokens = slango_codegen::generate_precompiled(&precompiled)?;
@@ -151,6 +172,8 @@ fn generate_file(path: &Path) -> Result<TokenStream> {
 ///   not valid UTF-8.
 /// - [`ErrorKind::NameConflict`] when two names of the module give the same
 ///   Rust name, or a name gives a Rust name that cannot be used.
+/// - [`ErrorKind::Compile`] when the description names no module, or
+///   modules that import each other.
 #[doc(hidden)]
 pub fn generate_precompiled(precompiled: &Precompiled) -> Result<TokenStream> {
     emit::bindings(precompiled)

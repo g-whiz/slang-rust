@@ -890,6 +890,11 @@ fn check_buffer<B>(
             marshal::rust_type_name(&bound.element)
         )));
     }
+    if let ValueType::Structure { name, fields } = &bound.element
+        && let Some(difference) = marshal::field_mismatch(name, fields, element)
+    {
+        return Err(subject.invalid(format!("the parameter `{path}` of {subject} {difference}")));
+    }
     Ok(())
 }
 

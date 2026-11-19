@@ -73,6 +73,10 @@ fn is_clear(colour: [u8; 4]) -> bool {
 /// Its mirror image, pixel (19, 8) at (-0.3906, 0.7344), goes back to
 /// (-0.223, 1.167), outside it. A rotation by -0.3 swaps the two.
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or render pipeline"
+)]
 fn draws_the_rotated_textured_quad_over_the_clear_colour() {
     let device = device();
     let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
@@ -112,6 +116,10 @@ fn draws_the_rotated_textured_quad_over_the_clear_colour() {
 /// 85. Along y, they sit at 32 - 0.7 * 32 = 9.6 and 54.4, so it covers the
 /// pixels 10 to 53. Both are 44 pixels, centred on the target.
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or render pipeline"
+)]
 fn keeps_the_quad_square_on_a_wide_target() {
     let device = device();
     let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
@@ -132,6 +140,10 @@ fn keeps_the_quad_square_on_a_wide_target() {
 /// 53, and along y, the pixels 42 to 85, as on the wide target with the axes
 /// swapped. Both are 44 pixels, centred on the target.
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or render pipeline"
+)]
 fn keeps_the_quad_square_on_a_tall_target() {
     let device = device();
     let scene = Scene::new(&device, &shader(SHADER), TextureFormat::Rgba8Unorm)
@@ -147,6 +159,10 @@ fn keeps_the_quad_square_on_a_tall_target() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or render pipeline"
+)]
 fn keeps_its_pipeline_when_a_reload_fails() {
     let device = device();
     let path = scratch_copy("windowed-renderer", SHADER, "reload-fails");
@@ -169,6 +185,10 @@ fn keeps_its_pipeline_when_a_reload_fails() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "rhi",
+    ignore = "the backend rhi creates no texture or render pipeline"
+)]
 fn replaces_its_pipeline_when_a_reload_succeeds() {
     let device = device();
     let path = scratch_copy("windowed-renderer", SHADER, "reload-succeeds");

@@ -2,11 +2,34 @@
 source: crates/slango-codegen/tests/codegen/ffi.rs
 expression: "bindings(\"saxpy.slang\")"
 ---
-const _: &[u8] = ::core::include_bytes!("<shaders>/saxpy.slang");
-const _: () = ::core::assert!(
-    ::slango::__private::ENCODING_VERSION == 3,
-    "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
-);
+const _: &str = ::core::include_str!("<shaders>/saxpy.slang");
+::slango::__private::wgpu_only! {
+    const _: () = ::core::assert!(
+        ::slango::__private::ENCODING_VERSION == 3,
+        "the bindings were generated for another version of slango, so the versions of slango and slango-macros differ"
+    );
+    /// The module of the bindings for slango with the feature `wgpu`:
+    /// its layout snapshot with its SPIR-V, encoded when the crate
+    /// was built.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        encoded: b"<encoded snapshot>",
+    };
+}
+::slango::__private::rhi_only! {
+    /// The module of the bindings for slango with the feature `rhi`:
+    /// the Slang source of the module and of each module that it
+    /// imports, each after the modules that it imports, which a load
+    /// compiles for the device.
+    const EMBEDDED: ::slango::__private::Embedded<'static> = ::slango::__private::Embedded {
+        sources: &[
+            ::slango::__private::EmbeddedSource {
+                name: "saxpy",
+                path: "<shaders>/saxpy.slang",
+                text: ::core::include_str!("<shaders>/saxpy.slang"),
+            },
+        ],
+    };
+}
 /// The arguments of the kernel `saxpy`, one field for each parameter.
 ///
 /// Each field holds the value or the resource that the call gives the
@@ -104,9 +127,13 @@ pub struct Shader {
     module: ::slango::Module,
 }
 impl Shader {
-    /// Loads the module on `device` from the code that was compiled
-    /// when the crate was built, with no call into Slang, and looks up
-    /// each of its kernels.
+    /// Loads the module on `device` and looks up each of its kernels.
+    ///
+    /// With the feature `wgpu` of `slango`, the load creates the code
+    /// that was compiled when the crate was built, with no call into
+    /// Slang. With the feature `rhi`, it compiles the Slang source of
+    /// the module and of the modules that it imports, embedded when
+    /// the crate was built, for the device.
     ///
     /// # Errors
     ///
@@ -115,10 +142,7 @@ impl Shader {
     /// [`slango::Device::load_module`] gives, or when the version of
     /// `slango` differs from the one that generated the bindings.
     pub fn load(device: &::slango::Device) -> ::slango::Result<Self> {
-        let module = ::slango::__private::load_precompiled(
-            device,
-            b"<encoded snapshot>",
-        )?;
+        let module = ::slango::__private::load_embedded(device, &EMBEDDED)?;
         ::core::result::Result::Ok(Self {
             saxpy: Saxpy {
                 kernel: module.kernel("saxpy")?.clone(),

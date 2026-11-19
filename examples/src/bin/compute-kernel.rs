@@ -2,7 +2,8 @@
 //! its results.
 //!
 //! The example shows the whole flow of `slango`: it creates a device on the
-//! adapter that wgpu chooses, loads the Slang file as a module, looks up its
+//! adapter that the backend of `slango` chooses, loads the Slang file as a
+//! module, looks up its
 //! kernel `saxpy`, creates two input buffers and an output buffer, sets the
 //! two `uniform` values of the kernel, binds the three buffers, dispatches the
 //! kernel over every element, and reads the output back. The kernel computes

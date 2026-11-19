@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -1339,6 +1339,10 @@ Reason: the linker resolves a symbol only when code uses it, and a library that 
 
 Reason: each Rust file directly in `tests/` is a separate test binary, so a helper module shared by several of them is dead code in each binary that does not use a given helper. `dead_code` then fires in that binary, while an `#[expect(dead_code)]` is unfulfilled in the binary that uses the helper, so no lint exception passes the check.
 
+**TEST-11.** Skip a test under Miri with `#[cfg_attr(miri, ignore = "...")]` only when the test runs no unsafe code, directly or through a fake, and takes so long under Miri that it slows `check-miri` for no gain, such as a test that formats generated code. State the reason in the attribute in plain words, and keep the test running natively. Skip a test that needs native code or a GPU by its module name instead (TEST-3), never with this attribute.
+
+Reason: Miri checks unsafe code, so a test of safe code that runs for minutes under Miri adds time and no finding, while the test still runs natively in every other check. The reason in the attribute shows in the output of a skipped test, and a test that a later change makes reach unsafe code is easy to find and run under Miri again. Miri documents `cfg(miri)` for code that must behave differently under it, such as a test that is too slow there, and the `ignore` attribute takes a reason. [S-8]
+
 A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `unreachable_pub`, because the test options of Section 4.3 cover only `#[test]` functions and `#[cfg(test)]` code. The single-binary layout produced no findings in the run of Section 1.1.
 
 ## 15. Dependencies and Cargo Features
@@ -1391,6 +1395,10 @@ Reason: a build has exactly one backend, so nothing chooses between backends whi
 **SIMP-3.** Write the examples of a new public API from the caller's side before implementing it, and rework the API until the common case is short and obvious. Reason: an API that is merely functional produces long and awkward examples, and the examples show the problem before other code depends on the API. [IR-63] [IR-44] [IR-93]
 
 **SIMP-4.** Prefer plain functions and types to macros, and change code for performance only after a measurement shows the need. Reason: macros and hand-optimized code are harder to read, review, and change, and an unmeasured optimization usually targets the wrong code. [IR-93] [IR-72] [IR-51]
+
+**SIMP-5.** Put every item of the code that `slango-macros` generates that only one backend of `slango` needs inside the hidden helper macro of that backend, `wgpu_only!` or `rhi_only!`, and name the helper by its full path through `::slango::__private`. Define each helper with `macro_rules!` twice at the crate root of `slango`, once under the `cfg` of its backend feature to expand to its input and once under the `cfg` of the other backend feature to expand to nothing, each with `#[macro_export]` and `#[doc(hidden)]`, and re-export it from `__private` with `pub use`. A helper takes items only, `$($item:item)*`. Keep every item that both backends share outside the helpers, and give the generator no knowledge of the backend.
+
+Reason: the procedural macro runs with its own copy of `slango`, a host dependency whose features Cargo resolves apart from those of the program, so it cannot see the backend of the program. A `macro_rules!` macro is fixed when its crate compiles, and the paths in its expansion resolve at the call site, so a helper named through `::slango` in the calling crate keeps exactly the items of the program's backend. `#[macro_export]` places a macro at the crate root of `slango` for paths from other crates, and `pub use` re-exports it from another module. Input of items only keeps the input in the Rust syntax of the output. [S-5] [IR-8]
 
 ## 17. Resolved Conflicts Between Sources
 
@@ -1614,6 +1622,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-8 | A test of every native symbol and a smoke test of the build tag cover the generated bindings on every route, and no test compares them with a file. |
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
+| TEST-11 | A test of safe code that is slow under Miri may skip Miri with `#[cfg_attr(miri, ignore = "...")]`, with its reason in the attribute, and still runs natively. |
 | DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs, and a default feature of the only backend, without which the crate stops with one `compile_error!` that names it. |
 | DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member, and a dependency used only for its `links` metadata is named with `use <crate> as _;`. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
@@ -1622,3 +1631,4 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | SIMP-2 | Each backend of `slango` sits in one private module under the `cfg` of its feature, with no trait or enumeration over the backends, and only the crate root, `slango::wgpu`, and tests hold backend code or a backend `cfg` besides it. A backend without the operations of a type gives it an uninhabited crate-private type, a struct with a field of type `Infallible` or an enumeration without variants, whose constructors return `Unsupported`. |
 | SIMP-3 | Examples of a new API are written first and the API is reworked until they are clean. |
 | SIMP-4 | Plain code over macros, and optimization only after measurement. |
+| SIMP-5 | Generated code keeps each item of one backend of `slango` inside the hidden `wgpu_only!` or `rhi_only!`, which `slango` defines twice at its crate root under opposite backend `cfg`s with `#[macro_export]`, re-exports from `__private`, and which take items only. |

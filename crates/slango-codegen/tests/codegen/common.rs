@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use slango::__private::precompile_file;
 use slango_codegen::{ErrorKind, generate, generate_precompiled};
 
+#[path = "../../src/emit/pretty.rs"]
+mod pretty;
+
 pub(crate) fn shaders() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/codegen/shaders")
 }
@@ -13,7 +16,7 @@ pub(crate) fn shader(name: &str) -> PathBuf {
 }
 
 /// Returns the generated bindings of a test shader, formatted, with the
-/// directory of the test shaders and the encoded snapshot, whose bytes
+/// directory of the test shaders in every path and the encoded snapshot, whose bytes
 /// depend on the machine and on the Slang of the build, replaced by
 /// placeholders before the formatting.
 pub(crate) fn bindings(name: &str) -> String {
@@ -21,10 +24,15 @@ pub(crate) fn bindings(name: &str) -> String {
     for path in &mut precompiled.interface.dependencies {
         *path = redacted(path);
     }
+    for module in &mut precompiled.interface.modules {
+        module.path = redacted(&module.path);
+        for path in &mut module.files {
+            *path = redacted(path);
+        }
+    }
     precompiled.encoded = b"<encoded snapshot>".to_vec();
     let tokens = generate_precompiled(&precompiled).expect("the bindings of the shader");
-    let file = syn::parse2::<syn::File>(tokens).expect("the bindings parse as a Rust file");
-    prettyplease::unparse(&file)
+    pretty::unparse(tokens)
 }
 
 /// Returns `<shaders>/` followed by the file name of a path, with a slash on

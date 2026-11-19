@@ -187,7 +187,7 @@ pub enum ErrorKind {
     Backend,
     /// The backend of the build does not offer the operation. With the
     /// feature `rhi`, this crate creates no texture, sampler, or render
-    /// pipeline, and loads no precompiled module of `slango-macros`.
+    /// pipeline.
     Unsupported,
 }
 

@@ -6,8 +6,9 @@
 //! of the wrong type is a compile error, not an error at the dispatch. The
 //! shader declares the structure `Particle`, and the macro generates a Rust
 //! struct `Particle` with the layout that Slang gives it in a structured
-//! buffer, padding included. The example creates a device on the adapter
-//! that wgpu chooses, loads the embedded shader, creates a buffer of eight
+//! buffer on the backend of slango, padding included. The example creates a
+//! device on the adapter that the backend chooses, loads the embedded
+//! shader, creates a buffer of eight
 //! particles and a buffer of `f32` for their energies, and dispatches the
 //! kernel `advance` with the plain values `gravity`, `dt`, and `count`
 //! through the generated arguments struct. The kernel applies gravity to the
@@ -28,10 +29,18 @@
 //!
 //! Building the example needs the recorded Slang, as the crate `slango-macros`
 //! describes. The program needs a GPU driver or a software driver, such as
-//! lavapipe on Linux. It loads the Slang shared library of the Vulkan SDK
-//! when it starts, so `$VULKAN_SDK/lib` has to be on `LD_LIBRARY_PATH` on
-//! Linux or on `DYLD_LIBRARY_PATH` on macOS, and the SDK's `Bin` directory
-//! on `PATH` on Windows.
+//! lavapipe on Linux. With the default feature `wgpu`, it loads the Slang
+//! shared library of the Vulkan SDK when it starts, so `$VULKAN_SDK/lib` has
+//! to be on `LD_LIBRARY_PATH` on Linux or on `DYLD_LIBRARY_PATH` on macOS,
+//! and the SDK's `Bin` directory on `PATH` on Windows.
+//!
+//! With the feature `rhi` of the examples package in place of `wgpu`, and
+//! `vendored` for the macro's copy of Slang, the example runs on slang-rhi
+//! and links a Slang built from source:
+//!
+//! ```sh
+//! cargo run -p slang-rust-examples --no-default-features --features rhi,vendored --bin typed-kernel
+//! ```
 
 #![expect(
     clippy::print_stdout,

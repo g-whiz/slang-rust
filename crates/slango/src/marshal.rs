@@ -1,6 +1,8 @@
-use crate::__private::StructElement;
+use crate::__private::{StructElement, StructField, StructFieldType, slang_layout_type};
 use crate::error::{Error, ErrorKind, Result};
-use crate::layout::{ElementType, PlainValue, Scalar, Shape, slang_scalar_name};
+use crate::layout::{
+    ElementType, FieldType, PlainValue, Scalar, Shape, Structure, slang_scalar_name,
+};
 
 const SET: &str = "set a plain value";
 
@@ -9,6 +11,7 @@ const SET: &str = "set a plain value";
 const SCALAR_SIZE: u64 = 4;
 
 mod sealed {
+    use crate::__private::StructField;
     use crate::layout::Scalar;
 
     /// The Slang type of a Rust value.
@@ -25,9 +28,12 @@ mod sealed {
         /// A scalar or an array of fixed length, with its scalar type and the
         /// lengths of its nested arrays, from the outermost to the innermost.
         Plain { scalar: Scalar, dims: Vec<usize> },
-        /// A generated struct, with the Slang name of its structure, which
-        /// only a buffer can hold.
-        Structure { name: &'static str },
+        /// A generated struct, with the Slang name of its structure and the
+        /// offset of each of its fields, which only a buffer can hold.
+        Structure {
+            name: &'static str,
+            fields: &'static [StructField],
+        },
     }
 
     #[expect(
@@ -414,6 +420,7 @@ impl<T: StructElement> sealed::SealedValue for T {
     fn value_type() -> ValueType {
         ValueType::Structure {
             name: T::SLANG_NAME,
+            fields: T::FIELDS,
         }
     }
 
@@ -558,8 +565,9 @@ fn outside(path: &str, what: &str) -> Error {
 /// A scalar or a vector of `bool`, `int`, `uint`, or `float` matches only
 /// the Rust type of the same scalar type and number of components. A scalar
 /// or a vector of another scalar type, such as `half2`, matches no Rust
-/// type. A structure or any other element type matches every Rust type,
-/// because the check of the stride alone covers it.
+/// type. A structure or any other element type matches every Rust type here,
+/// because the check of the stride covers it, and [`field_mismatch`] then
+/// checks a generated struct field by field.
 pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<String> {
     match element {
         ElementType::Plain { scalar, components } => {
@@ -581,6 +589,125 @@ pub(crate) fn element_mismatch(ty: &ValueType, element: &ElementType) -> Option<
         }
         ElementType::OtherPlain { name } => Some(name.clone()),
         ElementType::Structure(_) | ElementType::Composite => None,
+    }
+}
+
+/// Returns how the fields of the generated struct `name`, whose fields are
+/// `fields`, differ from those of `element`, the element type of a
+/// parameter, or `None` when a buffer of the struct may be bound to it.
+///
+/// An element that is not a structure differs from every struct. Otherwise
+/// the difference is the first field of either, in the order of the offsets,
+/// whose path, offset, or type the other does not have. A plain field
+/// matches only a field of the same Slang type, which has the same scalar
+/// type, number of components, and array lengths, and a structure matches a
+/// structure of any name, whose own fields follow it.
+pub(crate) fn field_mismatch(
+    name: &str,
+    fields: &[StructField],
+    element: &ElementType,
+) -> Option<String> {
+    let ElementType::Structure(structure) = element else {
+        return Some(format!(
+            "has elements that are not a structure, and the bound buffer has elements of the Rust struct `{name}`"
+        ));
+    };
+    let mut reflected = Vec::new();
+    flatten(structure, "", 0, &mut reflected);
+    let slang = &structure.name;
+    let count = reflected.len().max(fields.len());
+    (0..count).find_map(|index| match (reflected.get(index), fields.get(index)) {
+        (Some(field), Some(given)) if given.name == field.path => {
+            if !u64::try_from(given.offset).is_ok_and(|offset| offset == field.offset) {
+                return Some(format!(
+                    "has elements of the structure `{slang}` with the field `{}` at byte {}, and the bound buffer has elements of the Rust struct `{name}` with that field at byte {}",
+                    field.path, field.offset, given.offset
+                ));
+            }
+            let same = match (&field.ty, given.ty) {
+                (Leaf::Plain(reflected), StructFieldType::Plain(given)) => reflected == given,
+                (Leaf::Structure(_), StructFieldType::Structure(_)) => true,
+                _ => false,
+            };
+            (!same).then(|| {
+                format!(
+                    "has elements of the structure `{slang}` with the field `{}` of {}, and the bound buffer has elements of the Rust struct `{name}` with that field of {}",
+                    field.path,
+                    field.ty.describe(),
+                    describe_given(given.ty)
+                )
+            })
+        }
+        (Some(field), _) => Some(format!(
+            "has elements of the structure `{slang}` with the field `{}` at byte {}, and the bound buffer has elements of the Rust struct `{name}` without that field there",
+            field.path, field.offset
+        )),
+        (None, Some(given)) => Some(format!(
+            "has elements of the structure `{slang}`, and the bound buffer has elements of the Rust struct `{name}` with the field `{}` at byte {}, which the structure lacks",
+            given.name, given.offset
+        )),
+        (None, None) => None,
+    })
+}
+
+/// A field of a reflected structure, by its path and its offset from the
+/// start of the outermost structure.
+struct Flat {
+    path: String,
+    offset: u64,
+    ty: Leaf,
+}
+
+/// The type of a [`Flat`] field.
+enum Leaf {
+    /// A plain value, with the name of its Slang type.
+    Plain(String),
+    /// A structure, with its Slang name.
+    Structure(String),
+    /// Any other type, which no generated struct holds, with its Slang name.
+    Other(String),
+}
+
+impl Leaf {
+    fn describe(&self) -> String {
+        match self {
+            Self::Plain(name) | Self::Other(name) => format!("the Slang type `{name}`"),
+            Self::Structure(name) => format!("the structure `{name}`"),
+        }
+    }
+}
+
+fn describe_given(ty: StructFieldType) -> String {
+    match ty {
+        StructFieldType::Plain(name) => format!("the Slang type `{name}`"),
+        StructFieldType::Structure(name) => format!("the structure `{name}`"),
+    }
+}
+
+/// Appends every field of `structure`, which starts at `base` under the path
+/// `prefix`, with each field of a nested structure after the field that
+/// holds it.
+fn flatten(structure: &Structure, prefix: &str, base: u64, out: &mut Vec<Flat>) {
+    for field in &structure.fields {
+        let path = if prefix.is_empty() {
+            field.name.clone()
+        } else {
+            format!("{prefix}.{}", field.name)
+        };
+        let offset = base.saturating_add(field.offset);
+        let ty = match &field.ty {
+            FieldType::Plain { scalar, shape } => Leaf::Plain(slang_layout_type(*scalar, shape)),
+            FieldType::Structure(inner) => Leaf::Structure(inner.name.clone()),
+            FieldType::Other { name } => Leaf::Other(name.clone()),
+        };
+        out.push(Flat {
+            path: path.clone(),
+            offset,
+            ty,
+        });
+        if let FieldType::Structure(inner) = &field.ty {
+            flatten(inner, &path, offset, out);
+        }
     }
 }
 
@@ -688,7 +815,7 @@ pub(crate) fn rust_type_name(ty: &ValueType) -> String {
             .fold(rust_scalar_name(*scalar).to_owned(), |inner, dim| {
                 format!("[{inner}; {dim}]")
             }),
-        ValueType::Structure { name } => (*name).to_owned(),
+        ValueType::Structure { name, .. } => (*name).to_owned(),
     }
 }
 

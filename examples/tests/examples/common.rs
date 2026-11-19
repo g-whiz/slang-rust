@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use slango::{Device, DeviceOptions};
 
+#[cfg(feature = "wgpu")]
 use crate::frames::OPTIONS;
 
 /// Runs the example binary at `bin` with `args` in the directory of the
@@ -33,6 +34,7 @@ pub(crate) fn assert_prints_usage(bin: &str, first_line: &str) {
 
 /// Asserts that the usage of a windowed example ends with the options that
 /// both windowed examples share.
+#[cfg(feature = "wgpu")]
 pub(crate) fn assert_lists_the_windowed_options(bin: &str) {
     let output = run(bin, &["--help"]);
     let stdout = String::from_utf8(output.stdout).expect("the usage is UTF-8");
@@ -56,6 +58,7 @@ pub(crate) fn assert_fails_with(bin: &str, args: &[&str], message: &str) {
 
 /// Asserts that a windowed example rejects each wrong use of `--frames`
 /// and of its file argument, with `shader` as a valid file.
+#[cfg(feature = "wgpu")]
 pub(crate) fn assert_rejects_bad_arguments(bin: &str, shader: &str) {
     assert_fails_with(bin, &[shader, "--frames"], "--frames needs a number");
     for value in ["many", "-1", "2.5"] {
@@ -76,9 +79,24 @@ pub(crate) fn assert_rejects_bad_arguments(bin: &str, shader: &str) {
     assert_fails_with(bin, &["--frames", "3"], one_file);
 }
 
-/// Creates a device on the adapter that wgpu chooses.
+/// The name of the backend of the build, which every device of the tests
+/// runs on and the output of every test names.
+#[cfg(feature = "wgpu")]
+const BACKEND: &str = "wgpu";
+#[cfg(feature = "rhi")]
+const BACKEND: &str = "rhi";
+
+/// Creates a device of the backend of the build on the adapter that the
+/// backend chooses, and prints the backend and the adapter, which the output
+/// of a failed test then shows.
 pub(crate) fn device() -> Device {
-    Device::new(&DeviceOptions::default()).expect("a device is created")
+    let device = Device::new(&DeviceOptions::default())
+        .unwrap_or_else(|error| panic!("a device of the backend {BACKEND}: {error:?}"));
+    println!(
+        "slango gpu test backend: {BACKEND}, adapter: {}",
+        device.adapter_name()
+    );
+    device
 }
 
 /// Returns the path of the shader `file` under `examples/shaders/`.

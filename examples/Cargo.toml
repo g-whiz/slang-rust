@@ -11,6 +11,7 @@ repository.workspace = true
 
 [features]
 default = ["wgpu"]
+rhi = ["slango/rhi"]
 vendored = [
     "slang-compiler/vendored",
     "slang-slint?/vendored",
