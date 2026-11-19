@@ -217,7 +217,7 @@ M10 makes `slang-rhi` a dependency of `slango` behind the opt-in feature `rhi`, 
 Unsafe code appears only in `slang-compiler-sys`, `slang-compiler`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi`, as Hard Rule 7 of `AGENTS.md` and Section 4.4 of the coding standard state. `slang-glslang-sys` declares the one foreign function that returns its loader, in an `unsafe extern "C"` block, and has no other unsafe code (SGL-13 of `docs/design/slang-glslang-sys.md`). The other crates have none:
 
 - `slang-src` runs git and `slang-bindgen` parses headers, both through safe APIs (SRC-2 of `docs/design/slang-src.md` and SCS-57 of `docs/design/slang-compiler-sys.md`).
-- `slango` loads every shader through wgpu's validated path (SLO-2 of `docs/design/slango.md`).
+- `slango` loads every shader through wgpu's validated path on the backend `wgpu`, and calls only the safe API of `slang-rhi` on the backend `rhi` (SLO-2 of `docs/design/slango.md`).
 - `slang-slint` shares Slint's device and imports textures through safe APIs (SLS-4 of `docs/design/slang-slint.md`).
 - `slango-codegen` and `slango-macros` generate and compile Rust tokens only.
 

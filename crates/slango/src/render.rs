@@ -25,8 +25,9 @@ const CREATE: &str = "create a render pipeline";
 /// into a [`Texture`](crate::Texture).
 ///
 /// Cloning a render pipeline is cheap and returns another handle to the same
-/// pipeline. A render pipeline keeps its [`Device`] alive and holds no object
-/// of the Slang compiler.
+/// pipeline. A render pipeline keeps its [`Device`] alive. With the feature
+/// `wgpu`, it holds no object of the Slang compiler, and with the feature
+/// `rhi`, it keeps the Slang program that it was created from alive.
 ///
 /// A render pipeline is neither [`Send`] nor [`Sync`]: it and every object
 /// created from it stay on the thread that created them, because the crate

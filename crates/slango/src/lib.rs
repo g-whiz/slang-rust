@@ -203,19 +203,24 @@
 //!   `[f32; 3]` for a `float3`. An integer varying, an output of the vertex
 //!   entry point, needs `nointerpolation`.
 //! - System values such as `SV_Position`, `SV_VulkanVertexID`, and
-//!   `SV_VulkanInstanceID`, which the GPU provides.
+//!   `SV_VulkanInstanceID`, which the GPU provides. With the feature `rhi`
+//!   on Direct3D 12, a vertex entry point that reads `SV_VulkanVertexID` or
+//!   `SV_VulkanInstanceID` fails with [`ErrorKind::Compile`], as
+//!   [Choosing a backend](#choosing-a-backend) describes.
 //!
 //! The load of a module fails with [`ErrorKind::UnsupportedParameter`] when
 //! a kernel has any other parameter, such as a storage texture, a
 //! `Sampler2D`, a `SamplerComparisonState`, a `ByteAddressBuffer`, a
 //! `double`, or an array of structures. The creation of a render pipeline
 //! fails with the same kind when one of its entry points has such a
-//! parameter or `uniform` parameters of its own. The load fails with
-//! [`ErrorKind::MissingFeature`] when a kernel has `uniform` parameters of
-//! its entry point and the device cannot receive them. The load and the
-//! creation fail with [`ErrorKind::UnsupportedShader`] when wgpu rejects the
-//! compiled form of an entry point, or the two entry points of a render
-//! pipeline together, such as when their varyings do not match.
+//! parameter or `uniform` parameters of its own. With the feature `wgpu`,
+//! the load fails with [`ErrorKind::MissingFeature`] when a kernel has
+//! `uniform` parameters of its entry point and the device cannot receive
+//! them, and the load and the creation fail with
+//! [`ErrorKind::UnsupportedShader`] when wgpu rejects the compiled form of an
+//! entry point, or the two entry points of a render pipeline together, such
+//! as when their varyings do not match. The feature `rhi` refuses a few more
+//! parameters, which [Choosing a backend](#choosing-a-backend) lists.
 //!
 //! # Limits
 //!
@@ -248,7 +253,9 @@
 //! The draws follow the conventions of wgpu on every backend. The y axis of
 //! a position in clip space points up, so (-1, 1) is the upper-left corner
 //! of the target, and a depth from 0.0, the nearest, to 1.0, the farthest,
-//! is drawn, while a depth outside that range is clipped. A triangle whose
+//! is drawn, while a depth outside that range is clipped. The one exception
+//! is the feature `rhi` on Vulkan, which draws the part of a triangle
+//! outside that range with its depth clamped to it. A triangle whose
 //! vertices appear counter-clockwise on the target faces the viewer. The
 //! texture coordinates (0, 0) address the upper-left pixel of a texture. A
 //! matrix is set as its rows, so a transform written in Rust as rows works
@@ -277,36 +284,141 @@ wgpu. The example `windowed-renderer` does this with winit.
 //!
 //! - `wgpu`, on by default: runs every kernel and every draw on wgpu 30, and
 //!   provides the module `wgpu`, the boundary to wgpu code of your own.
-//! - `rhi`, off by default: runs every kernel and every draw on slang-rhi, with Vulkan on
-//!   Linux and Direct3D 12 on Windows on x86-64. It excludes `wgpu`, so a
-//!   program turns the default features off to enable it, and it implies
-//!   `vendored`. It builds Slang and slang-rhi from source, with the tools
-//!   that the crate slang-rhi-sys names, and the build stops on every
-//!   other target. A program on Windows needs `dxcompiler.dll` on its `PATH`
-//!   at run time. The module `wgpu` does not exist in this build. It needs
-//!   a semantic on every vertex attribute, and on Vulkan it draws the part of
-//!   a triangle outside the depth range 0 to 1 with its depth clamped where
-//!   wgpu clips it. It runs some kernels that wgpu
-//!   rejects, such as kernels that use 64-bit integers or half-precision
-//!   floats, because it hands the code that Slang generates to the driver
-//!   without the validation of wgpu.
+//! - `rhi`, off by default: runs every kernel and every draw on slang-rhi,
+//!   the render hardware interface of Slang, with Vulkan on Linux and
+//!   Direct3D 12 on Windows on x86-64. It excludes `wgpu`, so a program
+//!   turns the default features off to enable it, and it implies
+//!   `vendored`. It builds Slang and slang-rhi from source, and the build
+//!   stops on every other target. [Choosing a backend](#choosing-a-backend)
+//!   says what else follows from it.
 //! - `vendored`, off by default: enables the feature `vendored` of
 //!   slang-compiler, so that a program that depends on this crate alone
 //!   links a Slang built from source statically, in place of the Slang shared
 //!   library of a Vulkan SDK. It adds and removes no item of the API. The
 //!   crate documentation of slang-compiler says what that build needs.
 //!
+//! # Choosing a backend
+//!
+//! A backend is the graphics library through which the crate runs kernels
+//! and draws. Every build has exactly one, which a Cargo feature chooses:
+//!
+//! - wgpu, through the feature `wgpu`, which is on by default. A program
+//!   that keeps the default features uses it.
+//! - slang-rhi, through the feature `rhi`. A program turns the default
+//!   features off and enables `rhi` in its dependency:
+//!
+//! ```toml
+//! [dependencies]
+//! slango = { version = "0.1.0-alpha.2", default-features = false, features = ["rhi"] }
+//! ```
+//!
+//! With `rhi`, the build clones the Slang source tree and builds Slang and
+//! slang-rhi from it, which takes minutes on the first build in a Cargo
+//! target directory and needs the tools that the crate documentation of
+//! slang-rhi-sys lists. It builds on Linux with the GNU C library, where it
+//! runs on Vulkan, and on Windows on x86-64 with the Microsoft toolchain,
+//! where it runs on Direct3D 12. On every other target, macOS included, the
+//! build stops with an error.
+//!
+//! A program on Windows that loads a module needs `dxcompiler.dll`, the
+//! DirectX Shader Compiler, on its `PATH` or beside its executable at run
+//! time. The Windows SDK ships it.
+//!
+//! Cargo enables the features of one crate for the whole build, so every
+//! crate of a program that depends on this crate shares one backend. When
+//! two crates of one build ask for different backends, or one keeps the
+//! default features while another enables `rhi`, the build stops with a
+//! compile error.
+//!
+//! A library that works on either backend turns the default features off,
+//! enables neither, and leaves the choice to the program. The
+//! crate slang-slint always uses the backend `wgpu`, so a program on `rhi`
+//! cannot use it. The macro of the crate slango-macros works on both
+//! backends, and the code that it generates follows the backend of the
+//! program's copy of this crate.
+//!
+//! Every type, function, and check of the crate exists on both backends,
+//! apart from the module `wgpu`, which exists only with the feature `wgpu`.
+//! A program written for one backend compiles on the other, and the same
+//! program gives the same results, and the same error kinds and texts for
+//! bad arguments, on both, apart from these differences:
+//!
+//! - The module `wgpu` and its functions, the section on drawing into a
+//!   window, and the error kinds [`ErrorKind::MissingFeature`] and
+//!   [`ErrorKind::UnsupportedShader`] concern the backend `wgpu` only. The
+//!   backend `rhi` draws into textures only and offers no window.
+//! - The backend `rhi` hands the code that Slang generates to the driver
+//!   without the validation of wgpu, and without the checks of memory
+//!   accesses that wgpu adds to a shader. It therefore runs some kernels that
+//!   wgpu rejects, such as kernels that use 64-bit integers, half-precision
+//!   floats, or wave operations, where the device supports them, and a shader
+//!   that reads or writes past the end of a buffer reaches whatever the
+//!   driver allows.
+//! - No shader that reads the index of a vertex or of an instance runs on
+//!   both backends on Direct3D 12. wgpu rejects `SV_VertexID` and
+//!   `SV_InstanceID`, while the backend `rhi` on Direct3D 12 fails with
+//!   [`ErrorKind::Compile`] on `SV_VulkanVertexID` and
+//!   `SV_VulkanInstanceID`. A shader for both backends takes such values from
+//!   a vertex buffer instead. The backend `rhi` on Vulkan draws a vertex
+//!   entry point that reads `SV_InstanceID`.
+//! - The backend `rhi` needs a semantic, such as `POSITION` or `TEXCOORD0`,
+//!   on every vertex attribute, because Direct3D 12 matches attributes by
+//!   their semantics. Without one, the module still loads, and
+//!   [`Module::render_pipeline`] fails for that vertex entry point with
+//!   [`ErrorKind::UnsupportedParameter`].
+//! - The backend `wgpu` counts the vertex attributes that a vertex entry
+//!   point uses against its limit of vertex buffers, 8 by default. The
+//!   backend `rhi` counts every attribute that the entry point declares, used
+//!   or not, against the vertex streams of the device, at most 16, and
+//!   [`Module::render_pipeline`] fails with [`ErrorKind::InvalidArgument`]
+//!   when they do not fit. On both backends, an attribute that the shader
+//!   declares and does not use needs no buffer.
+//! - The backend `rhi` refuses two shapes of parameter that the backend
+//!   `wgpu` runs: a resource inside a structure that is not the element of a
+//!   constant buffer or a parameter block, and a constant buffer whose
+//!   element is not a structure. A kernel that uses one fails to load, and a
+//!   render pipeline that uses one fails to be created, with
+//!   [`ErrorKind::UnsupportedParameter`]. Such a parameter that the shader
+//!   does not use works on both backends.
+//! - A kernel whose thread group is larger than the device allows fails to
+//!   load with [`ErrorKind::Backend`], except on the backend `rhi` on
+//!   Direct3D 12, where the DXIL compiler refuses it first with
+//!   [`ErrorKind::Compile`].
+//! - On the backend `rhi` on Vulkan, the part of a triangle outside the depth
+//!   range 0 to 1 is drawn with its depth clamped, while the backend `wgpu`
+//!   and the backend `rhi` on Direct3D 12 clip it.
+//! - On the backend `rhi` on Direct3D 12, a kernel or a render pipeline that
+//!   uses both a `ConstantBuffer` and a global `uniform` fails, through a
+//!   defect of slang-rhi: a kernel fails to load with [`ErrorKind::Backend`],
+//!   and [`Module::render_pipeline`] fails with [`ErrorKind::Compile`]. A
+//!   `ParameterBlock` in place of the constant buffer, or no global `uniform`
+//!   beside it, avoids the failure.
+//! - A message about a texture that cannot be sampled, drawn into, or read
+//!   names the usages of the backend. Only a texture that the function
+//!   `wgpu::texture_from_view` makes can lack one, so only the backend
+//!   `wgpu` gives such a message.
+//!
+//! On the backend `rhi`, a load compiles the module for the graphics API of
+//! the device, SPIR-V on Vulkan and DXIL on Direct3D 12, and the module keeps
+//! the Slang session of its load until the module and every kernel and
+//! render pipeline from it are dropped.
+//!
 //! # Platform support
 //!
 //! The crate supports the platforms of `slang-compiler`, which are Linux on
-//! x86-64, Windows on x86-64, and macOS on Apple silicon and on x86-64. It
-//! searches the adapters of whichever of Vulkan, Direct3D 12, and Metal wgpu
-//! offers on the platform. Its tests create devices, run kernels, sample
-//! textures, and draw in continuous integration on three adapters:
-//! lavapipe on Vulkan on Linux, the Windows Advanced Rasterization Platform
-//! (WARP) on Direct3D 12 on Windows, and the Apple paravirtual device on
-//! Metal on macOS. On macOS, Metal offers no software adapter, so
-//! [`AdapterSelection::Software`] finds none there.
+//! x86-64, Windows on x86-64, and macOS on Apple silicon and on x86-64. With
+//! the feature `wgpu`, it searches the adapters of whichever of Vulkan,
+//! Direct3D 12, and Metal wgpu offers on the platform. Its tests create
+//! devices, run kernels, sample textures, and draw in continuous integration
+//! on three adapters: lavapipe on Vulkan on Linux, the Windows Advanced
+//! Rasterization Platform (WARP) on Direct3D 12 on Windows, and the Apple
+//! paravirtual device on Metal on macOS. On macOS, Metal offers no software
+//! adapter, so [`AdapterSelection::Software`] finds none there.
+//!
+//! With the feature `rhi`, the crate builds only on Linux with the GNU C
+//! library, where it runs on Vulkan, and on Windows on x86-64 with the
+//! Microsoft toolchain, where it runs on Direct3D 12. Its tests run in
+//! continuous integration on lavapipe and on WARP.
 //!
 //! # Finding the Slang library
 //!
@@ -315,10 +427,54 @@ wgpu. The example `windowed-renderer` does this with winit.
 //! By default, that is the Slang shared library of the Vulkan SDK of the build,
 //! which the dynamic loader has to find when the program starts. With the
 //! feature `vendored`, it is a Slang built from source and linked
-//! statically, and the build needs no Vulkan SDK. A program that also calls
-//! the macro of `slango-macros` enables `vendored` there as well, because
-//! the macro links its own copy of Slang, as the crate documentation of
+//! statically, and the build needs no Vulkan SDK. The feature `rhi` implies
+//! `vendored`, so a build with `rhi` always links a Slang built from source.
+//! A program that also calls the macro of `slango-macros` enables `vendored`
+//! there as well when it builds without a Vulkan SDK, because the macro
+//! links its own copy of Slang, as the crate documentation of
 //! `slango-macros` explains.
+//!
+//! # Changes from 0.1.0-alpha.1
+//!
+//! The published release `0.1.0-alpha.1` of this crate had the backend
+//! `wgpu` only. A program written for it needs these changes:
+//!
+//! - [`Device`], [`Module`], [`Kernel`], [`Buffer`], [`Texture`], [`Sampler`],
+//!   [`RenderPipeline`], [`Call`], and [`Draw`] are no longer [`Send`] or
+//!   [`Sync`]. A program keeps each device, and everything created from it,
+//!   on the thread that created the device, and sends results to other
+//!   threads as plain data. [`Error`], [`ErrorKind`], the options structs,
+//!   and the enumerations stay [`Send`] and [`Sync`].
+//! - A call or a draw that binds one buffer to a parameter that the shader
+//!   only reads and to one that it writes, or that gives a vertex or index
+//!   buffer that is also bound to a parameter that the shader writes, fails
+//!   with [`ErrorKind::InvalidArgument`] before any work reaches the GPU,
+//!   where it failed with [`ErrorKind::Backend`] before. Separate buffers
+//!   avoid it.
+//! - [`ErrorKind`] has the new kind [`ErrorKind::Unsupported`], for an
+//!   operation that the backend of the build does not offer. A `match` with
+//!   a wildcard arm, which the non-exhaustive enumeration already requires,
+//!   needs no change.
+//! - The text of the error of a buffer read whose bytes do not fit its
+//!   elements begins with "the backend read" where it began with "wgpu
+//!   mapped". Code that matches on the kind needs no change.
+//! - The module `wgpu` exists only with the feature `wgpu`. Its functions
+//!   keep their signatures, and its accessors `device`, `queue`, and
+//!   `texture` still return an `Option`, which is always `Some` in a build
+//!   with that feature.
+//! - A program that turns the default features off names exactly one of
+//!   `wgpu` and `rhi`, and a build that enables neither or both stops with a
+//!   compile error.
+//! - The code that the macro of `slango-macros` generates calls this crate
+//!   in a new way, so a program rebuilds it with the `slango-macros` of the
+//!   same version as this crate. The generated `Shader`, kernel structs, and
+//!   arguments structs are no longer [`Send`] or [`Sync`] either.
+//! - The `View` of the crate slang-slint is no longer [`Send`] or [`Sync`],
+//!   and stays on the thread of the user interface.
+//!
+//! A program that uses the crate on one thread with its default features
+//! needs no change of its code. A program that moves to the backend `rhi`
+//! also meets the differences of [Choosing a backend](#choosing-a-backend).
 
 #[cfg(not(any(
     all(feature = "wgpu", not(feature = "rhi")),

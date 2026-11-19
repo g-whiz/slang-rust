@@ -177,9 +177,9 @@ impl View {
     ///
     /// Returns an [`Error`] of kind [`ErrorKind::TextureImport`] when Slint
     /// rejects the texture, or when the texture has no wgpu texture. Slint
-    /// accepts every texture of a view, and every texture of `slango` has a
-    /// wgpu texture while wgpu is its only backend, so this error is a defect
-    /// of this crate.
+    /// accepts every texture of a view. This crate builds only with the
+    /// backend `wgpu` of `slango`, where every texture has a wgpu texture, so
+    /// this error is a defect of this crate.
     pub fn to_image(&self) -> Result<slint::Image> {
         let texture = wgpu_texture(slango::wgpu::texture(&self.texture))?;
         slint::Image::try_from(texture.clone())

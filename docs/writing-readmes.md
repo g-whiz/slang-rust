@@ -116,7 +116,7 @@ RDM-6. The first sentence of the root README MUST say what the project is by its
 This illustration shows the form of the opening:
 
 ```markdown
-slang-rust is a set of Rust crates for the Slang shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the GPU through wgpu, and show the result in a Slint user interface.
+slang-rust is a set of Rust crates for the Slang shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the GPU through wgpu or slang-rhi, and show the result in a Slint user interface.
 ```
 
 ### 5.3. Status
@@ -186,10 +186,10 @@ Table 4. Content of a crate README by kind of crate.
 | Source crate | `slang-src` | That the crate provides the Slang source tree to the build scripts of other crates, and that a user never depends on it directly | None, because the crate has no API | That its build script clones from the network on the first build in a target directory |
 | Build tool | `slang-bindgen` | That the crate generates the bindings from the Slang headers with libclang, and that `slang-compiler-sys` runs it in every build | One call of `generate` | libclang |
 | Safe wrapper | `slang-compiler` | That the crate compiles and reflects Slang shaders without a GPU, and that `slango` runs them | Compiling one small shader and printing a result | Slang and libclang |
-| High-level library | `slango` | That the crate runs compute kernels and draws with render pipelines on the GPU through wgpu | Loading a module and running one kernel | Slang, libclang, and a GPU adapter |
+| High-level library | `slango` | That the crate runs compute kernels and draws with render pipelines on the GPU through wgpu by default or through slang-rhi with its feature `rhi`, with one API | Loading a module and running one kernel | Slang, libclang, a GPU adapter, and the build from source and the platforms of the feature `rhi` |
 | Procedural macro | `slango-macros` | That the macro compiles a Slang file while the crate builds and generates typed bindings to its kernels | One call of `shader!` and one call of a generated kernel | Slang at build time, the feature `vendored` on both `slango-macros` and `slango`, and the exact version that ties it to `slango` |
 | Generator | `slango-codegen` | That the crate is the generator behind `slango-macros`, and when to use it instead of the macro | One call of the generator | Slang at build time, and the exact version that ties it to `slango` |
-| Safe wrapper of slang-rhi | `slang-rhi` | That the crate runs compute kernels and draws with render pipelines on the GPU through slang-rhi, and that `slango` does both through wgpu | Opening a device and printing a result, with a link to a whole compute dispatch in the crate documentation | The build of Slang and slang-rhi from source, the supported platforms, and what a program needs at run time |
+| Safe wrapper of slang-rhi | `slang-rhi` | That the crate runs compute kernels and draws with render pipelines on the GPU through slang-rhi, and that most programs use `slango`, which does both through wgpu or, with its feature `rhi`, through this crate | Opening a device and printing a result, with a link to a whole compute dispatch in the crate documentation | The build of Slang and slang-rhi from source, the supported platforms, and what a program needs at run time |
 | Slint integration | `slang-slint` | That the crate shows what `slango` draws in a Slint user interface | The smallest wiring of a Slint window to a `slango` render pipeline | What a Linux build of Slint needs, and the licence consequence in its own `Licence` section |
 
 ### 6.6. Manifest

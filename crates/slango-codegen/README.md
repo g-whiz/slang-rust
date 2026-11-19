@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. The [features of this crate](https://g-whiz.github.io/slang-rust/slango_codegen/#features) say what its feature `vendored` does.
 
-The generated code calls hidden items of slango, so this crate requires slango of exactly its own version, and a crate that contains the generated code depends on the slango of that version, as the [API documentation](https://g-whiz.github.io/slang-rust/slango_codegen/) explains.
+The generated code calls hidden items of slango, so this crate requires slango of exactly its own version, and a crate that contains the generated code depends on the slango of that version, as the [API documentation](https://g-whiz.github.io/slang-rust/slango_codegen/) explains. The API documentation also explains why a program whose slango uses the feature `rhi` can use this crate only as a build dependency or through slango-macros.
 
 ## Documentation
 

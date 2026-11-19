@@ -277,7 +277,7 @@ jobs:
           done
           printf '::error::The runner image provides no Python 3 as python3 or python on PATH, which the build of slang-glslang needs, because SPIRV-Tools generates some of its sources with a Python script\n'
           exit 1
-      - name: Install the development headers of Xlib, which the build of slang-rhi includes, and lavapipe and the Vulkan loader, which the tests of slang-rhi-sys use, where the runner image lacks them
+      - name: Install the development headers of Xlib, which the build of slang-rhi includes, and lavapipe and the Vulkan loader, which the tests on slang-rhi use, where the runner image lacks them
         if: matrix.os == 'ubuntu-latest'
         run: |
           missing=()
@@ -293,25 +293,25 @@ jobs:
       - name: Run Clippy and the documentation build of the vendored build, and show how long it took
         if: matrix.os == 'ubuntu-latest'
         run: time just check-vendored
-      - name: Run Clippy and the documentation build of slang-rhi-sys and slang-rhi, and show how long it took
+      - name: Run Clippy and the documentation build of slang-rhi-sys, slang-rhi, and slango with its feature rhi, and Clippy on the examples package with rhi, and show how long it took
         if: matrix.os != 'macos-latest'
         run: time just check-rhi
       - name: Run the tests of the vendored build, and show how long it took
         run: time just test-vendored
-      - name: Put the directory of the dxcompiler.dll of the newest Windows SDK on PATH, through which the tests of slang-rhi on Direct3D 12 compile their kernels to DXIL
+      - name: Put the directory of the dxcompiler.dll of the newest Windows SDK on PATH, through which the tests on slang-rhi with Direct3D 12 compile their shaders to DXIL
         if: matrix.os == 'windows-latest'
         run: |
           kits="$(cygpath --unix 'C:\Program Files (x86)\Windows Kits\10\bin')"
           shopt -s nullglob
           candidates=("${kits}"/10.*/x64/dxcompiler.dll)
           if [[ "${#candidates[@]}" -eq 0 ]]; then
-            printf '::error::The runner image provides no dxcompiler.dll at %s/10.*/x64/dxcompiler.dll in a versioned Windows SDK directory, which the tests of slang-rhi on Direct3D 12 need\n' "${kits}"
+            printf '::error::The runner image provides no dxcompiler.dll at %s/10.*/x64/dxcompiler.dll in a versioned Windows SDK directory, which the tests on slang-rhi with Direct3D 12 need\n' "${kits}"
             exit 1
           fi
           found="$(printf '%s\n' "${candidates[@]}" | sort --version-sort | tail -n 1)"
           printf 'dxcompiler.dll of the highest Windows SDK version: %s\n' "${found}"
           cygpath --windows "$(dirname "${found}")" >>"${GITHUB_PATH}"
-      - name: Run the tests of slang-rhi-sys and slang-rhi, and show how long it took
+      - name: Run the tests of slang-rhi-sys, slang-rhi, slango with its feature rhi, and the examples package with rhi, and show how long it took
         if: matrix.os != 'macos-latest'
         run: time just test-rhi
       - name: Check where the vendored build kept its Slang clone

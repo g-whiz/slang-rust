@@ -75,9 +75,8 @@
 //! public field of each kernel. A generated struct of the element of a
 //! structured buffer keeps its padding, or a field of zero size where its
 //! layout has no padding, in private fields. A crate that enables the Clippy
-//! lint
-//! `clippy::partial_pub_fields` therefore puts an `#[expect]` of that lint,
-//! with a reason, on the module that calls the macro.
+//! lint `clippy::partial_pub_fields` therefore puts an `#[expect]` of that
+//! lint, with a reason, on the module that calls the macro.
 //!
 //! A generated `new` with more than seven arguments carries an `#[expect]`
 //! of `clippy::too_many_arguments`. A crate that raises the Clippy setting
@@ -151,7 +150,10 @@
 //! # Platform support
 //!
 //! The crate supports the platforms of `slango`, which are Linux on x86-64,
-//! Windows on x86-64, and macOS on Apple silicon and on x86-64.
+//! Windows on x86-64, and macOS on Apple silicon and on x86-64. The
+//! generated code runs on the backend of the program's `slango`, so with
+//! its feature `rhi` it builds only where that backend builds, on Linux with
+//! the GNU C library and on Windows on x86-64.
 //!
 //! # Finding the Slang library
 //!
@@ -166,6 +168,22 @@
 //! `VULKAN_SDK is not set`, because the other copy of Slang still links the
 //! Slang of a Vulkan SDK. A documentation build expands the macro with Slang
 //! like any other build.
+//!
+//! The feature `rhi` of `slango` always builds the program's copy of Slang
+//! from source, and it does not reach the macro's copy either. A program on
+//! that backend without a Vulkan SDK at build time therefore enables
+//! `vendored` on this crate:
+//!
+//! ```toml
+//! [dependencies]
+//! slango = { version = "0.1.0-alpha.2", default-features = false, features = ["rhi"] }
+//! slango-macros = { version = "0.1.0-alpha.2", features = ["vendored"] }
+//! ```
+//!
+//! The macro's copy of `slango` keeps the backend `wgpu`, because it only
+//! compiles the Slang file and creates no device. Cargo resolves the
+//! features of the two copies apart, so the program's copy keeps exactly one
+//! backend.
 //!
 //! With the Vulkan SDK, the macro library links the Slang shared library, so
 //! the compiler has to find that library when it loads the macro. Without
@@ -286,6 +304,10 @@ const EXPECTED: &str = "shader! takes one string literal, the path of a Slang fi
 /// they differ. A field of another scalar type or number of components, such
 /// as an `int3` where the struct holds a `float3`, fails even at the same
 /// offset.
+///
+/// `Shader`, the kernel structs, and the arguments structs hold objects of
+/// `slango` that stay on the thread of their device, so none of them is
+/// [`Send`] or [`Sync`].
 ///
 /// The crate builds again whenever the Slang file or a file that it imports
 /// changes.

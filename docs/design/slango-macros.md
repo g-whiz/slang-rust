@@ -205,7 +205,7 @@ Only the tests format the tokens with `prettyplease`.
 
 `slango-macros` depends on `slango-codegen` and on `syn` with the features `parsing`, `printing`, and `proc-macro`. For its tests only, it depends on `slango`, with its feature `wgpu` named, and on `trybuild`. It needs no `proc-macro2` of its own.
 
-Both crates are published, because a published crate cannot depend on an unpublished one. For the same reason, both set `publish = false` from the third code step of M10 until M11, while `slango` depends on the unpublished `slang-rhi` (TOOL-54 of `docs/design/tooling.md`), and their versions `0.1.0-alpha.1` stay the published ones.
+Both crates are published, because a published crate cannot depend on an unpublished one. For the same reason, both set `publish = false` until M11, while `slango` depends on the unpublished `slang-rhi` (TOOL-54 of `docs/design/tooling.md`), and their versions `0.1.0-alpha.1` stay the published ones.
 
 SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, and `slango-macros` MUST require `slango-codegen` with an exact version, because the encoded snapshot and the hidden module of `slango` have no stability across versions (SLM-6). A mismatch would fail at load or not compile.
 

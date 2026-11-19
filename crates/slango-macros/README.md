@@ -1,6 +1,6 @@
 # slango-macros
 
-slango-macros provides the procedural macro `shader!`, which compiles a [Slang](https://shader-slang.org) file while a crate builds and generates typed Rust bindings to its compute kernels for [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md). Use it when the Slang file is part of the crate, and the runtime API of slango when a program chooses its shaders while it runs.
+slango-macros provides the procedural macro `shader!`, which compiles a [Slang](https://shader-slang.org) file while a crate builds and generates typed Rust bindings to its compute kernels for [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md), on whichever backend of slango the program uses. Use it when the Slang file is part of the crate, and the runtime API of slango when a program chooses its shaders while it runs.
 
 > [!WARNING]
 > This version of the crate is an alpha that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
@@ -44,7 +44,7 @@ The program prints this line:
 
 ## Requirements
 
-Building a crate that calls the macro needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. A build from source enables `vendored` on both slango-macros and slango, as the [features of this crate](https://g-whiz.github.io/slang-rust/slango_macros/#features) explain.
+Building a crate that calls the macro needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. A build from source enables `vendored` on both slango-macros and slango, as the [features of this crate](https://g-whiz.github.io/slang-rust/slango_macros/#features) explain. A program that uses the feature `rhi` of slango enables `vendored` on slango-macros to build without a Vulkan SDK, as [finding the Slang library](https://g-whiz.github.io/slang-rust/slango_macros/#finding-the-slang-library) explains.
 
 The generated code calls slango, so a crate that calls the macro also depends on the slango of the same version as this crate, as the [versions](https://g-whiz.github.io/slang-rust/slango_macros/#versions) of the API documentation explain.
 

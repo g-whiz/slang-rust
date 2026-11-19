@@ -11,19 +11,21 @@
 //! [`slango::Device::load_module`] does, and returns the Rust code of its
 //! bindings. The documentation of `shader!` describes the generated items.
 //!
-//! The generated code embeds the compiled module and calls hidden items of
+//! The generated code embeds the compiled module, or with the feature `rhi`
+//! of `slango` the Slang source of the module, and calls hidden items of
 //! `slango` that keep no stability between versions. This crate therefore
 //! requires `slango` of exactly its own version, and a crate that contains
 //! the generated code depends on the `slango` of that version.
 //!
 //! This crate always enables the feature `wgpu` of its `slango`, because
 //! `slango` builds only with one backend, and the generator needs one
-//! whatever backend the generated code runs on. A program whose `slango` has the feature `rhi` can
-//! therefore use this crate only as a build dependency, or through
-//! `slango-macros`, whose `slango` belongs to the build of the macro. As a
-//! normal dependency of such a program, it shares the program's `slango`,
-//! Cargo enables both backend features on it, and the build of `slango`
-//! stops with an error.
+//! whatever backend the generated code runs on.
+//!
+//! A program whose `slango` has the feature `rhi` can therefore use this
+//! crate only as a build dependency, or through `slango-macros`, whose
+//! `slango` belongs to the build of the macro. As a normal dependency of such
+//! a program, it shares the program's `slango`, Cargo enables both backend
+//! features on it, and the build of `slango` stops with an error.
 //!
 //! Every failure is an [`Error`]. Its [`Error::kind`] is
 //! [`ErrorKind::Compile`] when Slang cannot read or compile the file,

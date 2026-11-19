@@ -1,6 +1,6 @@
 # slang-slint
 
-slang-slint shows what a [Slang](https://shader-slang.org) render pipeline of [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) draws inside a [Slint](https://slint.dev) user interface, by sharing one wgpu device between Slint and slango. A program without a Slint user interface uses slango alone.
+slang-slint shows what a [Slang](https://shader-slang.org) render pipeline of [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) draws inside a [Slint](https://slint.dev) user interface, by sharing one wgpu device between Slint and slango. A program without a Slint user interface uses slango alone. The crate uses the default backend of slango, wgpu, so a program that uses the feature `rhi` of slango cannot use this crate.
 
 > [!WARNING]
 > This crate is an alpha release that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.

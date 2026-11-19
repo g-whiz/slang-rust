@@ -1,6 +1,6 @@
 # slango
 
-slango runs [Slang](https://shader-slang.org) compute kernels and draws with Slang render pipelines on the graphics processing unit (GPU) from Rust, through [wgpu](https://wgpu.rs). It builds on [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), which a program uses instead to compile or reflect shaders without a GPU, and [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md) generates typed bindings to its kernels while a crate builds.
+slango runs [Slang](https://shader-slang.org) compute kernels and draws with Slang render pipelines on the graphics processing unit (GPU) from Rust, through [wgpu](https://wgpu.rs) by default or through [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of Slang, with its feature `rhi`, with the same API on both. It builds on [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), which a program uses instead to compile or reflect shaders without a GPU, and [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md) generates typed bindings to its kernels while a crate builds.
 
 > [!WARNING]
 > This version of the crate is an alpha that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
@@ -57,13 +57,15 @@ The program prints this line:
 
 ## Requirements
 
-Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. The [features of this crate](https://g-whiz.github.io/slang-rust/slango/#features) say what its feature `vendored` does.
+Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. The [features of this crate](https://g-whiz.github.io/slang-rust/slango/#features) say what its features `vendored` and `rhi` do.
+
+The feature `rhi` builds Slang and slang-rhi from source, on fewer platforms than the default backend, as [choosing a backend](https://g-whiz.github.io/slang-rust/slango/#choosing-a-backend) in the API documentation describes.
 
 Running a kernel or a draw needs a GPU adapter, which a GPU or a software driver provides, as the [platform support](https://g-whiz.github.io/slang-rust/slango/#platform-support) of the API documentation describes.
 
 ## Documentation
 
-The [API documentation](https://g-whiz.github.io/slang-rust/slango/) describes every item, including the parameters that a kernel or a render pipeline can take. The [examples of the repository](https://github.com/g-whiz/slang-rust#examples) include a compute kernel and a windowed renderer. The [project README](https://github.com/g-whiz/slang-rust) lists the other crates.
+The [API documentation](https://g-whiz.github.io/slang-rust/slango/) describes every item, including the parameters that a kernel or a render pipeline can take, the differences between the two backends, and the changes from the published release `0.1.0-alpha.1`. The [examples of the repository](https://github.com/g-whiz/slang-rust#examples) include a compute kernel and a windowed renderer. The [project README](https://github.com/g-whiz/slang-rust) lists the other crates.
 
 ## Licence
 

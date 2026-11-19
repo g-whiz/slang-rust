@@ -7,6 +7,11 @@
 //! Use this crate when a Slint program draws part of its window with Slang,
 //! and `slango` alone when the program has no Slint user interface.
 //!
+//! The crate always uses the backend `wgpu` of `slango`, because it passes
+//! wgpu objects between Slint and `slango`. A program whose `slango` uses
+//! the backend `rhi` therefore cannot use this crate: Cargo would enable
+//! both backends of `slango`, and its build stops with a compile error.
+//!
 //! [`wgpu_configuration`] returns the configuration that the program passes
 //! to Slint's backend selector, so that Slint creates a wgpu device on which
 //! every kernel and render pipeline of `slango` can run. [`device`] turns the

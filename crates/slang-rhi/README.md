@@ -2,7 +2,7 @@
 
 The crate slang-rhi provides safe Rust wrappers over the C++ library [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of the [Slang](https://shader-slang.org) shader compiler, to run compute kernels and draw with render pipelines on the graphics processing unit (GPU) with Vulkan on Linux and Direct3D 12 on Windows.
 
-It builds on the raw bindings of [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md) and compiles through [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), and a program that runs kernels and render pipelines through wgpu uses [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) instead.
+It builds on the raw bindings of [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md) and compiles through [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), and most programs use [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) instead, which runs kernels and render pipelines through wgpu by default and through this crate with its feature `rhi`, behind one API that sets parameters by name.
 
 > [!WARNING]
 > This crate is an alpha release that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.

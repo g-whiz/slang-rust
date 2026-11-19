@@ -1,5 +1,5 @@
 //! The boundary between this crate and wgpu, the graphics library on which it
-//! runs.
+//! runs with the feature `wgpu`.
 //!
 //! Go to this module to use this crate together with wgpu code of your own:
 //! to create a [`Device`] from a wgpu device that your program already holds,
@@ -46,9 +46,9 @@ pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> De
 /// wgpu device.
 ///
 /// Use it to create wgpu objects of your own on the same device, such as a
-/// texture to render the results of a kernel. Every device has a wgpu device
-/// while wgpu is the only backend of this crate, so the function returns
-/// `None` only for a device of another backend.
+/// texture to render the results of a kernel. This module exists only in a
+/// build with the feature `wgpu`, in which every device has a wgpu device, so
+/// the function returns `Some` there.
 ///
 /// # Examples
 ///
@@ -64,7 +64,7 @@ pub fn from_device_and_queue(device: ::wgpu::Device, queue: ::wgpu::Queue) -> De
 #[must_use]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "a device of a backend other than wgpu has no wgpu device, and wgpu is the only backend of this crate"
+    reason = "every device of a build with the wgpu backend has a wgpu device, and the Option keeps the signature open for a device that has none"
 )]
 pub fn device(device: &Device) -> Option<&::wgpu::Device> {
     Some(device.backend().wgpu_device())
@@ -74,9 +74,9 @@ pub fn device(device: &Device) -> Option<&::wgpu::Device> {
 /// the device, or `None` when the device has no wgpu queue.
 ///
 /// Use it to submit work of your own to the same queue as this crate, so that
-/// the device runs both in the order of submission. Every device has a wgpu
-/// queue while wgpu is the only backend of this crate, so the function
-/// returns `None` only for a device of another backend.
+/// the device runs both in the order of submission. This module exists only
+/// in a build with the feature `wgpu`, in which every device has a wgpu
+/// queue, so the function returns `Some` there.
 ///
 /// # Examples
 ///
@@ -93,7 +93,7 @@ pub fn device(device: &Device) -> Option<&::wgpu::Device> {
 #[must_use]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "a device of a backend other than wgpu has no wgpu queue, and wgpu is the only backend of this crate"
+    reason = "every device of a build with the wgpu backend has a wgpu queue, and the Option keeps the signature open for a device that has none"
 )]
 pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
     Some(device.backend().wgpu_queue())
@@ -105,9 +105,8 @@ pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
 /// Use it to work on the texture with wgpu code of your own, such as to copy
 /// pixels into it with [`wgpu::Queue::write_texture`](::wgpu::Queue::write_texture),
 /// which needs the usage `COPY_DST` that every texture of a colour format
-/// has. Every texture has a wgpu texture while wgpu is the only backend of
-/// this crate, so the function returns `None` only for a texture of another
-/// backend.
+/// has. This module exists only in a build with the feature `wgpu`, in which
+/// every texture has a wgpu texture, so the function returns `Some` there.
 ///
 /// # Examples
 ///
@@ -131,7 +130,7 @@ pub fn queue(device: &Device) -> Option<&::wgpu::Queue> {
 #[must_use]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "a texture of a backend other than wgpu has no wgpu texture, and wgpu is the only backend of this crate"
+    reason = "every texture of a build with the wgpu backend has a wgpu texture, and the Option keeps the signature open for a texture that has none"
 )]
 pub fn texture(texture: &Texture) -> Option<&::wgpu::Texture> {
     Some(texture.backend().wgpu_texture())

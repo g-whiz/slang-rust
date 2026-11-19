@@ -320,7 +320,7 @@ This section is non-normative. It states the facts about `slang-rhi`, slang-rhi,
 
 These facts concern the device and the compile:
 
-- `slang-rhi` wraps the compute path of slang-rhi in M9, and no type of it that holds a native object is `Send` or `Sync`, because slang-rhi documents no threading rule (RHI-13 of `docs/design/slang-rhi.md`).
+- `slang-rhi` wraps the compute path and the path of a draw of slang-rhi, and no type of it that holds a native object is `Send` or `Sync`, because slang-rhi documents no threading rule (RHI-13 of `docs/design/slang-rhi.md`).
 - A device of `slang-rhi` compiles with the global session that its caller passes (RHI-5), and its device session has exactly one target, the compile target of the device: SPIR-V on Vulkan and DXIL on D3D12. slang-rhi creates that session itself with `forceGLSLScalarBufferLayout` set on its target of either format, DXIL included (`src/slang-context.h:87`, read), and with the row-major matrix layout (`include/slang-rhi.h:3229`, read). The crate sets no target (Section 3 of `docs/design/slang-rhi.md`).
 - slang-rhi takes the Slang session from the linked program that a shader program receives, and generates the code for target 0 of that session (`src/shader.cpp:58`, read). Only the crate rule RHI-7 of `docs/design/slang-rhi.md` limits a shader program to a program of the device session, and RHI-30 of that design adds sessions that reproduce the settings of the device session, whose programs become shader programs as well. slang-rhi generates the code of a program when the pipeline is created.
 - In one session, a second load of source under a module name that the session holds returns the cached module when the source is the same, and fails with "a module named '...' is already loaded from different source contents in this session" otherwise (`slang-session.cpp:297-317`, read). An `import` resolves first to a module that the session holds under the imported name (`slang-session.cpp:1543`, read). So one session for all loads of a device would fail a reload of a changed file and two files of the same stem, and would reuse a stale imported module, which is why each load creates its own session (owner decision 6 of Section 4.6).
@@ -349,7 +349,7 @@ These facts concern layouts, each from `slangc -reflection-json` with `-matrix-l
 - `Element` holds only 4-byte scalars and vectors of them (Section 8), whose stride is the same in every layout.
 - On DXIL with the profile `sm_6_0`, reflection reports the outer block of the `uniform` parameters of an entry point as a constant buffer and not as a `PushConstantBuffer`, and a resource reports its register class, `ShaderResource`, `UnorderedAccess`, `ConstantBuffer`, or `SamplerState`, with an index and a space, and no `DescriptorTableSlot` (run with `slango` in the `ffi` tests of the walk, 2026-11-18).
 - On DXIL, a `cbuffer Params` with the fields `float gain`, `float3x3`, `float2x3`, `float3x2`, and `uint[3]` has a size of 180, with the elements of the `uint[3]` 16 bytes apart. On SPIR-V with the scalar layout, the uniform blocks are packed as well, so the same fields start at the offsets 4, 40, 64, and 88 (run with `slango`, 2026-11-18).
-- With the two rules of Section 7.1 for DXIL, the walk records the same paths, kinds, and usage on SPIR-V with the scalar layout and on DXIL with `sm_6_0` as on the default layout, which `insta` snapshots in the `ffi` tests of the walk check on Linux (Section 13.7). On Vulkan, on the NVIDIA RTX 4070 and on lavapipe, and on D3D12 on WARP in CI run 44398417125 of 2026-11-18, the offset and size of each top-level field that `ShaderObject::offset_of` reports equal those of the walk for every kind of parameter of the compute `gpu` tests, including a constant buffer or `cbuffer` beside `uniform` parameters of the entry point. The three tests of the resources and blocks among the parameters of the entry point came after that run, and they passed on Vulkan and on WARP in CI run 44407500494. This confirmed the former assumption SOA-10 for compute (Section 14).
+- With the two rules of Section 7.1 for DXIL, the walk records the same paths, kinds, and usage on SPIR-V with the scalar layout and on DXIL with `sm_6_0` as on the default layout, which `insta` snapshots in the `ffi` tests of the walk check on Linux (Section 13.7). On Vulkan, on the NVIDIA RTX 4070 and on lavapipe, and on D3D12 on WARP in CI run 44398417125 of 2026-11-18, the offset and size of each top-level field that `ShaderObject::offset_of` reports equal those of the walk for every kind of parameter of the compute `gpu` tests, including a constant buffer or `cbuffer` beside `uniform` parameters of the entry point. The three tests of the resources and blocks among the parameters of the entry point passed on Vulkan and on WARP in CI run 44407500494. This confirmed the former assumption SOA-10 for compute (Section 14).
 
 These facts concern the vertex stage on D3D12:
 
@@ -359,8 +359,8 @@ These facts concern the vertex stage on D3D12:
 These facts concern the parameters:
 
 - `ShaderObject::offset_of` finds the top-level parameters of an object by name, and `set_data` writes the uniform data of one such parameter. The root object of a program holds the global parameters of the program as one structure, unwrapped from its container, and the entry point object holds the `uniform` parameters of the entry point (RHI-10, Section 3 of `docs/design/slang-rhi.md`).
-- In M9, the fields of a `ConstantBuffer` or `ParameterBlock` parameter cannot be set, and textures and samplers cannot be bound (Section 11 of `docs/design/slang-rhi.md`).
-- `IShaderObject::getObject` returns the object of such a parameter, by pointer and reference only (`include/slang-rhi.h`, read).
+- The fields of a `ConstantBuffer` or `ParameterBlock` parameter are set on the object that `ShaderObject::object` returns, and textures and samplers are bound with `set_texture` and `set_sampler` (Section 11 of `docs/design/slang-rhi.md`).
+- `IShaderObject::getObject`, behind `ShaderObject::object`, returns the object of such a parameter, by pointer and reference only (`include/slang-rhi.h`, read).
 - slang-rhi addresses a resource inside a structure that is a plain parameter by no name, and `ShaderOffset` has no constructor for the whole uniform data of a sub-object, so a constant buffer whose element is not a structure has no top-level field to write (read in `slang-rhi`, 2026-11-18).
 - One buffer bound to two read-write parameters of one dispatch is valid on Vulkan and on D3D12: the `gpu` test of it passed on the NVIDIA RTX 4070, on lavapipe, and on WARP in CI run 44398417125, where both bindings need the state of unordered access. This confirmed the former assumption SOA-12 for compute (Section 14).
 
@@ -558,11 +558,15 @@ The `# Features` section describes `rhi` with these points:
 
 - It is off by default, it excludes `wgpu`, so a program turns the default features off to enable it, and it implies `vendored`.
 - It runs the kernels and draws of every device on slang-rhi, with Vulkan on Linux and D3D12 on x86_64 Windows.
-- It builds Slang and slang-rhi from source, with the tools that `slang-rhi-sys` names, and the build stops on every other target.
-- A program on Windows needs `dxcompiler.dll` at run time.
-- `slango::wgpu` does not exist in a build with `rhi`.
-- Every vertex attribute needs a semantic, and on Vulkan the part of a triangle outside the depth range 0 to 1 is drawn with its depth clamped where wgpu clips it (Section 6.5).
-- It runs some kernels that wgpu rejects, because it hands the code that Slang generates to the driver without the validation of wgpu (Section 6.5).
+- It builds Slang and slang-rhi from source, and the build stops on every other target.
+
+The section "Choosing a backend" of the crate-level documentation states the rest, so that the list of features stays short:
+
+- How a program enables `rhi`, the tools of the build, which `slang-rhi-sys` names, the supported targets, and `dxcompiler.dll`, which a program on Windows needs at run time.
+- The consequences of the exclusion above, among them that `slang-slint` cannot sit in a program on `rhi`.
+- That every public item apart from `slango::wgpu` exists on both backends, and each difference of Section 6.5 in plain words, including the defect RKB-2 of `docs/design/slang-rhi.md` on D3D12 of Section 6.4.
+
+The section "Changes from 0.1.0-alpha.1" of the crate-level documentation states every row of Section 17.6, measured against the published release `0.1.0-alpha.1`, and names no other version, because the version that carries the changes is chosen by the release procedure (TOOL-37 of `docs/design/tooling.md`).
 
 ## 5. Public Types and Ownership
 
@@ -761,7 +765,7 @@ Each keeps `#[must_use]`. No other public function returns a wgpu object (Sectio
 
 The return type is an `Option` and not a `Result` with a kind of `ErrorKind`, by a choice of the design. A missing wgpu object is a property of the object that the caller asks about, not a failure of an operation (ERR-5), and the caller knows which backend made the object.
 
-A new kind would also be one that no code path of the crate can return while wgpu is its only backend. A caller that needs an error maps the `None` to an error of its own, as `slang-slint` does.
+A new kind would also be one that no code path of the crate can return, because every object of a build with the backend `wgpu` has its wgpu object. A caller that needs an error maps the `None` to an error of its own, as `slang-slint` does.
 
 wgpu is the only backend, so every `Device` and every `Texture` holds a wgpu object, and the three functions always return `Some`. Each implementation returns `Some` of the reference that the crate-private accessor gives. Each function carries `#[expect(clippy::unnecessary_wraps, reason = "...")]`, whose reason says in plain words that an object of a backend other than wgpu has no wgpu object and that wgpu is the only backend of the crate.
 
@@ -871,7 +875,7 @@ These differences of shaders between the backends stay, and the crate documentat
 - A shader that reads the vertex index or the instance index cannot run on both the backend `wgpu` and the backend `rhi` on D3D12: DXIL rejects `SV_VulkanVertexID` and `SV_VulkanInstanceID`, and naga rejects `SV_VertexID` (Section 3.11). A shader that both backends run on every platform takes such values from a vertex buffer instead, as the shader of the example `shader-playground` does (Section 13.7).
 - On the backend `rhi`, every vertex attribute and every varying needs a semantic, which D3D12 matches by name and DXIL requires (Section 3.11). The backend `wgpu` matches by location and needs none.
 
-Since the rendering step, the backend `rhi` offers textures, samplers, render pipelines, and draws, and no check of `slango` returns `ErrorKind::Unsupported` on either backend (Section 10). `__private::load_embedded` loads on both backends (SLM-24 of `docs/design/slango-macros.md`).
+The backend `rhi` offers textures, samplers, render pipelines, and draws, and no check of `slango` returns `ErrorKind::Unsupported` on either backend (Section 10). `__private::load_embedded` loads on both backends (SLM-24 of `docs/design/slango-macros.md`).
 
 ### 6.5. Stated Differences Between the Backends
 
@@ -1463,7 +1467,7 @@ The message names the kernel, and the backend's text is returned unchanged as th
 - An error while the bind group layouts and the pipeline layout are created maps as for a kernel.
 - A validation or internal error while the render pipeline itself is created gives `UnsupportedShader`, and an out-of-memory error gives `Backend`. Such a validation error reports a mismatch between the two stages or with the pipeline, such as varyings in another order or of another type (Section 3.9), which only a change of the shader fixes.
 
-The message names both entry points, and the backend's text is returned unchanged as the source error. Every other failure of rendering has the kind that Sections 7.4 to 9.5 state. With the kind `Unsupported` of M10, `ErrorKind` has nine kinds.
+The message names both entry points, and the backend's text is returned unchanged as the source error. Every other failure of rendering has the kind that Sections 7.4 to 9.5 state. With the kind `Unsupported`, `ErrorKind` has nine kinds.
 
 `NoAdapter` answers Q-22 of the architecture design.
 
@@ -1488,7 +1492,7 @@ Three failures on the backend `rhi` have no kind of `slang-rhi` to map, so the d
 
 The mappings from the kinds `Compile`, `Unsupported`, and `NoDevice` of `slang-rhi` have no test, because no well-formed input produces them, and `slang_rhi::Error` has no public constructor for a unit test.
 
-`ErrorKind` is `#[non_exhaustive]`, so the new kind is no breaking change for a caller who matches with a wildcard arm (SLO-32). With one backend for each build, no operation of M10 meets a backend whose feature is off. From the step that added compute to the backend `rhi` until the rendering step, the operations of rendering on that backend returned the kind, so that each step merged a crate that reported what it lacked. Since the rendering step, no check of `slango` returns it on either backend, and the kind is still for these cases:
+`ErrorKind` is `#[non_exhaustive]`, so the new kind is no breaking change for a caller who matches with a wildcard arm (SLO-32). With one backend for each build, no operation meets a backend whose feature is off, and no check of `slango` returns the kind on either backend. The kind is for these cases:
 
 - An error of the kind `Unsupported` of `slang-rhi`, which the table maps to it on the backend `rhi`, such as a device or graphics API that does not support an operation. No test produces one.
 - M12 to M14 and M18 add pipeline kinds on the backend `rhi` only and report them with this kind on the backend `wgpu` (Section 15.13 of the architecture design).
@@ -1638,7 +1642,7 @@ SLO-32 needs no change of the code, because every type already follows it.
 
 SLO-43. Every `gpu` test of `slango` and of the examples MUST run its assertions on a device of the build's one backend, created through one helper of each test binary, and every failure MUST name that backend. A test that the backend `rhi` cannot run MUST carry a skip under the `cfg` of the feature `rhi`, with a reason that names the limit, and MUST still run on the backend `wgpu`.
 
-One test source then checks whichever backend the build has, and the build with the default features runs exactly the tests of today. The helper creates the device with `AdapterSelection::Default`, and the name of the backend that failures show comes from a constant of the test binary under the `cfg` of each feature. A test that calls `slango::wgpu`, or that holds a hand-written stride or offset of a structure, is compiled under the `cfg` of its backend (Section 8.3).
+One test source then checks whichever backend the build has, and the build with the default features runs the tests of the backend `wgpu`. The helper creates the device with `AdapterSelection::Default`, and the name of the backend that failures show comes from a constant of the test binary under the `cfg` of each feature. A test that calls `slango::wgpu`, or that holds a hand-written stride or offset of a structure, is compiled under the `cfg` of its backend (Section 8.3).
 
 A skip reason states the limit in plain words, such as the defect of slang-rhi on D3D12 below, and never a milestone or a step, which Hard Rule 15 of `AGENTS.md` forbids in code.
 
@@ -1648,9 +1652,9 @@ The recipes run the tests of the backend `rhi` (TOOL-53 of `docs/design/tooling.
 - `check-rhi` runs Clippy and the documentation build on `slango` with `--no-default-features --features rhi`, and Clippy on the examples package with the same features as `test-rhi`.
 - `just check`, `test-gpu`, and every other recipe keep the default features, so they build no slang-rhi.
 
-A code step that adds part of the backend `rhi` adds the commands of TOOL-53 that its own work makes pass. The recipes pass no filter of nextest. Until the rendering step, each test of what a later step added carried the skip of SLO-43 under the feature `rhi`, with a reason that named what the backend lacked. The rendering step removed the last 55 of them, from the tests of textures, samplers, and render pipelines, and the five of the scenes of `windowed-renderer`, and deleted the module `gpu/unsupported.rs`, which asserted `ErrorKind::Unsupported` for the operations that the backend lacked.
+The recipes pass no filter of nextest. The tests of textures, samplers, render pipelines, and both scenes run on the backend `rhi` like every other `gpu` test, and no test asserts `ErrorKind::Unsupported`, which no check of `slango` returns (Section 10).
 
-These tests of `slango` still skip the backend `rhi`, each under a `cfg` of the platform, because of a limit of slang-rhi on one graphics API:
+These tests of `slango` skip the backend `rhi`, each under a `cfg` of the platform, because of a limit of slang-rhi on one graphics API:
 
 | Test | Where it skips | Reason |
 | --- | --- | --- |
@@ -1666,31 +1670,31 @@ These tests of `slango` compile only with the feature `wgpu`, because what they 
 - `varyings_of_another_type_at_one_location_are_an_unsupported_shader` and `a_vertex_entry_point_that_naga_rejects_is_an_unsupported_shader` of `gpu/render.rs`, because naga validates only on the backend `wgpu`.
 - `the_vertex_and_instance_indices_among_the_vertex_inputs_need_no_buffer` of `gpu/render/inputs.rs`, which reads `SV_VulkanVertexID` and `SV_VulkanInstanceID`, which DXIL refuses.
 
-The sixth code step, which added rendering to the backend `rhi`, added or changed these tests:
+These tests concern rendering on the backend `rhi`:
 
 - The module `gpu/render/streams.rs`, on both backends: attributes that the shader declares and does not use, an unused `float4` field of a structure and an unused `uint3` parameter, need no buffer in draws with and without indices, with 1, 3, 5, and 7 instances, when they are named as instance attributes, and when a draw gives a buffer of one element for them. A new depth target holds the depth 0, so a draw that loads it draws nothing (SLO-45). A texture and a sampler among the parameters of the fragment entry point are bound by name. On the backend `rhi` only, a vertex attribute without a semantic gives `UnsupportedParameter` with its exact text, and 17 vertex attributes give `InvalidArgument`.
-- In `gpu/render.rs`, the vertex entry point `vsSystemValues`, which read `SV_VulkanVertexID` and `SV_VulkanInstanceID`, became `vsShifted`, which takes a `SHIFT` attribute from a vertex buffer. `stages_that_share_a_constant_buffer_a_block_a_texture_and_a_sampler_become_a_pipeline` shares those resources between the stages without a global uniform and runs on both backends on every platform, beside the test with a global uniform that skips Windows.
-- In `gpu/render/conventions.rs`, the test of depths outside and inside the range 0 to 1 became `depths_inside_zero_to_one_are_drawn`, on both backends, and `depths_outside_zero_to_one_are_clipped`, which skips the backend `rhi` on Vulkan.
-- In `gpu/render/rejections.rs`, `one_buffer_bound_to_two_read_write_parameters_of_a_draw_is_written_through_both` (SOA-12).
+- In `gpu/render.rs`, the vertex entry point `vsShifted` takes a `SHIFT` attribute from a vertex buffer in place of the vertex and instance indices. `stages_that_share_a_constant_buffer_a_block_a_texture_and_a_sampler_become_a_pipeline` shares those resources between the stages without a global uniform and runs on both backends on every platform, beside the test with a global uniform that skips Windows.
+- In `gpu/render/conventions.rs`, `depths_inside_zero_to_one_are_drawn` runs on both backends, and `depths_outside_zero_to_one_are_clipped` skips the backend `rhi` on Vulkan.
+- In `gpu/render/rejections.rs`, `one_buffer_bound_to_two_read_write_parameters_of_a_draw_is_written_through_both` (Section 3.11).
 - The unit tests of the backend `rhi` in `rhi_backend/render/tests.rs`, of the streams and their buffers with the stride 0 of an unused attribute, a missing semantic, the vertex formats, the scopes, the keys of the merge, among them a texture and a sampler and a global and a parameter of an entry point that DXIL reports at one binding, and the text of a conflict. The unit tests of `rhi_backend/varying/tests.rs` check that the usage of each named attribute is replaced and that a rejected record stays rejected, and its `ffi` test in `varying/tests/ffi.rs` checks that SPIR-V reports the attributes that the vertex entry point reads, under the macro of the device.
-- The unit tests of the readback layout moved with it to `wgpu_backend/texture/tests.rs`, and the unit tests of `call`, `draw`, and `texture` format the expected text of a usage with the constant of the backend.
-- In the examples, the scene tests of `windowed-renderer` lost their skips, and `gpu/shader_playground.rs` compiles on both backends, with the helper `scene_texture`, which returns the texture of the view on the backend `wgpu` and the texture of the scene on the backend `rhi`. Its assertions on `slango::wgpu::texture` compile only with the feature `wgpu`.
+- The unit tests of the readback layout are in `wgpu_backend/texture/tests.rs`, beside the code of the backend `wgpu` that they test, and the unit tests of `call`, `draw`, and `texture` format the expected text of a usage with the constant of the backend.
+- In the examples, the scene tests of `windowed-renderer` run on both backends, and `gpu/shader_playground.rs` compiles on both backends, with the helper `scene_texture`, which returns the texture of the view on the backend `wgpu` and the texture of the scene on the backend `rhi`. Its assertions on `slango::wgpu::texture` compile only with the feature `wgpu`.
 
-The fourth code step, which brought the macro of `slango-macros` to the backend `rhi`, added or changed these tests:
+These tests concern the code that `slango-macros` generates, on both backends:
 
-- In `gpu/precompiled.rs`, every test runs on both backends through `__private::load_embedded`, with a `Particle` of the stride of each backend under the `cfg` of its feature. New tests check a struct of the right stride with a field elsewhere, which is refused, and, on the backend `rhi`, an embedded module without a source and embedded sources at paths that do not exist, which load under their module names. The test of the encoding version runs on the backend `wgpu` only.
+- In `gpu/precompiled.rs`, every test runs on both backends through `__private::load_embedded`, with a `Particle` of the stride of each backend under the `cfg` of its feature. Tests also check a struct of the right stride with a field elsewhere, which is refused, and, on the backend `rhi`, an embedded module without a source and embedded sources at paths that do not exist, which load under their module names. The test of the encoding version runs on the backend `wgpu` only.
 - The unit tests of `__private` check the fields of a struct with nested paths and types and the description with its modules and packed layouts, and its `ffi` tests check the packed `Particle` of 24 bytes and the modules of `two_kernels.slang`, `helpers` then `two_kernels`.
 - The unit tests of `call` check that a struct of an equal stride with a field elsewhere or of another type fails the check of Section 9.3 and that matching fields bind.
-- In the examples test binary, the module `gpu/generated.rs` runs the generated code of Section 10 of `docs/design/slango-macros.md` on the build's backend. The five scene tests of `windowed-renderer` compiled on the backend `rhi` and skipped it, and those of `shader-playground` compiled only with the feature `wgpu`, until the sixth code step. The helper `device()` of the examples names the backend and the adapter.
+- In the examples test binary, the module `gpu/generated.rs` runs the generated code of Section 10 of `docs/design/slango-macros.md` on the build's backend. The helper `device()` of the examples names the backend and the adapter.
 
-The third code step added these tests:
+These tests concern compute on the backend `rhi`:
 
 - In `gpu/load.rs`, a changed file that loads again under the same name on one device, two files of the same stem on one device, and a kernel whose thread group exceeds the device, which fails to load while the device keeps working.
-- In `gpu/call/validation.rs`, one buffer bound to two read-write parameters, which is written through both (SOA-12).
+- In `gpu/call/validation.rs`, one buffer bound to two read-write parameters, which is written through both (Section 3.11).
 - In `gpu/call/matrices.rs`, matrices of two columns in each kind of uniform, row by row, on the backend `rhi` only, because naga rejects them in uniform buffers (Section 3.5).
 - In `gpu/call/entry_point.rs`, a structured buffer, a constant buffer, and a parameter block with a buffer among the parameters of the entry point, on both backends.
 - In `gpu.rs`, the selection of a software adapter and of an adapter by name on the backend `rhi`, through `slang_rhi::adapters`.
-- The unit tests of the backend `rhi` in `rhi_backend/kernel/tests.rs`, and the unit tests of the grouping of the plan into bind groups in `wgpu_backend/submit/tests.rs`, which replace the assertions of the grouping in the shared tests of the plan.
+- The unit tests of the backend `rhi` in `rhi_backend/kernel/tests.rs`, and the unit tests of the grouping of the plan into bind groups in `wgpu_backend/submit/tests.rs`, so that the shared tests of the plan assert no grouping.
 
 The helper of the device prints a line "slango gpu test backend: {backend}, adapter: {name}", which nextest shows for every failing test, so every failure names the backend. A test that the backend `rhi` cannot run because it calls `slango::wgpu` or reads the limits or features of wgpu compiles only with the feature `wgpu`, and the tests of the buffer, texture, and workgroup limits read the limit from `slang-rhi` under the feature `rhi`.
 
@@ -1734,11 +1738,7 @@ The tests of the walk on the layouts of the backend `rhi` are `ffi` unit tests i
 
 These tests checked SOA-10 for the layouts, and the `gpu` tests on WARP checked it for D3D12 (Section 3.11). Each compares the paths, kinds, and usage of the walk, sorted, with those of the default layout.
 
-The pure tests of the marker of SLO-17 are `compile_fail` doctests, one for `Send` and one for `Sync` of each type, as `slang-rhi` has them (RHI-13 of `docs/design/slang-rhi.md`). The `gpu` tests that dispatch clones of one kernel and draw with clones of one pipeline from several threads are removed, because the types are no longer `Send`:
-
-- `clones_of_a_kernel_run_on_two_threads_at_once` of `gpu/call.rs` is removed.
-- The test of `gpu/render.rs` that created pipelines from two threads keeps its part on one thread, as `one_module_creates_several_pipelines`.
-- The module `gpu/render/sharing.rs` is removed. Its one test that uses no thread, `a_kernel_fills_a_vertex_buffer_and_another_reads_the_target_of_a_draw`, moved unchanged to `gpu/render/draw.rs`.
+The pure tests of the marker of SLO-17 are `compile_fail` doctests, one for `Send` and one for `Sync` of each type, as `slang-rhi` has them (RHI-13 of `docs/design/slang-rhi.md`). No `gpu` test dispatches or draws from several threads, because the types are not `Send`. `one_module_creates_several_pipelines` of `gpu/render.rs` creates several pipelines on one thread, and `a_kernel_fills_a_vertex_buffer_and_another_reads_the_target_of_a_draw` of `gpu/render/draw.rs` draws from a vertex buffer that a kernel fills and gives the target of the draw to another kernel, on one thread.
 
 The unit tests keep their assertions of `Send` and `Sync` for `Error`, `ErrorKind`, the options types, and the enumerations, and their assertions of `Clone` for every type that had one.
 

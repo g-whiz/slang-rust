@@ -23,7 +23,9 @@
 //!
 //! Everything that concerns Slang, the shader compiler, such as loading and
 //! linking modules, goes through `slang-compiler`. Use `slango` for a
-//! higher-level API on wgpu, and this crate to drive slang-rhi itself.
+//! higher-level API that sets parameters by name and checks them. It runs on
+//! wgpu by default and on this crate with its feature `rhi`. Use this crate
+//! to drive slang-rhi itself.
 //!
 //! # Examples
 //!
@@ -192,6 +194,18 @@
 //!   device, which reads zeros or values from within the buffer for it.
 //! - On Vulkan, slang-rhi clamps the depth of a fragment outside the range
 //!   from 0 to 1 instead of clipping the triangle, as Direct3D 12 does.
+//! - On Direct3D 12, slang-rhi fails to create a compute or render pipeline
+//!   from a program with both a `ConstantBuffer` parameter and a global
+//!   `uniform` parameter, and returns an error with no diagnostics. The same
+//!   program with a `ParameterBlock` in place of the
+//!   `ConstantBuffer`, or without the global `uniform`, works.
+//! - On Direct3D 12, slang-rhi takes the descriptors of every command buffer
+//!   from one heap of 1,000,000 descriptors and does not check that the heap
+//!   is full. A program that keeps thousands of finished command buffers, or
+//!   dispatches a very large number of times in one pass, can exhaust it.
+//!   slang-rhi then writes descriptors through invalid handles and later
+//!   aborts the process. This was read in the source of slang-rhi and not
+//!   observed.
 //! - [`ShaderObject::offset_of`] finds only the parameters at the top level
 //!   of a shader object by name, and not a field of a structure or an element
 //!   of an array. The fields of a `ConstantBuffer` or a `ParameterBlock`

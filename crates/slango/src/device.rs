@@ -10,8 +10,8 @@ use crate::error::Result;
 ///
 /// A device is the connection of a program to one adapter, which is a GPU or
 /// a software implementation of one, such as lavapipe. Create one with
-/// [`Device::new`], or from a device that the program already holds with
-/// `wgpu::from_device_and_queue`.
+/// [`Device::new`], or, in a build with the feature `wgpu`, from a wgpu
+/// device that the program already holds with `wgpu::from_device_and_queue`.
 ///
 /// Cloning a device is cheap and returns another handle to the same device.
 ///
@@ -47,13 +47,8 @@ pub struct Device {
 impl Device {
     /// Creates a device on the adapter that the options select.
     ///
-    /// Use this to start running kernels and drawing. The device has the
-    /// immediates feature, through which a kernel receives the `uniform`
-    /// parameters of its entry point, the function that a dispatch runs,
-    /// whenever the adapter offers that feature, and then with the largest
-    /// size of immediate data that the adapter allows. A device searches the adapters
-    /// of Vulkan, Direct3D 12, and Metal, the graphics interfaces of Linux,
-    /// Windows, and macOS.
+    /// Use this to start running kernels and drawing. The device runs on the
+    /// [backend](crate#choosing-a-backend) of the build.
     ///
     /// # Examples
     ///
@@ -78,6 +73,19 @@ impl Device {
     /// matches [`DeviceOptions::adapter`], and of kind
     /// [`ErrorKind::DeviceRequest`](crate::ErrorKind::DeviceRequest) when the
     /// adapter refuses to create the device.
+    ///
+    /// # Platform support
+    ///
+    /// With the feature `wgpu`, the device searches the adapters of Vulkan,
+    /// Direct3D 12, and Metal, the graphics interfaces of Linux, Windows, and
+    /// macOS. It has the immediates feature, through which a kernel receives
+    /// the `uniform` parameters of its entry point, the function that a
+    /// dispatch runs, whenever the adapter offers that feature, and then with
+    /// the largest size of immediate data that the adapter allows.
+    ///
+    /// With the feature `rhi`, the device is a device of slang-rhi on Vulkan
+    /// on Linux and on Direct3D 12 on Windows, which receives those
+    /// parameters without a feature of the adapter.
     pub fn new(options: &DeviceOptions) -> Result<Self> {
         Ok(Self::from_backend(backend::Device::new(options)?))
     }

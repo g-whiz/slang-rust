@@ -139,6 +139,11 @@ pub enum ErrorKind {
     /// failed on, which [`Module::render_pipeline`](crate::Module::render_pipeline)
     /// returns, has as its source error an error whose text is the text of
     /// the error of `slang-compiler`, with the messages that Slang printed.
+    ///
+    /// With the feature `rhi`, this kind also reports a failure to generate
+    /// the code of the device's graphics API, such as DXIL without
+    /// `dxcompiler.dll` on Windows, and a failure of slang-rhi to create a
+    /// render pipeline.
     Compile,
     /// The backend found no adapter, a GPU or a software implementation of
     /// one, that matches the options. Install a GPU driver or a software driver such as
@@ -152,7 +157,8 @@ pub enum ErrorKind {
     /// pipeline, the compiled form of the shader, or rejected the two entry
     /// points of a render pipeline together, such as when their varyings do
     /// not match. The source error carries the rejecting text, which names
-    /// the construct to avoid.
+    /// the construct to avoid. Only a build with the feature `wgpu` returns
+    /// this kind.
     UnsupportedShader,
     /// A kernel or an entry point of a render pipeline has a parameter of a
     /// kind that this crate does not support, such as a storage texture
@@ -162,9 +168,16 @@ pub enum ErrorKind {
     /// entry points of a render pipeline. At a call or a draw, this kind
     /// also reports a plain value that the layout that Slang reports for it
     /// cannot hold.
+    ///
+    /// With the feature `rhi`, this kind also reports a vertex attribute
+    /// without a semantic, and a used resource inside a structure that is
+    /// not the element of a constant buffer or a parameter block, or a used
+    /// constant buffer whose element is not a structure, which slang-rhi
+    /// cannot address.
     UnsupportedParameter,
     /// A kernel needs a feature of the device that the device lacks. Request
-    /// the feature, or use another adapter.
+    /// the feature, or use another adapter. Only a build with the feature
+    /// `wgpu` returns this kind.
     MissingFeature,
     /// An argument was invalid, such as an unknown kernel or entry point
     /// name, a wrong option of a render pipeline, an argument that does not

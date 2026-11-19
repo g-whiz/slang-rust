@@ -1,6 +1,6 @@
 [package]
 name = "slango"
-description = "Run Slang compute kernels and draw with Slang render pipelines on the GPU from Rust, through wgpu."
+description = "Run Slang compute kernels and draw with Slang render pipelines on the GPU from Rust, through wgpu or slang-rhi."
 keywords = ["slang", "shader", "gpu", "wgpu", "compute"]
 categories = ["graphics", "rendering::graphics-api"]
 documentation = "https://g-whiz.github.io/slang-rust/slango/"

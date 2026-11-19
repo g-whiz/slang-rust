@@ -174,11 +174,11 @@ impl Module {
     /// - [`ErrorKind::Compile`] when Slang failed on either entry point while
     ///   the module was loaded. The source error holds the messages that
     ///   Slang printed.
-    /// - [`ErrorKind::UnsupportedShader`] when the backend rejects the
-    ///   compiled form of either entry point, or the two together, such as
-    ///   when the outputs of the vertex entry point do not match the inputs
-    ///   of the fragment entry point. The source error carries the backend's
-    ///   text.
+    /// - [`ErrorKind::UnsupportedShader`], with the feature `wgpu` only, when
+    ///   wgpu rejects the compiled form of either entry point, or the two
+    ///   together, such as when the outputs of the vertex entry point do not
+    ///   match the inputs of the fragment entry point. The source error
+    ///   carries the text of wgpu.
     /// - [`ErrorKind::Backend`] when the backend reports another error while
     ///   it creates the pipeline.
     ///
@@ -186,13 +186,15 @@ impl Module {
     ///
     /// - [`ErrorKind::UnsupportedParameter`] when a vertex attribute has no
     ///   semantic, which Direct3D 12 matches attributes by, or when a used
-    ///   resource is a parameter of an entry point or sits inside a
-    ///   structure that is not the element of a constant buffer or a
-    ///   parameter block.
+    ///   resource sits inside a structure that is not the element of a
+    ///   constant buffer or a parameter block, or a used constant buffer has
+    ///   an element that is not a structure.
     /// - [`ErrorKind::InvalidArgument`] when the vertex attributes need more
     ///   vertex streams or input elements than the device allows.
     /// - [`ErrorKind::Compile`] when slang-rhi cannot compile the two entry
-    ///   points together or create the pipeline from them.
+    ///   points together or create the pipeline from them, such as on
+    ///   Direct3D 12 for entry points that use both a `ConstantBuffer` and a
+    ///   global `uniform`, which a defect of slang-rhi makes fail.
     pub fn render_pipeline(
         &self,
         vertex: &str,
@@ -232,9 +234,9 @@ impl Device {
     /// Slang resolves an `import` relative to the file, and the load also
     /// gives Slang the directory of the file as a search path. It then creates on
     /// the device everything that a dispatch of each kernel needs, so every
-    /// error of the module surfaces here. Each load starts the Slang compiler
-    /// afresh, which takes about a tenth of a second, so load a module once
-    /// and keep it.
+    /// error of the module surfaces here. Each load compiles the module
+    /// afresh, which takes about a tenth of a second with the feature `wgpu`,
+    /// so load a module once and keep it.
     ///
     /// # Examples
     ///
@@ -263,12 +265,12 @@ impl Device {
     /// - [`ErrorKind::UnsupportedParameter`] when a kernel has a parameter of
     ///   a kind that this crate does not support, such as a storage
     ///   texture.
-    /// - [`ErrorKind::MissingFeature`] when a kernel has `uniform` parameters
-    ///   of its entry point and the device lacks the immediates feature or
-    ///   enough immediate data for them.
-    /// - [`ErrorKind::UnsupportedShader`] when the backend rejects the
-    ///   compiled form of a kernel. The source error carries the backend's
-    ///   text, which names the construct to avoid.
+    /// - [`ErrorKind::MissingFeature`], with the feature `wgpu` only, when a
+    ///   kernel has `uniform` parameters of its entry point and the device
+    ///   lacks the immediates feature or enough immediate data for them.
+    /// - [`ErrorKind::UnsupportedShader`], with the feature `wgpu` only, when
+    ///   wgpu rejects the compiled form of a kernel. The source error carries
+    ///   the text of wgpu, which names the construct to avoid.
     /// - [`ErrorKind::Backend`] when the backend reports another error while
     ///   it creates a kernel, such as for a thread group larger than the
     ///   device allows.
@@ -277,9 +279,16 @@ impl Device {
     /// SPIR-V on Vulkan and DXIL on Direct3D 12, and also returns these kinds:
     ///
     /// - [`ErrorKind::Compile`] when Slang or slang-rhi cannot generate the
-    ///   code of a kernel for the device.
+    ///   code of a kernel for the device, such as for a thread group larger
+    ///   than the DXIL compiler allows on Direct3D 12.
+    /// - [`ErrorKind::UnsupportedParameter`] when a kernel uses a resource
+    ///   inside a structure that is not the element of a constant buffer or a
+    ///   parameter block, or a constant buffer whose element is not a
+    ///   structure.
     /// - [`ErrorKind::Backend`] when slang-rhi reports another error while it
-    ///   creates a kernel.
+    ///   creates a kernel, such as on Direct3D 12 for a kernel that uses both
+    ///   a `ConstantBuffer` and a global `uniform`, which a defect of
+    ///   slang-rhi makes fail.
     pub fn load_module(&self, path: impl AsRef<Path>) -> Result<Module> {
         let file = SourceFile::read(path.as_ref())?;
         self.load_source(&file.source())
