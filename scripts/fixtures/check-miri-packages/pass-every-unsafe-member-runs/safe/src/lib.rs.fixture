@@ -1,0 +1,7 @@
+//! A crate that mentions `#![expect(unsafe_code)]` only in documentation.
+
+// #[allow(unsafe_code)]
+pub const TEXT: &str = "#[allow(unsafe_code)]";
+
+#[expect(dead_code, reason = "unused")]
+fn unused() {}

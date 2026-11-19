@@ -1,0 +1,5 @@
+# The packages under Miri
+miri_packages := "safe gone"
+
+check-miri-other:
+    cargo +nightly miri nextest run -p absent -p safe --no-tests=fail

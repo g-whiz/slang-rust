@@ -1,0 +1,3 @@
+justfile:5: Miri runs package 'absent', which is not a workspace member
+justfile:2: Miri runs package 'gone', which is not a workspace member
+justfile:2: Miri runs package 'safe', which holds no unsafe code

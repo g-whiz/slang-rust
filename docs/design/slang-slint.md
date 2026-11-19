@@ -337,7 +337,7 @@ The application already keeps the view on the UI thread, where it draws (Section
 
 ## 9. Tests
 
-`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). These tests are pure, and Miri runs them:
+`slang-slint` has one integration-test binary, `tests/slang_slint/` (TEST-10). These tests are pure:
 
 - The module `configuration` checks the fields of the configuration of SLS-6.
 - The module `device` checks the error path of `device`.

@@ -151,7 +151,7 @@ In the session with the SPIR-V target, the scalar layout, and row-major matrices
 
 For twelve structures, the generated struct of each backend has the size and the field offsets that Slang reflects in the load of that backend, and its values make the round trip through a kernel on the backend `wgpu` and on the backend `rhi`, on the NVIDIA adapter and on lavapipe (run). The `gpu` tests of the generated structs on the backend `rhi` passed on WARP in CI run 44449874191, so the packed layout holds with DXIL for the tested structures (run, on the hosted Windows runner).
 
-Unit tests of the tokens generated from a hand-made interface description, formatted with `prettyplease`, run natively and under Miri in a library crate (run). Once each element struct is generated in two forms, such a test takes up to about 14 min under Miri, and `just check` took 26 min 11 s in the development container, against 7 min 22 s with those tests skipped under Miri (run). Every insta snapshot test of the repository sits in a module that Miri skips (read).
+Unit tests of the tokens generated from a hand-made interface description, formatted with `prettyplease`, run natively in a library crate (run). Miri does not run them, because neither crate holds unsafe code (SLM-4, TEST-12 of the coding standard). Every insta snapshot test of the repository sits in a module that Miri skips (read).
 
 This confirms A-10 of the architecture design: vulkano generates typed shader interfaces from reflection.
 
@@ -190,7 +190,7 @@ For M10, the owner decided on 2026-11-18 how the generated code loads on each ba
 
 ### 4.2. Packages and Dependencies
 
-SLM-1. The generator MUST live in the library crate `slango-codegen`, and `slango-macros` MUST hold only the macro entry point, its path resolution, its build script, and the conversion of errors to compile errors. A procedural macro crate exports nothing but macros, and Miri runs the pure tests of the generator in a library crate (Section 3.9), so a generator inside the macro crate could leave its pure tests without Miri.
+SLM-1. The generator MUST live in the library crate `slango-codegen`, and `slango-macros` MUST hold only the macro entry point, its path resolution, its build script, and the conversion of errors to compile errors. A procedural macro crate exports nothing but macros, so only a library crate lets a program call the generator from a build script through `generate`, and lets the integration test of the crate generate from a redacted `Precompiled` through `generate_precompiled`.
 
 The owner approved `slango-codegen` as a separate published crate, and Sections 3.1, 3.2, and 13 of `docs/design/architecture.md` list it. Its crates.io name was free on 2026-11-15 (Section 3.10).
 
@@ -367,7 +367,7 @@ The build script reads one variable and prints Cargo instructions. It writes no 
 
 On the vendored route of the macro's copy of Slang (Section 4.3), `VULKAN_SDK` is unset or irrelevant and the macro library needs no Slang library (Section 3.6). On Windows the build script prints no link argument, and the macro library finds `slang-compiler.dll` through `PATH` (Section 3.3). Reading the directory from the `links` metadata of `slang-compiler-sys` would need a direct dependency on it and a change to its build script, so this design keeps the simpler variable.
 
-The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run under Miri (SYS-8 of the coding standard).
+The build script includes `instructions.rs`, which holds the logic as a plain function behind a trait for the environment, so its tests run against a fake environment (SYS-8 of the coding standard).
 
 When the script would print the rpath, a `VULKAN_SDK` that is not valid UTF-8 stops the build of `slango-macros`. So does one that contains a comma, which the linker would read as the end of the `-Wl` argument. The message says to install the SDK in another directory.
 
@@ -393,7 +393,7 @@ SLM-24. The generated code MUST define the constant `EMBEDDED` of the type `slan
 
 This implements the owner's decisions 2 and 6 of Section 4.6 of `docs/design/slango.md`. A shader program of the backend `rhi` needs a program of a session that reproduces the device session (SLO-37 of that design), so it cannot use the SPIR-V of the macro's session, and it needs the source. The source of the shader alone cannot resolve an `import` (Section 3.5), so the backend loads the imported modules first, under the names that their `import` declarations use, so that each `import` finds its module in the session, which Section 3.5 confirms.
 
-`precompile_file` records every module of its session, the shader included, from `Session::loaded_modules`, with the name, the file path, and the files read of each module, and not from the list of files that Slang read for the shader, which holds files that are not modules and no module names (Section 3.5). `slango-codegen` orders them in the pure function `in_import_order`, so that Miri tests the order: a module comes after every other module whose file appears in its own list of files read (`Module::dependency_file_paths`), so the shader comes last. The order therefore rests on no order of a list of Slang. A cycle and a description without a module fail with `ErrorKind::Compile` (SLM-20). Slang rejects a recursive import first, so no real input reaches the branch of a cycle (Section 3.5).
+`precompile_file` records every module of its session, the shader included, from `Session::loaded_modules`, with the name, the file path, and the files read of each module, and not from the list of files that Slang read for the shader, which holds files that are not modules and no module names (Section 3.5). `slango-codegen` orders them in the pure function `in_import_order`, so that a unit test without Slang tests the order: a module comes after every other module whose file appears in its own list of files read (`Module::dependency_file_paths`), so the shader comes last. The order therefore rests on no order of a list of Slang. A cycle and a description without a module fail with `ErrorKind::Compile` (SLM-20). Slang rejects a recursive import first, so no real input reaches the branch of a cycle (Section 3.5).
 
 The macro still compiles the shader at build time with the session of the backend `wgpu` (Section 5.2). That compile checks the shader, gives the interface description from which the generator emits the typed bindings, and gives the encoded snapshot. On the backend `rhi`, the load walks the shader again in the session of the load, and the generated dispatch sets every argument by its path through the runtime API (SLM-16), so the offsets that the backend `rhi` uses come from that walk and not from the build.
 
@@ -575,7 +575,7 @@ The generated structs of Slang structures hold plain data only and stay `Send` a
 
 ## 10. Tests
 
-`slango-codegen` has pure unit tests in `src/emit/tests.rs`, in `src/emit/structs/tests.rs`, and in the modules `names` and `error`. They build interface descriptions by hand and check the tokens of the pure step with plain assertions. The 26 tests that format generated code with `syn` and `prettyplease` carry `#[cfg_attr(miri, ignore = "...")]`, because each took minutes under Miri (Section 3.9) and the crate has no unsafe code (SLM-4), so they run natively only (TEST-11 of the coding standard). Miri runs the rest, among them the pure test of the import order of SLM-24. With the skip, the Miri time of the crate fell from 3898.9 s, summed over its tests, to 173.0 s. They cover:
+`slango-codegen` has pure unit tests in `src/emit/tests.rs`, in `src/emit/structs/tests.rs`, and in the modules `names` and `error`. They build interface descriptions by hand and check the tokens of the pure step with plain assertions, some after formatting the generated code with `syn` and `prettyplease`. They run natively, and Miri does not run them (Section 3.9). They cover:
 
 - Each row of SLM-17, the documentation of read and read-write buffers, a kernel with no parameters, the tracking of every file read, and a path that is not UTF-8.
 - The element form of SLM-18 with its padding, assertions, and `new`, the exact code of `write_bytes` and `read_bytes`, a gap between fields, an array read at its stride, and a nested structure.
@@ -604,9 +604,9 @@ Further `ffi` tests of `slango-codegen` check:
 
 `slango-macros` has one integration-test binary, `tests/macros/`:
 
-- The module `bindings`, which Miri runs, calls the macro. It resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10).
-- The module `build_script` tests the logic of the build script under Miri (Section 6.3).
-- The module `structs` sits in no `ffi` module, so Miri runs it, although it calls the macro. It checks the round trip of `write_bytes` and `read_bytes` for generated structs over many seeds, the rejection of bytes of another length, and that `write_bytes` puts each scalar at the `offset_of!` of its field, nested fields included, and zero in the padding.
+- The module `bindings` calls the macro. It resolves `shaders/saxpy.slang` from `tests/macros/bindings.rs` and `../shaders/scale.slang` from `tests/macros/bindings/nested.rs` (SLM-10).
+- The module `build_script` tests the logic of the build script against a fake environment (Section 6.3).
+- The module `structs` checks the round trip of `write_bytes` and `read_bytes` for generated structs over many seeds, the rejection of bytes of another length, and that `write_bytes` puts each scalar at the `offset_of!` of its field, nested fields included, and zero in the padding.
 - The module `ffi` runs trybuild with one passing case and with compile-fail cases for a Slang compile error, an unsupported parameter, an unsupported `bool` field, a name conflict, input that is not one string literal, and a string literal with a suffix. The expected text of a Slang error contains Slang's messages, so a move of the recorded Slang can change it (SLM-22).
 - The module `bindings` also asserts SLM-21 on the generated code of `saxpy.slang`. Its private macro `assert_not_impl!` and six uses of it assert that the generated `saxpy::Shader`, the kernel struct `saxpy::Saxpy`, and the arguments struct `saxpy::SaxpyArgs<'static>` each implement neither `Send` nor `Sync`. Each use is a `const _` item that declares a helper trait with one implementation for every type and a second for every type that implements the trait under test. Naming an item of the helper trait for the type is then ambiguous when the type implements that trait, so the test binary fails to compile.
 - The assertions are not trybuild cases, because the expected text of a trybuild case holds the notes of error E0277 as one rustc version words them, and the latest stable rustc, which CI installs, can word them differently. They depend on no compiler message, so they also cover `Shader` and the arguments struct, whose notes pass through private fields of `slango`. They are not doctests either, because a doctest cannot resolve the relative path of the macro.
@@ -632,7 +632,7 @@ The inputs of the `gpu` tests are dyadic rationals, so an adapter with or withou
 `slango` has these tests of the changes of Section 5:
 
 - Unit tests and `gpu` tests of SLM-5 for each kind of mismatch of a scalar or vector element, and for a built-in element of the same stride bound to a structure.
-- Pure tests of the encoding, which Miri runs. They decode every record and variant of the snapshot back to itself, including uniform buffers with arrays, immediates, textures, samplers, and render records, and reject every truncation of an encoding.
+- Pure tests of the encoding. They decode every record and variant of the snapshot back to itself, including uniform buffers with arrays, immediates, textures, samplers, and render records, and reject every truncation of an encoding.
 - A pure test that sets each byte of an encoding to 0 or 255 and checks that it either fails to decode or decodes to a snapshot that encodes to the same bytes.
 - A test that pins the bytes of the encoding to `ENCODING_VERSION`, which guards the version rule of Section 5.3.
 - An `ffi` test that compiles each test shader of `slango` with `precompile_file` and checks that the decoded snapshot equals the snapshot that `Device::load_module` builds, render records included.

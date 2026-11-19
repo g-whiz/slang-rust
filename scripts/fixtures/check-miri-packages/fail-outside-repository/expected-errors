@@ -1,0 +1,1 @@
+check-miri-packages: not inside a git repository

@@ -1,0 +1,8 @@
+# The packages under Miri
+miri_packages := "listed"
+
+check-miri:
+    cargo +nightly miri nextest run -p listed
+
+check-miri-other:
+    cargo +nightly miri nextest run -p recipe --no-tests=fail

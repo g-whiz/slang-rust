@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-glslang-sys` |
 
 ## Abstract
@@ -292,7 +292,7 @@ The crate has one integration-test binary, `tests/glslang/`, with 33 tests in th
   - The loader answers `queryInterface` only for its own interfaces (SGL-10), and starts the out-pointer from a dangling value that is not null, so a missing write shows.
   - The library answers `queryInterface` and `castAs` only for its own interfaces, in the same way.
 
-The pure tests of `build_script` could run under Miri, but no recipe runs Miri on the crate, because `check-miri` leaves it out with `slang-src` (TOOL-32 of `docs/design/tooling.md`, SRCQ-3 of the `slang-src` design).
+No recipe runs Miri on the crate. Its unsafe code is the one foreign declaration of SGL-11, which only the tests in `ffi` execute, so the pure tests of `build_script` give Miri no unsafe code to check (TEST-12 of the coding standard).
 
 The tests that show the effect, that a vendored global session with the loader installed emits optimized SPIR-V without a diagnostic and one without it does not, belong to `slang-compiler`, which installs the loader (Section 13 of `docs/design/slang-compiler.md`). `test-vendored` runs them with the tests of this crate, and the vendored CI job runs that recipe on Linux, Windows, and macOS (Section 7.4 of `docs/design/tooling.md`).
 

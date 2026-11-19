@@ -128,7 +128,7 @@ TOOL-52. The `justfile` MUST hold the packages of the crates that build slang-rh
 
 The crates do not build on macOS, and they need an adapter for their tests, so they get recipes of their own instead of joining `vendored_packages`, whose recipes run on every platform. On Windows, `test-rhi` needs `dxcompiler.dll` on `PATH`, through which the tests compile their kernels to DXIL (Section 7.3 of `docs/design/slang-rhi-sys.md`), and its help comment says so. `check-rhi` and `test-rhi` share `target/vendored` with the vendored recipes, so a run after `test-vendored` reuses its clone and its build of Slang. This is a departure of TOOL-7 of the same kind as that of the vendored recipes.
 
-`check-miri-rhi` exists because `check-miri` excludes `slang-rhi` (TOOL-32), whose unit tests test its unsafe code against a fake (RHI-16 of `docs/design/slang-rhi.md`). Miri builds into the subdirectory `miri` of the target directory, so in `target/vendored` its build would leave a second clone of Slang under `target/vendored/miri`, which `check-vendored-shared-folder` refuses. The recipe therefore uses a target directory of its own, outside `target/vendored`, with its own clone and native build of Slang. It runs outside `just check`, and CI does not run it (RHQ-9 of `docs/design/slang-rhi.md`).
+`check-miri-rhi` exists because `check-miri` runs no crate that builds slang-rhi (TOOL-32 and TOOL-55), while the unit tests of `slang-rhi` test its unsafe code against a fake (RHI-16 of `docs/design/slang-rhi.md`). Miri builds into the subdirectory `miri` of the target directory, so in `target/vendored` its build would leave a second clone of Slang under `target/vendored/miri`, which `check-vendored-shared-folder` refuses. The recipe therefore uses a target directory of its own, outside `target/vendored`, with its own clone and native build of Slang. It runs outside `just check`, and CI does not run it (RHQ-9 of `docs/design/slang-rhi.md`).
 
 The three recipes need what a vendored build needs (SRC-20 of `docs/design/slang-src.md`) and, on Linux, the development headers of Xlib, such as those of the Debian package `libx11-dev`, which the Vulkan backend of slang-rhi includes on Linux (Section 7.1 of `docs/design/slang-rhi-sys.md`).
 
@@ -154,6 +154,10 @@ No command tests `slango-macros` with the backend `rhi`. When `slango-macros` is
 These commands are a departure of TOOL-7 of the kind that TOOL-52 takes. Each selects one package with its own features instead of joining `rhi_packages`, because Cargo unifies the features of the packages of one command, so `slango` would be built with `wgpu` beside a package that names it, which SLO-29 stops. The commands run on Linux and on x86_64 Windows only, as the commands of TOOL-52 do, and `just check`, `test-gpu`, and every other recipe keep the default features, so they build no slang-rhi.
 
 TOOL-54. From the code step of M10 that gives `slango` its optional dependency on `slang-rhi` until the release of M11 publishes `slang-rhi`, `slango`, `slango-codegen`, and `slango-macros` MUST set `publish = false`, and `release_packages` MUST leave them out. M11 removes both, in the order of `release_packages`, after `slang-rhi`.
+
+TOOL-55. The `justfile` MUST hold the packages that `check-miri` runs once, in the variable `miri_packages`, and `check-miri` MUST select each of them with `-p` and pass `--no-tests=fail`. The packages are the members of `default-members` that hold unsafe code that a test can execute under Miri, as TEST-12 of the coding standard defines them. `miri_packages` holds `slang-compiler`. `slang-rhi` holds such code too and runs in `check-miri-rhi` instead (TOOL-52).
+
+Miri finds undefined behaviour only in unsafe code, and the workspace lint table denies `unsafe_code`, so under Miri the tests of a crate that does not opt out show only what their native run shows, at many times its cost. `--no-tests=fail` departs from the `--no-tests=warn` of Section 4.8 of the coding standard, because a named package without a test that Miri runs is an error in the list. The checker `check-miri-packages` keeps the list in step with the crates that opt out of `unsafe_code` (Section 6.11).
 
 Cargo refuses to package a crate whose dependency, optional or not, names a crate that is not on crates.io, with "no matching package named ... found", for `cargo package --no-verify` and for `cargo publish --dry-run` alike (run in a scratch workspace on 2026-11-18). `slango` depends on the unpublished `slang-rhi` by path and exact version (SLO-33 of `docs/design/slango.md`), `slango-codegen` depends on `slango`, and `slango-macros` on `slango-codegen`, so all three fail to package.
 
@@ -270,7 +274,9 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-workflow-pins-self-test` | `checks` | The self-test of Section 6.1 for the workflow pin checker | Yes |
 | `check-doc-references` | `checks` | The document reference checker of Section 6.10 | Yes, directly after `check-workflow-pins` |
 | `check-doc-references-self-test` | `checks` | The self-test of Section 6.1 for the document reference checker | Yes |
-| `release-scripts-self-test` | `checks` | `scripts/self-test-release`, which runs the scripts of the release recipes and the recipes `publish-dry-run`, `publish`, `tag-release`, and `doc-site` against stub programs (Section 9.9) | Yes, directly after `check-doc-references-self-test` |
+| `check-miri-packages` | `checks` | The Miri package checker of Section 6.11 | Yes, directly after `check-doc-references` |
+| `check-miri-packages-self-test` | `checks` | The self-test of Section 6.1 for the Miri package checker | Yes |
+| `release-scripts-self-test` | `checks` | `scripts/self-test-release`, which runs the scripts of the release recipes and the recipes `publish-dry-run`, `publish`, `tag-release`, and `doc-site` against stub programs (Section 9.9) | Yes, directly after `check-miri-packages-self-test` |
 | `recorded-slang` | `rust` | Prints `RECORDED_COMMIT`, `RECORDED_BUILD_TAG`, and `RECORDED_CLONE_ENTRY` of `crates/slang-src/recorded.rs` as `NAME=value` lines, in that order, and fails when a constant is missing (SRC-11 and SRC-25 of `docs/design/slang-src.md`). It runs on bash 3.2, which has no associative arrays and is the bash that a recipe gets on the hosted macOS runner. It accepts lines that end in CRLF, because a user's own git settings can produce them (Section 14.3) | No |
 | `install-vulkan-sdk` | `ci` | `scripts/install-vulkan-sdk` with the SDK version and the expected SHA-256 checksum, which downloads, verifies, and installs the Vulkan SDK on a GitHub Actions runner and exports it to the later steps of the job (Section 7.3). Only the CI workflow runs it, and it refuses to run outside a runner | No, because it runs only on a CI runner |
 | `check-vulkan-sdk` | `checks` | `scripts/check-vulkan-sdk`, without arguments, which reads `RECORDED_BUILD_TAG` with `just recorded-slang` and checks that the SDK at `VULKAN_SDK` provides that build of Slang (Section 7.3) | No, every CI job that installs the SDK runs it |
@@ -283,7 +289,7 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 | `check-toml` | `checks` | The taplo command of Section 4.8, with `taplo.toml` (TOOL-30) | Yes |
 | `check-workflows` | `checks` | The actionlint command of Section 4.8, which checks every workflow | Yes |
 | `check-unused-deps` | `checks` | The cargo machete command of Section 4.8 | Yes, through `check-rust` |
-| `check-miri` | `checks` | The Miri command of Section 4.8, for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` |
+| `check-miri` | `checks` | The Miri command of Section 4.8, `cargo +nightly miri nextest run` with `-p` for each package of `miri_packages` and `--no-tests=fail` (TOOL-55), for the tests that the nextest profile `default-miri` selects | Yes, through `check-rust` |
 | `check-miri-rhi` | `checks` | `env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/miri-rhi cargo +nightly miri nextest run -p slang-rhi --no-tests=fail`, on Linux only (TOOL-52). Under Miri, nextest selects the profile `default-miri`. The build scripts run natively, so its first run in `target/miri-rhi` clones Slang into `target/miri-rhi/miri/slang-src` and builds Slang, slang-glslang, and slang-rhi from source, and it needs the tools of a vendored build, the development headers of Xlib, and the nightly toolchain | No, because it builds Slang and slang-rhi from source. CI does not run it (RHQ-9 of `docs/design/slang-rhi.md`) |
 | `check-features` | `checks` | The two cargo hack commands of Section 4.8 for the feature powerset, which includes each single feature and leaves out `vendored` (TOOL-32, TOOL-48). The first checks every package except `slango` and the examples package, and the second checks those with `--exclude-features vendored,rhi` and `--exclude-no-default-features`, which leaves out their combination without `wgpu` (TOOL-48) | No, the CI job `ci-only` runs it |
 | `check-msrv` | `checks` | The MSRV command of Section 4.8, which checks the workspace with `cargo hack check` and the toolchain that `rust-version` names | No, the CI job `ci-only` runs it, and its first local run downloads that toolchain (Section 14.3) |
@@ -299,11 +305,11 @@ This table lists every recipe, what it runs, and whether `check` runs it. The co
 
 `check-miri` runs Miri through nextest, for the reason that Section 4.8 of the coding standard gives. Under Miri, nextest uses the profile named `default-miri`, which `.config/nextest.toml` defines (Section 4).
 
-Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang. `check-miri` therefore covers pure Rust logic, such as marshalling and layout code, and the unsafe code that TEST-7 of the coding standard tests against a fake implementation.
+Miri emulates some functions of libc and libm, but it cannot call an arbitrary native library such as Slang. `check-miri` therefore covers the unsafe code that TEST-7 of the coding standard tests against a fake implementation, in the packages of `miri_packages` (TOOL-55).
 
 The filter of `default-miri` excludes every test whose path contains a module named `ffi`, `gpu`, or `hw_gpu`, selected by whole module path segments as in Section 4. The tests that call Slang or libclang sit in modules named `ffi` (SCS-33 of `docs/design/slang-compiler-sys.md`), and so do the tests that start a process, which Miri cannot do.
 
-`check-miri` leaves `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, and `slang-rhi` out (TOOL-32), so no recipe runs the pure tests of the first three under Miri (SRCQ-3 of `docs/design/slang-src.md`). `check-miri-rhi` runs those of `slang-rhi` (TOOL-52).
+No recipe runs the tests of `slang-src`, `slang-glslang-sys`, `slang-rhi-sys`, or `slang-compiler-sys` under Miri. `slang-src` holds no unsafe code, and the unsafe code of the three `-sys` crates only declares foreign functions or wraps generated bindings, which only tests in modules named `ffi` execute (TEST-12 of the coding standard). `check-miri-rhi` runs the tests of `slang-rhi` (TOOL-52).
 
 The Cargo feature `vendored` selects the vendored build of Slang (SCS-50 of `docs/design/slang-compiler-sys.md`). Among the recipes, `test-vendored`, `check-vendored`, and `doc-site` enable it. `publish-dry-run` enables no feature, but it verifies `slang-src` and `slang-glslang-sys`, which depends on `slang-compiler-sys` with the feature, so it also clones and builds Slang (Section 9.6). `check-rhi`, `test-rhi`, and `check-miri-rhi` enable no feature either, and build `slang-rhi-sys`, which enables it, so they clone and build Slang and slang-rhi (TOOL-52). The other recipes never clone or build Slang from source (TOOL-32).
 
@@ -333,13 +339,15 @@ The recipes that run compiled code which loads Slang put the assignment at the s
 9. `check-slang-call-guard-self-test`
 10. `check-workflow-pins-self-test`
 11. `check-doc-references-self-test`
-12. `release-scripts-self-test`
-13. `check-typos`
-14. `check-toml`
-15. `check-workflows`
-16. `check-workflow-pins`
-17. `check-doc-references`
-18. `check-rust`
+12. `check-miri-packages-self-test`
+13. `release-scripts-self-test`
+14. `check-typos`
+15. `check-toml`
+16. `check-workflows`
+17. `check-workflow-pins`
+18. `check-doc-references`
+19. `check-miri-packages`
+20. `check-rust`
 
 `check-workflows` can run in `check` only while the repository has a workflow, because actionlint exits with status 3 when it finds none. `check` needs network access (Section 14.6).
 
@@ -407,7 +415,7 @@ Zero retries is the default of nextest, and the `default` profile sets `retries 
 
 TOOL-12. The recipes `test`, `test-gpu`, and `test-hw-gpu` MUST pass when their profile selects no test. An empty selection is not a test failure, and a tier can hold no test. nextest 0.9.151 fails such a run with the message "error: no tests to run" and exit status 4.
 
-Every nextest command of Section 4.8 of the coding standard therefore passes `--no-tests=warn`, with which an empty run passes and nextest still prints that no test ran. A recipe keeps that option, except in the departure that TOOL-7 permits.
+Every nextest command of Section 4.8 of the coding standard therefore passes `--no-tests=warn`, with which an empty run passes and nextest still prints that no test ran. A recipe keeps that option, except in the departures that TOOL-7, TOOL-52, and TOOL-55 permit.
 
 Each `gpu` test of `slango` prints the adapter that it ran on. This override in the `default` profile keeps that output in the log, so that the log of a CI run records the adapter of each runner. It changes no filter:
 
@@ -449,11 +457,11 @@ The allow list of `.claude/settings.json` lets Claude Code run these commands wi
 
 - `just --list` and `just check`.
 - `check-rust` and each recipe that it runs, except `check-slang-call-guard`.
-- Each custom checker and its self-test, except `check-slang-call-guard` and `check-slang-call-guard-self-test`.
+- Each custom checker and its self-test, except `check-slang-call-guard`, `check-slang-call-guard-self-test`, `check-miri-packages`, and `check-miri-packages-self-test`.
 - `check-shell`, `check-commit-message` and its self-test, `check-typos`, `check-toml`, `check-workflows`, `check-features`, `check-vulkan-sdk`, `recorded-slang`, `test`, `test-gpu`, and `test-hw-gpu`.
 - `shellcheck` and `git status`.
 
-Claude Code asks before it runs any other recipe, such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `check-slang-call-guard`, `check-slang-call-guard-self-test`, or `release-scripts-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
+Claude Code asks before it runs any other recipe, such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `check-slang-call-guard`, `check-slang-call-guard-self-test`, `check-miri-packages`, `check-miri-packages-self-test`, or `release-scripts-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
 
 TOOL-47. The allow list MUST NOT hold a recipe that publishes, tags, deploys, or yanks, which are `publish`, `tag-release`, and `yank`, or any command that runs one of them, such as `cargo publish` or `gh release`. Each of them acts in public and needs the owner's go-ahead (Section 9.6), and an entry in the allow list would let an agent run it without asking.
 
@@ -461,7 +469,7 @@ The other recipes of the release procedure stay off the allow list as well, by a
 
 ## 6. Custom Checkers
 
-Several rules of the writing guide, the pinning rule of Section 7.2, and SLC-32 of `docs/design/slang-compiler.md` can be checked deterministically, but no installed tool checks them. actionlint, for example, does not check the pinning rule, and no lint checks SLC-32.
+Several rules of the writing guide, the pinning rule of Section 7.2, SLC-32 of `docs/design/slang-compiler.md`, and TEST-12 of the coding standard can be checked deterministically, but no installed tool checks them. actionlint, for example, does not check the pinning rule, and no lint checks SLC-32.
 
 This section specifies a small custom checker for each. The "Checked by" statements of Section 7 of the writing guide, its Section 7.12, and Section 7.2 of this document name these checkers.
 
@@ -784,6 +792,52 @@ This illustration shows a recipe help comment and the findings that the checker 
 justfile:14: cites a section of a project document: 'Section 3.3'
 justfile:14: cites the project document docs/design/tooling.md
 ```
+
+### 6.11. Miri Package Checker
+
+This table summarizes the Miri package checker.
+
+| Property | Value |
+| --- | --- |
+| Script and recipe | `scripts/check-miri-packages`, `check-miri-packages` |
+| Rule | TEST-12 of the coding standard and TOOL-55, for the part that a tool can check |
+| Reads | The `justfile` at the root of the git repository that contains the current directory, the output of `cargo metadata --no-deps --offline`, and every Rust file under the `src` directory of each workspace member |
+| Reports | A member that opts out of `unsafe_code` and that no Miri recipe runs, a Miri package that is not a workspace member, and a Miri package that holds no unsafe code |
+
+A member opts out of `unsafe_code` when a Rust file under its `src` directory has an attribute `#[expect(...)]`, `#![expect(...)]`, `#[allow(...)]`, or `#![allow(...)]` that names the lint `unsafe_code` among its arguments. The checker reads the files with the lexer of Section 6.1, so text in comments and string literals does not count. Files outside `src`, such as the integration tests under `tests/`, do not count either.
+
+The packages that Miri runs are the words of the `justfile` variable `miri_packages` and each package that a `-p` option names on a line of the `justfile` that runs `miri nextest run`, such as `-p slang-rhi` of `check-miri-rhi`. A new Miri recipe is therefore checked without a change to the checker.
+
+These members are exempt by name, with the reason that the usage text of the checker prints for each:
+
+| Member | Reason |
+| --- | --- |
+| `slang-compiler-sys` | Its unsafe code is the generated bindings, which call native Slang |
+| `slang-glslang-sys` | Its unsafe code is one foreign declaration of a native function |
+| `slang-rhi-sys` | Its unsafe code is the generated bindings, which call native slang-rhi |
+
+The checker takes no paths. It prints each finding in one of these forms. The first names the first file and line of the opt-out. The others name the `justfile` and the first line that names the package, which is the line of the assignment of `miri_packages` for a word of that variable and the line of the recipe command for a `-p` option, and they print it as `justfile:line:` before the message:
+
+```text
+path:line: package '<name>' opts out of unsafe_code, but no Miri recipe of the justfile runs its tests
+justfile:line: Miri runs package '<name>', which is not a workspace member
+justfile:line: Miri runs package '<name>', which holds no unsafe code
+```
+
+It exits with status 1 when it reports a finding.
+
+It exits with status 2 and reports no finding in these cases:
+
+- It runs outside a git repository.
+- The `justfile` cannot be read or has no variable `miri_packages`.
+- `cargo metadata` fails, in which case it repeats the first error line of Cargo as `check-feature-docs` does (Section 6.5).
+- A Rust file of a member cannot be read.
+
+It prints its usage text on `-h` and `--help` with status 0, and on any other argument with status 2.
+
+The cases of its self-test under `scripts/fixtures/check-miri-packages/` hold small workspaces of their own. They cover a workspace that passes, with a package of `miri_packages`, a package of a `-p` option of another Miri recipe, a safe package that names `unsafe_code` only in comments, documentation, and a string literal, and the exempt `slang-compiler-sys`. They also cover an opt-out in a nested module of a member that no recipe runs, a listed package that is no member and one that holds no unsafe code, a `justfile` without `miri_packages`, and a missing git repository.
+
+Two parts of TEST-12 stay judgement rules: whether an exemption is still needed, and whether the tests of a Miri package reach its unsafe code, against a fake where that code calls native code (TEST-7).
 
 ## 7. Continuous Integration
 
@@ -1909,14 +1963,15 @@ This table says what a failure of each check means and what the developer does.
 | `check-workflow-pins` | Exit status 1: a rule of Section 7.2 is broken at each reported `path:line`, such as "uses: '...' is not pinned to a full 40-character commit SHA", "workflow uses the pull_request_target event", "workflow has no top-level permissions key", or "top-level permissions '...' grant more than read access". Exit status 2: as for the other custom checkers | Pins the action to the full commit SHA of the reviewed release, removes the event, or sets the top-level permissions to `contents: read` and moves any extra permission to the job that needs it (TOOL-19) |
 | `check-slang-call-guard` | Exit status 1: a call into Slang in `slang-compiler` breaks SLC-32 of `docs/design/slang-compiler.md` at each reported `path:line`, such as "call of IModule::getName is not inside a closure passed to abort_on_exception". Exit status 2: as for the other custom checkers, and also a file with a bracket without its partner, or bindings that cannot be read or declare no C function or no thunk (Section 6.9) | For status 1, makes the call the only call into Slang in a closure literal passed to `abort_on_exception`, as SLC-32 requires. For status 2, fixes the file that the message names, or, for the bindings, what stops the run of `slang-bindgen` before the checker, such as an unset `VULKAN_SDK` or a missing libclang, as the error of the binary says (Section 7.7 of `docs/design/slang-compiler-sys.md`) |
 | `check-doc-references` | Exit status 1: code or configuration cites a project document at each reported `path:line`, with "cites the project document ...", "cites a section of a project document: '...'", or "cites the rule identifier ... of a project document". Exit status 2: as for the other custom checkers, and also a project document that cannot be read, no project document, or no document that defines a rule identifier (Section 6.10) | For status 1, removes the citation and states what the code needs on its own terms, as Section 7.1 of the writing guide requires. For status 2, fixes the file or the document that the message names, or restores the Markdown files under `docs/` and their summary tables |
-| `check-vendored-shared-folder` | A message after "check-vendored-shared-folder:" says which check failed: `recorded-slang` printed no `RECORDED_CLONE_ENTRY`, `target/vendored` holds no `CACHEDIR.TAG`, the shared folder does not hold exactly one clone entry, the complete entry `src/<RECORDED_CLONE_ENTRY>`, with the number of entries that it holds, or a directory outside the shared folder holds a clone. Otherwise `find` failed and printed its own error, such as for a directory that it cannot read | For a missing constant, fixes `recorded.rs` as for `recorded-slang`. For a missing tag, removes `target/vendored`, which existed before Cargo first built there, and runs the vendored recipe again, which clones again. For a missing entry, runs `test-vendored` or `check-vendored` first. For an extra entry, such as a clone `src/<commit>` or `src/<commit>-<submodules>` with the full commit hash that an earlier layout of `slang-src` left, removes every entry that the recipe lists other than `src/<RECORDED_CLONE_ENTRY>` when no build runs, which Section 9.3 of `docs/design/slang-src.md` permits. For another clone, finds which build used a base directory other than `target/vendored`, against SRC-23 of `docs/design/slang-src.md`, such as a run of Miri in `target/vendored`, which builds in `target/vendored/miri` (SRCQ-3 of that design). For a failure of `find`, fixes the permissions of the directory that it names |
+| `check-vendored-shared-folder` | A message after "check-vendored-shared-folder:" says which check failed: `recorded-slang` printed no `RECORDED_CLONE_ENTRY`, `target/vendored` holds no `CACHEDIR.TAG`, the shared folder does not hold exactly one clone entry, the complete entry `src/<RECORDED_CLONE_ENTRY>`, with the number of entries that it holds, or a directory outside the shared folder holds a clone. Otherwise `find` failed and printed its own error, such as for a directory that it cannot read | For a missing constant, fixes `recorded.rs` as for `recorded-slang`. For a missing tag, removes `target/vendored`, which existed before Cargo first built there, and runs the vendored recipe again, which clones again. For a missing entry, runs `test-vendored` or `check-vendored` first. For an extra entry, such as a clone `src/<commit>` or `src/<commit>-<submodules>` with the full commit hash that an earlier layout of `slang-src` left, removes every entry that the recipe lists other than `src/<RECORDED_CLONE_ENTRY>` when no build runs, which Section 9.3 of `docs/design/slang-src.md` permits. For another clone, finds which build used a base directory other than `target/vendored`, against SRC-23 of `docs/design/slang-src.md`, such as a run of Miri in `target/vendored`, which builds in `target/vendored/miri` (Section 12 of that design). For a failure of `find`, fixes the permissions of the directory that it names |
 | A self-test recipe | A case under `scripts/fixtures/<checker>/` gave a different standard output, standard error, or exit status from the expected one, which the recipe prints after "FAIL" with the name of the case. Exit status 2 means that the checker or its cases cannot be read | Fixes the checker, or, when the change to its behaviour is intended, the expected files of the case |
 | `check-shell` | shellcheck reported a finding | Fixes the script or recipe |
 | `check-typos` | typos found a spelling mistake | Fixes the word, or accepts a correct word in `typos.toml` (TOOL-30) |
 | `check-toml` | A TOML file is not formatted | Runs `just fmt` |
 | `check-workflows` | actionlint reported a finding in a workflow | Fixes the workflow |
 | `check-unused-deps` | A dependency is declared and not used | Removes it |
-| `check-miri` | Miri found undefined behaviour | Fixes the unsafe code, following Section 9 of the coding standard |
+| `check-miri` | Miri found undefined behaviour, or nextest found no test that Miri runs in a package of `miri_packages` and stopped because of `--no-tests=fail` | Fixes the unsafe code, following Section 9 of the coding standard. For a package without a test, adds tests of its unsafe code as TEST-7 of the coding standard requires, or removes the package from `miri_packages` when it no longer holds unsafe code |
+| `check-miri-packages` | Exit status 1: a member that opts out of `unsafe_code` at the reported `path:line` is in no Miri recipe, or a package that the `justfile` runs under Miri is no workspace member or holds no unsafe code. Exit status 2: as for the other custom checkers, and also a `justfile` without `miri_packages` or a failed `cargo metadata` (Section 6.11) | For a member that no recipe runs, adds it to `miri_packages` with tests of its unsafe code, or, when Miri cannot execute that code, adds it to the exemptions of the checker with its reason, as TEST-12 of the coding standard states. For a listed package, removes it from `miri_packages` or from the `-p` option of its recipe |
 | `check-miri-rhi` | The recipe ran on a host other than Linux, a build failure as for `check-rhi`, or Miri found undefined behaviour in `slang-rhi` | Runs the recipe on Linux. For a build failure, as for `check-rhi`. Otherwise fixes the unsafe code, following Section 9 of the coding standard |
 | `coverage` | A test failed, or cargo llvm-cov did not write the report. In the CI job `coverage`, the upload step also fails when `target/lcov.info` does not exist | Reads the message of cargo llvm-cov, and fixes a failing test as for `test-gpu` |
 | `recorded-slang` | Exit status 1: `crates/slang-src/recorded.rs` does not define `RECORDED_COMMIT`, `RECORDED_BUILD_TAG`, or `RECORDED_CLONE_ENTRY` as a string constant on one line, and the message says "crates/slang-src/recorded.rs does not define NAME as a string constant" with the name of the constant | Restores the constant in that form (SRC-11 of `docs/design/slang-src.md`) |
@@ -2081,3 +2136,4 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-52 | 3.1 | `rhi_packages` and the recipes `check-rhi`, `test-rhi`, and `check-miri-rhi` lint, document, and test the crates that build slang-rhi on the vendored route, the first two on Linux and on x86_64 Windows and the third on Linux, outside `just check`. |
 | TOOL-53 | 3.1 | `check-rhi` and `test-rhi` also lint and test `slango` and the examples with the feature `rhi` and without `wgpu`, one package in each command, each command arriving in the code step that makes it pass, with no filter, and `test-rhi` runs every command and every test after a failure. |
 | TOOL-54 | 3.1 | Until M11 publishes `slang-rhi`, `slango`, `slango-codegen`, and `slango-macros` set `publish = false` and stay out of `release_packages`. |
+| TOOL-55 | 3.1 | `miri_packages` holds the members of `default-members` with unsafe code that Miri can execute, and `check-miri` runs them alone, with `--no-tests=fail`. |

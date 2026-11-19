@@ -127,10 +127,6 @@ pub struct SaxpyArgs<'a> {
 "#;
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn saxpy_gives_tracking_the_version_check_and_typed_arguments() {
     let text = format(&precompiled(vec![saxpy()]));
     assert!(text.starts_with(SAXPY), "{text}");
@@ -158,10 +154,6 @@ fn saxpy_gives_tracking_the_version_check_and_typed_arguments() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn each_scalar_maps_to_its_rust_type_and_is_set() {
     let text = format(&precompiled(vec![kernel(
         "scalars",
@@ -189,10 +181,6 @@ fn each_scalar_maps_to_its_rust_type_and_is_set() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn vectors_matrices_and_arrays_map_to_arrays_nested_from_the_outermost_length() {
     let array = |length, element| Shape::Array {
         length,
@@ -238,10 +226,6 @@ fn vectors_matrices_and_arrays_map_to_arrays_nested_from_the_outermost_length() 
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn buffers_of_built_in_elements_are_borrowed_and_bound() {
     let text = format(&precompiled(vec![kernel(
         "buffers",
@@ -268,10 +252,6 @@ fn buffers_of_built_in_elements_are_borrowed_and_bound() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn textures_and_samplers_are_borrowed_and_given_by_their_own_calls() {
     let text = format(&precompiled(vec![kernel(
         "sample",
@@ -292,10 +272,6 @@ fn textures_and_samplers_are_borrowed_and_given_by_their_own_calls() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_field_of_a_named_constant_buffer_is_its_own_field_set_by_its_path() {
     let text = format(&precompiled(vec![kernel(
         "tint",
@@ -309,10 +285,6 @@ fn a_field_of_a_named_constant_buffer_is_its_own_field_set_by_its_path() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_kernel_without_parameters_has_empty_arguments_that_its_dispatch_reads() {
     let text = format(&precompiled(vec![kernel("clear", Vec::new())]));
     assert!(text.contains("pub struct ClearArgs {}"), "{text}");
@@ -323,10 +295,6 @@ fn a_kernel_without_parameters_has_empty_arguments_that_its_dispatch_reads() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn shader_looks_up_every_kernel_under_its_snake_case_name() {
     let mut second = kernel("scaleTwice", Vec::new());
     second.thread_group_size = [8, 4, 2];
@@ -343,10 +311,6 @@ fn shader_looks_up_every_kernel_under_its_snake_case_name() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn every_file_that_slang_read_is_included_to_track_it() {
     let mut precompiled = precompiled(Vec::new());
     precompiled.interface.dependencies = vec![
@@ -381,10 +345,6 @@ fn embedded_names(text: &str) -> Vec<&str> {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn the_embedded_sources_put_each_module_after_the_modules_that_it_imports() {
     let mut precompiled = precompiled(vec![saxpy()]);
     precompiled.interface.modules = vec![
@@ -446,10 +406,6 @@ fn modules_that_import_each_other_or_no_module_are_a_compile_error() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn shader_loads_its_embedded_module_and_names_no_item_of_one_backend_outside_its_helper() {
     let text = format(&precompiled(vec![saxpy()]));
     let mut inside = false;
@@ -490,10 +446,6 @@ fn a_file_whose_path_is_not_utf8_is_unsupported() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_keyword_becomes_a_raw_identifier_set_by_its_slang_name() {
     let text = format(&precompiled(vec![kernel(
         "loop",

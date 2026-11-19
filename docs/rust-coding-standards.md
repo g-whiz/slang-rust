@@ -534,7 +534,7 @@ The configuration of the tools that need one exists in the repository: `deny.tom
 | `typos` | Spelling mistakes in identifiers and text | Run by the check |
 | `taplo` | Formatting and validity of Tom's Obvious Minimal Language (TOML) files | Run by the check |
 | `actionlint` | GitHub Actions workflow files | Run by the check |
-| Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain | Run by the check |
+| Miri | Undefined behaviour in unsafe code under test (TEST-7), run through nextest on the nightly toolchain on the packages that hold unsafe code (TEST-12) | Run by the check |
 | `scripts/check-rust-comments` | That Rust source holds no comment other than API documentation and safety comments (Section 7.2 of the writing guide) | Run by the check |
 | `scripts/check-doc-headings` | The names, levels, order, and uniqueness of the headings in item documentation (Section 7.3 of the writing guide) | Run by the check |
 | `scripts/check-doctest-attributes` | That no documentation code block is marked `ignore` (Section 7.5 of the writing guide) | Run by the check |
@@ -542,6 +542,7 @@ The configuration of the tools that need one exists in the repository: `deny.tom
 | `scripts/check-prose` | ASCII punctuation, semicolons, the listed non-Canadian spellings, and the listed phrases and patterns in Markdown files and in API documentation (Sections 7.11 and 8 of the writing guide, Section 6 of `docs/avoiding-claudelish.md`) | Run by the check |
 | `scripts/check-slang-call-guard` | That every call of `slang-compiler` into Slang, which is a call of a C function or a generated thunk of `slang-compiler-sys`, sits in a closure literal passed to `abort_on_exception` with no closure or `fn` between them, that each such closure makes exactly one call into Slang and is not a `move` closure, and that no such function is named without being called (SLC-32 of `docs/design/slang-compiler.md`, and the placement of the guard of FFI-7). What a closure captures by value without `move`, a call that a macro defined outside the crate's sources makes, and a call through a function pointer read from a vtable stay part of FFI-7 and SLC-32 as judgement rules, with the other cases that Section 6.9 of `docs/design/tooling.md` lists | Run by the check |
 | `scripts/check-doc-references` | That code and configuration cite no project document, section, or rule identifier that a project document defines (Section 7.1 of the writing guide, Hard Rule 15 of `AGENTS.md`, and Section 6.10 of `docs/design/tooling.md`). History wording in code stays a judgement rule | Run by the check |
+| `scripts/check-miri-packages` | That Miri runs exactly the workspace members that opt out of `unsafe_code` in their sources, as the `justfile` variable `miri_packages` and the `-p` options of the Miri recipes name them, except the members that the checker exempts by name (TEST-12). Whether a test of such a member reaches its unsafe code, and whether a fake replaces the native code, stay part of TEST-7 and TEST-12 as judgement rules | Run by the check |
 | `scripts/check-workflow-pins` | That every action is pinned by a full commit SHA, and that no workflow uses `pull_request_target` or grants more than read access at its top level (Section 7.2 of `docs/design/tooling.md`) | Run by the check |
 
 These commands run the checks of the tools from `cargo fmt` to `cargo deny`. In the first, `<files>` stands for every Rust file that `git ls-files -z --cached --others --exclude-standard -- '*.rs'` lists and that exists:
@@ -565,7 +566,7 @@ CARGO_BUILD_WARNINGS=deny cargo hack check -p slango -p slang-rust-examples --al
 CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets --rust-version
 cargo machete
 cargo llvm-cov nextest --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
-cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
+cargo +nightly miri nextest run -p slang-compiler --no-tests=fail
 typos
 taplo fmt --check
 actionlint
@@ -581,7 +582,7 @@ The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info`
 
 The CI job `coverage` runs the recipe on Linux and uploads the report as an artifact, which is the only result of the job (Section 7.1 of `docs/design/tooling.md`). Every command that runs nextest passes `--no-tests=warn`, because nextest otherwise fails a run that selects no test, and only a command-line option or an environment variable changes that.
 
-One recipe departs from this, as TOOL-7 of `docs/design/tooling.md` permits. `test-vendored` passes `--no-tests=fail` in place of `--no-tests=warn`, so that it fails when it selects no test.
+Two recipes depart from this. `test-vendored` passes `--no-tests=fail` in place of `--no-tests=warn`, as TOOL-7 of `docs/design/tooling.md` permits, so that it fails when it selects no test. `check-miri` passes `--no-tests=fail` as well, because it names each of its packages, and a named package without a test that Miri runs is an error in the list (TEST-12).
 
 Miri runs through nextest, which runs each test in its own process, because `cargo miri test` aborts the whole test binary at the first foreign call that Miri does not support.
 
@@ -1339,11 +1340,15 @@ Reason: the linker resolves a symbol only when code uses it, and a library that 
 
 Reason: each Rust file directly in `tests/` is a separate test binary, so a helper module shared by several of them is dead code in each binary that does not use a given helper. `dead_code` then fires in that binary, while an `#[expect(dead_code)]` is unfulfilled in the binary that uses the helper, so no lint exception passes the check.
 
-**TEST-11.** Skip a test under Miri with `#[cfg_attr(miri, ignore = "...")]` only when the test runs no unsafe code, directly or through a fake, and takes so long under Miri that it slows `check-miri` for no gain, such as a test that formats generated code. State the reason in the attribute in plain words, and keep the test running natively. Skip a test that needs native code or a GPU by its module name instead (TEST-3), never with this attribute.
+**TEST-11.** In a package that Miri runs (TEST-12), skip a test under Miri with `#[cfg_attr(miri, ignore = "...")]` only when the test runs no unsafe code, directly or through a fake, and takes so long under Miri that it slows `check-miri` for no gain, such as a test that formats generated code. State the reason in the attribute in plain words, and keep the test running natively. Skip a test that needs native code or a GPU by its module name instead (TEST-3), never with this attribute.
 
 Reason: Miri checks unsafe code, so a test of safe code that runs for minutes under Miri adds time and no finding, while the test still runs natively in every other check. The reason in the attribute shows in the output of a skipped test, and a test that a later change makes reach unsafe code is easy to find and run under Miri again. Miri documents `cfg(miri)` for code that must behave differently under it, such as a test that is too slow there, and the `ignore` attribute takes a reason. [S-8]
 
 A helper outside `#[cfg(test)]` code also triggers `clippy::unwrap_used` and `unreachable_pub`, because the test options of Section 4.3 cover only `#[test]` functions and `#[cfg(test)]` code. The single-binary layout produced no findings in the run of Section 1.1.
+
+**TEST-12.** Run Miri on the workspace members that hold unsafe code that Miri can execute, and on no other. A member that opts out of the lint `unsafe_code` for code that its tests can execute joins a Miri recipe in the same change, with tests that run that code against a fake where it calls native code (TEST-7). A member whose unsafe code only declares foreign functions or wraps generated bindings, so that every test that reaches it calls native code, stays out of the Miri recipes and is exempted by name in `scripts/check-miri-packages`.
+
+Reason: Miri finds undefined behaviour only in unsafe code, and the workspace denies `unsafe_code`, so a member that does not opt out cannot hold any, and its tests add time to `check-miri` and no finding. The opt-out is therefore the signal that a crate needs Miri, and a checker compares it with the Miri recipes, so that a new crate with unsafe code cannot miss them. Miri cannot call native code, so a member whose unsafe code is only foreign declarations or generated bindings gives Miri nothing that it can execute. [S-8] [IR-22]
 
 ## 15. Dependencies and Cargo Features
 
@@ -1622,7 +1627,8 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-8 | A test of every native symbol and a smoke test of the build tag cover the generated bindings on every route, and no test compares them with a file. |
 | TEST-9 | No tests that restate the implementation, and property tests for round trips. |
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
-| TEST-11 | A test of safe code that is slow under Miri may skip Miri with `#[cfg_attr(miri, ignore = "...")]`, with its reason in the attribute, and still runs natively. |
+| TEST-11 | In a package that Miri runs, a test of safe code that is slow under Miri may skip Miri with `#[cfg_attr(miri, ignore = "...")]`, with its reason in the attribute, and still runs natively. |
+| TEST-12 | Miri runs the members with unsafe code that it can execute and no other. A member that opts out of `unsafe_code` for code its tests reach joins a Miri recipe in the same change, and a member with only foreign declarations or generated bindings is exempted by name in the checker. |
 | DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs, and a default feature of the only backend, without which the crate stops with one `compile_error!` that names it. |
 | DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member, and a dependency used only for its `links` metadata is named with `use <crate> as _;`. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |

@@ -572,7 +572,7 @@ Rules: TEST-5. Section 7 of `docs/writing-documentation.md` governs API document
 | [IR-84] | 3 | Testing each locking branch. |
 | [IR-9] | 1 | Syntax for unit tests and doctests. |
 
-Unit tests, doctests, snapshot tests, fuzzing, and Miri are each covered above. Rules: TEST-1 to TEST-11.
+Unit tests, doctests, snapshot tests, fuzzing, and Miri are each covered above. Rules: TEST-1 to TEST-12.
 
 ### 2.33. Lints and Tooling
 
@@ -1040,7 +1040,7 @@ The catalogue holds 108 entries: one for each of the 95 entries of the curated l
 - Relevance: low to medium. It offers a tool inventory and general framing of undefined behaviour, not library design.
 - Consult when: choosing assurance tools such as Miri, `cargo-fuzz`, Kani, `cargo-audit`, or siderophile, or explaining why `forbid(unsafe_code)` on safe crates is a useful audit signal.
 - Chapters: <https://highassurance.rs/print.html> and <https://highassurance.rs/chp16_appendix/tools.html>.
-- Cited by: TYPE-5. Section 17.
+- Cited by: TYPE-5, TEST-12. Section 17.
 
 **[IR-23] Idiomatic Rust Snippets**
 
@@ -2092,7 +2092,7 @@ The catalogue holds 108 entries: one for each of the 95 entries of the curated l
 - Relevance: medium. It checks the safe wrapper's own unsafe code, but it cannot run the native Slang library.
 - Consult when: deciding which tests run under Miri, skipping a test under Miri, setting up its CI job, or testing the wrapper without the native library.
 - Chapters: the README sections on foreign functions, what Miri cannot do, `cfg(miri)` for code that behaves differently under Miri, the CI example, and nextest.
-- Cited by: TEST-7, TEST-11.
+- Cited by: TEST-7, TEST-11, TEST-12.
 
 **[S-9] The Rust Performance Book: Build Configuration**
 

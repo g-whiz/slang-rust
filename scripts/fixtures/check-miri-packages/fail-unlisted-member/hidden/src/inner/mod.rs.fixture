@@ -1,0 +1,4 @@
+pub fn f() {}
+
+#[allow(clippy::all, unsafe_code)]
+pub fn g() {}

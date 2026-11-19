@@ -19,6 +19,9 @@ vendored_environment := "env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PA
 # The packages that build slang-rhi from source, separated by spaces, which check-rhi and test-rhi select with -p
 rhi_packages := "slang-rhi-sys slang-rhi"
 
+# The packages of the default workspace build whose tests run unsafe code that Miri can execute, separated by spaces, which check-miri selects with -p. Miri finds undefined behaviour only in unsafe code, so the safe crates are left out
+miri_packages := "slang-compiler"
+
 # The packages of the next release, separated by spaces, in the order in which they depend on each other, which every recipe of the release reads. Every other member sets publish = false
 release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler"
 
@@ -29,9 +32,9 @@ documentation_site := "https://g-whiz.github.io/slang-rust"
 default:
     @just --list --unsorted
 
-# Run every check: prose, shell, the self-tests of the checkers and of the release scripts, spelling, TOML formatting, workflows, references to project documents, and the Rust checks
+# Run every check: prose, shell, the self-tests of the checkers and of the release scripts, spelling, TOML formatting, workflows, references to project documents, the packages that Miri runs, and the Rust checks
 [group('checks')]
-check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-doc-references-self-test release-scripts-self-test check-typos check-toml check-workflows check-workflow-pins check-doc-references check-rust
+check: check-prose check-shell check-commit-message-self-test check-prose-self-test check-rust-comments-self-test check-doc-headings-self-test check-doctest-attributes-self-test check-feature-docs-self-test check-slang-call-guard-self-test check-workflow-pins-self-test check-doc-references-self-test check-miri-packages-self-test release-scripts-self-test check-typos check-toml check-workflows check-workflow-pins check-doc-references check-miri-packages check-rust
 
 # Check the prose of Markdown files and of Rust documentation comments in the given files, or in every Markdown and Rust file when none are given
 [group('checks')]
@@ -174,6 +177,17 @@ check-doc-references *paths:
 [group('checks')]
 check-doc-references-self-test:
     @python3 -I scripts/self-test-checker check-doc-references
+
+# Check that Miri runs the tests of exactly the workspace members that opt out of the lint unsafe_code in their sources, as miri_packages and the -p options of the Miri recipes name them, except the members that the checker exempts because Miri cannot execute their unsafe code
+[group('checks')]
+[no-exit-message]
+check-miri-packages:
+    @python3 -I scripts/check-miri-packages
+
+# Check that the Miri package checker reports exactly the expected findings on its fixtures
+[group('checks')]
+check-miri-packages-self-test:
+    @python3 -I scripts/self-test-checker check-miri-packages
 
 # Check that the scripts of the release refuse, check, and call cargo, git, gh, and curl as expected, run against stubs of those programs so that nothing reaches crates.io or GitHub
 [group('checks')]
@@ -558,10 +572,17 @@ check-toml:
 check-unused-deps:
     cargo machete
 
-# Run the tests under Miri on the nightly toolchain to find undefined behaviour
+# Run the tests of the packages of miri_packages under Miri on the nightly toolchain to find undefined behaviour in their unsafe code, without the tests in modules named ffi, gpu, or hw_gpu, which call native code. A package without a test that Miri runs fails the recipe
 [group('checks')]
 check-miri:
-    cargo +nightly miri nextest run --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --no-tests=warn
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r -a names <<<"{{ miri_packages }}"
+    packages=()
+    for name in "${names[@]}"; do
+        packages+=(-p "${name}")
+    done
+    cargo +nightly miri nextest run "${packages[@]}" --no-tests=fail
 
 # Check that every combination of Cargo features compiles, except slango and the examples package without a backend and every combination with vendored or rhi, which build Slang from source, run by CI only
 [group('checks')]

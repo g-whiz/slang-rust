@@ -1,0 +1,168 @@
+#!/usr/bin/env -S python3 -I
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    import rust_lexer
+except ImportError as error:
+    print(f"check-miri-packages: cannot load scripts/rust_lexer.py: {error}", file=sys.stderr)
+    sys.exit(2)
+
+USAGE = """usage: check-miri-packages
+
+Checks that Miri runs the tests of exactly the workspace members that hold
+unsafe code. A member holds unsafe code when a Rust file under its src
+directory has an attribute #[expect(...)], #![expect(...)], #[allow(...)],
+or #![allow(...)] that names the lint unsafe_code. Text in comments and
+string literals does not count. The packages that Miri runs are the words
+of the justfile variable miri_packages and every literal -p <package> on
+a justfile line that runs miri nextest run.
+Reports a member that holds unsafe code and that Miri does not run, at the
+first opt-out, and a package that Miri runs and that is no member or holds
+no unsafe code, at the first justfile line that names it: the line of the
+miri_packages assignment or the line of the recipe command.
+These members are exempt, because their unsafe code only declares foreign
+functions or wraps generated bindings that call native code, which Miri
+cannot execute, and their tests that Miri could run execute none of it:
+"""
+
+EXEMPT = {
+    "slang-compiler-sys": "its unsafe code is the generated bindings, which call native Slang",
+    "slang-glslang-sys": "its unsafe code is one foreign declaration of a native function",
+    "slang-rhi-sys": "its unsafe code is the generated bindings, which call native slang-rhi",
+}
+
+VARIABLE = re.compile(r'^miri_packages\s*:=\s*"([^"]*)"\s*$', re.MULTILINE)
+PACKAGE_OPTION = re.compile(r"(?:^|\s)-p\s+([A-Za-z0-9_-]+)(?=\s|$)")
+LINT_LEVELS = {"expect", "allow"}
+
+
+def metadata():
+    command = ["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"]
+    try:
+        result = subprocess.run(command, capture_output=True, check=False)
+    except OSError as error:
+        raise rust_lexer.SetupError(f"cannot run cargo: {rust_lexer.os_error(error)}") from None
+    if result.returncode != 0:
+        lines = result.stderr.decode("utf-8", "replace").strip().splitlines()
+        reason = next((line for line in lines if line.startswith("error")), lines[0] if lines else "no output")
+        raise rust_lexer.SetupError(f"cargo metadata failed: {reason}")
+    try:
+        return json.loads(result.stdout)
+    except ValueError as error:
+        raise rust_lexer.SetupError(f"cargo metadata printed invalid JSON: {error}") from None
+
+
+def miri_packages(text):
+    match = VARIABLE.search(text)
+    if match is None:
+        raise rust_lexer.SetupError("the justfile has no variable miri_packages")
+    variable_line = text.count("\n", 0, match.start()) + 1
+    packages = {}
+    for number, line in enumerate(text.splitlines(), start=1):
+        if number == variable_line:
+            for name in match.group(1).split():
+                packages.setdefault(name, number)
+        elif "miri nextest run" in line:
+            for name in PACKAGE_OPTION.findall(line):
+                packages.setdefault(name, number)
+    return packages
+
+
+def opt_out_line(source):
+    tokens = [token for token in source.tokens if token.kind != "comment"]
+    text = source.text
+    for index, token in enumerate(tokens):
+        if not rust_lexer.is_punct(source, token, "#"):
+            continue
+        k = index + 1
+        if k < len(tokens) and rust_lexer.is_punct(source, tokens[k], "!"):
+            k += 1
+        if k + 2 >= len(tokens) or not rust_lexer.is_punct(source, tokens[k], "["):
+            continue
+        level = tokens[k + 1]
+        if level.kind != "word" or text[level.start:level.end] not in LINT_LEVELS:
+            continue
+        if not rust_lexer.is_punct(source, tokens[k + 2], "("):
+            continue
+        depth = 0
+        for inner in tokens[k + 2:]:
+            if rust_lexer.is_punct(source, inner, "("):
+                depth += 1
+            elif rust_lexer.is_punct(source, inner, ")"):
+                depth -= 1
+                if depth == 0:
+                    break
+            elif depth == 1 and inner.kind == "word" and text[inner.start:inner.end] == "unsafe_code":
+                return source.line(token.start)
+    return None
+
+
+def first_opt_out(directory, root):
+    source_directory = directory / "src"
+    if not source_directory.is_dir():
+        return None
+    for path in sorted(source_directory.rglob("*.rs")):
+        shown = rust_lexer.display(str(path.relative_to(root)))
+        try:
+            source = rust_lexer.Source(rust_lexer.read_source(path))
+        except OSError as error:
+            raise rust_lexer.SetupError(f"cannot read {shown}: {rust_lexer.os_error(error)}") from None
+        except rust_lexer.SourceError as error:
+            raise rust_lexer.SetupError(f"cannot read {shown}: {error}") from None
+        line = opt_out_line(source)
+        if line is not None:
+            return f"{shown}:{line}"
+    return None
+
+
+def main(argv):
+    if argv:
+        print(USAGE + "".join(f"  {name}: {reason}\n" for name, reason in sorted(EXEMPT.items())), end="",
+              file=sys.stdout if argv[:1] in (["-h"], ["--help"]) else sys.stderr)
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    try:
+        root = Path(rust_lexer.git("rev-parse", "--show-toplevel").rstrip("\n"))
+        try:
+            justfile = (root / "justfile").read_text(encoding="utf-8")
+        except OSError as error:
+            raise rust_lexer.SetupError(f"cannot read justfile: {rust_lexer.os_error(error)}") from None
+        run = miri_packages(justfile)
+        data = metadata()
+        members = set(data.get("workspace_members", []))
+        unsafe_members = {}
+        names = set()
+        for package in data.get("packages", []):
+            if package["id"] not in members:
+                continue
+            names.add(package["name"])
+            where = first_opt_out(Path(package["manifest_path"]).parent, root)
+            if where is not None:
+                unsafe_members[package["name"]] = where
+    except rust_lexer.SetupError as error:
+        rust_lexer.emit(f"check-miri-packages: {error}", sys.stderr)
+        return 2
+    findings = []
+    for name in sorted(unsafe_members):
+        if name not in run and name not in EXEMPT:
+            findings.append(
+                f"{unsafe_members[name]}: package '{name}' opts out of unsafe_code, but no Miri recipe of the justfile runs its tests"
+            )
+    for name in sorted(run):
+        if name not in names:
+            findings.append(f"justfile:{run[name]}: Miri runs package '{name}', which is not a workspace member")
+        elif name not in unsafe_members:
+            findings.append(f"justfile:{run[name]}: Miri runs package '{name}', which holds no unsafe code")
+    for finding in findings:
+        rust_lexer.emit(finding)
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

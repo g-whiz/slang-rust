@@ -1,0 +1,2 @@
+#[expect(unsafe_code, reason = "the bindings call native code")]
+mod bindings {}

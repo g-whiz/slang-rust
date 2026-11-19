@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["listed", "recipe", "safe", "slang-compiler-sys"]

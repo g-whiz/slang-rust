@@ -1,0 +1,2 @@
+check-miri:
+    cargo +nightly miri nextest run -p safe

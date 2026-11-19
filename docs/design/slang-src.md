@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-src` |
 
 ## Abstract
@@ -485,7 +485,7 @@ The build script emits no `cargo::warning`. Cargo shows the warnings of a regist
 
 The crate has one integration-test binary, `tests/slang_src/`, whose root `main.rs` declares the module `build_script`. No test clones Slang. The build script that builds the test binary performs the real clone, and a test of the real host checks what it left.
 
-- `build_script`: The pure tests of `source.rs`, which the module includes with `recorded.rs`, against a fake host. They run under Miri, and they cover these parts:
+- `build_script`: The pure tests of `source.rs`, which the module includes with `recorded.rs`, against a fake host. They cover these parts:
   - The git commands of the clone in order, with their settings and environment, and the network settings only on the commands that fetch (SRC-7, SRC-8).
   - The use of an existing clone entry without the network, and the variables that the build script reads (SRC-21).
   - `CARGO_NET_OFFLINE`, which stops a clone only when it is exactly `true` (SRC-9).
@@ -507,7 +507,7 @@ The reuse test reads the shared folder from `SLANG_SRC_SHARED_DIR` (SRC-18) and 
 
 The test binary builds only through `test-vendored` and `check-vendored`, because every other recipe leaves `slang-src` out (TOOL-32 of `docs/design/tooling.md`). The vendored CI job runs `test-vendored` on Linux, Windows, and macOS, so the clone runs on each platform. A second clone inside a test would cost as much time and disk space as the first and prove nothing more.
 
-No recipe runs the pure tests under Miri, which is a known gap. Every recipe that runs Miri leaves `slang-src` out, and `cargo miri` builds in a tagged directory of its own inside the target directory (Section 3.2), where the lookup of SRC-23 finds another shared folder, so the build script would clone a second time (Section 17, SRCQ-3).
+No recipe runs the tests of `slang-src` or of the build script of `slang-glslang-sys` under Miri, by TEST-12 of the coding standard. `slang-src` holds no unsafe code, and the pure tests of `slang-glslang-sys` execute none, so Miri would find only what their native run finds. A run under Miri would also clone a second time, because `cargo miri` builds in a tagged directory of its own inside the target directory (Section 3.2), where the lookup of SRC-23 finds another shared folder.
 
 ## 13. Crate Documentation
 
@@ -644,7 +644,6 @@ Each row is a question that this document leaves open. The owner in the third co
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SRCQ-1 | Do the clone, the copy and build tree of `slang-compiler-sys`, and the build tree of `slang-glslang-sys` under `OUT_DIR` fit within the path length limit of Windows when the target directory is deeper than that of the hosted Windows runner, or when a later recorded commit tracks a longer path, or does a build script need a shorter layout on Windows? On that runner, the clone leaves 5 characters below the limit, and SRC-26 stops a clone that exceeds it with the length of the path (Section 3.5). The build tree of `slang-glslang-sys` is the deepest, because CMake mirrors the absolute path of each source outside the wrapper project under `CMakeFiles/<target>.dir/` (Section 4 of `docs/design/slang-glslang-sys.md`). | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | M7 |
-| SRCQ-3 | Which recipe runs the pure tests of `slang-src` and of the build script of `slang-glslang-sys` under Miri, and how does it keep the build scripts from cloning and building a second time in the target directory of Miri (Section 12, Section 9 of `docs/design/slang-glslang-sys.md`)? | `docs/design/tooling.md`, with this document | M7 |
 | SRCQ-4 | Should SRC-17 add `CPLUS_INCLUDE_PATH`, `CPATH`, `C_INCLUDE_PATH`, and `LIBRARY_PATH` to the inputs of the entry key, and should each dependent build script emit a rerun instruction for them, so that a changed include or library path no longer reuses an entry built with other headers (Section 9.4)? | This document, with `docs/design/slang-compiler-sys.md`, `docs/design/slang-glslang-sys.md`, and `docs/design/slang-rhi-sys.md` | Not assigned |
 
 The next question takes SRCQ-5.

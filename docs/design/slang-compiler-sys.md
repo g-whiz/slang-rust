@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -793,7 +793,7 @@ The tests in the generator's `ffi` modules parse small synthetic headers with li
   - A parameter of SCS-81 next to a callback of another direction, and stale rules of SCS-81 and of the other new kinds.
   - A parse through the C++ shim headers, the text of the ABI probe, the slot function and `VTABLE_SLOTS` in `symbols`, and a missing config or Slang header directory.
 
-  Pure unit tests in the modules, which Miri runs, check the decision of SCS-73 for normalized triples, the marking of the parameters of SCS-81, and the range of the pointer constants of SCS-80.
+  Pure unit tests in the modules check the decision of SCS-73 for normalized triples, the marking of the parameters of SCS-81, and the range of the pointer constants of SCS-80.
 
 The integration-test binary `tests/generator/` runs the binary of SCS-60 in its module `ffi`. Its tests cover:
 
@@ -805,7 +805,7 @@ The integration-test binary `tests/generator/` runs the binary of SCS-60 in its 
 
 The success case runs on the real headers, because the binary uses the strict rule set of the recorded Slang, which refuses a synthetic header with errors of kind `StaleRule` and `UnmatchedDeclaration`. The tests of the libclang failure and of the output paths need the generation to get past the headers, so in practice they need `VULKAN_SDK` as well.
 
-The other tests are pure Rust and also run under Miri. They cover the matching of rule patterns, the lookups in the rule set, the value checks of the validator, the formatting of literals, the escaping of names, and the error type.
+The other tests are pure Rust. They cover the matching of rule patterns, the lookups in the rule set, the value checks of the validator, the formatting of literals, the escaping of names, and the error type.
 
 SCS-21. Every test of the generator that loads libclang MUST sit in a module named `ffi` and MUST be compiled only for Linux targets. Miri cannot call libclang (Section 11), and the text that the tests check does not depend on the host, because every parse uses the shim headers and names its target. The build of `slang-compiler-sys` on each CI platform runs the generator on the real headers there (Section 12).
 
@@ -1426,7 +1426,7 @@ The tests of the module `build_script` cover:
   - A `cmake` step that cannot start, a log that cannot be read, and a missing job count.
   - A stale stamp that stays removed after a failure.
 
-Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the vendored route also asserts that `VULKAN_SDK` was not read. Each test of a failure before the verified build asserts that no stamp and no entry of the shared folder was written. A failure while the build script stores an entry comes after it wrote the stamp and files of the temporary directory, so those tests assert that no rename and no generation took place instead. These tests are pure Rust, so they run under nextest and under Miri.
+Each test asserts the content of each message and the instructions that the logic emits, including the rerun instructions on every failure path. Each test of the vendored route also asserts that `VULKAN_SDK` was not read. Each test of a failure before the verified build asserts that no stamp and no entry of the shared folder was written. A failure while the build script stores an entry comes after it wrote the stamp and files of the temporary directory, so those tests assert that no rename and no generation took place instead. These tests are pure Rust and need no native code.
 
 The module `build_script::ffi` includes `../../../system.rs` and tests `System` itself. Its tests cover:
 
@@ -1510,7 +1510,7 @@ The crate `slang-compiler-sys` has one integration-test binary (TEST-10), `tests
 - `ffi`: The smoke test and the native-symbol test, which call Slang. The module carries `#[expect(unsafe_code, reason = "...")]`, whose reason says that the tests of the module call Slang through the raw bindings, which only unsafe code can do. This is the narrowest scope that needs the exception (LINT-1), and Section 4.4 of the coding standard lists it among the expected kinds of lint exception.
 - `symbols`: The generated list of C functions of Section 5.1, included from `OUT_DIR`, without a lint exception (Section 5.10).
 
-The tests of `build_info` and of `build_script` outside its module `ffi` call no native code and start no process, so they run under Miri.
+The tests of `build_info` and of `build_script` outside its module `ffi` call no native code and start no process. Miri does not run them, or any other test of this crate or of `slang-bindgen`. The unsafe code of `slang-compiler-sys` is the generated bindings, which only the tests in `ffi` execute, and `slang-bindgen` holds no unsafe code, so Miri would find only what the native run finds (TEST-12 of the coding standard). `check-miri` checks the use of the bindings through the tests of `slang-compiler` against its fake (Section 13 of `docs/design/slang-compiler.md`).
 
 The smoke test is `global_session_reports_the_build_tag_of_the_build_and_releases_every_reference`. It takes these steps:
 

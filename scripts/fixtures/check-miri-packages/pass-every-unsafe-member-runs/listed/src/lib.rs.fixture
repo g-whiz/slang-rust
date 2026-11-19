@@ -1,0 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "it dereferences raw pointers"
+)]
+
+pub fn one() -> u8 {
+    1
+}

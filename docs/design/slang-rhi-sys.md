@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-rhi-sys` |
 
 ## Abstract
@@ -552,7 +552,7 @@ The crate has one integration-test binary, `tests/rhi_sys/`, which carries the `
   - The first opens a device on the first adapter, creates a buffer with initial data, reads it back through `readBuffer` and through `readBuffer_blob`, and compares both with the data. It is the call test of one pair of overloads.
   - The second runs a whole compute dispatch through the raw bindings: it loads a kernel through `IDevice::getSlangSession`, creates the shader program and the compute pipeline, binds a buffer with a `Binding` whose range is the value of `kEntireBuffer`, dispatches, submits with `..SubmitDesc::default()`, waits, and reads the expected values back.
 
-The pure tests of `build_script` could run under Miri, but no recipe runs Miri on the crate, because `check-miri` leaves it out with the other crates of TOOL-32 (SRCQ-3 of the `slang-src` design). The tests of the safe crate exercise the rest of the compute path (`docs/design/slang-rhi.md`).
+No recipe runs Miri on the crate. Its unsafe code is the generated bindings, which only the tests in `ffi` and `gpu` execute, so the pure tests of `build_script` and `defaults` give Miri no unsafe code to check (TEST-12 of the coding standard). The tests of the safe crate exercise the rest of the compute path (`docs/design/slang-rhi.md`).
 
 The binary holds 51 tests, of which 34 are in `build_script`, 9 in `build_script::ffi`, 3 in `defaults`, 3 in `ffi`, and 2 in `gpu`, and the same 51 run on Linux and on Windows.
 

@@ -1531,7 +1531,7 @@ A caller who needs another feature creates the wgpu device with it and passes th
 
 The tests of the reflection walk call Slang and need no adapter, so they sit in the module `layout::tests::ffi` in the default tier and check their snapshots with `insta`. They are unit tests inside the crate, not tests of the integration-test binary, because the snapshot is private and TEST-1 limits integration tests to the public API.
 
-The tests of marshalling, of the checks of a call, and of the workgroup counts are pure and run under Miri.
+The tests of marshalling, of the checks of a call, and of the workgroup counts are pure and run natively. Miri does not run them, because the crate holds no unsafe code (TEST-12 of the coding standard).
 
 The tests of loading and of the call are `gpu` tests of the integration-test binary, in the modules `gpu::load` and `gpu::call`, with the shader files that they load under `tests/slango/shaders/`. The tests of the call dispatch kernels and assert every result. They also assert the kind and text of each error of Section 9.3, and that a rejected call leaves its output buffer unchanged.
 
@@ -1561,7 +1561,7 @@ The tests in `ffi/compute_kernel.rs` check `--help` and a wrong number of argume
 
 ### 13.4. Tests of Rendering
 
-The tests of the walk for vertex and fragment entry points, vertex attributes, textures, and samplers are `ffi` unit tests in `layout::tests::ffi` with `insta` snapshots, as Section 13.1 states for the walk. The merging of the bindings of two stages and the checks of SLO-26 are pure unit tests that Miri runs, in `render::tests` and `draw::tests`.
+The tests of the walk for vertex and fragment entry points, vertex attributes, textures, and samplers are `ffi` unit tests in `layout::tests::ffi` with `insta` snapshots, as Section 13.1 states for the walk. The merging of the bindings of two stages and the checks of SLO-26 are pure unit tests in `render::tests` and `draw::tests`.
 
 The `gpu` tests of rendering sit in the module `gpu::render` of the integration-test binary. They create render pipelines, render offscreen into a `Texture`, read its pixels back, and assert them, on lavapipe, WARP, and hosted Metal in CI (Section 13.2). Their shaders, as source text in the tests or under `tests/slango/shaders/`, cover these cases:
 

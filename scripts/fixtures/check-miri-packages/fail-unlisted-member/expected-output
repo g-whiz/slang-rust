@@ -1,0 +1,1 @@
+hidden/src/inner/mod.rs:3: package 'hidden' opts out of unsafe_code, but no Miri recipe of the justfile runs its tests

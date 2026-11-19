@@ -191,10 +191,6 @@ fn packed_particle() -> Structure {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn an_element_gets_fields_at_its_offsets_with_tail_padding_and_layout_assertions() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
     assert!(
@@ -216,10 +212,6 @@ fn an_element_gets_fields_at_its_offsets_with_tail_padding_and_layout_assertions
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn each_backend_gets_the_element_form_of_its_layout_inside_its_helper_macro() {
     let text = format(vec![kernel(
         "step",
@@ -276,10 +268,6 @@ fn each_backend_gets_the_element_form_of_its_layout_inside_its_helper_macro() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn the_fields_of_an_element_list_each_nested_field_by_its_path_and_its_offset_from_the_start() {
     let text = format(vec![kernel("settle", vec![buffer("bodies", body())])]);
     assert_contains(
@@ -323,10 +311,6 @@ fn an_element_without_a_packed_layout_or_with_other_packed_fields_is_unsupported
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn write_bytes_appends_each_scalar_and_zero_padding_in_the_order_of_the_offsets() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
     assert_contains(
@@ -338,10 +322,6 @@ fn write_bytes_appends_each_scalar_and_zero_padding_in_the_order_of_the_offsets(
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn read_bytes_reads_each_scalar_at_its_offset_after_checking_the_length() {
     let text = format(vec![kernel("step", vec![buffer("particles", particle())])]);
     assert_contains(
@@ -356,10 +336,6 @@ fn read_bytes_reads_each_scalar_at_its_offset_after_checking_the_length() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_gap_between_fields_gets_its_own_padding_and_an_array_is_read_at_its_stride() {
     let grid = value(
         Scalar::Int32,
@@ -405,10 +381,6 @@ fn a_gap_between_fields_gets_its_own_padding_and_an_array_is_read_at_its_stride(
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_nested_element_is_its_own_struct_written_and_read_through_its_implementation() {
     let text = format(vec![kernel("settle", vec![buffer("bodies", body())])]);
     assert_contains(
@@ -429,10 +401,6 @@ fn a_nested_element_is_its_own_struct_written_and_read_through_its_implementatio
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_structure_that_two_kernels_and_a_nested_field_use_is_emitted_once() {
     let text = format(vec![
         kernel("push", vec![buffer("motions", motion())]),
@@ -486,10 +454,6 @@ fn shade() -> KernelInterface {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_uniform_structure_is_a_plain_struct_whose_leaves_are_set_by_their_paths() {
     let text = format(vec![shade()]);
     assert_contains(
@@ -507,10 +471,6 @@ fn a_uniform_structure_is_a_plain_struct_whose_leaves_are_set_by_their_paths() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_uniform_structure_inside_a_constant_buffer_is_named_by_its_whole_path() {
     let mut parameters = vec![leaf("settings.tint", float(4))];
     parameters.extend(light_leaves("settings.light"));
@@ -528,10 +488,6 @@ fn a_uniform_structure_inside_a_constant_buffer_is_named_by_its_whole_path() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn an_element_that_is_also_a_uniform_value_is_emitted_once_in_the_element_form() {
     let light = structure(
         "Light",
@@ -577,10 +533,6 @@ fn an_element_that_is_also_a_uniform_value_is_emitted_once_in_the_element_form()
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_uniform_structure_without_leaves_still_gets_its_field() {
     let text = format(vec![with_structures(
         kernel(
@@ -779,10 +731,6 @@ fn a_resource_inside_a_uniform_structure_is_unsupported() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn a_keyword_field_becomes_a_raw_identifier_in_the_struct_and_in_the_call() {
     let element = structure(
         "Tagged",
@@ -974,10 +922,6 @@ fn two_different_structures_with_one_name_conflict() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "it formats generated code with syn and prettyplease, which takes minutes under Miri and runs no unsafe code"
-)]
 fn new_of_more_than_seven_fields_expects_the_lint_of_too_many_arguments() {
     let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
     let fields = |count: usize| {

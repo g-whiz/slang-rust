@@ -1,0 +1,1 @@
+#![expect(unsafe_code, reason = "raw pointers")]
