@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -369,12 +369,25 @@ These facts concern rendering, all read in the headers and the backends of slang
 - Creating a texture, a texture view, a sampler, an input layout, and a render pipeline, beginning a render pass, binding a render pipeline, setting the render state, drawing with and without indices, and reading a texture back all take their descriptors by pointer or reference. None of these methods is a placeholder slot of `slang-rhi-sys` (RSYS-10 of `docs/design/slang-rhi-sys.md`). Initial texture data reaches `createTexture` through its argument `initData`, so no command of the placeholder slots, such as `uploadTextureData`, is needed.
 - The Vulkan backend sets every viewport with a negative height, from `originY + extentY` (`src/vulkan/vk-command.cpp:845-851`), so clip space points y up and the framebuffer starts at the top row on Vulkan as on D3D12.
 - `FrontFaceMode::CounterClockwise` is the default and maps directly on both backends (`src/vulkan/vk-utils.cpp:815-825`, `src/d3d12/d3d12-pipeline.cpp:270`). A viewport passes its depth range of 0 to 1 unchanged.
-- The Vulkan backend always enables depth clamping and ignores `RasterizerDesc::depthClipEnable` (`src/vulkan/vk-pipeline.cpp:633`), while D3D12 honours it. Geometry with a depth outside the range 0 to 1 is therefore clamped on Vulkan instead of clipped.
+- The Vulkan backend always enables depth clamping and ignores `RasterizerDesc::depthClipEnable` (`src/vulkan/vk-pipeline.cpp:634`), while the D3D12 backend honours it, and its default clips (`src/d3d12/d3d12-pipeline.cpp:274`, `include/slang-rhi.h:1866`). A primitive with a depth outside the range 0 to 1 is therefore drawn with its depth clamped on Vulkan and clipped on D3D12, which the `gpu` test of `slang-rhi` observed on both (RKB-9 of `docs/design/slang-rhi.md`).
 - `RenderState` holds at most 16 vertex buffers, 16 viewports, and 16 scissor rectangles in fixed arrays (`include/slang-rhi.h:2331`).
 - The Vulkan backend does not clear a texture that `createTexture` creates without initial data (`src/vulkan/vk-texture.cpp:290-470`), while wgpu zeroes every new texture. `slang-rhi` refuses initial data for a depth format (RHI-23 of `docs/design/slang-rhi.md`).
 - slang-rhi keeps a reference to each view of a render pass and to each vertex and index buffer of a draw until the work completes (`src/command-list.cpp:84-101`, `src/command-buffer.cpp:72-73`), so a draw that returns without waiting is sound.
 
-The headers of slang-rhi document none of these conventions, so the conventions of a draw on the backend `rhi` are assumed until the `gpu` tests of Section 13.7 run them (SOA-9).
+The headers of slang-rhi document none of these conventions. The `gpu` tests of the rendering phase of `slang-rhi` confirmed them on Vulkan, on the NVIDIA RTX 4070 and on lavapipe, and on D3D12 on WARP in CI run 44431645707 (Section 10.3 of `docs/design/slang-rhi.md`):
+
+- Clip space points y up, and a read-back texture starts at the top row.
+- Counter-clockwise triangles face the front, and `Back` culls the others.
+- The depth range is 0 to 1, and the depth test `Less` keeps the nearest fragment.
+- `SV_Position` has its origin at the top left and texel centres at 0.5, and initial texture data starts at the top row.
+
+This confirmed the former assumption SOA-9 (Section 14). Depth clamping, in the list above, is the one difference between the two backends of slang-rhi.
+
+These facts concern the vertex inputs, which `slang-rhi` checks against reflection (RHI-26 of `docs/design/slang-rhi.md`):
+
+- On D3D12, DXIL keeps a vertex input that the shader declares and does not read in its input signature, so the creation of a render pipeline failed with `ErrorKind::Compile` and no diagnostics when the input layout held no element for it (CI run 44423418363). On SPIR-V, Slang removes such an input. Telling a used input from a declared one would need a code generation pass before slang-rhi compiles the pipeline.
+- `create_render_pipeline` of `slang-rhi` therefore refuses, on both backends, a declared input of the vertex entry point without a stream at its location, even one that the shader does not read. It also refuses an input of a type that no vertex format feeds, a stream whose numeric kind differs from that of its input, and a stream whose semantic differs from that of its input.
+- That rule is stricter than the backend `wgpu`, where an attribute that the shader does not use needs no buffer (Section 3.9). Whether the backend `rhi` supplies a stream for such an attribute itself is SOQ-12.
 
 ## 4. Crate Structure and Dependencies
 
@@ -858,7 +871,8 @@ The crate documentation states these differences, and this list is their one pla
 
   slang-rhi addresses neither by name, and its `ShaderOffset` has no constructor for the whole uniform data of a sub-object (Section 9.6). An unused parameter of either shape loads on both backends. SOQ-11 asks how `slang-rhi` would let `slango` address them.
 - A kernel whose thread group exceeds the limits of the device fails to load with `ErrorKind::Backend` on the backend `wgpu` and on the backend `rhi` on Vulkan, and with `ErrorKind::Compile` on the backend `rhi` on D3D12, where the DXIL compiler refuses it first (Section 7.6).
-- The depth clamping of Section 9.7 and the differences of shaders of Section 6.4.
+- The depth clamping of Section 9.7, which the `gpu` tests of `slang-rhi` observed on Vulkan and on D3D12 (Section 3.11), and the differences of shaders of Section 6.4.
+- Unless SOQ-12 decides that the backend `rhi` supplies a stream itself, a render pipeline on that backend needs a vertex buffer for an attribute that the vertex entry point declares and does not use, which the backend `wgpu` does not need (Section 3.11).
 
 ## 7. Loading a Module
 
@@ -1098,7 +1112,7 @@ The backend reuses the merge of the bindings and every check of Section 7.5, whi
 | `cull_mode` | `None` or `Back`, with the same meaning |
 | `instance_attributes` | The step of each vertex stream, per instance for a named attribute and per vertex otherwise |
 
-Each used attribute sits at offset 0 of its own vertex stream, with the stride of its format, as on the backend `wgpu` (Section 7.5). `slang-rhi` also needs the semantic name and index of each attribute, by which D3D12 matches it (RHA-6 of `docs/design/slang-rhi.md`). The load on the backend `rhi` reads them from reflection into a record of the module outside the layout snapshot, which the backend `rhi` never encodes (Section 7.6).
+Each used attribute sits at offset 0 of its own vertex stream, with the stride of its format, as on the backend `wgpu` (Section 7.5). `slang-rhi` also needs the semantic name and index of each attribute, by which D3D12 matches it, and a stream for every attribute that the vertex entry point declares, used or not (RHI-26 of `docs/design/slang-rhi.md`, Section 3.11). How the backend meets the second need is SOQ-12. The load on the backend `rhi` reads them from reflection into a record of the module outside the layout snapshot, which the backend `rhi` never encodes (Section 7.6).
 
 After the checks of Section 7.5, `render_pipeline` on the backend `rhi` runs these checks and returns the first failure with a message that names both entry points:
 
@@ -1384,7 +1398,7 @@ SLO-41 creates the render pipeline. A draw on the backend `rhi` runs every check
 
 The draw then finishes the encoder and submits the command buffer, and returns without waiting, as on the backend `wgpu`.
 
-The conventions of a draw of Section 3.9 are conventions of `slango` on both backends, by the decision of the design that answers SOQ-9 (Section 15). On the backend `rhi`, slang-rhi meets them through the negative viewport height of its Vulkan backend and the native conventions of D3D12 (Section 3.11), and the `gpu` tests of Section 13.7 check each convention on both backends (SOA-9). One convention differs: on Vulkan, slang-rhi clamps a depth outside the range 0 to 1 instead of clipping the geometry (Section 3.11). The crate documentation states that difference, and no test of `slango` depends on it.
+The conventions of a draw of Section 3.9 are conventions of `slango` on both backends, by the decision of the design that answers SOQ-9 (Section 15). On the backend `rhi`, slang-rhi meets them through the negative viewport height of its Vulkan backend and the native conventions of D3D12, which the `gpu` tests of `slang-rhi` confirmed on both (Section 3.11), and the `gpu` tests of Section 13.7 check each convention on both backends of `slango`. One convention differs: on Vulkan, slang-rhi clamps a depth outside the range 0 to 1 instead of clipping the geometry (Section 3.11). The crate documentation states that difference, and no test of `slango` depends on it.
 
 `slang-rhi` refuses a texture that the pass both samples and draws into, because that breaks valid use of the graphics API (RHI-27). The draw then fails with `ErrorKind::Backend`, as on the backend `wgpu` (SLO-42).
 
@@ -1674,11 +1688,10 @@ An identifier is never reused.
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | SOA-6 | A system value other than `SV_Position`, `SV_VulkanVertexID`, and `SV_VulkanInstanceID` lacks the category `VaryingInput`. An index past the end of a vertex buffer reaches only the backend's own handling | Sections 7.4 and 16 | For another system value, the change that first uses it. For an index past the end, deferred with no change assigned |
-| SOA-9 | On the backend `rhi`, the conventions of a draw of Section 3.9 hold on Vulkan and D3D12, apart from the depth clamping of Section 3.11, through the negative viewport height of the Vulkan backend of slang-rhi | Section 9.7 | The `gpu` tests of the conventions on the backend `rhi` (Section 13.7), in the code step that adds rendering to that backend |
 | SOA-10 | For the vertex and fragment entry points of a program linked in the session of a load on the backend `rhi`, the walk of Section 7.1 records the same paths, kinds, usage, and vertex attributes as for the session of the backend `wgpu`, and the offset and size of each top-level field of a shader object equal those of the walk. Section 3.11 states the result for compute kernels | Sections 7.6, 7.7, and 9.7 | The `gpu` tests of rendering on the backend `rhi` on lavapipe and WARP, in the code step that adds rendering to that backend (Section 15.13 of the architecture design) |
 | SOA-12 | One buffer bound to two read-write parameters of one draw, which wgpu allows and SLO-44 leaves valid, is also valid on D3D12. Section 3.11 states the result for a dispatch | SLO-44 | The `gpu` tests of SLO-44 on the backend `rhi` on WARP, in the code step that adds rendering to that backend. If they refute it, that step revisits SLO-44 |
 
-SOA-10 and SOA-12 concern rendering only, because Section 3.11 confirms both for compute on Vulkan and on D3D12. SOA-7, SOA-8, and SOA-11 are retired. The owner's decision 6 of Section 4.6 removed the loads in one device session that SOA-7 concerned, and a reflection of DXIL refuted SOA-8, which SLO-46 replaces (Section 3.11). A reading of Slang's source and a run with `slang-compiler` confirmed SOA-11, that `slang-compiler` reports the row stride of a matrix, with no change of that crate (Section 3.11).
+SOA-10 and SOA-12 concern rendering only, because Section 3.11 confirms both for compute on Vulkan and on D3D12. SOA-7, SOA-8, SOA-9, and SOA-11 are retired. The `gpu` tests of `slang-rhi` confirmed SOA-9, the conventions of a draw through slang-rhi on Vulkan and on D3D12, with depth clamping as their one difference (Section 3.11). The owner's decision 6 of Section 4.6 removed the loads in one device session that SOA-7 concerned, and a reflection of DXIL refuted SOA-8, which SLO-46 replaces (Section 3.11). A reading of Slang's source and a run with `slang-compiler` confirmed SOA-11, that `slang-compiler` reports the row stride of a matrix, with no change of that crate (Section 3.11).
 
 Of the assumptions of the architecture design that name this document, Sections 3.3 to 3.5 confirm A-12, Section 3.7 confirms A-13, and Section 3.2 confirms A-11 for M3. M4 does not need A-11, because it keeps the validated path and defers other shader targets (Section 1.5).
 
@@ -1708,6 +1721,7 @@ SOQ-5 to SOQ-8 come from the review of the public API before the first release (
 | SOQ-7 | `Buffer::zeroed` and `Texture::new` both create a resource whose bytes are zero, under two names, against API-3 (Section 8). The options are to rename `Texture::new` to `Texture::zeroed`, to rename `Buffer::zeroed` to `Buffer::new`, or to keep both names and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
 | SOQ-8 | `Device` has an identity that its clones share and that the crate compares for every check of another device, but implements no `PartialEq`, `Eq`, or `Hash`, which API-7 asks for (Section 9.3). The options are to implement them by hand through the identity before the release, documenting that two `Device` values built separately from one wgpu device are unequal, or to defer them, which is additive | The owner of the project, by a decision | Before the first release that is not an alpha |
 | SOQ-11 | On the backend `rhi`, a load refuses a used resource inside a structure that is not the element of a constant buffer or a parameter block, and a used constant buffer whose element is not a structure, both of which the backend `wgpu` runs (Section 6.5). Closing the difference needs `slang-rhi` to address a resource inside such a structure and to write the whole uniform data of a sub-object, which RHQ-11 of `docs/design/slang-rhi.md` asks about. Should `slango` close it once `slang-rhi` can, or keep the difference? | The owner of the project, by a decision | Not assigned |
+| SOQ-12 | `slang-rhi` refuses a render pipeline without a vertex stream for each input that the vertex entry point declares, used or not, because DXIL keeps an unused input in its input signature (Section 3.11). On the backend `wgpu`, an attribute that the shader does not use needs no buffer (Section 7.5). Should the backend `rhi` supply a stream for such an attribute itself, such as one over a small buffer of zeros that the device holds, so that a draw needs the same buffers on both backends, or require the buffer and state the difference in Section 6.5? | This document, in the code step that adds rendering to the backend `rhi` | M10 |
 
 Of the questions of the architecture design that name this document, these sections answer or defer each:
 

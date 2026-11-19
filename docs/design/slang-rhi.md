@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-rhi` |
 
 ## Abstract
@@ -18,7 +18,7 @@ The raw bindings of `slang-rhi-sys` require a caller to count references, to kee
 
 ### 1.2. Purpose
 
-`slang-rhi` gives Rust users a safe API for the compute path of slang-rhi, built on `slang-compiler` for everything that concerns Slang. The `rhi` backend of `slango` in M10 builds on it (Section 15.13 of the architecture design).
+`slang-rhi` gives Rust users a safe API for the compute path of slang-rhi, and from M10 for the draws that `slango` needs, built on `slang-compiler` for everything that concerns Slang. The `rhi` backend of `slango` in M10 builds on it (Section 15.13 of the architecture design).
 
 This document implements the part of Section 15.12 of the architecture design that concerns `slang-rhi`, within the owner's decisions of Section 4.1 of `docs/design/slang-rhi-sys.md`. It answers Q-16 of the architecture design for this crate (Section 14.5).
 
@@ -28,7 +28,7 @@ The primary readers are the coding agents that implement the crate and the `rhi`
 
 ### 1.4. Scope
 
-This document covers the crate and its dependencies, the ownership model, the public API of the compute path, errors, threading, the guards around calls into native code, the soundness invariants, the tests, the crate documentation, and the security and operational considerations.
+This document covers the crate and its dependencies, the ownership model, the public API of the compute path and of the rendering phase of M10, errors, threading, the guards around calls into native code, the soundness invariants, the tests, the crate documentation, and the security and operational considerations.
 
 ### 1.5. Non-Goals
 
@@ -74,7 +74,7 @@ This document calls those files the writing guide, the coding standard, the arch
 
 ## 3. Facts
 
-This section is non-normative. Section 3 of the sys design states the facts about slang-rhi on which this design relies, and this section adds the facts of the compute path. Paths are in the slang-rhi tree of the sys design.
+This section is non-normative. Section 3 of the sys design states the facts about slang-rhi on which this design relies, and this section adds the facts of the compute path and of rendering. Paths are in the slang-rhi tree of the sys design.
 
 The path of one compute dispatch is the one of `tests/test-compute-trivial.cpp:6-45`. It creates a device, takes the Slang session of the device with `IDevice::getSlangSession` (`include/slang-rhi.h:3401`), loads and links a program there, creates a shader program (`:3618`) and a compute pipeline (`:3656`), creates buffers (`:3456`), takes a queue (`:3555`) and a command encoder (`:2862`), begins a compute pass (`:2608`), binds the pipeline, which returns the root shader object (`:2528`), sets the parameters, dispatches (`:2531`), ends the pass (`:2496`), finishes the encoder (`:2769`), submits (`:2886`), waits (`:2902`), and reads the result (`:3704`).
 
@@ -138,6 +138,27 @@ The raw types of the compute path in `slang-rhi-sys` have these shapes (RSYS-10 
 - `ShaderOffset` is a plain record of three `u32` fields.
 - The methods of the placeholder slots have no thunk, and none of them is on the compute path.
 
+The rendering phase of Section 11.2 relies on these facts of both backends, read in the source unless a test is named:
+
+- `ITexture::getDefaultView` returns its view with a reference added (`src/vulkan/vk-texture.cpp:112-122`, `src/d3d12/d3d12-texture.cpp:91-101`).
+- `beginRenderPass` copies the attachments of its descriptor and retains their views (`src/command-list.cpp:84-101`). `IRenderPassEncoder::setRenderState` retains the vertex and index buffers, `bindPipeline` creates a new root shader object on each call, and each draw writes the render state that was set last (`src/command-buffer.cpp:26-97`).
+- `uploadTextureData` copies, for each row, the smaller of the row pitch of the source and of the staging memory (`src/command-buffer.cpp:578-660`), and both backends use it for the initial data of `createTexture`.
+- `ITexture::getSubresourceLayout` with `kDefaultAlignment` aligns each row to the alignment of the platform, which is 256 bytes on D3D12 (`src/rhi-shared.cpp:197-207`, `src/d3d12/d3d12-device.cpp:1399-1403`). `readTexture` copies `sizeInBytes` of the layout that the caller passes, on a generic path that both backends share (`src/device.cpp:905-945`).
+- The Vulkan backend gives each input element the location of its index and the binding of its `bufferSlotIndex` (`src/vulkan/vk-device.cpp:2502-2506`). The D3D12 backend copies the semantic name and index, the `InputSlot` from `bufferSlotIndex`, and the step rate of the stream, and does not check `bufferSlotIndex` against the number of streams (`src/d3d12/d3d12-device.cpp:1699-1714`).
+- On D3D12, DXIL keeps a vertex input that the shader declares and does not read in its input signature. A render pipeline whose input layout held no element for it failed to be created, with `SLANG_FAIL` and no diagnostics (CI run 44423418363, on WARP). On SPIR-V, Slang removes such an input. Telling a used input from a declared one would need a code generation pass before slang-rhi compiles the pipeline.
+- The Vulkan backend reads every core feature that the device supports with `vkGetPhysicalDeviceFeatures` and enables them all (`src/vulkan/vk-api.cpp:176`, `src/vulkan/vk-device.cpp:603`), so `robustBufferAccess`, which core Vulkan requires every device to support, is enabled, and so is `VK_EXT_vertex_attribute_robustness` where the device has it (`src/vulkan/vk-device.cpp:864-869`). A draw with the index 100000 into a buffer of 3 vertices ran on the NVIDIA RTX 4070 and on lavapipe with no loss of the device and no error of the Khronos validation layer, and a draw after it was exact. This confirmed the former assumption RHA-7.
+- The Vulkan backend always enables depth clamping (`src/vulkan/vk-pipeline.cpp:634`), while the D3D12 backend clips by `RasterizerDesc::depthClipEnable`, whose default is on (`src/d3d12/d3d12-pipeline.cpp:274`, `include/slang-rhi.h:1866`). A primitive outside the depth range 0 to 1 is therefore drawn with its depth clamped on Vulkan and not drawn on D3D12, which the `gpu` test `a_triangle_outside_the_depth_range_is_clamped_on_vulkan_and_clipped_on_direct3d_12` observed on both (RKB-9 in Section 3.1).
+- `getFormatSupport` is wrong on both backends for some bits (RKB-7 and RKB-8 in Section 3.1). Every colour format and use of a texture that the crate offers is mandatory on Vulkan and on D3D12, and so is a `D32Float` depth target on D3D12, while Vulkan does not guarantee a `D32_SFLOAT` depth attachment.
+
+The `gpu` tests of Section 10.3 confirmed these conventions on Vulkan, on the NVIDIA RTX 4070 and on lavapipe with the debug device of slang-rhi off and on, and on D3D12 on WARP in CI run 44431645707:
+
+- Clip space points y up, and the top row of a target comes first, as the negative viewport height of the Vulkan backend predicts (`src/vulkan/vk-command.cpp:845-851`). `read_texture` returns the rows from the top, also with the row pitch of 256 bytes of D3D12.
+- Counter-clockwise triangles face the front, and `CullMode::Back` culls the others.
+- The depth range of the viewport is 0 to 1, and the depth test `Less` keeps the nearest fragment, after a clear and after a load.
+- `SV_Position` has its origin at the top left with texel centres at 0.5, and initial texture data starts at the top row.
+- A pass with only a depth target clears a new depth texture.
+- A stream that steps per instance with the step rate 1, and `BlendMode::Alpha`, give the expected values.
+
 ### 3.1. Known Upstream Bugs
 
 This is the one list of the known defects of the recorded slang-rhi. It has the columns of Section 3.12 of the `slang-compiler` design and follows the rules stated there, and every path in the column "Source" is in the slang-rhi tree.
@@ -152,6 +173,9 @@ The crate does not guard against these defects, as Hard Rule 14 of `AGENTS.md` r
 | RKB-4 | `readBuffer` on D3D12 ignores `offset` for a buffer in `ReadBack` memory. By a reading, the smallest input is a `ReadBack` buffer of 8 bytes read with `offset` 4 and `size` 4, which returns its first 4 bytes | `IDevice::readBuffer` on D3D12 | Not observed, because the defect was read in the source and not reproduced. `slang-rhi` cannot reach it, because a `ReadBack` buffer has no use through the crate (Section 6.6) | For a `ReadBack` buffer, the backend maps the buffer itself and copies from its start, with the range `{0, size}` (`src/d3d12/d3d12-device.cpp:1767-1780`), while the copy for other memory types starts at `offset` (`:1761`) | Not reported |
 | RKB-5 | On Vulkan, an array of `ConstantBuffer` parameters is bound as if it had one element. The smallest input is a module with `struct P { float v; };`, `ConstantBuffer<P> cbs[3];`, and `RWStructuredBuffer<float> o;`, and a compute entry point that writes `o[i] = cbs[i].v` for each `i` below 3, with `v` of element `i` set to `(i + 1) * 10` through the object that `ShaderObject::object` returns at array index `i` | The binding of the root shader object at `IComputePassEncoder::dispatchCompute`, through `ComputePass::dispatch`, on Vulkan | `o` held `[30.0, 0.0, 0.0]` on the NVIDIA RTX 4070 and `[30.0, 30.0, 0.0]` on lavapipe. The Khronos validation layer reported `VUID-VkComputePipelineCreateInfo-layout-07991`, with an array size of 3 in the SPIR-V against a `descriptorCount` of 1. Reproduced by a probe on 2026-11-18. Not observed on D3D12, where it did not run | The Vulkan backend steps the offset for each element of the range, while the descriptor set layout holds one descriptor for it (`src/vulkan/vk-shader-object.cpp:608-626`) | Not reported |
 | RKB-6 | On Vulkan, a kernel that declares a push-constant buffer aborts the process at its dispatch, whether or not the program sets the buffer. The smallest input is a compute entry point of a module with `struct P { float v; };` and `[vk::push_constant] ConstantBuffer<P> pc;` | `IComputePassEncoder::dispatchCompute`, through `ComputePass::dispatch`, on Vulkan | The process aborts with "Assertion failed: Unsupported binding type: 14". Reproduced by a probe on 2026-11-18. The abort does not depend on `ShaderObject::object`, which refuses a push-constant range (RHI-22) | `src/vulkan/vk-shader-object.cpp:579` | Not reported |
+| RKB-7 | On D3D12, `getFormatSupport` reports the support of the shader resource view format of a format, so `D32Float` reports no `DepthStencil`, although D3D12 requires depth-stencil support of `DXGI_FORMAT_D32_FLOAT`. By a reading, the smallest input is `getFormatSupport` with `Format::D32Float` on a D3D12 device | `IDevice::getFormatSupport` on D3D12 | Not observed, because the defect was read in the source and not reproduced. By the reading, the bit `DepthStencil` is missing. The crate asks for the support of a format on Vulkan only, where the format is not guaranteed, so it does not reach the defect (RHI-23) | The loop at `src/d3d12/d3d12-device.cpp:1128-1181` queries `formatMapping.srvFormat`, which is `DXGI_FORMAT_R32_FLOAT` for `D32Float` (`src/d3d/d3d-utils.cpp:89`) | Not reported |
+| RKB-8 | On Vulkan, `getFormatSupport` takes the bits `CopySource` and `CopyDestination` from the features of linear tiling, while slang-rhi creates textures with optimal tiling, so both bits can be wrong for a texture. By a reading, the smallest input is `getFormatSupport` for a format whose features of linear and optimal tiling differ on the device | `IDevice::getFormatSupport` on Vulkan | Not observed, because the defect was read in the source and not reproduced. The crate does not read these bits | `src/vulkan/vk-device.cpp:1728-1729` | Not reported |
+| RKB-9 | The Vulkan backend always enables depth clamping and ignores `RasterizerDesc::depthClipEnable`, while the D3D12 backend honours it, so the same pipeline draws a primitive outside the depth range 0 to 1 on Vulkan and clips it on D3D12. Depth clamping is also valid use of Vulkan only on a device with the feature `depthClamp`, which slang-rhi enables only where the device supports it (Section 3). The smallest input is the `gpu` test `a_triangle_outside_the_depth_range_is_clamped_on_vulkan_and_clipped_on_direct3d_12`, a triangle whose depth lies outside the range 0 to 1, drawn with its default `RasterizerDesc` | `IDevice::createRenderPipeline` and a draw of it | On Vulkan, on the NVIDIA RTX 4070 and on lavapipe, the triangle is drawn with its depth clamped. On D3D12 on WARP in CI run 44431645707, it is clipped and not drawn. A device without `depthClamp` was not available, so the outcome there, a render pipeline that breaks valid use of Vulkan, is a reading. The crate documentation states the difference, and the crate does not guard against it | `rasterizer.depthClampEnable = VK_TRUE` at `src/vulkan/vk-pipeline.cpp:634`, against `src/d3d12/d3d12-pipeline.cpp:274` and the default of `depthClipEnable` at `include/slang-rhi.h:1866` | Not reported |
 
 ## 4. Crate Structure
 
@@ -189,7 +213,7 @@ The wrappers offer no `from_raw`, `into_raw`, or `as_raw`, which COM-11 of the c
 
 ### 5.2. References Returned by Each Call
 
-This table records, for each call of the compute path, whether the returned pointer carries a reference, as COM-2 of the coding standard requires. Section 3.3 of the sys design states where slang-rhi adds the reference of each owned return:
+This table records, for each call of the compute path and of the rendering phase, whether the returned pointer carries a reference, as COM-2 of the coding standard requires. Section 3.3 of the sys design states where slang-rhi adds the reference of each owned return:
 
 | Call | Returns | Owned or borrowed | Rust type |
 | --- | --- | --- | --- |
@@ -205,6 +229,10 @@ This table records, for each call of the compute path, whether the returned poin
 | `IShaderObject::getElementTypeLayout` | `slang::TypeLayoutReflection*` | Borrowed from the program of the bound pipeline | Used only inside one call of the crate (Section 6.7) |
 | `IDevice::getCapabilities`, `IDevice::hasFeature` | Values, through a buffer of the caller or as the result | Neither. No pointer is returned | Used only inside `create_slang_session` (RHI-30) |
 | `IRHI::getCapabilityName` | `const char*` | Borrowed. A static string | Passed to `IGlobalSession::findCapability` inside `create_slang_session` (RHI-30) |
+| `createTexture`, `ITexture::getDefaultView`, `createSampler`, `createInputLayout`, `createRenderPipeline` | An interface through `**` | Owned (Section 3) | `Texture`, which holds its default view, `Sampler`, and `RenderPipeline`, which holds its input layout |
+| `ICommandEncoder::beginRenderPass` | `IRenderPassEncoder*` | Borrowed from the encoder | `RenderPass<'e>`, which borrows the encoder mutably |
+| `IRenderPassEncoder::bindPipeline` | `IShaderObject*` | Borrowed from the pass until its next `bindPipeline` | `ShaderObject<'p>`, which borrows the pass mutably |
+| `IDevice::getFormatSupport`, `ITexture::getSubresourceLayout`, `IDevice::readTexture` | Values, through a pointer of the caller | Neither. No pointer is returned | Used only inside `create_texture` and `read_texture` (RHI-23, RHI-28) |
 
 RHI-4. Every wrapper of an owned interface MUST hold the `Device` that created it, as COM-5 of the coding standard requires, and a `Device` MUST hold the `slang_compiler::GlobalSession` that it was created with and its `slang_compiler::Session`. Every pointer that the table marks borrowed MUST be held only by a value whose lifetime borrows its owner as the table states.
 
@@ -221,6 +249,8 @@ The public items are at the crate root (API-10):
 - `ShaderProgram`, `ComputePipeline`, and `CompileSession`.
 - `BufferDesc`, `MemoryType`, `BufferUsage`, and `Buffer`.
 - `Queue`, `CommandEncoder`, `ComputePass`, `ShaderObject`, `ShaderOffset`, and `CommandBuffer`.
+- From the rendering phase of Section 11.2, `Format`, `TextureUsage`, `TextureDesc`, and `Texture`, and `FilterMode`, `AddressMode`, `SamplerDesc`, and `Sampler`.
+- From the same phase, `VertexFormat`, `StepMode`, `VertexStream`, `BlendMode`, `CullMode`, `RenderPipelineDesc`, and `RenderPipeline`, and `ColourLoad`, `DepthLoad`, `RenderPassDesc`, and `RenderPass`.
 - `Error`, `ErrorKind`, `Operation`, and the alias `Result`.
 
 Each enumeration that mirrors an enumeration of slang-rhi follows SLC-14 of the `slang-compiler` design: it is `#[non_exhaustive]`, has one variant for each enumerator of the recorded slang-rhi in Rust case, and is converted by an explicit `match` in a crate-private function, fallibly with the kind `Unrecognized` from slang-rhi.
@@ -384,18 +414,20 @@ RHI-12. Every failure of the crate MUST be its one type `Error`, which is `Send`
 | --- | --- |
 | `InvalidArgument` | A check of the crate failed, or slang-rhi returned `SLANG_E_INVALID_ARG` |
 | `NoDevice` | `createDevice` failed, such as without a Vulkan loader or driver |
-| `Compile` | `createShaderProgram` or `createComputePipeline` failed with or without diagnostics |
+| `Compile` | `createShaderProgram`, `createComputePipeline`, `createInputLayout`, or `createRenderPipeline` failed with or without diagnostics |
 | `OutOfMemory` | `SLANG_E_OUT_OF_MEMORY` |
 | `Unsupported` | `SLANG_E_NOT_IMPLEMENTED` or `SLANG_E_NOT_AVAILABLE`, or a device whose session `create_slang_session` cannot reproduce (RHI-30) |
 | `Failed` | Any other failure code that the mapping knows, such as `SLANG_FAIL`, and a null return where the API promises an object |
 | `Unrecognized` | A result code or an enumerator that the recorded slang-rhi does not list |
 | `Slang` | A failure of `slang-compiler`, such as the adoption of the device's session or the reflection of a program |
 
-`ErrorKind` and `Operation` are `#[non_exhaustive]`, and `Operation` names each call, such as `GetObject` for `object` and `CreateSlangSession` for `create_slang_session`. The `Display` text names the operation and the kind and holds no advice (ERR-4). `Error` holds the error of `slang-compiler` in a `Box`, so that the type stays below the size at which `clippy::result_large_err` fires.
+`ErrorKind` and `Operation` are `#[non_exhaustive]`, and `Operation` names each call, such as `GetObject` for `object` and `CreateSlangSession` for `create_slang_session`. The rendering phase adds `CreateTexture`, `ReadTexture`, `CreateSampler`, `SetTexture`, `SetSampler`, `CreateRenderPipeline`, `BeginRenderPass`, `BindRenderPipeline`, `SetVertexBuffers`, `SetIndexBuffer`, and `Draw`. `BindRenderPipeline` is apart from `BindPipeline`, whose text names a compute pipeline. The `Display` text names the operation and the kind and holds no advice (ERR-4). `Error` holds the error of `slang-compiler` in a `Box`, so that the type stays below the size at which `clippy::result_large_err` fires.
 
 ## 7. Threading
 
-RHI-13. No type of the crate that holds a pointer of slang-rhi or a wrapper of `slang-compiler`, which are `DeviceOptions`, `Device`, `ShaderProgram`, `ComputePipeline`, `Buffer`, `Queue`, `CommandEncoder`, `ComputePass`, `ShaderObject`, and `CommandBuffer`, and from M10 `CompileSession`, `Texture`, `TextureView`, `Sampler`, `RenderPipeline`, and `RenderPass`, MUST be `Send` or `Sync`. `Adapter`, `DeviceInfo`, `BufferDesc`, `ShaderOffset`, the enumerations, `BufferUsage`, and `Error`, and from M10 the value types of Section 11, MUST be `Send` and `Sync`. Each auto trait that a type implements gets a compile-time assertion test (CONC-1).
+RHI-13. No type of the crate that holds a pointer of slang-rhi or a wrapper of `slang-compiler`, which are `DeviceOptions`, `Device`, `ShaderProgram`, `ComputePipeline`, `Buffer`, `Queue`, `CommandEncoder`, `ComputePass`, `ShaderObject`, and `CommandBuffer`, and from M10 `CompileSession`, `Texture`, `Sampler`, `RenderPipeline`, `RenderPass`, and `RenderPassDesc`, MUST be `Send` or `Sync`. `Adapter`, `DeviceInfo`, `BufferDesc`, `ShaderOffset`, the enumerations, `BufferUsage`, and `Error`, and from M10 the other value types of Section 11, MUST be `Send` and `Sync`. Each auto trait that a type implements gets a compile-time assertion test (CONC-1).
+
+`RenderPassDesc<'t>` is a value type that borrows its target textures, so it is neither `Send` nor `Sync`. The crate has no public `TextureView` type, because each `Texture` holds its default view, which is the only view that the crate uses. `Texture`, `Sampler`, `RenderPipeline`, and `RenderPass` each have two `compile_fail` doctests for the missing traits, and `RenderPass` a third, which shows that it cannot leave its closure.
 
 slang-rhi documents no threading rule for its objects (Section 3.3 of the sys design), so FFI-9 of the coding standard forbids `Send` and `Sync` for them. The wrappers of `slang-compiler` that a device holds are neither (SLC-21 of the `slang-compiler` design). The `rhi` backend of `slango` therefore cannot make its public types `Send` and `Sync` on this crate, and the owner decided on 2026-11-18 that `slango` gives up both traits on both backends in version 0.2 (Section 4.6 of `docs/design/slango.md`).
 
@@ -452,7 +484,15 @@ RHI-20. Before each call into slang-rhi, the crate MUST check every condition of
 
 slang-rhi checks nothing unless its debug device is on (Section 3), and the debug device checks slang-rhi's own rules, not every condition of valid use. A call that breaks valid use has undefined behaviour by the specification of the graphics API, so a safe call must not reach the driver with one. These checks keep the safe interface within valid use, as the bounds checks of RHI-11 do, and they are not guards against defects of slang-rhi under Hard Rule 14 of `AGENTS.md`.
 
-The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of unordered access to `Upload` and `ReadBack` memory and of initial data for `ReadBack` memory of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7 and the limits of its thread group, and the ownership of `submit` (RHI-21). Conditions that the crate does not check yet are RHQ-7 and RHQ-8.
+The checks of this kind are the usage checks of RHI-8 and RHI-11, the size 0 of RHI-8, the refusal of unordered access to `Upload` and `ReadBack` memory and of initial data for `ReadBack` memory of RHI-8, the refusal of a typed buffer range, the limit of `dispatch`, the single compute entry point of RHI-7 and the limits of its thread group, and the ownership of `submit` (RHI-21). The rendering phase adds these checks of Section 11.2:
+
+- The size, format, and usage of a texture, its initial data, and on Vulkan the support of `D32Float` as a depth target (RHI-23).
+- A texture parameter that is a plain two-dimensional texture with elements of floating-point numbers, and a sampler parameter that is not a comparison sampler, in compute passes and render passes alike (RHI-25).
+- The entry points and formats of a render pipeline, the count, stride, location, and semantic of its vertex streams, and a stream for each vertex input that the vertex entry point declares, of the numeric kind and the semantic of that input (RHI-26).
+- The targets of a render pass, the formats of the bound pipeline against them, the vertex and index buffers of each draw against its counts, and a texture that a pass both samples and draws into (RHI-27).
+- The texture and the output of `read_texture` (RHI-28).
+
+Conditions that the crate does not check yet are RHQ-7, RHQ-8, and RHQ-12. The crate also does not refuse a buffer that a draw both reads as a vertex or index buffer and writes through a read-write parameter, whose contents that draw reads are undefined. The higher crate `slango` refuses that case itself (SLO-44 of `docs/design/slango.md`). The documentation of `set_buffer`, `set_vertex_buffers`, and `set_index_buffer` states this.
 
 ### 9.2. Invariants
 
@@ -461,9 +501,11 @@ These are the invariants on which the unsafe code of the crate relies, each with
 | Invariant | Kept by |
 | --- | --- |
 | Every interface pointer that the crate dereferences points to a live object | The owning interface pointer (RHI-3) and the borrows of the unowned pointers (RHI-4) |
-| No pass encoder or root object is used after its owner ends or rebinds it | The mutable borrows of `ComputePass` and `ShaderObject`, and the closure of RHI-9 |
-| Every pointer and length passed to slang-rhi is in bounds | RHI-8 and RHI-11 |
-| Every object that a `Binding` names lives through the call | The borrow of the `Buffer` in `set_buffer` |
+| No pass encoder or root object is used after its owner ends or rebinds it | The mutable borrows of `ComputePass`, `RenderPass`, and `ShaderObject`, and the closures of RHI-9 and RHI-27 |
+| Every pointer and length passed to slang-rhi is in bounds | RHI-8, RHI-11, RHI-23, and RHI-28 |
+| Every object that a `Binding` names lives through the call | The borrow of the `Buffer`, `Texture`, or `Sampler` in `set_buffer`, `set_texture`, or `set_sampler`, and the default view that each `Texture` holds |
+| Every vertex buffer, index buffer, and pipeline of a draw lives until slang-rhi retains it in `setRenderState` | The references that `RenderPass` holds (RHI-27) |
+| No pass samples a texture that it draws into | The record of the textures of a pass (RHI-27) |
 | No command buffer is submitted after slang-rhi has recycled it | RHI-21 |
 | Every call stays within valid use of the graphics API, as far as the crate can check | RHI-20 |
 | The debug callback object lives for every call that slang-rhi makes to it | RHI-6 |
@@ -482,13 +524,13 @@ The crate has unit tests in its modules and one integration-test binary, `tests/
 
 ### 10.2. The Fake for Miri
 
-RHI-16. The unit tests MUST test, under Miri, the owning interface pointer, the closure of RHI-9 with a panic of `f`, the per-thread guard and the collector, the bounds and usage checks of RHI-8, RHI-11, RHI-20, and RHI-22, the choice of the target, profile, and macro of RHI-30, the building of `Binding`, the release after `submit`, and the mapping of result codes, against a fake of the interfaces `IBuffer`, `IComputePassEncoder`, `IShaderObject`, `ICommandBuffer`, and `ICommandQueue` built on the generated vtable structs, with its vtable functions defined `extern "system"`.
+RHI-16. The unit tests MUST test, under Miri, the owning interface pointer, the closures of RHI-9 and RHI-27 with a panic of `f`, the per-thread guard and the collector, the bounds and usage checks of RHI-8, RHI-11, RHI-20, RHI-22, and RHI-23 to RHI-28, the choice of the target, profile, and macro of RHI-30, the building of `Binding`, the release after `submit`, and the mapping of result codes, against a fake of the interfaces `IBuffer`, `IComputePassEncoder`, `IRenderPassEncoder`, `IRenderPipeline`, `IShaderObject`, `ICommandBuffer`, and `ICommandQueue` built on the generated vtable structs, with its vtable functions defined `extern "system"`.
 
-TEST-7 of the coding standard asks for a fake of the interfaces, and the fake of `slang-compiler` is the model (SLC-25 of the `slang-compiler` design). The fake covers the interfaces whose counting and borrowing the unsafe code relies on. Its queue records the command buffers of each submission and holds a reference to each until it is freed, as slang-rhi does. Its shader object answers `getObject` from a list of objects keyed by binding range and array index, holds a reference to each, and writes null with `SLANG_OK` for a missing entry, as slang-rhi does. A fake of `IDevice`, `IRHI`, and `ICommandEncoder` would need a function for each of their many slots and would test only that the crate passes descriptors, which the `gpu` tests do on a real device. The bounds checks are pure functions over the numbers that the reflection calls return, so they run under Miri without the reflection of Slang (UNS-2).
+TEST-7 of the coding standard asks for a fake of the interfaces, and the fake of `slang-compiler` is the model (SLC-25 of the `slang-compiler` design). The fake covers the interfaces whose counting and borrowing the unsafe code relies on. Its queue records the command buffers of each submission and holds a reference to each until it is freed, as slang-rhi does. Its shader object answers `getObject` from a list of objects keyed by binding range and array index, holds a reference to each, and writes null with `SLANG_OK` for a missing entry, as slang-rhi does. Its render pass records the binds, the render states, and the draws, shares its log with its root objects, and creates a new root object on each `bindPipeline`, as slang-rhi does (Section 3), so a unit test checks that a texture bound on a root object stays in the record of the pass after a rebind and that a draw then refuses it as a target. Its render pipeline exists because a bind holds an owned pipeline. A fake of `IDevice`, `IRHI`, and `ICommandEncoder` would need a function for each of their many slots and would test only that the crate passes descriptors, which the `gpu` tests do on a real device. The bounds checks are pure functions over the numbers that the reflection calls return, so they run under Miri without the reflection of Slang (UNS-2).
 
 ### 10.3. GPU Tests
 
-The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 33 tests, 20 in `gpu.rs`, 7 in `gpu/objects.rs`, and 6 in `gpu/compile_session.rs`, and they cover:
+The `gpu` tests run on an adapter of the device type of the platform, which is Vulkan on Linux and D3D12 on Windows. In CI, that is lavapipe on Linux and WARP on Windows, and locally the development container's NVIDIA RTX 4070 or lavapipe. Each test fails, and never skips, when it finds no adapter (ARCH-23). The module holds 58 tests, 20 in `gpu.rs`, 25 in `gpu/render.rs`, 7 in `gpu/objects.rs`, and 6 in `gpu/compile_session.rs`, and they cover:
 
 - `adapters` for the device type of the platform returns at least one adapter, and a device opens on each. An adapter of another device type than the options is refused.
 - A device of the type `Default` opens on the graphics API of the platform.
@@ -513,13 +555,35 @@ The `gpu` tests run on an adapter of the device type of the platform, which is V
 - A shader program of a `CompileSession` loads a module by name from a search path, sees the macro of the backend, and runs when the linked program and the `CompileSession` are dropped before the pipeline is created and the shader program before the dispatch.
 - Each `create_shader_program` refuses a program of another session, and a search path with a NUL byte fails with the error of `slang-compiler`.
 
+The tests of `gpu/render.rs` cover the rendering phase of Section 11.2:
+
+- The conventions of Section 3: an asymmetric triangle lands with clip space y up and the top row first, with the debug device off and on, counter-clockwise triangles face the front and `Back` culls the others, and the depth test `Less` keeps the nearest fragment.
+- A draw with indices takes the vertices that its indices name, and an index past the end of the vertex buffer reaches the device, which keeps working (Section 3).
+- A texture sampled with point filters at `SV_Position` gives each texel its quarter of the target.
+- A pass with only a depth target clears it and refuses every draw.
+- A stream that steps per instance moves each instance, and `Alpha` blends the colour over the target.
+- A stream at a location that the shader does not declare, and an input that the shader declares and does not read, which takes a stream, leave the other inputs matched.
+- A stream with fewer or more components than its input reads 0 for a missing second or third component and 1 for a missing fourth, and drops the extra ones.
+- A triangle outside the depth range is clamped on Vulkan and clipped on D3D12 (RKB-9).
+- A texture of each of the four colour formats with initial data reads back without the padding of its rows, at the sizes 3 by 2, 1 by 1, and 67 by 5, and a colour texture created from zeroed data reads back as zeros.
+- Each refusal of RHI-23 to RHI-28 is asserted with its kind and operation, among them every refused vertex stream and every refused texture or sampler parameter, a texture that a pass both samples and draws into, and 13 refused draws after which the pass still ends.
+- A panic in a render pass ends the pass, and the encoder still finishes.
+
+Each test that draws asserts that no error message reached the debug callback, and a failed creation of a pipeline prints the error with its diagnostics.
+
 The tests compile their kernels with the global session of `slang-compiler`, so they also show that the loader of `slang-glslang-sys` serves a device of slang-rhi.
 
 ### 10.4. What the Tests Do Not Cover
 
-The tests run under the debug device of slang-rhi only, and none runs under the validation layer of Vulkan or the debug layer of D3D12, which the crate does not turn on (RHQ-6). These are not verified:
+The tests run under the debug device of slang-rhi only, and none runs under the validation layer of Vulkan or the debug layer of D3D12, which the crate does not turn on (RHQ-6).
 
-- Valid use on the NVIDIA adapter under the Khronos validation layer, and valid use on D3D12 under its debug layer.
+On 2026-11-18 and 2026-11-19, a review ran the 25 tests of `gpu/render.rs` by hand under the Khronos validation layer, which the Vulkan loader inserted, on lavapipe and on the NVIDIA RTX 4070. Before its fixes, the layer reported `VUID-vkCmdDraw-format-10390` for a stride that is not a multiple of 4, `VUID-VkGraphicsPipelineCreateInfo-Input-07904` and `VUID-VkGraphicsPipelineCreateInfo-Input-08733` for vertex inputs without a matching stream, `VUID-vkCmdDraw-viewType-07752` and `VUID-RuntimeSpirv-samples-08726` for texture parameters of other shapes, `VUID-vkCmdDraw-format-07753` for a texture parameter of integer elements, and `VUID-vkCmdDraw-None-06479` for a comparison sampler. The checks of RHI-25 and RHI-26 now refuse each of these. After the fixes, the 25 tests gave no error, and the one message was the performance warning `WARNING-Shader-OutputNotConsumed` for the stream at a location that the shader does not declare.
+
+These are not verified:
+
+- Valid use of the other `gpu` tests under the Khronos validation layer, and valid use on D3D12 under its debug layer.
+- A Vulkan device without the feature `depthClamp`, on which every render pipeline of slang-rhi breaks valid use (RKB-9, RHQ-12).
+- A draw into a target of a BGRA or sRGB format, linear filters, and the contents of a texture without initial data, which are undefined on Vulkan and which the crate documentation states.
 - A hardware D3D12 adapter, ARM64 Windows, and a program on Windows without `dxcompiler.dll` (Section 7.3 of the sys design).
 - A device whose Vulkan driver lacks `nullDescriptor` (RHQ-7).
 - What slang-rhi and a driver do with a buffer larger than the device allows (RHQ-8).
@@ -533,6 +597,8 @@ In CI run 44388142812 of 2026-11-18, `test-rhi` ran all 143 tests of both crates
 In CI run 44407500494 of the same day, `test-rhi` ran all 148 tests of both crates on WARP and passed them, with the limits of the thread group. Among them, the `gpu` test of those limits reads both limits from the D3D12 device, links a kernel over each of them, and creates its shader program, which succeeds. `create_compute_pipeline` then refuses each kernel with the kind `InvalidArgument` and the message that names the limit, so the check of RHI-7 runs on D3D12.
 
 The test generates no code before that call, so the DXIL compiler does not see the oversized kernel first, as it does in a load of `slango` (Section 7.6 of `docs/design/slango.md`). The run does not print the values of the two limits.
+
+CI run 44423418363, for the first commit of the rendering phase, failed on WARP in the test of an input that the shader declares and does not read, which led to the rule of RHI-26 (Section 3). In CI run 44431645707, for the code of the rendering phase with the fixes of its review, `test-rhi` ran all 225 tests of both crates on WARP and passed them. So on D3D12, the conventions of Section 3, the counts of components, a stream at a location that the shader does not declare, an input that the shader declares and does not read, the read-back with the row pitch of D3D12, and the clipping of a triangle outside the depth range behave as Sections 3 and 11.2 state.
 
 ## 11. Additions for M10
 
@@ -578,29 +644,50 @@ A kernel with a `ConstantBuffer` and a global `uniform` fails on D3D12 (RKB-2). 
 
 The rendering phase covers two-dimensional textures with one mip level, one layer, and one sample, samplers, render pipelines with a vertex and a fragment entry point, render passes with one colour target and an optional depth target, and the reading of a texture. Every call that it makes takes its descriptors by pointer or reference, and none is a placeholder slot of `slang-rhi-sys` (RSYS-10 of the sys design), so the rendering phase needs no change of the generator (Section 6.2 of the sys design).
 
-The crate writes every field of the three raw structs without `Default` that it uses, `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment`, with the C++ default of each field that it does not choose, and a unit test compares each such value with the default in the documentation of the generated field.
+The crate writes every field of the raw structs `TextureDesc`, `SamplerDesc`, `RenderPassColorAttachment`, `InputElementDesc`, `VertexStreamDesc`, `SubresourceData`, and `SubresourceLayout` without `..T::default()`, using the C++ default for each field that it does not choose. The first three have no `Default`. Unit tests compare the values that it writes into them with the defaults in the documentation of the generated fields.
 
-RHI-23. `Device::create_texture(&self, desc: &TextureDesc, initial: Option<&[u8]>) -> Result<Texture>` MUST create a two-dimensional texture with one mip level, one layer, and one sample in `DeviceLocal` memory. It MUST fail with the kind `InvalidArgument` before the native call when a width or height is 0 or above the limit of RHI-29, when the usage is empty or holds a bit outside `TextureUsage::all()`, when a depth format has a usage other than `DEPTH_STENCIL`, when a colour format has `DEPTH_STENCIL`, when `initial` is given for a depth format, or when the length of `initial` is not the width times the height times the size of a pixel. A `Texture` MUST hold its default view, from `ITexture::getDefaultView`.
+RHI-23. `Device::create_texture(&self, desc: &TextureDesc, initial: Option<&[u8]>) -> Result<Texture>` MUST create a two-dimensional texture with one mip level, one layer, and one sample in `DeviceLocal` memory. It MUST fail with the kind `InvalidArgument` before the native call when a width or height is 0 or above the limit of RHI-29, when the usage is empty or holds a bit outside `TextureUsage::all()`, when a depth format has a usage other than `DEPTH_STENCIL`, when a colour format has `DEPTH_STENCIL`, when `initial` is given for a depth format, or when the length of `initial`, computed with checked arithmetic, is not the width times the height times the 4 bytes of a pixel. On a Vulkan device, it MUST also fail with `InvalidArgument` when `getFormatSupport` does not report `DepthStencil` for `D32Float` as the format of a depth target. A `Texture` MUST hold its default view, from `ITexture::getDefaultView`, and offers `size`, `format`, and `usage`.
 
-`TextureDesc::new(size: [u32; 2], format: Format, usage: TextureUsage)` is the crate's own descriptor. `Format` is a `#[non_exhaustive]` enumeration of `Rgba8Unorm`, `Rgba8UnormSrgb`, `Bgra8Unorm`, `Bgra8UnormSrgb`, and `D32Float`, the formats that `slango` uses, and `TextureUsage` is a set of flags of `bitflags` with `SHADER_RESOURCE`, `RENDER_TARGET`, `DEPTH_STENCIL`, `COPY_SOURCE`, and `COPY_DESTINATION`. A wider set waits for a user that needs it.
+The crate asks for the support of a format only there, which corrects the first design, which asked wherever slang-rhi exposes it. Every other format and use of the crate is mandatory on both graphics APIs, and so is a `D32Float` depth target on D3D12. `getFormatSupport` reports that format wrongly on D3D12 (RKB-7) and the copy bits wrongly on Vulkan (RKB-8), so a query there would refuse valid textures.
 
-`createTexture` reads as many bytes from the initial data as the descriptor implies, so a short slice is a read out of bounds in native code, which the length check prevents, as RHI-8 does for buffers. The initial data is one `SubresourceData` whose rows are the width times the size of a pixel apart, with rows from the top. Initial data reaches the texture through `createTexture`, so the placeholder slot `uploadTextureData` is not needed.
+`TextureDesc::new(size: [u32; 2], format: Format, usage: TextureUsage)` is the crate's own descriptor. `Format` is a `#[non_exhaustive]` enumeration of `Rgba8Unorm`, `Rgba8UnormSrgb`, `Bgra8Unorm`, `Bgra8UnormSrgb`, and `D32Float`, the formats that `slango` uses, and `TextureUsage` is a set of flags of `bitflags` with `SHADER_RESOURCE`, `RENDER_TARGET`, `DEPTH_STENCIL`, `COPY_SOURCE`, and `COPY_DESTINATION`, with the values of the header. A wider set waits for a user that needs it.
+
+`createTexture` reads as many bytes from the initial data as the descriptor implies, so a short slice is a read out of bounds in native code, which the length check prevents, as RHI-8 does for buffers. The initial data is one `SubresourceData` whose row pitch is the width times 4 and whose slice pitch is its length, with rows from the top, and slang-rhi copies each row with the smaller of the two row pitches (Section 3). Initial data reaches the texture through `createTexture`, so the placeholder slot `uploadTextureData` is not needed.
+
+On Vulkan, a texture created without initial data holds undefined contents until a render pass clears it or draws into it, and the documentation of `create_texture`, `ColourLoad::Load`, and `DepthLoad::Load` states this. A `D32Float` texture takes no initial data, so a pass with that texture as its only target clears it.
 
 RHI-24. `Device::create_sampler(&self, desc: &SamplerDesc) -> Result<Sampler>` MUST create a sampler from the crate's own `SamplerDesc`, whose fields are the filter of minification and magnification, the mip filter, and the address mode of each axis, and MUST write the other fields of the raw descriptor as the reduction `Average`, the comparison `Never`, an anisotropy of 1, a bias of 0, a level of detail from 0 to 1000, and a border colour of zero.
 
+`SamplerDesc::new` and its builders `with_min_filter`, `with_mag_filter`, `with_mip_filter`, and `with_address_modes` follow `BufferDesc`. `FilterMode` has `Point` and `Linear`, and `AddressMode` has `ClampToEdge`, `Wrap`, and `MirrorRepeat`, the modes that `slango` uses, without `ClampToBorder` and `MirrorOnce`. A sampler descriptor has no value to refuse.
+
 The filters of the crate's `SamplerDesc` default to `Point`, and its address modes to `ClampToEdge`, the defaults of wgpu, because the defaults of slang-rhi, `Linear` and `Wrap`, differ from them, and `slango` sets every field anyway (Section 8.3 of `docs/design/slango.md`).
 
-RHI-25. `ShaderObject::set_texture(&mut self, offset: ShaderOffset, texture: &Texture) -> Result<()>` and `ShaderObject::set_sampler(&mut self, offset: ShaderOffset, sampler: &Sampler) -> Result<()>` MUST check, before the call, every condition of RHI-11 that does not concern buffers, that the binding range is a read-only texture range or a sampler range, that the texture has the usage `SHADER_RESOURCE`, and that the texture or sampler belongs to the device of the object. They MUST pass a `Binding` of the type `Texture` with the default view, or of the type `Sampler` with the sampler, while the borrowed value keeps its own reference through the call.
+RHI-25. `ShaderObject::set_texture(&mut self, offset: ShaderOffset, texture: &Texture) -> Result<()>` and `ShaderObject::set_sampler(&mut self, offset: ShaderOffset, sampler: &Sampler) -> Result<()>` MUST check, before the call, every condition of RHI-11 that does not concern buffers, that the binding range is a read-only texture range or a sampler range, that the texture has the usage `SHADER_RESOURCE`, and that the texture or sampler belongs to the device of the object. A texture range MUST also be a two-dimensional texture without array layers or several samples, whose elements are floating-point numbers of 16 or 32 bits, and a sampler range MUST NOT be a comparison sampler. They MUST pass a `Binding` of the type `Texture` with the default view, or of the type `Sampler` with the sampler, while the borrowed value keeps its own reference through the call.
 
 A combined texture and sampler, such as `Sampler2D`, and a texture range that a shader writes stay refused, because `slango` rejects both (SLO-24 of `docs/design/slango.md`).
 
-RHI-26. `Device::create_render_pipeline(&self, program: &ShaderProgram, desc: &RenderPipelineDesc) -> Result<RenderPipeline>` MUST check, before any native call, that the program belongs to the device and has exactly one vertex and one fragment entry point, that the colour format is a colour format and the depth format, when there is one, is `D32Float`, that the vertex streams number at most the limit of vertex streams of RHI-29 and at most 16, the size of the arrays of `RenderState`, each with a stride above zero, that every attribute has a semantic name, and that the input elements, including the fillers below, number at most the limit of vertex input elements of RHI-29. Each check MUST fail with the kind `InvalidArgument`. It MUST create the input layout and the render pipeline with a list of triangles, counter-clockwise front faces, one colour target, and the depth test `Less` with depth writes when the descriptor has a depth format, and MUST collect the messages of Slang during the creation, as RHI-7 does for a compute pipeline.
+The crate creates only two-dimensional textures with one layer and one sample, of formats that a shader reads as floating-point numbers, and no comparison sampler. A draw that read such a texture through a parameter of another shape broke valid use of Vulkan. The Khronos validation layer reported `VUID-vkCmdDraw-viewType-07752` for a three-dimensional, cube, array, or one-dimensional parameter and `VUID-RuntimeSpirv-samples-08726` for a multisample parameter, and so did a parameter of integer elements, `VUID-vkCmdDraw-format-07753`, and a comparison sampler, `VUID-vkCmdDraw-None-06479`. The crate reads the shape and the result type of the leaf type of the binding range through `spReflectionTypeLayout_getBindingRangeLeafTypeLayout`, and knows a comparison sampler by the type name `SamplerComparisonState`. The checks run in compute passes and render passes alike, and only a render pass records the textures that are set (RHI-27).
 
-The crate's `RenderPipelineDesc` holds the colour format, a blend of `Replace` or `Alpha`, an optional depth format, a cull mode of `None` or `Back`, and the vertex streams. Each vertex stream holds one attribute at offset 0, with its format, its stride, its step per vertex or per instance, its location, and its semantic name and index from reflection. The crate builds the input element of each attribute so that the backend matches it with the shader's input of that location, by the rule of the backend (RHA-6), with these rules:
+RHI-26. `Device::create_render_pipeline(&self, program: &ShaderProgram, desc: &RenderPipelineDesc) -> Result<RenderPipeline>` MUST check, before any native call, that the program belongs to the device and has exactly one vertex and one fragment entry point, that the colour format is a colour format and the depth format, when there is one, is `D32Float`, and that the vertex streams number at most the limit of vertex streams of RHI-29 and at most 16, the size of the arrays of `RenderState`. Each stream MUST have a stride from 1 to 2048 that is a multiple of 4, a semantic name that is not empty and holds no NUL byte, and a location of its own, and the highest location plus one MUST be at most the limit of vertex input elements of RHI-29. For each varying input of the vertex entry point, it MUST check that a stream sits at its location, even when the shader does not read the input, that the input is a scalar or vector of 32-bit floating-point numbers, unsigned integers, or signed integers, which a vertex format feeds, that the format of the stream has the same numeric kind, and, when the input has a semantic, that the stream has the same semantic name, with ASCII case ignored, and the same semantic index. Each check MUST fail with the kind `InvalidArgument`. It MUST create the input layout and the render pipeline with a list of triangles, counter-clockwise front faces, one colour target, and the depth test `Less` with depth writes when the descriptor has a depth format, and MUST collect the messages of Slang during the creation, as RHI-7 does for a compute pipeline.
 
-- The Vulkan backend gives each input element the location of its index (`src/vulkan/vk-device.cpp:2506`), so the crate lists one element for each location from 0 to the highest used location. An unused location below it gets a filler element of the format `R32Float` at offset 0 of the stream of the first attribute, with the semantic name `SLANG_RHI_UNUSED` and the location as its semantic index, which no input of a shader of `slango` has, because Slang gives every varying input of a vertex entry point the semantic that the shader declares.
-- An attribute without a semantic name is refused, because the D3D12 backend copies a null semantic name into its input layout (`src/d3d12/d3d12-device.cpp:1699-1709`).
-- A stream that steps per instance has the instance data step rate 1, because the field has no default and D3D12 needs 1 for one value per instance (`src/d3d12/d3d12-device.cpp:1714`).
+The crate's `RenderPipelineDesc` holds the colour format, a blend of `Replace` or `Alpha`, an optional depth format, a cull mode of `None` or `Back`, and the vertex streams. Each vertex stream holds one attribute at offset 0, with its format, its stride, its step per vertex or per instance, its location, and its semantic name and index. `VertexStream::new(format, location)` gives the stride of the format, the step per vertex, and no semantic, and `with_stride`, `with_step`, and `with_semantic` change them. `VertexFormat` has 12 formats: one to four components of `f32`, of `u32`, and of `i32`.
+
+`create_shader_program` reads the varying inputs of the vertex entry point from reflection and keeps them in the `ShaderProgram`, with the name, location, semantic, and type of each. The fields of a structure become inputs of their own, and system values and uniforms, which have no varying input, are skipped. The rule on these inputs is the same on both backends, for these reasons:
+
+- On D3D12, DXIL keeps a declared input that the shader does not read, and Slang removes it from SPIR-V (Section 3). The crate cannot tell a used input from a declared one without a code generation pass before slang-rhi compiles the pipeline, so it requires a stream for every declared input.
+- Before the rule, the Khronos validation layer reported `VUID-VkGraphicsPipelineCreateInfo-Input-07904` and `VUID-VkGraphicsPipelineCreateInfo-Input-08733` for a declared input without a stream and for a stream of integers that fed an input of floating-point numbers, and `VUID-vkCmdDraw-format-10390` for a stride that is not a multiple of 4, the size of the 32-bit numbers of every vertex format.
+- The format of a stream may have fewer or more components than its input, as both graphics APIs allow. The shader reads 0 for a missing second or third component and 1 for a missing fourth one, and does not read the components past those of the input.
+- A stream without a semantic name is refused, because the D3D12 backend copies a null semantic name into its input layout and matches inputs by semantic (`src/d3d12/d3d12-device.cpp:1699-1709`).
+
+The crate builds the input layout from the streams by these rules:
+
+- The Vulkan backend gives each input element the location of its index (Section 3), so on Vulkan the crate lists one element for each location from 0 to the highest location of a stream. A location without a stream, which the shader does not declare, gets a filler element of the format `R32Float` that reads the first 4 bytes of each element of the first stream, within its bounds, with the semantic name `SLANG_RHI_UNUSED` and the location as its semantic index.
+- The D3D12 backend matches each element by its semantic, so on D3D12 the input layout holds no filler element.
+- A stream that steps per vertex has the instance data step rate 0, which D3D12 requires for per-vertex data, and a stream that steps per instance has the rate 1, because the field has no default and D3D12 needs 1 for one value per instance (`src/d3d12/d3d12-device.cpp:1714`).
+- With no stream, the pointer to the input layout is null, which both backends accept.
+- A pipeline without a depth format turns depth writes off and gives the depth format `Undefined`. `RenderPipeline` holds its input layout, and a failure of `createInputLayout` or `createRenderPipeline` has the kind `Compile`.
+
+These checks replace the former assumption RHA-6, which expected a matched layout from fillers for unused locations on both backends, and which the test of an unused input on WARP refuted (Section 10.4).
 
 `Alpha` sets the colour blend to the source alpha and its inverse with the operation `Add`, and the alpha blend to one and the inverse source alpha, which is wgpu's `BlendState::ALPHA_BLENDING`. With the pipeline compilation mode `Serial`, slang-rhi generates the code of the program at this call (RHI-5), so a failure of that compile has the kind `Compile` with the collected messages, as for a compute pipeline.
 
@@ -608,11 +695,22 @@ RHI-27. `CommandEncoder::render_pass<R>(&mut self, desc: &RenderPassDesc<'_>, f:
 
 The crate's `RenderPassDesc` holds an optional colour target with a load of its contents or a clear to a colour, and an optional depth target with a load or a clear to a depth, and at least one of the two. A pass with a depth target alone and no draw is how `slango` clears a new depth texture (SLO-45 of `docs/design/slango.md`), and a draw in such a pass fails the check of the colour format of its pipeline. `RenderPass` offers `bind_pipeline`, which returns the root object of the pipeline as `ComputePass::bind_pipeline` does, `set_vertex_buffers`, `set_index_buffer`, `draw(vertex_count, instance_count)`, and `draw_indexed(index_count, instance_count)`. Each draw sets the render state first: one viewport and one scissor rectangle over the whole colour target with the depth range 0 to 1, the vertex buffers, and the index buffer with 32-bit indices.
 
-A texture that a pass both samples and draws into breaks valid use of Vulkan and D3D12, and slang-rhi does not check it, so the crate does. The crate does not read the values of an index buffer, so an index past the end of a vertex buffer reaches the driver, and what the vertex fetch then reads rests on whether the device bounds such a fetch, through the feature `robustBufferAccess` on Vulkan (RHA-7).
+A texture that a pass both samples and draws into breaks valid use of Vulkan and D3D12, and slang-rhi does not check it, so the crate does. The crate does not read the values of an index buffer, so an index past the end of a vertex buffer reaches the driver, which bounds the fetch: slang-rhi enables `robustBufferAccess` on every Vulkan device (Section 3).
+
+The pass as built adds these details:
+
+- The store operation of every target is `Store`, and the load is a load or a clear, as the descriptor states.
+- A buffer of a stream holds `count` elements when (`count` - 1) times the stride plus the size of the format fits its size, with checked arithmetic. The count is the vertex count for a stream that steps per vertex in a draw without indices, and the instance count for a stream that steps per instance. In a draw with indices, a stream that steps per vertex needs only a buffer, because the indices decide which vertices it reads.
+- An index buffer holds the count of indices times 4 bytes.
+- `set_vertex_buffers` takes at most 16 buffers, each of the device with `VERTEX_BUFFER`, and a failure leaves the buffers of the pass unchanged. A clear depth that is not a number is refused, and so is a target wider or taller than 65535 texels, which keeps the viewport exact as an `f32`.
+- The record of sampled textures is checked at each draw, so `set_texture` with a target succeeds and the draw that follows fails.
+- `bind_pipeline` reports `Operation::BindRenderPipeline`.
+- The pass holds its own reference to each vertex buffer, the index buffer, and the bound pipeline, because a caller can drop a `Buffer` between `set_vertex_buffers` and the draw, while slang-rhi retains them only in `setRenderState` (Section 3).
+- On Vulkan, a primitive outside the depth range 0 to 1 is drawn with its depth clamped, and on D3D12 it is clipped (RKB-9). The documentation of `RenderPass` and `RenderPipelineDesc` states this difference, and the crate does not guard against it.
 
 RHI-28. `Device::read_texture(&self, texture: &Texture, out: &mut [u8]) -> Result<()>` MUST check, before the native call, that the texture belongs to the device, has a colour format and `COPY_SOURCE`, and that the length of `out` is the width times the height times the size of a pixel. It MUST read the layout of the texture with `ITexture::getSubresourceLayout` with the row alignment `kDefaultAlignment` of the bindings, and the texture with `IDevice::readTexture` into a buffer of the crate of the `sizeInBytes` of that layout, because `readTexture` copies `sizeInBytes` bytes into it (`src/device.cpp:942`), and copy each row into `out` without the padding of the row pitch.
 
-`readTexture` takes pointers only, so it needs no placeholder slot. The row pitch of slang-rhi is aligned to the platform, so the crate removes the padding, and `out` holds the rows from the top, as `slango` returns them (Section 8.1 of `docs/design/slango.md`).
+`readTexture` takes pointers only, so it needs no placeholder slot. The row pitch of slang-rhi is aligned to the platform, 256 bytes on D3D12 (Section 3), so the crate removes the padding, and `out` holds the rows from the top, as `slango` returns them (Section 8.1 of `docs/design/slango.md`). When the layout that `getSubresourceLayout` reports does not describe the texture or does not fit the bytes read, `read_texture` fails with the kind `Failed`.
 
 ### 11.3. Not Wrapped in M10
 
@@ -621,7 +719,8 @@ These parts of slang-rhi stay unwrapped:
 - Surfaces, which no window of M10 needs (Section 4.6 of `docs/design/slango.md`).
 - Fences, mapped buffers, timestamp queries, other queues, several command buffers in one submission with fences, and the persistent caches.
 - Copy and clear commands, indirect draws, and every other method of a placeholder slot (RSYS-10 of the sys design).
-- Buffers with a format and the typed buffer ranges that need them, textures of other shapes, arrays, mip levels, and samples, and combined textures and samplers.
+- Buffers with a format and the typed buffer ranges that need them, textures of other shapes, arrays, mip levels, and samples, textures of integer elements, and combined textures and samplers.
+- Comparison samplers, the address modes `ClampToBorder` and `MirrorOnce`, store operations other than `Store`, and the support of formats other than `D32Float` on Vulkan.
 - Lookup of nested fields and of array elements by name, specialization arguments of shader objects, and shader objects that the program does not create.
 - Native handles, interoperation with other APIs, and acceleration structures, which M14 needs.
 
@@ -631,16 +730,18 @@ A user who needs one of them reaches it through `slang-rhi-sys` under its safety
 
 The additions follow the tiers of Section 10:
 
-- The fake for Miri gains `IRenderPassEncoder`, so that the unit tests cover the closure of RHI-27 with a panic of `f`, and the pure checks of RHI-22 to RHI-28 run under Miri as those of RHI-11 do (RHI-16).
+- The fake for Miri gains `IRenderPassEncoder` and `IRenderPipeline`, so that the unit tests cover the closure of RHI-27 with a panic of `f`, a recorded draw, refusals before any call, and the record of sampled textures across binds, and the pure checks of RHI-22 to RHI-28 run under Miri as those of RHI-11 do (RHI-16). The crate has 116 unit tests.
 - The `gpu` tests cover `create_slang_session` with the comparison of the layouts and code of both sessions (Section 11.1), a shader program of a `CompileSession`, and the refusal of a program of another session by both `create_shader_program` methods (RHI-30).
 - The `gpu` tests cover a kernel whose thread group exceeds the limits of the device, and four unit tests cover the check of RHI-7 for each limit and for an overflow of the number of threads.
-- The `gpu` tests on lavapipe and WARP cover the fields of a `ConstantBuffer`, a `cbuffer`, and nested parameter blocks set through `object`, a texture created with initial data and read back, each check of RHI-23 to RHI-28, a draw with and without indices into a texture with a depth target, a sampled texture, and the refusal of a texture that a pass both samples and draws into.
+- The `gpu` tests on lavapipe and WARP cover the fields of a `ConstantBuffer`, a `cbuffer`, and nested parameter blocks set through `object`, and the 25 tests of the rendering phase that Section 10.3 lists.
 - The test of the fields of a `ConstantBuffer` checks that `object` sets them instead of `set_data`, in a kernel without a global `uniform`, which avoids RKB-2 on D3D12.
-- A unit test compares the fields that the crate writes into `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment` with the C++ defaults that the generated documentation of each field states.
+- Unit tests compare the fields that the crate writes into `TextureDesc`, `SamplerDesc`, and `RenderPassColorAttachment` with the C++ defaults that the generated documentation of each field states. The test of `RenderPassColorAttachment` is the unit test of the crate-private function `colour_attachment`, which builds it.
 
 ## 12. Crate Documentation
 
 RHI-17. The crate-level documentation MUST state the compute path with a runnable example of the `gpu` tier marked `no_run`, that the crate always builds Slang and slang-rhi from source and what that build needs, the platforms of Section 7 of the sys design with the need of a program on Windows for `dxcompiler.dll`, that no type that holds a native object is `Send` or `Sync` and why, that the debug callback object of a device is never freed, that a panic in the debug callback or a C++ exception that escapes slang-rhi aborts the process, and a `# Features` section that says that the crate has no Cargo features. The methods of the compute path point to that example instead of repeating it.
+
+From the rendering phase, the crate-level documentation also states the path of a draw, the textures and pipelines that the crate creates, render passes in its section on ownership and threads, the undefined contents of a texture without initial data on Vulkan, the depth clamping of Vulkan (RKB-9), and what the crate does not cover.
 
 ## 13. Security Considerations
 
@@ -671,7 +772,7 @@ The residual risk has five parts:
 2. A defect of slang-rhi or of the driver can corrupt memory of the process, and slang-rhi aborts the process on a failed assertion in every build type (Section 3.3 of the sys design).
 3. A panic of the user's debug callback, and a call from it into `slang-compiler` or into this crate while slang-rhi is inside a call, abort the process (Sections 6.4 and 8).
 4. The crate leaks the debug callback object of each device (RHI-6).
-5. The conditions of valid use that the crate does not check, which are RHQ-7 and RHQ-8, can reach the driver.
+5. The conditions of valid use that the crate does not check, which are RHQ-7, RHQ-8, and RHQ-12, can reach the driver.
 
 ## 14. Operational Considerations
 
@@ -692,7 +793,7 @@ The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C lib
 | Failure | Reported by | Recovery |
 | --- | --- | --- |
 | No Vulkan loader, driver, or adapter on Linux, or no D3D12 adapter on Windows | `ErrorKind::NoDevice` from `Device::new` | Install the Vulkan loader and a driver, such as lavapipe, or use a Windows with D3D12 |
-| No `dxcompiler.dll` on Windows | `ErrorKind::Compile` from `create_compute_pipeline`, by a reading of the source (Section 7.3 of the sys design) | Put the directory of `dxcompiler.dll` of the Windows SDK on `PATH`, or copy the DLL beside the executable |
+| No `dxcompiler.dll` on Windows | `ErrorKind::Compile` from `create_compute_pipeline` or `create_render_pipeline`, by a reading of the source (Section 7.3 of the sys design) | Put the directory of `dxcompiler.dll` of the Windows SDK on `PATH`, or copy the DLL beside the executable |
 | An adapter of another device type, or one that slang-rhi no longer lists | `ErrorKind::InvalidArgument` from `Device::new` | Pass an adapter of `adapters` for the device type of the options |
 | A program of another session | `ErrorKind::InvalidArgument` from `create_shader_program` | Load and link the program through `Device::slang_session`, or through the session of a `CompileSession` and its own `create_shader_program` (RHI-30) |
 | A program with a specialization parameter left | `ErrorKind::InvalidArgument` from `create_shader_program` | Specialize the program before it is linked |
@@ -708,6 +809,29 @@ The crate builds where `slang-rhi-sys` builds, which is Linux with the GNU C lib
 | A parameter or a range out of bounds | `ErrorKind::InvalidArgument` | Use the offsets that `offset_of` returns and the size of the buffer |
 | A dispatch without a bound pipeline, or past the limit of the device | `ErrorKind::InvalidArgument` from `dispatch` | Bind a pipeline, and split the work into dispatches within the limit |
 | A command buffer of another device | `ErrorKind::InvalidArgument` from `submit` | Submit each command buffer to a queue of its own device |
+| A texture with a width or height of 0 or above the limit of the device, without a usage, with an unknown usage, of a depth format with a usage other than `DEPTH_STENCIL`, or of a colour format with `DEPTH_STENCIL` | `ErrorKind::InvalidArgument` from `create_texture` | Give a size within `max_texture_dimension_2d` and the usage flags that suit the format |
+| Initial data for a depth format, or of a length other than the width times the height times 4 | `ErrorKind::InvalidArgument` from `create_texture` | Give no initial data for a depth texture and clear it with a render pass, and give the data of every pixel otherwise |
+| A Vulkan device that does not support `D32Float` as a depth target | `ErrorKind::InvalidArgument` from `create_texture` | Draw without a depth target, or use another adapter |
+| A read of a texture of another device, of a depth format, without `COPY_SOURCE`, or into an output of a length other than the width times the height times 4 | `ErrorKind::InvalidArgument` from `read_texture` | Read a colour texture with `COPY_SOURCE` into an output of its size |
+| A subresource layout that does not describe the texture | `ErrorKind::Failed` from `read_texture` | None in the program. The layout comes from slang-rhi |
+| A texture or sampler of another device, a range that does not take a texture or a sampler, or a texture range that a shader writes or that is combined with a sampler | `ErrorKind::InvalidArgument` from `set_texture` or `set_sampler` | Bind each texture and sampler of the device to a `Texture2D` and a separate `SamplerState` |
+| A texture parameter of another shape than a plain two-dimensional texture, such as a `Texture3D`, `TextureCube`, `Texture2DArray`, `Texture1D`, or `Texture2DMS` | `ErrorKind::InvalidArgument` from `set_texture` | Declare the parameter as a `Texture2D` |
+| A texture parameter whose elements are not floating-point numbers of 16 or 32 bits, such as a `Texture2D<uint4>` | `ErrorKind::InvalidArgument` from `set_texture` | Declare the parameter with elements of `float` or `half` |
+| A texture without `SHADER_RESOURCE` | `ErrorKind::InvalidArgument` from `set_texture` | Create the texture with `SHADER_RESOURCE` |
+| A comparison sampler parameter, a `SamplerComparisonState` | `ErrorKind::InvalidArgument` from `set_sampler` | Declare the parameter as a `SamplerState` |
+| A shader program of another device, or without exactly one vertex and one fragment entry point | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Link one vertex and one fragment entry point on the same device |
+| A depth format as the colour format, or a depth format other than `D32Float` | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Give a colour format for the colour target and `D32Float` for the depth target |
+| More vertex streams than the device allows or than 16, a stride outside the range from 1 to 2048 or not a multiple of 4, a semantic that is missing, empty, or holds a NUL byte, two streams at one location, or a highest location past the limit of vertex input elements | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Give each input its own stream with a semantic and a stride that is a multiple of 4 |
+| A vertex input that the vertex entry point declares and that no stream feeds, even one that the shader does not read | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Give a stream at the location of every declared input, or remove the input from the shader |
+| A vertex input of a type that no vertex format feeds, such as a `double` or a matrix | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Declare the input as a scalar or vector of `float`, `uint`, or `int` |
+| A stream whose numeric kind differs from that of its input, such as `Uint32x2` for a `float2` | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Give the stream a format of the numeric kind of the input |
+| A stream whose semantic name or index differs from that of its input | `ErrorKind::InvalidArgument` from `create_render_pipeline` | Give the stream the semantic that the shader declares, in any ASCII case |
+| A render pipeline that slang-rhi or the driver refuses | `ErrorKind::Compile` from `create_render_pipeline`, with the messages of Slang as diagnostics when there are any | Fix the shader source or the descriptor that the diagnostics name |
+| A pass without a target, a colour target of a depth format or without `RENDER_TARGET`, a depth target other than `D32Float` or without `DEPTH_STENCIL`, a depth target of another size than the colour target, a clear depth outside the range 0 to 1, or a target of another device | `ErrorKind::InvalidArgument` from `render_pass` | Give a colour target, a depth target, or both, with the formats, uses, and size that the pass needs |
+| A pipeline of another device | `ErrorKind::InvalidArgument` from `RenderPass::bind_pipeline` | Bind a pipeline of the device of the pass |
+| More than 16 vertex buffers, or a vertex or index buffer of another device or without `VERTEX_BUFFER` or `INDEX_BUFFER` | `ErrorKind::InvalidArgument` from `set_vertex_buffers` or `set_index_buffer` | Create the buffers on the device with the usage of their use |
+| A draw without a bound pipeline, with a pipeline whose formats differ from the targets of the pass, in a pass with only a depth target, or in a pass that samples one of its targets | `ErrorKind::InvalidArgument` from `draw` or `draw_indexed` | Bind a pipeline of the formats of the pass, and sample no target of the pass |
+| A draw without a vertex buffer for a stream, with a buffer too small for its count, without an index buffer for indices, or with an index buffer too small for its count, or into a target wider or taller than 65535 texels | `ErrorKind::InvalidArgument` from `draw` or `draw_indexed` | Set a buffer for each stream that holds the count, and an index buffer of 32-bit indices for `draw_indexed` |
 | A panic in the debug callback, or a call from it into this crate during a call of slang-rhi | The process aborts | Do not panic in the callback, and do not use the objects of this crate from it |
 
 ### 14.5. Logs
@@ -720,10 +844,10 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 RHA-1 to RHA-4 were confirmed, and Sections 3, 6.4, 6.5, 6.7, and 7 state the results. RHA-5 was confirmed, and Sections 3 and 11.1 state the result. RHA-8 was confirmed on Vulkan and with DXIL on WARP, and Section 11.1 states the result.
 
-| Identifier | Assumption | What depends on it | Where it is confirmed |
-| --- | --- | --- | --- |
-| RHA-6 | The Vulkan backend of slang-rhi gives each input element the location of its index in `InputLayoutDesc`, and the D3D12 backend matches each element by its semantic name and index, so an input layout that lists one element for each location from 0 to the highest used location, with the semantic of the shader's input there, matches the shader on both | RHI-26 | A reading of the input layouts of both backends and a `gpu` test of a vertex entry point with an unused attribute between two used ones, on lavapipe and on WARP, in the code step of the rendering phase |
-| RHA-7 | A device of slang-rhi on Vulkan enables `robustBufferAccess`, so a vertex fetch past the end of a vertex buffer reads within the buffer or zero | Section 11.2 | A reading of the device creation of the Vulkan backend, in the code step of the rendering phase. If it does not hold, the case joins the conditions that the crate does not check, as RHQ-7 and RHQ-8 do |
+RHA-6, that an input layout with filler elements for the unused locations matches the shader on both backends, held on Vulkan and was refuted on D3D12, where DXIL keeps a declared input that the shader does not read. The rule on vertex inputs of RHI-26 replaces it, and Sections 3 and 11.2 state the facts. RHA-7, that a Vulkan device of slang-rhi enables `robustBufferAccess`, was confirmed by reading and by test, and Section 3 states the result.
+
+No assumption of this document is open.
+
 ## 16. Open Questions
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused.
@@ -740,6 +864,7 @@ Each row is a question that this document leaves open. The owner in the third co
 | RHQ-9 | Should CI run `check-miri-rhi`? It clones Slang a second time and builds it natively for the build scripts, which took 8 min 33 s on its first run in the development container (TOOL-52 of `docs/design/tooling.md`) | The owner of the project, by a decision | Not assigned |
 | RHQ-10 | Should the memory checks of RHI-8 depend on the backend, or should the crate gain a copy command, so that a buffer in `ReadBack` memory gets a use? The crate refuses unordered access and initial data for that memory on every backend, and on D3D12 `read_buffer` cannot read it, so such a buffer has no use through the crate (Section 6.6) | The owner of the project, by a decision | Not assigned |
 | RHQ-11 | Should the crate add a way to set a resource inside a structure that is a plain parameter, or a field of one, and to write the whole uniform data of a sub-object, such as that of a constant buffer whose element is not a structure? slang-rhi addresses neither by name, and `ShaderOffset` has no constructor for the second, so the backend `rhi` of `slango` refuses such used parameters at load (Section 6.5 and SOQ-11 of `docs/design/slango.md`). This is a missing feature of the crate, not a defect of slang-rhi | The owner of the project, by a decision | Not assigned |
+| RHQ-12 | Should the crate refuse a render pipeline on a Vulkan device without the feature `depthClamp`? slang-rhi enables depth clamping in every render pipeline, which is valid use of Vulkan only with that feature (RKB-9), and the crate does not check it. The NVIDIA RTX 4070 and lavapipe have the feature, and the D3D12 backend does not clamp | The owner of the project, by a decision | Not assigned |
 
 ## 17. References
 
@@ -769,17 +894,17 @@ This table lists every labelled requirement of this document with a one-line sum
 | RHI-13 | 7 | Types that hold native objects are neither `Send` nor `Sync`, and value types are both, with assertion tests. |
 | RHI-14 | 7 | Every call through `IRHI` holds one crate-private lock, taken after the per-thread guard, and the crate never destroys the instance. |
 | RHI-15 | 8.1 | Every native call runs in the per-thread guard, the Slang call guard of `slang-compiler`, and the crate's abort guard, innermost. |
-| RHI-16 | 10.2 | Miri tests the counting, the pass closure, the guards, the checks, `Binding`, `submit`, and the result mapping against a fake of five interfaces. |
+| RHI-16 | 10.2 | Miri tests the counting, the pass closures, the guards, the checks, `Binding`, `submit`, and the result mapping against a fake of seven interfaces. |
 | RHI-17 | 12 | The crate documentation states the path, the build, the platforms, the threading, the leaked callback, the aborts, and the features. |
 | RHI-18 | 8.2 | A per-thread mark makes a reentrant call into slang-rhi panic before it starts. |
 | RHI-19 | 8.3 | A per-thread collector returns the messages of Slang with the call of the same thread that caused them. |
 | RHI-20 | 9.1 | The crate checks every condition of valid use of the graphics API that a safe call could break and that it can check. |
 | RHI-21 | 6.7 | `submit` takes its command buffers, checks their device, and releases them after the call. |
 | RHI-22 | 11.1 | `ShaderObject::object` returns the checked object of a constant buffer or parameter block, which borrows its parent, refuses a parameter of several binding ranges, and gives an error for a null object. |
-| RHI-23 | 11.2 | `create_texture` creates a checked two-dimensional texture of five formats with its default view and checked initial data. |
+| RHI-23 | 11.2 | `create_texture` creates a checked two-dimensional texture of five formats with its default view and checked initial data, and checks `D32Float` depth support on Vulkan. |
 | RHI-24 | 11.2 | `create_sampler` creates a sampler from the crate's descriptor and writes every other raw field explicitly. |
-| RHI-25 | 11.2 | `set_texture` and `set_sampler` check the range, the usage, and the device, and keep a reference through the call. |
-| RHI-26 | 11.2 | `create_render_pipeline` checks the program, formats, semantics, vertex streams, and input elements, and creates a pipeline of triangles with one colour target. |
+| RHI-25 | 11.2 | `set_texture` and `set_sampler` check the range, its shape, element type, and comparison, the usage, and the device, and keep a reference through the call. |
+| RHI-26 | 11.2 | `create_render_pipeline` checks the program, formats, vertex streams, and a matching stream for every declared vertex input, and creates a pipeline of triangles with one colour target. |
 | RHI-27 | 11.2 | A render pass exists only inside a closure that ends it on every path, may hold a depth target alone, and each draw checks its pipeline, buffers, counts, and targets against one record of the pass. |
 | RHI-28 | 11.2 | `read_texture` checks the texture and the output, reads `sizeInBytes` at the default alignment, and returns the rows without padding. |
 | RHI-29 | 11.1 | `DeviceInfo` offers the seven limits of dispatches, thread groups, buffers, textures, vertex streams, and vertex input elements that the checks use. |

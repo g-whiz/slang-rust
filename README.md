@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/g-whiz/slang-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/g-whiz/slang-rust/actions/workflows/ci.yml)
 
-slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the graphics processing unit (GPU) through [wgpu](https://wgpu.rs), generate typed Rust bindings to compute kernels while a crate builds, and show what a shader draws in a [Slint](https://slint.dev) user interface. They also run compute kernels through [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of Slang.
+slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) shader language. They compile and reflect Slang shaders, run compute kernels and render pipelines on the graphics processing unit (GPU) through [wgpu](https://wgpu.rs), generate typed Rust bindings to compute kernels while a crate builds, and show what a shader draws in a [Slint](https://slint.dev) user interface. They also run compute kernels and draw with render pipelines through [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of Slang.
 
 ## Status
 
@@ -17,7 +17,7 @@ slang-rust is a set of Rust crates for the [Slang](https://shader-slang.org) sha
 | [slango-macros](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-macros/README.md) | Compile a Slang file while your crate builds and call its compute kernels through typed Rust bindings. | [slango_macros](https://g-whiz.github.io/slang-rust/slango_macros/) |
 | [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md) | Compile Slang shaders and reflect their parameters, with no GPU. | [slang_compiler](https://g-whiz.github.io/slang-rust/slang_compiler/) |
 | [slang-slint](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/README.md) | Show what a render pipeline of slango draws in a Slint user interface. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-slint) |
-| [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md) | Run Slang compute kernels on the GPU through slang-rhi, with Vulkan on Linux and Direct3D 12 on Windows. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi) |
+| [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md) | Run Slang compute kernels and draw with Slang render pipelines on the GPU through slang-rhi, with Vulkan on Linux and Direct3D 12 on Windows. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi) |
 | [slango-codegen](https://github.com/g-whiz/slang-rust/blob/main/crates/slango-codegen/README.md) | Generate the typed bindings of slango-macros outside a macro call, such as to print them. | [slango_codegen](https://g-whiz.github.io/slang-rust/slango_codegen/) |
 | [slang-compiler-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler-sys/README.md) | Call the raw Slang API where slang-compiler has no safe wrapper. | [slang_compiler_sys](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) |
 | [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md) | Call the raw slang-rhi API where slang-rhi has no safe wrapper. | [Source](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi-sys) |

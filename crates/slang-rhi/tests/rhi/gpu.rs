@@ -19,6 +19,8 @@ use crate::common::{
 mod compile_session;
 #[cfg(test)]
 mod objects;
+#[cfg(test)]
+mod render;
 
 #[test]
 fn adapters_lists_an_adapter_and_a_device_opens_on_each() {

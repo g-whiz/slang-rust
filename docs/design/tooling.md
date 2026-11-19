@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
@@ -220,7 +220,10 @@ typos reports two kinds of correct text in the repository: a two-letter fragment
 
 typos skips only the text that an entry matches, so it still checks the same letters anywhere else, which accepting the words in `[default.extend-words]` would not do. A document that names this configuration describes the two findings instead of spelling them out, because typos reports such a document too. typos reads its configuration from `typos.toml`, `_typos.toml`, or `.typos.toml`, and the repository uses the first name.
 
-The generated bindings are written under `OUT_DIR`, so typos does not read them. `typos.toml` has an entry in a `[default.extend-identifiers]` table only for a misspelled identifier of the Slang headers that a file of the repository names, because each generated name has to match the header. Section 5.10 of `docs/design/slang-compiler-sys.md` names the three such identifiers of the recorded Slang and why an entry for a whole identifier is the narrowest exclusion.
+The generated bindings are written under `OUT_DIR`, so typos does not read them. `typos.toml` has an entry in a `[default.extend-identifiers]` table only for a generated identifier that a file of the repository names and that typos reports, because each generated name has to match the header. It holds six such identifiers:
+
+- The three misspelled identifiers of the recorded Slang. Section 5.10 of `docs/design/slang-compiler-sys.md` names them and says why an entry for a whole identifier is the narrowest exclusion.
+- The three correct field names `maxLOD`, `minLOD`, and `mipLODBias` of the `SamplerDesc` of slang-rhi, which `slang-rhi` writes (RHI-24 of `docs/design/slang-rhi.md`). typos reports the abbreviation of the level of detail in them as a misspelling.
 
 No file is excluded from typos.
 

@@ -1,6 +1,6 @@
 [package]
 name = "slang-rhi"
-description = "Safe Rust wrappers over slang-rhi, the render hardware interface of Slang, for compute dispatches."
+description = "Safe Rust wrappers over slang-rhi, the render hardware interface of Slang, for compute dispatches and draws."
 keywords = ["slang", "rhi", "vulkan", "gpu", "compute"]
 categories = ["api-bindings", "graphics"]
 publish = false

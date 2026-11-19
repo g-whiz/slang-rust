@@ -3,9 +3,14 @@
 # cited author.
 extend-ignore-re = ["\\(ba\\)\\?sh", "Rob Ede"]
 
-# Names that the Slang headers misspell, which the generated bindings keep
-# because they must match the headers, and which the documentation names.
+# Names that the Slang headers misspell, and names of the slang-rhi headers
+# that hold the abbreviation LOD, the level of detail, which typos takes for a
+# misspelling. The generated bindings keep them because they must match the
+# headers, and the code or the documentation names them.
 [default.extend-identifiers]
 ISlangClonable = "ISlangClonable"
 ISlangClonableVtbl = "ISlangClonableVtbl"
 SLANG_LANGAUGE_VERSION_DEFAULT = "SLANG_LANGAUGE_VERSION_DEFAULT"
+maxLOD = "maxLOD"
+minLOD = "minLOD"
+mipLODBias = "mipLODBias"

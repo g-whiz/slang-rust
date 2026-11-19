@@ -1,6 +1,6 @@
 # slang-rhi-sys
 
-slang-rhi-sys provides the raw, unsafe Rust bindings to [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of the [Slang](https://shader-slang.org) shader compiler. Its build script generates the bindings from the slang-rhi headers in every build, and builds slang-rhi from source and links it statically. Most programs depend on [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md) instead, which wraps these bindings in a safe API for compute dispatches.
+slang-rhi-sys provides the raw, unsafe Rust bindings to [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of the [Slang](https://shader-slang.org) shader compiler. Its build script generates the bindings from the slang-rhi headers in every build, and builds slang-rhi from source and links it statically. Most programs depend on [slang-rhi](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/README.md) instead, which wraps these bindings in a safe API for compute dispatches and draws.
 
 > [!WARNING]
 > This crate is an alpha release that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.

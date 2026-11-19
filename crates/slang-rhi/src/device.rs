@@ -600,7 +600,7 @@ impl DeviceInfo {
     }
 
     /// Returns the largest width and height in texels of a two-dimensional
-    /// texture.
+    /// texture, which [`Device::create_texture`] checks.
     ///
     /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
     /// limit of the graphics API, the same on every device.
@@ -613,7 +613,9 @@ impl DeviceInfo {
         self.max_texture_dimension_2d
     }
 
-    /// Returns the largest number of vertex buffers that one draw reads.
+    /// Returns the largest number of vertex buffers that one draw reads,
+    /// which [`Device::create_render_pipeline`] checks against the vertex
+    /// streams of a pipeline.
     ///
     /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
     /// limit of the graphics API, the same on every device.
@@ -626,7 +628,9 @@ impl DeviceInfo {
         self.max_vertex_streams
     }
 
-    /// Returns the largest number of vertex attributes that one draw reads.
+    /// Returns the largest number of vertex attributes that one draw reads,
+    /// which [`Device::create_render_pipeline`] checks against the locations
+    /// of the vertex streams of a pipeline, up to the highest one.
     ///
     /// On Vulkan, the driver reports it. On Direct3D 12, it is the fixed
     /// limit of the graphics API, the same on every device.
@@ -888,6 +892,10 @@ impl Device {
 
     pub(crate) fn as_non_null(&self) -> NonNull<IDevice> {
         self.raw.as_non_null()
+    }
+
+    pub(crate) fn info_ref(&self) -> &DeviceInfo {
+        &self.info
     }
 
     pub(crate) fn thread_group_limits(&self) -> ([u32; 3], u32) {

@@ -313,6 +313,10 @@ impl Buffer {
         self.raw.as_non_null()
     }
 
+    pub(crate) fn owned(&self) -> Owned<IBuffer> {
+        self.raw.clone()
+    }
+
     pub(crate) fn device_ptr(&self) -> NonNull<IDevice> {
         self.device.as_non_null()
     }

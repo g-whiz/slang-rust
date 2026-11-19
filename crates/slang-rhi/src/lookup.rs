@@ -1,17 +1,23 @@
+use std::ffi::CStr;
 use std::ptr::NonNull;
 
 use slang_compiler_sys::{
-    SlangBindingType, SlangParameterCategory, SlangReflectionTypeLayout, SlangTypeKind,
-    TypeLayoutReflection, spReflectionTypeLayout_GetFieldByIndex, spReflectionTypeLayout_GetSize,
-    spReflectionTypeLayout_findFieldIndexByName,
+    SlangBindingType, SlangParameterCategory, SlangReflectionType, SlangReflectionTypeLayout,
+    SlangResourceShape, SlangScalarType, SlangTypeKind, TypeLayoutReflection,
+    spReflectionType_GetName, spReflectionType_GetResourceResultType,
+    spReflectionType_GetResourceShape, spReflectionType_GetScalarType,
+    spReflectionTypeLayout_GetFieldByIndex, spReflectionTypeLayout_GetSize,
+    spReflectionTypeLayout_GetType, spReflectionTypeLayout_findFieldIndexByName,
     spReflectionTypeLayout_getBindingRangeBindingCount,
-    spReflectionTypeLayout_getBindingRangeCount, spReflectionTypeLayout_getBindingRangeType,
-    spReflectionTypeLayout_getFieldBindingRangeOffset, spReflectionTypeLayout_getKind,
-    spReflectionVariableLayout_GetOffset, spReflectionVariableLayout_GetTypeLayout,
+    spReflectionTypeLayout_getBindingRangeCount,
+    spReflectionTypeLayout_getBindingRangeLeafTypeLayout,
+    spReflectionTypeLayout_getBindingRangeType, spReflectionTypeLayout_getFieldBindingRangeOffset,
+    spReflectionTypeLayout_getKind, spReflectionVariableLayout_GetOffset,
+    spReflectionVariableLayout_GetTypeLayout,
 };
 
 use crate::guard;
-use crate::shader_object::{BindingRange, RangeKind, ShaderOffset};
+use crate::shader_object::{BindingRange, RangeKind, ShaderOffset, TextureType};
 
 /// The element type layout of a shader object, which Slang's reflection
 /// describes, read only through the reflection functions of Slang.
@@ -202,15 +208,148 @@ impl ElementLayout {
                 spReflectionTypeLayout_getBindingRangeType(raw, index)
             }
         });
+        let leaf = match binding_type {
+            SlangBindingType::SLANG_BINDING_TYPE_TEXTURE
+            | SlangBindingType::SLANG_BINDING_TYPE_SAMPLER => self.leaf_type(index),
+            _ => None,
+        };
+        let texture = leaf.map_or(
+            TextureType {
+                plain_2d: false,
+                float: false,
+            },
+            |leaf| texture_type(leaf_shape(leaf), leaf_result(leaf)),
+        );
+        let comparison = leaf.is_some_and(leaf_is_comparison_sampler);
         Some(BindingRange {
             binding_count,
-            kind: range_kind(binding_type),
+            kind: range_kind(binding_type, texture, comparison),
         })
+    }
+
+    /// Returns the type of the leaf of the binding range at `index`, which is
+    /// below the count of binding ranges, or `None` when Slang reports none.
+    fn leaf_type(self, index: isize) -> Option<NonNull<SlangReflectionType>> {
+        let raw = self.raw.as_ptr();
+        let leaf = guard::call(
+            "spReflectionTypeLayout_getBindingRangeLeafTypeLayout",
+            || {
+                // SAFETY: the invariant of `ElementLayout` keeps `raw` live, and
+                // `index` is below the count of binding ranges that Slang
+                // reported for it.
+                unsafe {
+                    #[expect(
+                        ffi_unwind_calls,
+                        reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                    )]
+                    spReflectionTypeLayout_getBindingRangeLeafTypeLayout(raw, index)
+                }
+            },
+        );
+        let leaf = NonNull::new(leaf)?;
+        let ty = guard::call("spReflectionTypeLayout_GetType", || {
+            // SAFETY: `leaf` is a non-null type layout that the live type
+            // layout owns.
+            unsafe {
+                #[expect(
+                    ffi_unwind_calls,
+                    reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+                )]
+                spReflectionTypeLayout_GetType(leaf.as_ptr())
+            }
+        });
+        NonNull::new(ty)
     }
 }
 
-/// Returns what a binding range of this type takes.
-fn range_kind(binding_type: SlangBindingType) -> RangeKind {
+/// Returns the resource shape of the type `ty`, a type that the live type
+/// layout of an `ElementLayout` owns.
+fn leaf_shape(ty: NonNull<SlangReflectionType>) -> SlangResourceShape {
+    guard::call("spReflectionType_GetResourceShape", || {
+        // SAFETY: `ty` is a live type of the live type layout.
+        unsafe {
+            #[expect(
+                ffi_unwind_calls,
+                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+            )]
+            spReflectionType_GetResourceShape(ty.as_ptr())
+        }
+    })
+}
+
+/// Returns the scalar type of the elements of the resource type `ty`, a type
+/// that the live type layout of an `ElementLayout` owns, or `None` when it
+/// has no result type.
+fn leaf_result(ty: NonNull<SlangReflectionType>) -> Option<SlangScalarType> {
+    let result = guard::call("spReflectionType_GetResourceResultType", || {
+        // SAFETY: `ty` is a live type of the live type layout.
+        unsafe {
+            #[expect(
+                ffi_unwind_calls,
+                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+            )]
+            spReflectionType_GetResourceResultType(ty.as_ptr())
+        }
+    });
+    let result = NonNull::new(result)?;
+    Some(guard::call("spReflectionType_GetScalarType", || {
+        // SAFETY: `result` is a non-null type that the live type layout
+        // owns.
+        unsafe {
+            #[expect(
+                ffi_unwind_calls,
+                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+            )]
+            spReflectionType_GetScalarType(result.as_ptr())
+        }
+    }))
+}
+
+/// Returns whether the type `ty`, a type that the live type layout of an
+/// `ElementLayout` owns, is a comparison sampler, by its name.
+fn leaf_is_comparison_sampler(ty: NonNull<SlangReflectionType>) -> bool {
+    let name = guard::call("spReflectionType_GetName", || {
+        // SAFETY: `ty` is a live type of the live type layout.
+        unsafe {
+            #[expect(
+                ffi_unwind_calls,
+                reason = "Slang is C++, and the call runs inside the abort of an escaping exception"
+            )]
+            spReflectionType_GetName(ty.as_ptr())
+        }
+    });
+    if name.is_null() {
+        return is_comparison_sampler(None);
+    }
+    // SAFETY: Slang returns a NUL-terminated name that it keeps for as long
+    // as the type, which outlives this function.
+    is_comparison_sampler(Some(unsafe { CStr::from_ptr(name) }))
+}
+
+/// Returns what a texture of the resource shape `shape`, whose elements have
+/// the scalar type `result`, is.
+fn texture_type(shape: SlangResourceShape, result: Option<SlangScalarType>) -> TextureType {
+    TextureType {
+        plain_2d: shape == SlangResourceShape::SLANG_TEXTURE_2D,
+        float: matches!(
+            result,
+            Some(
+                SlangScalarType::SLANG_SCALAR_TYPE_FLOAT16
+                    | SlangScalarType::SLANG_SCALAR_TYPE_FLOAT32
+            )
+        ),
+    }
+}
+
+/// Returns whether a sampler type of the name `name` is a comparison sampler.
+fn is_comparison_sampler(name: Option<&CStr>) -> bool {
+    name == Some(c"SamplerComparisonState")
+}
+
+/// Returns what a binding range of this type takes, where `texture` describes
+/// the texture of a range of textures and `comparison` says whether a range
+/// of samplers takes comparison samplers.
+fn range_kind(binding_type: SlangBindingType, texture: TextureType, comparison: bool) -> RangeKind {
     match binding_type {
         SlangBindingType::SLANG_BINDING_TYPE_RAW_BUFFER => RangeKind::ReadOnlyBuffer,
         SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_RAW_BUFFER => RangeKind::MutableBuffer,
@@ -218,6 +357,12 @@ fn range_kind(binding_type: SlangBindingType) -> RangeKind {
         | SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER => RangeKind::TypedBuffer,
         SlangBindingType::SLANG_BINDING_TYPE_CONSTANT_BUFFER
         | SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK => RangeKind::SubObject,
+        SlangBindingType::SLANG_BINDING_TYPE_TEXTURE => RangeKind::ReadOnlyTexture(texture),
+        SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE => RangeKind::MutableTexture,
+        SlangBindingType::SLANG_BINDING_TYPE_SAMPLER => RangeKind::Sampler { comparison },
+        SlangBindingType::SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER => {
+            RangeKind::CombinedTextureSampler
+        }
         _ => RangeKind::Other,
     }
 }
@@ -226,11 +371,18 @@ fn range_kind(binding_type: SlangBindingType) -> RangeKind {
 mod tests {
     use slang_compiler_sys::SlangBindingType;
 
-    use super::range_kind;
-    use crate::shader_object::RangeKind;
+    use slang_compiler_sys::{SlangResourceShape, SlangScalarType};
+
+    use super::{is_comparison_sampler, range_kind, texture_type};
+    use crate::shader_object::{RangeKind, TextureType};
+
+    const PLAIN: TextureType = TextureType {
+        plain_2d: true,
+        float: true,
+    };
 
     #[test]
-    fn range_kind_tells_raw_buffers_by_access_from_typed_buffers_objects_and_the_rest() {
+    fn range_kind_tells_buffers_objects_textures_and_samplers_apart_from_the_rest() {
         let cases = [
             (
                 SlangBindingType::SLANG_BINDING_TYPE_RAW_BUFFER,
@@ -256,19 +408,86 @@ mod tests {
                 SlangBindingType::SLANG_BINDING_TYPE_PARAMETER_BLOCK,
                 RangeKind::SubObject,
             ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_TEXTURE,
+                RangeKind::ReadOnlyTexture(PLAIN),
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE,
+                RangeKind::MutableTexture,
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_SAMPLER,
+                RangeKind::Sampler { comparison: true },
+            ),
+            (
+                SlangBindingType::SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER,
+                RangeKind::CombinedTextureSampler,
+            ),
         ];
         for (binding_type, kind) in cases {
-            assert_eq!(range_kind(binding_type), kind, "{binding_type:?}");
+            assert_eq!(
+                range_kind(binding_type, PLAIN, true),
+                kind,
+                "{binding_type:?}"
+            );
         }
         for other in [
             SlangBindingType::SLANG_BINDING_TYPE_UNKNOWN,
-            SlangBindingType::SLANG_BINDING_TYPE_SAMPLER,
-            SlangBindingType::SLANG_BINDING_TYPE_TEXTURE,
             SlangBindingType::SLANG_BINDING_TYPE_EXISTENTIAL_VALUE,
-            SlangBindingType::SLANG_BINDING_TYPE_MUTABLE_TETURE,
             SlangBindingType::SLANG_BINDING_TYPE_PUSH_CONSTANT,
         ] {
-            assert_eq!(range_kind(other), RangeKind::Other, "{other:?}");
+            assert_eq!(
+                range_kind(other, PLAIN, true),
+                RangeKind::Other,
+                "{other:?}"
+            );
         }
+    }
+
+    #[test]
+    fn texture_type_is_plain_only_for_a_two_dimensional_texture_without_flags() {
+        let shape = |raw| SlangResourceShape(raw);
+        let float = Some(SlangScalarType::SLANG_SCALAR_TYPE_FLOAT32);
+        assert!(texture_type(SlangResourceShape::SLANG_TEXTURE_2D, float).plain_2d);
+        for other in [
+            SlangResourceShape::SLANG_TEXTURE_1D,
+            SlangResourceShape::SLANG_TEXTURE_3D,
+            SlangResourceShape::SLANG_TEXTURE_CUBE,
+            SlangResourceShape::SLANG_TEXTURE_2D_ARRAY,
+            SlangResourceShape::SLANG_TEXTURE_2D_MULTISAMPLE,
+            shape(
+                SlangResourceShape::SLANG_TEXTURE_2D.0
+                    | SlangResourceShape::SLANG_TEXTURE_FEEDBACK_FLAG.0,
+            ),
+            shape(
+                SlangResourceShape::SLANG_TEXTURE_2D.0
+                    | SlangResourceShape::SLANG_TEXTURE_SHADOW_FLAG.0,
+            ),
+        ] {
+            assert!(!texture_type(other, float).plain_2d, "{other:?}");
+        }
+    }
+
+    #[test]
+    fn texture_type_takes_elements_of_16_and_32_bit_floating_point_numbers_only() {
+        let float = |scalar| texture_type(SlangResourceShape::SLANG_TEXTURE_2D, scalar).float;
+        assert!(float(Some(SlangScalarType::SLANG_SCALAR_TYPE_FLOAT32)));
+        assert!(float(Some(SlangScalarType::SLANG_SCALAR_TYPE_FLOAT16)));
+        for other in [
+            Some(SlangScalarType::SLANG_SCALAR_TYPE_UINT32),
+            Some(SlangScalarType::SLANG_SCALAR_TYPE_INT32),
+            Some(SlangScalarType::SLANG_SCALAR_TYPE_FLOAT64),
+            None,
+        ] {
+            assert!(!float(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_sampler_comparison_state_is_a_comparison_sampler() {
+        assert!(is_comparison_sampler(Some(c"SamplerComparisonState")));
+        assert!(!is_comparison_sampler(Some(c"SamplerState")));
+        assert!(!is_comparison_sampler(None));
     }
 }

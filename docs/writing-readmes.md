@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | The root `README.md` and the `README.md` of every library crate in this repository |
 
 ## Abstract
@@ -189,7 +189,7 @@ Table 4. Content of a crate README by kind of crate.
 | High-level library | `slango` | That the crate runs compute kernels and draws with render pipelines on the GPU through wgpu | Loading a module and running one kernel | Slang, libclang, and a GPU adapter |
 | Procedural macro | `slango-macros` | That the macro compiles a Slang file while the crate builds and generates typed bindings to its kernels | One call of `shader!` and one call of a generated kernel | Slang at build time, the feature `vendored` on both `slango-macros` and `slango`, and the exact version that ties it to `slango` |
 | Generator | `slango-codegen` | That the crate is the generator behind `slango-macros`, and when to use it instead of the macro | One call of the generator | Slang at build time, and the exact version that ties it to `slango` |
-| Safe wrapper of slang-rhi | `slang-rhi` | That the crate runs compute kernels on the GPU through slang-rhi, and that `slango` runs them through wgpu | Opening a device and printing a result, with a link to a whole compute dispatch in the crate documentation | The build of Slang and slang-rhi from source, the supported platforms, and what a program needs at run time |
+| Safe wrapper of slang-rhi | `slang-rhi` | That the crate runs compute kernels and draws with render pipelines on the GPU through slang-rhi, and that `slango` does both through wgpu | Opening a device and printing a result, with a link to a whole compute dispatch in the crate documentation | The build of Slang and slang-rhi from source, the supported platforms, and what a program needs at run time |
 | Slint integration | `slang-slint` | That the crate shows what `slango` draws in a Slint user interface | The smallest wiring of a Slint window to a `slango` render pipeline | What a Linux build of Slint needs, and the licence consequence in its own `Licence` section |
 
 ### 6.6. Manifest

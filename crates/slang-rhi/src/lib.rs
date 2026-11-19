@@ -1,16 +1,25 @@
 //! Safe Rust wrappers over slang-rhi, the render hardware interface of Slang,
-//! for compute dispatches on a graphics processing unit (GPU).
+//! for compute dispatches and draws on a graphics processing unit (GPU).
 //!
 //! slang-rhi is the C++ library of the Slang source tree that gives one API
 //! over several graphics APIs, such as Vulkan. This crate wraps its raw
 //! bindings, which `slang-rhi-sys` holds, for the path of one compute
-//! dispatch, which runs a compute kernel on the GPU.
+//! dispatch, which runs a compute kernel on the GPU, and for the path of one
+//! draw, which draws triangles into a texture.
 //!
 //! A program lists the adapters, opens a device, creates a shader program and
 //! a compute pipeline from a program that `slang-compiler` linked, and creates
 //! buffers. It then records a compute pass, the commands of one or more
 //! dispatches, in which it binds the parameters of the kernel by name and
 //! dispatches the kernel, submits the work, and reads a buffer back.
+//!
+//! To draw, a program creates a render pipeline from a program with a vertex
+//! and a fragment entry point, textures, and samplers, and records a render
+//! pass into a colour target and an optional depth target, in which it binds
+//! the parameters, textures, and samplers of the shaders by name, sets the
+//! vertex and index buffers, and draws. It then reads the colour target back
+//! with [`Device::read_texture`]. The example of
+//! [`CommandEncoder::render_pass`] draws a triangle.
 //!
 //! Everything that concerns Slang, the shader compiler, such as loading and
 //! linking modules, goes through `slang-compiler`. Use `slango` for a
@@ -105,7 +114,8 @@
 //!
 //! Every object that a device creates holds the device, so a device lives as
 //! long as any of its objects. A compute pass exists only inside the closure
-//! of [`CommandEncoder::compute_pass`], and a shader object borrows its pass,
+//! of [`CommandEncoder::compute_pass`], a render pass only inside the closure
+//! of [`CommandEncoder::render_pass`], and a shader object borrows its pass,
 //! so neither can be used after the pass ends.
 //!
 //! No type that holds an object of slang-rhi is [`Send`] or [`Sync`], because
@@ -150,10 +160,11 @@
 //!
 //! # What the crate does not cover
 //!
-//! The crate wraps the compute path only. It has no render pipelines,
-//! textures, samplers, fences, mapped buffers, copy or clear commands, or
-//! queries. A program that needs one of them calls the raw bindings of
-//! `slang-rhi-sys` under their safety contract. These limits also apply:
+//! The crate wraps the compute path and the path of a draw only. It has no
+//! surfaces or windows, fences, mapped buffers, copy or clear commands,
+//! indirect dispatches or draws, or queries. A program that needs one of
+//! them calls the raw bindings of `slang-rhi-sys` under their safety
+//! contract. These limits also apply:
 //!
 //! - A device opens only with [`DeviceType::Vulkan`] on Linux and
 //!   [`DeviceType::D3d12`] on Windows, or with [`DeviceType::Default`], which
@@ -161,6 +172,26 @@
 //! - The crate creates no buffer with a format, so a parameter takes only a
 //!   raw buffer, such as a `StructuredBuffer`, a `RWStructuredBuffer`, or a
 //!   `ByteAddressBuffer`, and not a typed buffer such as `RWBuffer<float>`.
+//! - A texture is two-dimensional with one mip level, one layer, and one
+//!   sample, of one of the formats of [`Format`]. A shader reads it through a
+//!   parameter such as a `Texture2D` and a separate `SamplerState`. A texture
+//!   that a shader writes, such as a `RWTexture2D`, and a texture combined
+//!   with a sampler, such as a `Sampler2D`, are refused.
+//! - On Vulkan, a texture created without initial data has undefined
+//!   contents until a render pass clears or draws into it. A texture of
+//!   [`Format::D32Float`] takes no initial data, so a render pass with that
+//!   texture as its only target clears it.
+//! - A render pipeline draws lists of triangles into one colour target and
+//!   an optional depth target, with counter-clockwise front faces. Each
+//!   vertex stream holds one attribute at the start of each element and
+//!   names the semantic of its input, because Direct3D 12 matches inputs by
+//!   semantic.
+//! - A draw refuses a texture that a shader object of its pass binds and
+//!   that is also a target of the pass. The crate does not read the values of
+//!   an index buffer, so an index past the end of a vertex buffer reaches the
+//!   device, which reads zeros or values from within the buffer for it.
+//! - On Vulkan, slang-rhi clamps the depth of a fragment outside the range
+//!   from 0 to 1 instead of clipping the triangle, as Direct3D 12 does.
 //! - [`ShaderObject::offset_of`] finds only the parameters at the top level
 //!   of a shader object by name, and not a field of a structure or an element
 //!   of an array. The fields of a `ConstantBuffer` or a `ParameterBlock`
@@ -175,8 +206,9 @@
 //!   `[vk::push_constant]`, are not supported. On Vulkan, slang-rhi aborts
 //!   the process at the dispatch of a kernel that declares one, whether or
 //!   not the program sets it.
-//! - A compute pipeline takes a program with exactly one compute entry point
-//!   and no specialization parameter left.
+//! - A compute pipeline takes a program with exactly one compute entry point,
+//!   a render pipeline one with exactly one vertex and one fragment entry
+//!   point, and both no specialization parameter left.
 //! - On Vulkan, a parameter that is left without a buffer works only on a
 //!   driver with the feature `nullDescriptor`, which the crate does not check.
 //!
@@ -235,7 +267,11 @@ mod instance;
 mod lookup;
 mod owned;
 mod program;
+mod render_pass;
+mod render_pipeline;
+mod sampler;
 mod shader_object;
+mod texture;
 
 pub use buffer::{Buffer, BufferDesc, BufferUsage, MemoryType};
 pub use callback::{DebugMessage, DebugMessageSource, DebugMessageType};
@@ -244,7 +280,13 @@ pub use compile_session::CompileSession;
 pub use device::{Adapter, AdapterType, Device, DeviceInfo, DeviceOptions, DeviceType, adapters};
 pub use error::{Error, ErrorKind, Operation, Result};
 pub use program::{ComputePipeline, ShaderProgram};
+pub use render_pass::{ColourLoad, DepthLoad, RenderPass, RenderPassDesc};
+pub use render_pipeline::{
+    BlendMode, CullMode, RenderPipeline, RenderPipelineDesc, StepMode, VertexFormat, VertexStream,
+};
+pub use sampler::{AddressMode, FilterMode, Sampler, SamplerDesc};
 pub use shader_object::{ShaderObject, ShaderOffset};
+pub use texture::{Format, Texture, TextureDesc, TextureUsage};
 
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

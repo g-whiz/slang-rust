@@ -1,6 +1,6 @@
 //! A fake of the interfaces `IBuffer`, `ICommandBuffer`, `ICommandQueue`,
-//! `IComputePassEncoder`, and `IShaderObject` of slang-rhi for the tests
-//! under Miri.
+//! `IComputePassEncoder`, `IRenderPassEncoder`, `IRenderPipeline`, and
+//! `IShaderObject` of slang-rhi for the tests under Miri.
 //!
 //! Each fake object is a `#[repr(C)]` struct whose first field points to a
 //! static instance of the generated vtable struct of its interface, so a
@@ -19,10 +19,11 @@ use std::slice;
 
 use slang_compiler_sys::{ISlangUnknown, ISlangUnknownVtbl, SlangResult, SlangUUID};
 use slang_rhi_sys::{
-    Binding, IBuffer, IBufferVtbl, ICommandBuffer, ICommandBufferVtbl, ICommandQueue,
-    ICommandQueueVtbl, IComputePassEncoder, IComputePassEncoderVtbl, IComputePipeline,
-    IPassEncoder, IPassEncoderVtbl, IResource, IResourceVtbl, IShaderObject, IShaderObjectVtbl,
-    ShaderOffset, SubmitDesc,
+    Binding, DrawArguments, IBuffer, IBufferVtbl, ICommandBuffer, ICommandBufferVtbl,
+    ICommandQueue, ICommandQueueVtbl, IComputePassEncoder, IComputePassEncoderVtbl,
+    IComputePipeline, IPassEncoder, IPassEncoderVtbl, IPipelineVtbl, IRenderPassEncoder,
+    IRenderPassEncoderVtbl, IRenderPipeline, IRenderPipelineVtbl, IResource, IResourceVtbl,
+    IShaderObject, IShaderObjectVtbl, RenderState, ShaderOffset, SubmitDesc,
 };
 
 /// One call that the crate made on a fake object.
@@ -65,6 +66,22 @@ pub(crate) enum Event {
     Submit {
         object: &'static str,
         command_buffers: Vec<&'static str>,
+    },
+    BindRenderPipeline {
+        object: &'static str,
+        pipeline: &'static str,
+    },
+    RenderState {
+        object: &'static str,
+        extent: [u32; 2],
+        vertex: Vec<&'static str>,
+        index: Option<&'static str>,
+    },
+    Draw {
+        object: &'static str,
+        indexed: bool,
+        count: u32,
+        instances: u32,
     },
 }
 
@@ -119,6 +136,35 @@ impl Event {
         Self::Submit {
             object,
             command_buffers: command_buffers.to_vec(),
+        }
+    }
+
+    pub(crate) fn bind_render_pipeline(object: &'static str, pipeline: &'static str) -> Self {
+        Self::BindRenderPipeline { object, pipeline }
+    }
+
+    /// The render state of a viewport of `extent`, as the bits of its two
+    /// `f32` values, with the named vertex and index buffers.
+    pub(crate) fn render_state(
+        object: &'static str,
+        extent: [f32; 2],
+        vertex: &[&'static str],
+        index: Option<&'static str>,
+    ) -> Self {
+        Self::RenderState {
+            object,
+            extent: extent.map(f32::to_bits),
+            vertex: vertex.to_vec(),
+            index,
+        }
+    }
+
+    pub(crate) fn draw(object: &'static str, indexed: bool, count: u32, instances: u32) -> Self {
+        Self::Draw {
+            object,
+            indexed,
+            count,
+            instances,
         }
     }
 }
@@ -581,18 +627,18 @@ impl FakeShaderObject {
     }
 }
 
-/// The state of a fake compute pass encoder: its root shader object, which
+/// The state of a fake pass encoder: its current root shader object, which
 /// it owns, and whether `bindPipeline` returns null.
 struct PassState {
-    root: NonNull<IShaderObject>,
+    root: Cell<NonNull<IShaderObject>>,
     null_binds: Cell<bool>,
 }
 
 impl Drop for PassState {
     fn drop(&mut self) {
-        // SAFETY: the pass owns one reference to its root object and releases
-        // it once, here.
-        unsafe { IShaderObject::release(self.root.as_ptr()) };
+        // SAFETY: the pass owns one reference to its current root object and
+        // releases it once, here.
+        unsafe { IShaderObject::release(self.root.get().as_ptr()) };
     }
 }
 
@@ -635,7 +681,7 @@ unsafe extern "system" fn pass_bind_pipeline(
     if object.state.null_binds.get() {
         ptr::null_mut()
     } else {
-        object.state.root.as_ptr()
+        object.state.root.get().as_ptr()
     }
 }
 
@@ -655,7 +701,7 @@ impl FakePass {
             log,
             name,
             PassState {
-                root,
+                root: Cell::new(root),
                 null_binds: Cell::new(false),
             },
         )
@@ -792,5 +838,187 @@ impl FakeQueue {
     pub(crate) unsafe fn release_raw(raw: NonNull<ICommandQueue>) {
         // SAFETY: the caller guarantees both conditions of `release`.
         unsafe { ICommandQueue::release(raw.as_ptr()) };
+    }
+}
+
+/// A fake `IRenderPipeline`, which holds nothing.
+pub(crate) struct FakeRenderPipeline;
+
+static RENDER_PIPELINE_VTABLE: Shared<IRenderPipelineVtbl> = Shared(IRenderPipelineVtbl {
+    base: IPipelineVtbl {
+        base: unknown_vtable::<()>(),
+        getProgram: unwinding1(unexpected1),
+        getNativeHandle: unwinding2(unexpected2),
+    },
+    getDesc: unwinding1(unexpected1),
+});
+
+impl FakeRenderPipeline {
+    /// Creates a fake render pipeline with one reference, which the caller
+    /// owns.
+    pub(crate) fn create(log: &Log, name: &'static str) -> NonNull<IRenderPipeline> {
+        FakeObject::create(
+            (&raw const RENDER_PIPELINE_VTABLE).cast::<c_void>(),
+            log,
+            name,
+            (),
+        )
+    }
+}
+
+/// A fake `IRenderPassEncoder`, whose state is that of a fake compute pass:
+/// its root shader object, which shares the log of the pass and which each
+/// `bindPipeline` replaces with a new one, as slang-rhi does, and whether
+/// `bindPipeline` returns null.
+pub(crate) struct FakeRenderPass;
+
+static RENDER_PASS_VTABLE: Shared<IRenderPassEncoderVtbl> = Shared(IRenderPassEncoderVtbl {
+    base: IPassEncoderVtbl {
+        base: unknown_vtable::<PassState>(),
+        pushDebugGroup: unwinding3(unexpected3),
+        popDebugGroup: unwinding1(unexpected1),
+        insertDebugMarker: unwinding3(unexpected3),
+        writeTimestamp: unwinding3(unexpected3),
+        end: unwinding1(pass_end),
+    },
+    bindPipeline: unwinding2(render_pass_bind_pipeline),
+    bindPipeline_root: unwinding3(unexpected3),
+    setRenderState: unwinding2(render_pass_set_render_state),
+    draw: unwinding2(render_pass_draw),
+    drawIndexed: unwinding2(render_pass_draw_indexed),
+    drawIndirect: ptr::null(),
+    drawIndexedIndirect: ptr::null(),
+    drawMeshTasks: unwinding4(unexpected4),
+});
+
+unsafe extern "system" fn render_pass_bind_pipeline(
+    this: *mut IRenderPassEncoder,
+    pipeline: *mut IRenderPipeline,
+) -> *mut IShaderObject {
+    // SAFETY: `RENDER_PASS_VTABLE` belongs to a live fake render pass only.
+    let object = unsafe { PassObject::from_this(this) };
+    // SAFETY: the crate passes a live fake pipeline.
+    let pipeline = unsafe { header(pipeline) };
+    object.header.log.push(Event::bind_render_pipeline(
+        object.header.name,
+        pipeline.name,
+    ));
+    if object.state.null_binds.get() {
+        return ptr::null_mut();
+    }
+    let root = FakeShaderObject::create(&object.header.log, "root");
+    let old = object.state.root.replace(root);
+    // SAFETY: the pass owned one reference to its former root object, which
+    // the crate no longer uses after a new bind, and releases it once, here.
+    unsafe { IShaderObject::release(old.as_ptr()) };
+    root.as_ptr()
+}
+
+/// Returns the name of the fake object that `raw` points to, or `None` for
+/// null.
+///
+/// # Safety
+///
+/// `raw` is null or points to a live fake object. Breaking this is undefined
+/// behaviour.
+unsafe fn name_of<I>(raw: *mut I) -> Option<&'static str> {
+    // SAFETY: the caller guarantees that a non-null `raw` is a live fake.
+    (!raw.is_null()).then(|| unsafe { header(raw) }.name)
+}
+
+unsafe extern "system" fn render_pass_set_render_state(
+    this: *mut IRenderPassEncoder,
+    state: *const RenderState,
+) {
+    // SAFETY: `RENDER_PASS_VTABLE` belongs to a live fake render pass only.
+    let header = unsafe { header(this) };
+    // SAFETY: the crate passes a live render state.
+    let state = unsafe { &*state };
+    let count = usize::try_from(state.vertexBufferCount).unwrap_or(usize::MAX);
+    let vertex = state
+        .vertexBuffers
+        .iter()
+        .take(count)
+        .map(|pair| {
+            // SAFETY: the state names live fake buffers.
+            unsafe { name_of(pair.buffer) }.unwrap_or("null")
+        })
+        .collect::<Vec<_>>();
+    // SAFETY: the state names a live fake buffer or null.
+    let index = unsafe { name_of(state.indexBuffer.buffer) };
+    let viewport = state.viewports[0];
+    header.log.push(Event::render_state(
+        header.name,
+        [viewport.extentX, viewport.extentY],
+        &vertex,
+        index,
+    ));
+}
+
+unsafe extern "system" fn render_pass_draw(
+    this: *mut IRenderPassEncoder,
+    args: *const DrawArguments,
+) {
+    // SAFETY: `RENDER_PASS_VTABLE` belongs to a live fake render pass only.
+    let header = unsafe { header(this) };
+    // SAFETY: the crate passes live arguments.
+    let args = unsafe { &*args };
+    header.log.push(Event::draw(
+        header.name,
+        false,
+        args.vertexCount,
+        args.instanceCount,
+    ));
+}
+
+unsafe extern "system" fn render_pass_draw_indexed(
+    this: *mut IRenderPassEncoder,
+    args: *const DrawArguments,
+) {
+    // SAFETY: `RENDER_PASS_VTABLE` belongs to a live fake render pass only.
+    let header = unsafe { header(this) };
+    // SAFETY: the crate passes live arguments.
+    let args = unsafe { &*args };
+    header.log.push(Event::draw(
+        header.name,
+        true,
+        args.vertexCount,
+        args.instanceCount,
+    ));
+}
+
+impl FakeRenderPass {
+    /// Creates a fake render pass encoder with one reference, which the
+    /// caller owns, and a root shader object named `root`, which shares the
+    /// log of the pass.
+    pub(crate) fn create(log: &Log, name: &'static str) -> NonNull<IRenderPassEncoder> {
+        let root = FakeShaderObject::create(log, "root");
+        FakeObject::create(
+            (&raw const RENDER_PASS_VTABLE).cast::<c_void>(),
+            log,
+            name,
+            PassState {
+                root: Cell::new(root),
+                null_binds: Cell::new(false),
+            },
+        )
+    }
+
+    /// Makes `bindPipeline` of the fake render pass return null.
+    pub(crate) fn answer_binds_with_null(raw: NonNull<IRenderPassEncoder>) {
+        // SAFETY: the test passes a live fake render pass.
+        let object = unsafe { PassObject::from_this(raw.as_ptr()) };
+        object.state.null_binds.set(true);
+    }
+
+    /// Releases one reference of a fake render pass.
+    ///
+    /// # Safety
+    ///
+    /// `raw` is a live fake render pass, and the caller owns the reference
+    /// that this releases. Breaking either is undefined behaviour.
+    pub(crate) unsafe fn release_raw(raw: NonNull<IRenderPassEncoder>) {
+        // SAFETY: the caller guarantees both conditions of `release`.
+        unsafe { IRenderPassEncoder::release(raw.as_ptr()) };
     }
 }

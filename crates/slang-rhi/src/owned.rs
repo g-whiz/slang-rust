@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 use slang_rhi_sys::{
     IBuffer, ICommandBuffer, ICommandEncoder, ICommandQueue, IComputePipeline, IDevice,
-    IShaderObject, IShaderProgram,
+    IInputLayout, IRenderPipeline, ISampler, IShaderObject, IShaderProgram, ITexture, ITextureView,
 };
 
 use crate::guard;
@@ -71,6 +71,11 @@ rhi_interfaces!(
     ICommandEncoder,
     ICommandBuffer,
     IShaderObject,
+    ITexture,
+    ITextureView,
+    ISampler,
+    IInputLayout,
+    IRenderPipeline,
 );
 
 /// An owning interface pointer, which holds exactly one reference to an

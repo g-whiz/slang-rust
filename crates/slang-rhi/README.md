@@ -1,6 +1,6 @@
 # slang-rhi
 
-The crate slang-rhi provides safe Rust wrappers over the C++ library [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of the [Slang](https://shader-slang.org) shader compiler, to run compute kernels on the graphics processing unit (GPU) with Vulkan on Linux and Direct3D 12 on Windows.
+The crate slang-rhi provides safe Rust wrappers over the C++ library [slang-rhi](https://github.com/shader-slang/slang-rhi), the render hardware interface of the [Slang](https://shader-slang.org) shader compiler, to run compute kernels and draw with render pipelines on the graphics processing unit (GPU) with Vulkan on Linux and Direct3D 12 on Windows.
 
 It builds on the raw bindings of [slang-rhi-sys](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/README.md) and compiles through [slang-compiler](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-compiler/README.md), and a program that runs kernels and render pipelines through wgpu uses [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) instead.
 
@@ -44,7 +44,7 @@ The crate builds on Linux with the GNU C library and on x86_64 Windows with the 
 
 ## Documentation
 
-The crate is not on the hosted API documentation. Its [crate documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/src/lib.rs) describes the compute path, ownership and threads, debug messages, and the limits of the crate, and each item is documented in the [source of the crate](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi/src). The [project README](https://github.com/g-whiz/slang-rust) lists the other crates.
+The crate is not on the hosted API documentation. Its [crate documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi/src/lib.rs) describes the compute path, the textures, render pipelines, and render passes of a draw, ownership and threads, debug messages, and the limits of the crate, and each item is documented in the [source of the crate](https://github.com/g-whiz/slang-rust/tree/main/crates/slang-rhi/src). The [project README](https://github.com/g-whiz/slang-rust) lists the other crates.
 
 ## Licence
 

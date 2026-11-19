@@ -45,11 +45,12 @@ pub struct Queue {
     device: Device,
 }
 
-/// A command encoder, which records commands, such as compute passes, into a
-/// command buffer.
+/// A command encoder, which records commands, such as compute passes and
+/// render passes, into a command buffer.
 ///
 /// Get one from [`Queue::encoder`], record with
-/// [`CommandEncoder::compute_pass`], and end the recording with
+/// [`CommandEncoder::compute_pass`] and
+/// [`CommandEncoder::render_pass`], and end the recording with
 /// [`CommandEncoder::finish`]. An encoder holds its [`Device`], so the device
 /// lives at least as long as the encoder.
 ///
@@ -301,6 +302,14 @@ impl Queue {
 }
 
 impl CommandEncoder {
+    pub(crate) fn as_ptr(&self) -> *mut ICommandEncoder {
+        self.raw.as_ptr()
+    }
+
+    pub(crate) fn device(&self) -> &Device {
+        &self.device
+    }
+
     /// Records a compute pass, in which `f` binds compute pipelines, sets
     /// their parameters, and dispatches them, and returns the value of `f`.
     ///
@@ -493,7 +502,7 @@ impl ComputePass<'_> {
         // SAFETY: the pass holds the root object until its next
         // `bindPipeline` or until the encoder is freed, and the returned value
         // borrows `self` mutably, so neither happens while it lives.
-        Ok(unsafe { ShaderObject::borrowed(root, self.device) })
+        Ok(unsafe { ShaderObject::borrowed(root, self.device, None) })
     }
 
     /// Dispatches the bound pipeline with `thread_groups` groups of threads

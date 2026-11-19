@@ -1,6 +1,7 @@
 use std::ptr::{self, NonNull};
 
-use slang_compiler::{Blob, LinkedProgram, Session, Stage};
+use slang_compiler::reflection::{LayoutSize, ScalarType, TypeKind, VariableLayout};
+use slang_compiler::{Blob, LinkedProgram, ParameterCategory, Session, Stage};
 use slang_compiler_sys::{IComponentType, ISlangBlob};
 use slang_rhi_sys::{IComputePipeline, IDevice, IShaderProgram};
 
@@ -8,6 +9,7 @@ use crate::device::Device;
 use crate::error::{self, Error, Operation, Result};
 use crate::guard;
 use crate::owned::Owned;
+use crate::render_pipeline::{InputType, Numbers, VertexInput};
 
 /// A shader program of a device, which holds a linked Slang program for that
 /// device.
@@ -47,10 +49,42 @@ pub struct ShaderProgram {
     raw: Owned<IShaderProgram>,
     _session: Option<Session>,
     device: Device,
-    /// The thread group size of the one compute entry point of the program,
-    /// or `None` when it does not have exactly one entry point that is a
-    /// compute kernel.
-    thread_group_size: Option<[usize; 3]>,
+    /// What the entry points of the program are, which the creation of a
+    /// pipeline checks.
+    entry_points: EntryPoints,
+    /// The varying inputs of the vertex entry point of the program, which
+    /// the creation of a render pipeline checks its vertex streams against.
+    vertex_inputs: Vec<VertexInput>,
+}
+
+/// What the entry points of a linked program are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryPoints {
+    /// Exactly one entry point, a compute kernel with this thread group size.
+    Compute([usize; 3]),
+    /// Exactly two entry points, one of the vertex stage and one of the
+    /// fragment stage.
+    Render,
+    /// Any other set of entry points.
+    Other,
+}
+
+impl ShaderProgram {
+    pub(crate) fn as_ptr(&self) -> *mut IShaderProgram {
+        self.raw.as_ptr()
+    }
+
+    pub(crate) fn device_ptr(&self) -> NonNull<IDevice> {
+        self.device.as_non_null()
+    }
+
+    pub(crate) fn entry_points(&self) -> EntryPoints {
+        self.entry_points
+    }
+
+    pub(crate) fn vertex_inputs(&self) -> &[VertexInput] {
+        &self.vertex_inputs
+    }
 }
 
 /// A compute pipeline of a device, which holds the compiled code of the
@@ -102,7 +136,7 @@ impl ComputePipeline {
 
 /// Joins the messages that a call collected into the text of diagnostics, or
 /// returns `None` when there are none.
-fn diagnostics(messages: &[String]) -> Option<String> {
+pub(crate) fn diagnostics(messages: &[String]) -> Option<String> {
     if messages.is_empty() {
         None
     } else {
@@ -110,29 +144,137 @@ fn diagnostics(messages: &[String]) -> Option<String> {
     }
 }
 
-/// Returns the thread group size of the entry point of a linked program of
-/// `session` when the program has exactly one entry point and that entry
-/// point is a compute kernel, and `None` otherwise.
-fn compute_thread_group_size(
+/// Returns what the entry points of a linked program of `session` are, and
+/// the varying inputs of its vertex entry points.
+fn entry_points(
     program: &LinkedProgram,
     session: &Session,
-) -> Result<Option<[usize; 3]>> {
-    if program.entry_point_count() != 1 {
-        return Ok(None);
+) -> Result<(EntryPoints, Vec<VertexInput>)> {
+    let count = program.entry_point_count();
+    if count != 1 && count != 2 {
+        return Ok((EntryPoints::Other, Vec::new()));
     }
     let slang = |error| Error::slang(Operation::CreateShaderProgram, error);
     let target = session.target_index(0).map_err(slang)?;
     let layout = program.layout(target).map_err(slang)?.into_value();
-    let mut kernels = Vec::new();
+    let mut stages = Vec::new();
+    let mut inputs = Vec::new();
     for entry_point in layout.entry_point_layouts() {
         let stage = entry_point.stage().map_err(slang)?;
-        kernels
-            .push((stage == Some(Stage::Compute)).then(|| entry_point.compute_thread_group_size()));
+        let size = if stage == Some(Stage::Compute) {
+            entry_point.compute_thread_group_size()
+        } else {
+            [0; 3]
+        };
+        if stage == Some(Stage::Vertex) {
+            for parameter in entry_point.parameter_layouts() {
+                collect_inputs(parameter, None, 0, &mut inputs).map_err(slang)?;
+            }
+        }
+        stages.push((stage, size));
     }
-    Ok(match kernels.as_slice() {
-        [Some(size)] => Some(*size),
+    Ok((classify_entry_points(&stages), inputs))
+}
+
+/// Adds the varying inputs of the parameter or field `variable` to `inputs`,
+/// where `parent` is the name of the structure that holds a field and `base`
+/// is the location of that structure.
+///
+/// A variable without varying input, such as a system value or a `uniform`
+/// parameter, adds nothing, and a structure adds each of its fields.
+fn collect_inputs(
+    variable: VariableLayout<'_>,
+    parent: Option<&str>,
+    base: u64,
+    inputs: &mut Vec<VertexInput>,
+) -> slang_compiler::Result<()> {
+    let Some(type_layout) = variable.type_layout() else {
+        return Ok(());
+    };
+    let name = variable
+        .variable()
+        .map(slang_compiler::reflection::Variable::name)
+        .transpose()?
+        .flatten()
+        .unwrap_or("");
+    let name = match parent {
+        Some(parent) => format!("{parent}.{name}"),
+        None => name.to_owned(),
+    };
+    if type_layout.size(ParameterCategory::VaryingInput).amount == LayoutSize::Finite(0) {
+        return Ok(());
+    }
+    let location = match variable.offset(ParameterCategory::VaryingInput).amount {
+        LayoutSize::Finite(offset) => base
+            .checked_add(offset)
+            .filter(|location| u32::try_from(*location).is_ok()),
         _ => None,
-    })
+    };
+    let Some(location) = location else {
+        inputs.push(VertexInput {
+            name,
+            location: u32::MAX,
+            semantic: None,
+            ty: InputType::Other(String::from("at a location that Slang does not report")),
+        });
+        return Ok(());
+    };
+    let kind = type_layout.kind()?;
+    if kind == TypeKind::Struct {
+        for field in type_layout.field_layouts() {
+            collect_inputs(field, Some(&name), location, inputs)?;
+        }
+        return Ok(());
+    }
+    let Ok(location) = u32::try_from(location) else {
+        return Ok(());
+    };
+    let semantic = variable
+        .semantic_name()?
+        .map(|semantic| (semantic.to_owned(), variable.semantic_index()));
+    let semantic = match semantic {
+        Some((semantic, index)) => u32::try_from(index).ok().map(|index| (semantic, index)),
+        None => None,
+    };
+    let ty = match (
+        kind,
+        type_layout
+            .ty()
+            .map(slang_compiler::reflection::Type::scalar_type)
+            .transpose()?,
+    ) {
+        (TypeKind::Scalar | TypeKind::Vector, Some(ScalarType::Float32)) => {
+            InputType::Numbers(Numbers::Float)
+        }
+        (TypeKind::Scalar | TypeKind::Vector, Some(ScalarType::Uint32)) => {
+            InputType::Numbers(Numbers::Unsigned)
+        }
+        (TypeKind::Scalar | TypeKind::Vector, Some(ScalarType::Int32)) => {
+            InputType::Numbers(Numbers::Signed)
+        }
+        (TypeKind::Scalar | TypeKind::Vector, Some(scalar)) => {
+            InputType::Other(format!("of the scalar type {scalar:?}"))
+        }
+        (kind, _) => InputType::Other(format!("of the kind {kind:?}")),
+    };
+    inputs.push(VertexInput {
+        name,
+        location,
+        semantic,
+        ty,
+    });
+    Ok(())
+}
+
+/// Classifies the stages of the entry points of a program, each with the
+/// thread group size that reflection reports for it.
+fn classify_entry_points(stages: &[(Option<Stage>, [usize; 3])]) -> EntryPoints {
+    match stages {
+        [(Some(Stage::Compute), size)] => EntryPoints::Compute(*size),
+        [(Some(Stage::Vertex), _), (Some(Stage::Fragment), _)]
+        | [(Some(Stage::Fragment), _), (Some(Stage::Vertex), _)] => EntryPoints::Render,
+        _ => EntryPoints::Other,
+    }
 }
 
 /// Checks that a thread group of `size` threads along the three axes fits
@@ -244,7 +386,7 @@ impl Device {
         compile_session: Option<Session>,
     ) -> Result<ShaderProgram> {
         check_specialized(program)?;
-        let thread_group_size = compute_thread_group_size(program, session)?;
+        let (entry_points, vertex_inputs) = entry_points(program, session)?;
         let desc = slang_rhi_sys::ShaderProgramDesc {
             linkingStyle: slang_rhi_sys::LinkingStyle::SingleProgram,
             slangGlobalScope: program.as_raw().as_ptr(),
@@ -287,7 +429,8 @@ impl Device {
             raw,
             _session: compile_session,
             device: self.clone(),
-            thread_group_size,
+            entry_points,
+            vertex_inputs,
         })
     }
 
@@ -334,7 +477,7 @@ impl Device {
                 "the shader program belongs to another device",
             ));
         }
-        let Some(size) = program.thread_group_size else {
+        let EntryPoints::Compute(size) = program.entry_points else {
             return Err(Error::invalid(
                 Operation::CreateComputePipeline,
                 "the shader program does not have exactly one entry point that is a compute kernel",
@@ -373,8 +516,45 @@ impl Device {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_thread_group_size, diagnostics};
+    use slang_compiler::Stage;
+
+    use super::{EntryPoints, check_thread_group_size, classify_entry_points, diagnostics};
     use crate::ErrorKind;
+
+    #[test]
+    fn classify_entry_points_tells_a_kernel_a_vertex_and_fragment_pair_and_the_rest() {
+        let size = [8, 4, 1];
+        assert_eq!(
+            classify_entry_points(&[(Some(Stage::Compute), size)]),
+            EntryPoints::Compute(size)
+        );
+        for pair in [
+            [(Some(Stage::Vertex), size), (Some(Stage::Fragment), size)],
+            [(Some(Stage::Fragment), size), (Some(Stage::Vertex), size)],
+        ] {
+            assert_eq!(classify_entry_points(&pair), EntryPoints::Render);
+        }
+        for other in [
+            &[][..],
+            &[(Some(Stage::Vertex), size)][..],
+            &[(Some(Stage::Fragment), size)][..],
+            &[(None, size)][..],
+            &[(Some(Stage::Vertex), size), (Some(Stage::Vertex), size)][..],
+            &[(Some(Stage::Compute), size), (Some(Stage::Fragment), size)][..],
+            &[(Some(Stage::Vertex), size), (None, size)][..],
+            &[
+                (Some(Stage::Vertex), size),
+                (Some(Stage::Fragment), size),
+                (Some(Stage::Compute), size),
+            ][..],
+        ] {
+            assert_eq!(
+                classify_entry_points(other),
+                EntryPoints::Other,
+                "{other:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_thread_group_within_the_limits_is_accepted() {

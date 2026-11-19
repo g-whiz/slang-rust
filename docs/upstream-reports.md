@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | Every defect of an upstream project that this repository records and that should be reported to that project, and every request to an upstream project that the owner decided to make |
 
 ## 1. Introduction
@@ -45,6 +45,9 @@ Each identifier is a row of the list that Section 2 names for the entry's upstre
 | RKB-4 | slang-rhi, `shader-slang/slang-rhi` | `readBuffer` on D3D12 ignores `offset` for a buffer in `ReadBack` memory | Owner to decide. The defect was read in the source and is not reproduced, and `slang-rhi` cannot reach it, so the owner decides whether it is worth an issue |
 | RKB-5 | slang-rhi, `shader-slang/slang-rhi` | On Vulkan, an array of `ConstantBuffer` parameters is bound as if it had one element | Draft not written. The defect is reproduced on Vulkan, and the row records the message of the Khronos validation layer |
 | RKB-6 | slang-rhi, `shader-slang/slang-rhi` | On Vulkan, a dispatch of a kernel with a `[vk::push_constant]` buffer aborts the process with "Unsupported binding type: 14" | Draft not written. The defect is reproduced on Vulkan |
+| RKB-7 | slang-rhi, `shader-slang/slang-rhi` | `getFormatSupport` on D3D12 reports the support of the shader resource format, so `D32Float` lacks `DepthStencil` | Draft not written. The defect was read in the source and is not reproduced yet |
+| RKB-8 | slang-rhi, `shader-slang/slang-rhi` | `getFormatSupport` on Vulkan takes `CopySource` and `CopyDestination` from the features of linear tiling, while textures use optimal tiling | Draft not written. The defect was read in the source and is not reproduced yet |
+| RKB-9 | slang-rhi, `shader-slang/slang-rhi` | The Vulkan backend always enables depth clamping, which needs the feature `depthClamp`, and ignores `depthClipEnable`, so a primitive outside the depth range is clamped on Vulkan and clipped on D3D12 | Draft not written. The difference between the backends is observed on Vulkan and D3D12, and the missing check of the feature was read in the source |
 | REQ-1 | Slang, `shader-slang/slang` | Update the submodule `external/metal-cpp` to the metal-cpp for macOS 15.2 that slang-rhi pins, so that slang-rhi builds its Metal backend from the Slang tree | Draft not written. Its record is Section 7.4 of `docs/design/slang-rhi-sys.md` |
 
 The status of an entry is one of these values:

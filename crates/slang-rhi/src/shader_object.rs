@@ -1,9 +1,11 @@
+use std::cell::RefCell;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
 use slang_rhi_sys::{
-    Binding, Binding_anon0, BindingType, BufferRange, IBuffer, IDevice, IResource, IShaderObject,
+    Binding, Binding_anon0, BindingType, BufferRange, IBuffer, IDevice, IResource, ISampler,
+    IShaderObject, ITexture, ITextureView,
 };
 
 use crate::buffer::{Buffer, BufferUsage};
@@ -11,6 +13,13 @@ use crate::error::{self, Error, Operation, Result};
 use crate::guard;
 use crate::lookup::ElementLayout;
 use crate::owned::Owned;
+use crate::sampler::Sampler;
+use crate::texture::{Texture, TextureUsage};
+
+/// The record of the textures that `set_texture` bound on the shader objects
+/// of one render pass, which the pass compares with its targets before each
+/// draw.
+pub(crate) type TextureRecord = RefCell<Vec<NonNull<ITexture>>>;
 
 /// The position of a parameter in a shader object.
 ///
@@ -181,8 +190,33 @@ pub(crate) enum RangeKind {
     /// The objects of a `ConstantBuffer`, a `cbuffer`, or a `ParameterBlock`,
     /// which hold the fields of the parameter.
     SubObject,
-    /// Anything else, such as a texture.
+    /// A texture that shaders only read, such as a `Texture2D`, of this
+    /// type.
+    ReadOnlyTexture(TextureType),
+    /// A texture that shaders write, such as a `RWTexture2D`.
+    MutableTexture,
+    /// A sampler, such as a `SamplerState`, or with `comparison` a
+    /// `SamplerComparisonState`.
+    Sampler {
+        /// Whether the range takes comparison samplers.
+        comparison: bool,
+    },
+    /// A texture combined with a sampler, such as a `Sampler2D`.
+    CombinedTextureSampler,
+    /// Anything else, such as a push-constant buffer.
     Other,
+}
+
+/// What the reflection of a texture parameter says about the textures that
+/// it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TextureType {
+    /// Whether the texture is two-dimensional, without array layers, several
+    /// samples, or any other flag of its shape.
+    pub(crate) plain_2d: bool,
+    /// Whether the elements that a shader reads from the texture are
+    /// floating-point numbers.
+    pub(crate) float: bool,
 }
 
 /// What the layout of a shader object says about one binding range.
@@ -296,7 +330,11 @@ fn check_buffer_binding(
             "the binding range {} holds the object of a ConstantBuffer or a ParameterBlock, not a buffer",
             offset.binding_range_index
         )),
-        RangeKind::Other => invalid(format!(
+        RangeKind::ReadOnlyTexture(_)
+        | RangeKind::MutableTexture
+        | RangeKind::Sampler { .. }
+        | RangeKind::CombinedTextureSampler
+        | RangeKind::Other => invalid(format!(
             "the binding range {} does not take a buffer",
             offset.binding_range_index
         )),
@@ -314,6 +352,10 @@ fn check_object(offset: ShaderOffset, range: Option<BindingRange>) -> Result<()>
         RangeKind::ReadOnlyBuffer
         | RangeKind::MutableBuffer
         | RangeKind::TypedBuffer
+        | RangeKind::ReadOnlyTexture(_)
+        | RangeKind::MutableTexture
+        | RangeKind::Sampler { .. }
+        | RangeKind::CombinedTextureSampler
         | RangeKind::Other => Err(Error::invalid(
             Operation::GetObject,
             format!(
@@ -340,10 +382,118 @@ fn buffer_binding(buffer: NonNull<IBuffer>) -> Binding {
     }
 }
 
-/// A shader object of a bound compute pipeline, which holds the values of the
-/// parameters of its program.
+/// Checks that `offset` names an existing binding of a range that takes a
+/// texture that shaders only read, and that a texture with the uses `usage`
+/// can be read by a shader, where `range` is the range at its binding range
+/// index, or `None` when the object has no range there.
+fn check_texture_binding(
+    offset: ShaderOffset,
+    range: Option<BindingRange>,
+    usage: TextureUsage,
+) -> Result<()> {
+    let invalid = |detail: String| Err(Error::invalid(Operation::SetTexture, detail));
+    let range = existing_range(offset, range, Operation::SetTexture)?;
+    match range.kind {
+        RangeKind::ReadOnlyTexture(texture) if !texture.plain_2d => invalid(format!(
+            "the binding range {} is a texture of another shape than a two-dimensional texture without array layers or several samples, the only shape that this crate creates",
+            offset.binding_range_index
+        )),
+        RangeKind::ReadOnlyTexture(texture) if !texture.float => invalid(format!(
+            "the binding range {} is a texture whose elements are not floating-point numbers, while a shader reads every format that this crate creates as floating-point numbers",
+            offset.binding_range_index
+        )),
+        RangeKind::ReadOnlyTexture(_) if usage.contains(TextureUsage::SHADER_RESOURCE) => Ok(()),
+        RangeKind::ReadOnlyTexture(_) => invalid(String::from(
+            "a texture that a shader reads needs the use SHADER_RESOURCE",
+        )),
+        RangeKind::MutableTexture => invalid(format!(
+            "the binding range {} is a texture that a shader writes, which this crate does not bind",
+            offset.binding_range_index
+        )),
+        RangeKind::CombinedTextureSampler => invalid(format!(
+            "the binding range {} is a texture combined with a sampler, which this crate does not bind",
+            offset.binding_range_index
+        )),
+        RangeKind::ReadOnlyBuffer
+        | RangeKind::MutableBuffer
+        | RangeKind::TypedBuffer
+        | RangeKind::SubObject
+        | RangeKind::Sampler { .. }
+        | RangeKind::Other => invalid(format!(
+            "the binding range {} does not take a texture",
+            offset.binding_range_index
+        )),
+    }
+}
+
+/// Checks that `offset` names an existing binding of a range that takes a
+/// sampler, where `range` is the range at its binding range index, or `None`
+/// when the object has no range there.
+fn check_sampler_binding(offset: ShaderOffset, range: Option<BindingRange>) -> Result<()> {
+    let range = existing_range(offset, range, Operation::SetSampler)?;
+    match range.kind {
+        RangeKind::Sampler { comparison: false } => Ok(()),
+        RangeKind::Sampler { comparison: true } => Err(Error::invalid(
+            Operation::SetSampler,
+            format!(
+                "the binding range {} is a comparison sampler, which this crate does not create",
+                offset.binding_range_index
+            ),
+        )),
+        RangeKind::CombinedTextureSampler => Err(Error::invalid(
+            Operation::SetSampler,
+            format!(
+                "the binding range {} is a texture combined with a sampler, which this crate does not bind",
+                offset.binding_range_index
+            ),
+        )),
+        RangeKind::ReadOnlyBuffer
+        | RangeKind::MutableBuffer
+        | RangeKind::TypedBuffer
+        | RangeKind::SubObject
+        | RangeKind::ReadOnlyTexture(_)
+        | RangeKind::MutableTexture
+        | RangeKind::Other => Err(Error::invalid(
+            Operation::SetSampler,
+            format!(
+                "the binding range {} does not take a sampler",
+                offset.binding_range_index
+            ),
+        )),
+    }
+}
+
+/// Returns the binding of the view `view` of a texture, which names the view
+/// as its one resource.
+fn texture_binding(view: NonNull<ITextureView>) -> Binding {
+    Binding {
+        r#type: BindingType::Texture,
+        resource: view.as_ptr().cast::<IResource>(),
+        resource2: ptr::null_mut(),
+        anon0: Binding_anon0 {
+            bufferRange: BufferRange { offset: 0, size: 0 },
+        },
+    }
+}
+
+/// Returns the binding of the sampler `sampler`, which names the sampler as
+/// its one resource.
+fn sampler_binding(sampler: NonNull<ISampler>) -> Binding {
+    Binding {
+        r#type: BindingType::Sampler,
+        resource: sampler.as_ptr().cast::<IResource>(),
+        resource2: ptr::null_mut(),
+        anon0: Binding_anon0 {
+            bufferRange: BufferRange { offset: 0, size: 0 },
+        },
+    }
+}
+
+/// A shader object of a bound compute or render pipeline, which holds the
+/// values of the parameters of its program.
 ///
-/// [`ComputePass::bind_pipeline`](crate::ComputePass::bind_pipeline) returns
+/// [`ComputePass::bind_pipeline`](crate::ComputePass::bind_pipeline) and
+/// [`RenderPass::bind_pipeline`](crate::RenderPass::bind_pipeline) return
 /// the root shader object, which holds the global parameters of the program,
 /// [`ShaderObject::entry_point`] returns the shader object of one entry
 /// point, which holds its `uniform` parameters, and [`ShaderObject::object`]
@@ -379,6 +529,9 @@ pub struct ShaderObject<'p> {
     raw: NonNull<IShaderObject>,
     _owned: Option<Owned<IShaderObject>>,
     device: NonNull<IDevice>,
+    /// The record of the textures bound in the render pass of the object, or
+    /// `None` for an object of a compute pass.
+    textures: Option<&'p TextureRecord>,
     borrow: PhantomData<&'p mut ()>,
 }
 
@@ -390,12 +543,18 @@ impl ShaderObject<'_> {
     /// `raw` points to a live shader object that stays alive and is not used
     /// in any other way for the lifetime of the returned value, which the
     /// caller ties to a mutable borrow of the owner. `device` is the device
-    /// of the object. Breaking either is undefined behaviour.
-    pub(crate) unsafe fn borrowed(raw: NonNull<IShaderObject>, device: NonNull<IDevice>) -> Self {
-        Self {
+    /// of the object, and `textures` the record of the render pass of the
+    /// object, if it has one. Breaking either is undefined behaviour.
+    pub(crate) unsafe fn borrowed(
+        raw: NonNull<IShaderObject>,
+        device: NonNull<IDevice>,
+        textures: Option<&TextureRecord>,
+    ) -> ShaderObject<'_> {
+        ShaderObject {
             raw,
             _owned: None,
             device,
+            textures,
             borrow: PhantomData,
         }
     }
@@ -473,6 +632,11 @@ impl ShaderObject<'_> {
     /// A typed buffer, such as an `RWBuffer<float>`, needs a buffer with a
     /// format, which this crate does not create.
     ///
+    /// In a render pass, the crate does not refuse a buffer that a draw both
+    /// reads as a vertex or index buffer and writes through a read-write
+    /// parameter, and the contents that such a draw reads from the buffer
+    /// are undefined.
+    ///
     /// Bind a buffer to every buffer parameter that the kernel uses before
     /// the dispatch. A parameter left without a buffer reads zeros and drops
     /// writes on Direct3D 12, where slang-rhi binds a null descriptor, and on
@@ -508,6 +672,110 @@ impl ShaderObject<'_> {
             buffer.device_ptr(),
             buffer.usage(),
         )
+    }
+
+    /// Binds the default view of `texture`, which covers the whole texture,
+    /// at `offset`.
+    ///
+    /// The shader object keeps its own reference to the view, so the texture
+    /// stays alive while the shader object or a command buffer that uses it
+    /// needs it. The parameter is a texture that shaders only read, such as a
+    /// `Texture2D`, and the texture needs the use
+    /// [`TextureUsage::SHADER_RESOURCE`](crate::TextureUsage::SHADER_RESOURCE).
+    /// A texture that a shader writes, such as a `RWTexture2D`, and a texture
+    /// combined with a sampler, such as a `Sampler2D`, are refused. So is a
+    /// parameter of another shape than the two-dimensional textures without
+    /// array layers or several samples that this crate creates, such as a
+    /// `Texture3D`, a `TextureCube`, a `Texture2DArray`, or a `Texture2DMS`,
+    /// and a parameter whose elements are not floating-point numbers, such as
+    /// a `Texture2D<uint4>`, because a shader reads every format that this
+    /// crate creates as floating-point numbers.
+    ///
+    /// In a render pass, a draw refuses a texture that this method bound
+    /// during the pass and that is also a target of the pass, because no
+    /// graphics API lets a pass read the texture that it draws into.
+    ///
+    /// # Examples
+    ///
+    /// This example binds a texture and a sampler that a fragment shader
+    /// declares as `Texture2D colours;` and `SamplerState nearest;`:
+    ///
+    /// ```
+    /// use slang_rhi::{Sampler, ShaderObject, Texture};
+    ///
+    /// fn bind(root: &mut ShaderObject<'_>, texture: &Texture, sampler: &Sampler) -> slang_rhi::Result<()> {
+    ///     if let Some(offset) = root.offset_of("colours")? {
+    ///         root.set_texture(offset, texture)?;
+    ///     }
+    ///     if let Some(offset) = root.offset_of("nearest")? {
+    ///         root.set_sampler(offset, sampler)?;
+    ///     }
+    ///     Ok(())
+    /// }
+    /// # let _ = bind;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// before any call into slang-rhi, when the texture belongs to another
+    /// device, when the parameter has no binding range or is a structure of
+    /// several resources, when the object has no binding range at the binding
+    /// range index of `offset` or that range has no binding at its array
+    /// index, when the range does not take a texture that shaders only read,
+    /// when it takes a texture of another shape or with elements that are
+    /// not floating-point numbers, or when the texture lacks the use
+    /// [`TextureUsage::SHADER_RESOURCE`](crate::TextureUsage::SHADER_RESOURCE).
+    /// Returns an error of kind [`ErrorKind::Failed`](crate::ErrorKind::Failed)
+    /// when slang-rhi returns no layout for the object, and the error that
+    /// slang-rhi reports for the binding.
+    pub fn set_texture(&mut self, offset: ShaderOffset, texture: &Texture) -> Result<()> {
+        let range = self
+            .element_layout(Operation::SetTexture)?
+            .binding_range(offset.binding_range_index);
+        self.bind_texture(
+            offset,
+            range,
+            BoundTexture {
+                texture: texture.as_non_null(),
+                view: texture.view(),
+                device: texture.device_ptr(),
+                usage: texture.usage(),
+            },
+        )
+    }
+
+    /// Binds `sampler` at `offset`.
+    ///
+    /// The shader object keeps its own reference to the sampler. The
+    /// parameter is a sampler, such as a `SamplerState`. A texture combined
+    /// with a sampler, such as a `Sampler2D`, is refused, and so is a
+    /// comparison sampler, a `SamplerComparisonState`, because this crate
+    /// creates no sampler that compares.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`ShaderObject::set_texture`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind
+    /// [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument),
+    /// before any call into slang-rhi, when the sampler belongs to another
+    /// device, when the parameter has no binding range or is a structure of
+    /// several resources, when the object has no binding range at the binding
+    /// range index of `offset` or that range has no binding at its array
+    /// index, or when the range does not take a sampler or takes a comparison
+    /// sampler. Returns an error of
+    /// kind [`ErrorKind::Failed`](crate::ErrorKind::Failed) when slang-rhi
+    /// returns no layout for the object, and the error that slang-rhi reports
+    /// for the binding.
+    pub fn set_sampler(&mut self, offset: ShaderOffset, sampler: &Sampler) -> Result<()> {
+        let range = self
+            .element_layout(Operation::SetSampler)?
+            .binding_range(offset.binding_range_index);
+        self.bind_sampler(offset, range, sampler.as_non_null(), sampler.device_ptr())
     }
 
     /// Returns the shader object of the entry point at `index` of the
@@ -569,6 +837,7 @@ impl ShaderObject<'_> {
             raw: owned.as_non_null(),
             _owned: Some(owned),
             device: self.device,
+            textures: self.textures,
             borrow: PhantomData,
         })
     }
@@ -677,6 +946,7 @@ impl ShaderObject<'_> {
             raw: owned.as_non_null(),
             _owned: Some(owned),
             device: self.device,
+            textures: self.textures,
             borrow: PhantomData,
         })
     }
@@ -752,6 +1022,89 @@ impl ShaderObject<'_> {
         });
         error::check(Operation::SetBuffer, result, None)
     }
+
+    /// Binds the default view of a texture after the checks against
+    /// `range`, the binding range that the layout of the object reports at
+    /// the binding range index of `offset`, and adds the texture to the
+    /// record of the render pass of the object. The caller keeps its own
+    /// reference to the texture and its view through the call.
+    pub(crate) fn bind_texture(
+        &mut self,
+        offset: ShaderOffset,
+        range: Option<BindingRange>,
+        texture: BoundTexture,
+    ) -> Result<()> {
+        if texture.device != self.device {
+            return Err(Error::invalid(
+                Operation::SetTexture,
+                "the texture belongs to another device",
+            ));
+        }
+        check_texture_binding(offset, range, texture.usage)?;
+        let raw = self.raw.as_ptr();
+        let offset = offset.to_raw();
+        let binding = texture_binding(texture.view);
+        let result = guard::call("IShaderObject::setBinding", || {
+            // SAFETY: `raw` is live, `offset` names an existing binding of a
+            // range that takes a texture that shaders only read by the checks
+            // above, the texture has the use of a shader resource, and
+            // `binding` names the live default view of the texture, whose
+            // interface derives from the resource interface as its first and
+            // only base, so the cast pointer is a valid resource pointer. The
+            // caller keeps its own reference to the view through the call, and
+            // slang-rhi adds its own.
+            unsafe { IShaderObject::setBinding(raw, &raw const offset, &raw const binding) }
+        });
+        error::check(Operation::SetTexture, result, None)?;
+        if let Some(textures) = self.textures {
+            textures.borrow_mut().push(texture.texture);
+        }
+        Ok(())
+    }
+
+    /// Binds the sampler `sampler` of the device `sampler_device` after the
+    /// checks against `range`, the binding range that the layout of the
+    /// object reports at the binding range index of `offset`. The caller
+    /// keeps its own reference to the sampler through the call.
+    fn bind_sampler(
+        &mut self,
+        offset: ShaderOffset,
+        range: Option<BindingRange>,
+        sampler: NonNull<ISampler>,
+        sampler_device: NonNull<IDevice>,
+    ) -> Result<()> {
+        if sampler_device != self.device {
+            return Err(Error::invalid(
+                Operation::SetSampler,
+                "the sampler belongs to another device",
+            ));
+        }
+        check_sampler_binding(offset, range)?;
+        let raw = self.raw.as_ptr();
+        let offset = offset.to_raw();
+        let binding = sampler_binding(sampler);
+        let result = guard::call("IShaderObject::setBinding", || {
+            // SAFETY: `raw` is live, `offset` names an existing binding of a
+            // range that takes a sampler by the checks above, and `binding`
+            // names the live sampler, whose interface derives from the
+            // resource interface as its first and only base, so the cast
+            // pointer is a valid resource pointer. The caller keeps its own
+            // reference to the sampler through the call, and slang-rhi adds
+            // its own.
+            unsafe { IShaderObject::setBinding(raw, &raw const offset, &raw const binding) }
+        });
+        error::check(Operation::SetSampler, result, None)
+    }
+}
+
+/// A texture that `set_texture` binds: its interface, its default view, its
+/// device, and its uses.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BoundTexture {
+    pub(crate) texture: NonNull<ITexture>,
+    pub(crate) view: NonNull<ITextureView>,
+    pub(crate) device: NonNull<IDevice>,
+    pub(crate) usage: TextureUsage,
 }
 
 #[cfg(test)]
@@ -761,13 +1114,15 @@ mod tests {
     use slang_rhi_sys::{BindingType, IDevice};
 
     use super::{
-        BindingRange, RangeKind, ShaderObject, ShaderOffset, buffer_binding, check_buffer_binding,
-        check_data, check_object,
+        BindingRange, BoundTexture, RangeKind, ShaderObject, ShaderOffset, TextureRecord,
+        TextureType, buffer_binding, check_buffer_binding, check_data, check_object,
+        check_sampler_binding, check_texture_binding, sampler_binding, texture_binding,
     };
     use crate::ErrorKind;
     use crate::buffer::BufferUsage;
     use crate::error::Operation;
     use crate::fake::{Event, FakeBuffer, FakeShaderObject, Log};
+    use crate::texture::TextureUsage;
 
     /// The offset of a parameter with 4 bytes of uniform data at `uniform`.
     fn uniform(uniform: u32) -> ShaderOffset {
@@ -928,7 +1283,7 @@ mod tests {
         let raw = FakeShaderObject::create(&log, "root");
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(raw, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(raw, device(8), None) };
         object
             .write_data(uniform(4), &[1, 2, 3, 4], 8)
             .expect("the data fits");
@@ -952,7 +1307,7 @@ mod tests {
         let buffer = FakeBuffer::create(&log, "buffer");
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
         object
             .bind_buffer(
                 binding(1, 2),
@@ -995,7 +1350,7 @@ mod tests {
         let buffer = FakeBuffer::create(&log, "buffer");
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
         let other = object
             .bind_buffer(
                 binding(0, 0),
@@ -1071,7 +1426,7 @@ mod tests {
         FakeShaderObject::add_object(root, (1, 2), constants);
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
         let mut found = object
             .sub_object(binding(1, 2), Some(object_range(3)))
             .expect("the object exists");
@@ -1113,7 +1468,7 @@ mod tests {
         let root = FakeShaderObject::create(&log, "root");
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
         let null = object
             .sub_object(binding(0, 0), Some(object_range(1)))
             .map(drop)
@@ -1144,7 +1499,7 @@ mod tests {
         FakeShaderObject::add_entry_point(root, entry);
         // SAFETY: the fake object lives until the test releases it below,
         // and nothing else uses it while the wrapper lives.
-        let mut object = unsafe { ShaderObject::borrowed(root, device(8)) };
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
         let missing = object.entry_point(1).expect_err("one entry point only");
         assert_eq!(missing.kind(), ErrorKind::InvalidArgument);
         assert_eq!(missing.operation(), Operation::GetEntryPoint);
@@ -1179,5 +1534,258 @@ mod tests {
                 Event::freed("entry"),
             ]
         );
+    }
+
+    fn kind_range(kind: RangeKind) -> BindingRange {
+        BindingRange {
+            binding_count: 2,
+            kind,
+        }
+    }
+
+    const SAMPLED: TextureUsage = TextureUsage::SHADER_RESOURCE.union(TextureUsage::COPY_SOURCE);
+
+    const PLAIN_2D: TextureType = TextureType {
+        plain_2d: true,
+        float: true,
+    };
+
+    #[test]
+    fn check_texture_binding_accepts_a_read_only_texture_range_and_a_texture_that_a_shader_reads() {
+        check_texture_binding(
+            binding(0, 1),
+            Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+            SAMPLED,
+        )
+        .expect("it exists");
+    }
+
+    #[test]
+    fn check_texture_binding_rejects_every_other_range_and_a_texture_without_the_use() {
+        let cases = [
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                TextureUsage::RENDER_TARGET,
+            ),
+            (
+                binding(0, 2),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                SAMPLED,
+            ),
+            (binding(3, 0), None, SAMPLED),
+            (
+                ShaderOffset::new(0, 4, 0, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                SAMPLED,
+            ),
+            (
+                ShaderOffset::new(0, 0, 0, 2),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::MutableTexture)),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::CombinedTextureSampler)),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::Sampler { comparison: false })),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::ReadOnlyBuffer)),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::SubObject)),
+                SAMPLED,
+            ),
+            (binding(0, 0), Some(kind_range(RangeKind::Other)), SAMPLED),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(TextureType {
+                    plain_2d: false,
+                    float: true,
+                }))),
+                SAMPLED,
+            ),
+            (
+                binding(0, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(TextureType {
+                    plain_2d: true,
+                    float: false,
+                }))),
+                SAMPLED,
+            ),
+        ];
+        for (offset, range, usage) in cases {
+            let error = check_texture_binding(offset, range, usage).expect_err("it is refused");
+            assert_eq!(
+                error.kind(),
+                ErrorKind::InvalidArgument,
+                "{offset:?} {range:?}"
+            );
+            assert_eq!(error.operation(), Operation::SetTexture);
+        }
+    }
+
+    #[test]
+    fn check_sampler_binding_accepts_only_an_existing_binding_of_a_sampler_range() {
+        check_sampler_binding(
+            binding(1, 1),
+            Some(kind_range(RangeKind::Sampler { comparison: false })),
+        )
+        .expect("it exists");
+        for (offset, range) in [
+            (
+                binding(1, 2),
+                Some(kind_range(RangeKind::Sampler { comparison: false })),
+            ),
+            (binding(1, 0), None),
+            (
+                binding(1, 0),
+                Some(kind_range(RangeKind::CombinedTextureSampler)),
+            ),
+            (
+                binding(1, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+            ),
+            (binding(1, 0), Some(kind_range(RangeKind::MutableBuffer))),
+            (
+                binding(1, 0),
+                Some(kind_range(RangeKind::Sampler { comparison: true })),
+            ),
+        ] {
+            let error = check_sampler_binding(offset, range).expect_err("it is refused");
+            assert_eq!(
+                error.kind(),
+                ErrorKind::InvalidArgument,
+                "{offset:?} {range:?}"
+            );
+            assert_eq!(error.operation(), Operation::SetSampler);
+        }
+    }
+
+    #[test]
+    fn texture_and_sampler_bindings_name_their_one_resource() {
+        let log = Log::new();
+        let raw = FakeBuffer::create(&log, "resource");
+        let texture = texture_binding(raw.cast());
+        assert_eq!(texture.r#type, BindingType::Texture);
+        assert_eq!(texture.resource.cast::<()>(), raw.as_ptr().cast::<()>());
+        assert!(texture.resource2.is_null());
+        let sampler = sampler_binding(raw.cast());
+        assert_eq!(sampler.r#type, BindingType::Sampler);
+        assert_eq!(sampler.resource.cast::<()>(), raw.as_ptr().cast::<()>());
+        assert!(sampler.resource2.is_null());
+        // SAFETY: the test owns the reference of `create` and releases it once.
+        unsafe { FakeBuffer::release_raw(raw) };
+    }
+
+    #[test]
+    fn bind_texture_passes_the_view_and_records_the_texture_in_the_pass() {
+        let log = Log::new();
+        let root = FakeShaderObject::create(&log, "root");
+        let view = FakeBuffer::create(&log, "view");
+        let record = TextureRecord::default();
+        let texture = BoundTexture {
+            texture: NonNull::new(std::ptr::without_provenance_mut(512)).expect("non-zero"),
+            view: view.cast(),
+            device: device(8),
+            usage: SAMPLED,
+        };
+        // SAFETY: the fake object lives until the test releases it below,
+        // and nothing else uses it while the wrapper lives.
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), Some(&record)) };
+        object
+            .bind_texture(
+                binding(2, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                texture,
+            )
+            .expect("the binding exists");
+        let other = object
+            .bind_texture(
+                binding(2, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                BoundTexture {
+                    device: device(16),
+                    ..texture
+                },
+            )
+            .expect_err("another device");
+        assert_eq!(other.kind(), ErrorKind::InvalidArgument);
+        let sampler = object
+            .bind_sampler(
+                binding(3, 0),
+                Some(kind_range(RangeKind::Sampler { comparison: false })),
+                view.cast(),
+                device(8),
+            )
+            .map(drop);
+        sampler.expect("the sampler binding exists");
+        let wrong = object
+            .bind_sampler(
+                binding(2, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                view.cast(),
+                device(8),
+            )
+            .expect_err("a texture range");
+        assert_eq!(wrong.operation(), Operation::SetSampler);
+        drop(object);
+        assert_eq!(record.borrow().as_slice(), [texture.texture]);
+        assert_eq!(
+            log.events(),
+            [
+                Event::add_ref("view", 2),
+                Event::set_binding("root", (0, 2, 0), "view", 2),
+                Event::add_ref("view", 3),
+                Event::set_binding("root", (0, 3, 0), "view", 3),
+            ]
+        );
+        // SAFETY: the test owns the reference of `create` of each fake and
+        // releases each once. The fake object releases the references that
+        // it added to the view when it is freed.
+        unsafe { FakeShaderObject::release_raw(root) };
+        // SAFETY: as above.
+        unsafe { FakeBuffer::release_raw(view) };
+    }
+
+    #[test]
+    fn a_texture_bound_in_a_compute_pass_is_recorded_nowhere() {
+        let log = Log::new();
+        let root = FakeShaderObject::create(&log, "root");
+        let view = FakeBuffer::create(&log, "view");
+        // SAFETY: the fake object lives until the test releases it below,
+        // and nothing else uses it while the wrapper lives.
+        let mut object = unsafe { ShaderObject::borrowed(root, device(8), None) };
+        object
+            .bind_texture(
+                binding(0, 0),
+                Some(kind_range(RangeKind::ReadOnlyTexture(PLAIN_2D))),
+                BoundTexture {
+                    texture: NonNull::new(std::ptr::without_provenance_mut(512)).expect("non-zero"),
+                    view: view.cast(),
+                    device: device(8),
+                    usage: SAMPLED,
+                },
+            )
+            .expect("the binding exists");
+        drop(object);
+        // SAFETY: the test owns the reference of `create` of each fake and
+        // releases each once.
+        unsafe { FakeShaderObject::release_raw(root) };
+        // SAFETY: as above.
+        unsafe { FakeBuffer::release_raw(view) };
     }
 }

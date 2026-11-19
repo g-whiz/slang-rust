@@ -80,6 +80,14 @@ impl Error {
         error
     }
 
+    /// Returns the error of a value that slang-rhi returned and that does not
+    /// describe what the call asked for.
+    pub(crate) fn failed(operation: Operation, detail: impl Into<String>) -> Self {
+        let mut error = Self::new(ErrorKind::Failed, operation);
+        error.detail = Some(detail.into());
+        error
+    }
+
     /// Returns the error of a value of slang-rhi that the crate does not
     /// know.
     pub(crate) fn unrecognized(operation: Operation, detail: impl Into<String>) -> Self {
@@ -210,8 +218,9 @@ pub enum ErrorKind {
     /// such as lavapipe, the software driver of Mesa, or on Windows a driver
     /// of Direct3D 12.
     NoDevice,
-    /// slang-rhi could not create a shader program or a compute pipeline,
-    /// such as when Slang cannot generate code for the device. The
+    /// slang-rhi could not create a shader program, a compute pipeline, or a
+    /// render pipeline, such as when Slang cannot generate code for the
+    /// device. The
     /// diagnostics say why, when Slang gave a reason.
     Compile,
     /// slang-rhi ran out of memory.
@@ -300,6 +309,39 @@ pub enum Operation {
     /// The creation of a Slang session like the session of a device, by
     /// [`Device::create_slang_session`](crate::Device::create_slang_session).
     CreateSlangSession,
+    /// The creation of a texture, by
+    /// [`Device::create_texture`](crate::Device::create_texture).
+    CreateTexture,
+    /// The reading of a texture, by
+    /// [`Device::read_texture`](crate::Device::read_texture).
+    ReadTexture,
+    /// The creation of a sampler, by
+    /// [`Device::create_sampler`](crate::Device::create_sampler).
+    CreateSampler,
+    /// The binding of a texture, by
+    /// [`ShaderObject::set_texture`](crate::ShaderObject::set_texture).
+    SetTexture,
+    /// The binding of a sampler, by
+    /// [`ShaderObject::set_sampler`](crate::ShaderObject::set_sampler).
+    SetSampler,
+    /// The creation of a render pipeline, by
+    /// [`Device::create_render_pipeline`](crate::Device::create_render_pipeline).
+    CreateRenderPipeline,
+    /// The beginning of a render pass, by
+    /// [`CommandEncoder::render_pass`](crate::CommandEncoder::render_pass).
+    BeginRenderPass,
+    /// The binding of a render pipeline, by
+    /// [`RenderPass::bind_pipeline`](crate::RenderPass::bind_pipeline).
+    BindRenderPipeline,
+    /// The setting of the vertex buffers of a render pass, by
+    /// [`RenderPass::set_vertex_buffers`](crate::RenderPass::set_vertex_buffers).
+    SetVertexBuffers,
+    /// The setting of the index buffer of a render pass, by
+    /// [`RenderPass::set_index_buffer`](crate::RenderPass::set_index_buffer).
+    SetIndexBuffer,
+    /// A draw, by [`RenderPass::draw`](crate::RenderPass::draw) or
+    /// [`RenderPass::draw_indexed`](crate::RenderPass::draw_indexed).
+    Draw,
 }
 
 impl Operation {
@@ -325,6 +367,17 @@ impl Operation {
             Self::GetEntryPoint => "get the shader object of an entry point",
             Self::GetObject => "get the shader object of a parameter",
             Self::CreateSlangSession => "create a Slang session for a device",
+            Self::CreateTexture => "create a texture",
+            Self::ReadTexture => "read a texture",
+            Self::CreateSampler => "create a sampler",
+            Self::SetTexture => "bind a texture",
+            Self::SetSampler => "bind a sampler",
+            Self::CreateRenderPipeline => "create a render pipeline",
+            Self::BeginRenderPass => "begin a render pass",
+            Self::BindRenderPipeline => "bind a render pipeline",
+            Self::SetVertexBuffers => "set the vertex buffers of a render pass",
+            Self::SetIndexBuffer => "set the index buffer of a render pass",
+            Self::Draw => "draw",
         }
     }
 }
@@ -353,9 +406,12 @@ pub(crate) fn check(
 fn classify(operation: Operation, result: SlangResult) -> ErrorKind {
     match (operation, result) {
         (Operation::CreateDevice, _) => ErrorKind::NoDevice,
-        (Operation::CreateShaderProgram | Operation::CreateComputePipeline, _) => {
-            ErrorKind::Compile
-        }
+        (
+            Operation::CreateShaderProgram
+            | Operation::CreateComputePipeline
+            | Operation::CreateRenderPipeline,
+            _,
+        ) => ErrorKind::Compile,
         (_, SlangResult::SLANG_E_INVALID_ARG) => ErrorKind::InvalidArgument,
         (_, SlangResult::SLANG_E_OUT_OF_MEMORY) => ErrorKind::OutOfMemory,
         (_, SlangResult::SLANG_E_NOT_IMPLEMENTED | SlangResult::SLANG_E_NOT_AVAILABLE) => {
@@ -450,6 +506,7 @@ mod tests {
         for operation in [
             Operation::CreateShaderProgram,
             Operation::CreateComputePipeline,
+            Operation::CreateRenderPipeline,
         ] {
             let error = check(
                 operation,
@@ -466,10 +523,10 @@ mod tests {
                 error.to_string(),
                 format!(
                     "cannot {} (slang-rhi result code 0x80070057):\nerror[E30015]: undefined identifier",
-                    if operation == Operation::CreateShaderProgram {
-                        "create a shader program"
-                    } else {
-                        "create a compute pipeline"
+                    match operation {
+                        Operation::CreateShaderProgram => "create a shader program",
+                        Operation::CreateComputePipeline => "create a compute pipeline",
+                        _ => "create a render pipeline",
                     }
                 )
             );
