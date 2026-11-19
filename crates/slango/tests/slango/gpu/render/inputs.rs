@@ -50,7 +50,6 @@ fn left_and_right(target: &Texture) -> [[u8; 4]; 2] {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn float_attributes_of_one_to_four_components_arrive_at_their_locations() {
     let device = device();
     let pipeline = pipeline(
@@ -94,8 +93,54 @@ float4 fsMain(VOut input) : SV_Target { return input.colour; }
     );
 }
 
+/// The vertex and instance indices are system values, which Vulkan names
+/// `SV_VulkanVertexID` and `SV_VulkanInstanceID`, so they need no vertex
+/// buffer. DXIL refuses those names, so the test compiles only with the
+/// backend wgpu.
+#[cfg(feature = "wgpu")]
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
+fn the_vertex_and_instance_indices_among_the_vertex_inputs_need_no_buffer() {
+    let device = device();
+    let pipeline = pipeline(
+        &device,
+        r#"
+struct VOut { float4 position : SV_Position; float4 colour : COLOR; };
+
+[shader("vertex")]
+VOut vsMain(
+    float2 position : POSITION,
+    uint vertex : SV_VulkanVertexID,
+    float red : RED,
+    uint instance : SV_VulkanInstanceID)
+{
+    VOut output;
+    output.position = float4(position, 0.5, 1.0);
+    output.colour = float4(red, vertex >= 3 ? 1.0 : 0.0, float(instance) / 255.0, 1.0);
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target { return input.colour; }
+"#,
+        &RenderPipelineOptions::default(),
+    );
+    let positions = Buffer::from_slice(&device, &HALVES).expect("the positions");
+    let red = halves(&device, 50.0_f32 / 255.0, 200.0 / 255.0);
+    let target = target(&device);
+    pipeline
+        .draw()
+        .vertex("position", &positions)
+        .vertex("red", &red)
+        .target(&target)
+        .submit(6, 1)
+        .expect("the draw");
+    assert_eq!(
+        left_and_right(&target),
+        [[50, 0, 0, 255], [200, 255, 0, 255]]
+    );
+}
+
+#[test]
 fn int_attributes_of_one_to_four_components_arrive_unchanged_through_nointerpolation() {
     let device = device();
     let pipeline = pipeline(
@@ -158,7 +203,6 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn uint_attributes_of_one_to_four_components_arrive_unchanged_through_nointerpolation() {
     let device = device();
     let pipeline = pipeline(
@@ -221,7 +265,6 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn an_indexed_draw_of_four_vertices_and_six_indices_fills_a_quad() {
     let device = device();
     let pipeline = pipeline(&device, FLAT, &RenderPipelineOptions::default());
@@ -266,7 +309,6 @@ fn an_indexed_draw_of_four_vertices_and_six_indices_fills_a_quad() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn an_instanced_draw_places_each_instance_by_its_own_attributes() {
     let device = device();
     let mut options = RenderPipelineOptions::default();

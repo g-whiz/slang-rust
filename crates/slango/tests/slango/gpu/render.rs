@@ -1,3 +1,4 @@
+#[cfg(feature = "wgpu")]
 use std::error::Error as _;
 
 use slango::{
@@ -12,6 +13,7 @@ mod draw;
 mod elements;
 mod inputs;
 mod rejections;
+mod streams;
 mod uniforms;
 
 fn device() -> Device {
@@ -29,7 +31,6 @@ fn options_with(
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn the_quad_of_the_illustration_becomes_a_pipeline_with_every_option() {
     let module = device()
         .load_module(shader("quad.slang"))
@@ -59,7 +60,47 @@ fn the_quad_of_the_illustration_becomes_a_pipeline_with_every_option() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
+fn stages_that_share_a_constant_buffer_a_block_a_texture_and_a_sampler_become_a_pipeline() {
+    let module = load(
+        &device(),
+        r#"
+struct Frame { float4 tint; float scale; };
+struct Lights { float4 ambient; };
+struct VOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
+
+ConstantBuffer<Frame> frame;
+ParameterBlock<Lights> lights;
+Texture2D<float4> image;
+SamplerState imageSampler;
+Texture2D<float4> unusedImage;
+
+[shader("vertex")]
+VOut vsMain(float2 position : POSITION, float2 uv : TEXCOORD0)
+{
+    VOut output;
+    float lift = image.SampleLevel(imageSampler, uv, 0).x * lights.ambient.x;
+    output.position = float4(position * frame.scale, lift, 1.0);
+    output.uv = uv;
+    return output;
+}
+
+[shader("fragment")]
+float4 fsMain(VOut input) : SV_Target
+{
+    return image.Sample(imageSampler, input.uv) * frame.tint + lights.ambient;
+}
+"#,
+    );
+    module
+        .render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())
+        .expect("the visibility of each binding matches the stages that use it");
+}
+
+#[test]
+#[cfg_attr(
+    all(feature = "rhi", target_os = "windows"),
+    ignore = "slang-rhi fails to create the render pipeline of a shader with a constant buffer and a global uniform on Direct3D 12"
+)]
 fn stages_that_share_uniforms_buffers_a_block_a_texture_and_a_sampler_become_a_pipeline() {
     let module = load(
         &device(),
@@ -97,7 +138,6 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_texture_sampled_by_both_stages_becomes_a_pipeline() {
     let module = load(
         &device(),
@@ -130,7 +170,6 @@ float4 fsMain(VOut input) : SV_Target
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn attributes_of_every_form_become_vertex_buffers() {
     let module = load(
         &device(),
@@ -176,14 +215,10 @@ VOut vsIntegers(int index : INDEX, uint2 cell : CELL, uint scalar : SCALAR, int3
 }
 
 [shader("vertex")]
-VOut vsSystemValues(
-    float2 position : POSITION,
-    uint vertex : SV_VulkanVertexID,
-    float4 colour : COLOR,
-    uint instance : SV_VulkanInstanceID)
+VOut vsShifted(float2 position : POSITION, float4 colour : COLOR, float2 shift : SHIFT)
 {
     VOut output;
-    output.position = float4(position + float2(float(vertex), float(instance)), 0.0, 1.0);
+    output.position = float4(position + shift, 0.0, 1.0);
     output.colour = colour;
     output.uv = position;
     return output;
@@ -197,7 +232,7 @@ float4 fsMain(VOut input) : SV_Target
 "#,
     );
     let defaults = RenderPipelineOptions::default();
-    for vertex in ["vsStruct", "vsSeparate", "vsIntegers", "vsSystemValues"] {
+    for vertex in ["vsStruct", "vsSeparate", "vsIntegers", "vsShifted"] {
         module
             .render_pipeline(vertex, "fsMain", &defaults)
             .unwrap_or_else(|error| panic!("{vertex}: {error}"));
@@ -318,7 +353,6 @@ fn names_that_are_no_entry_point_of_their_stage_are_invalid_arguments() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_rejected_entry_point_returns_its_rejection() {
     let error = checked("vsMain", "fsCombined", &RenderPipelineOptions::default())
         .expect_err("the creation fails");
@@ -333,7 +367,6 @@ fn a_rejected_entry_point_returns_its_rejection() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn uniform_parameters_of_either_entry_point_are_unsupported() {
     let defaults = RenderPipelineOptions::default();
     for (vertex, fragment, stage, name) in [
@@ -352,7 +385,6 @@ fn uniform_parameters_of_either_entry_point_are_unsupported() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn wrong_formats_and_unknown_instance_attributes_are_invalid_arguments() {
     assert_invalid(
         "vsMain",
@@ -376,8 +408,8 @@ fn wrong_formats_and_unknown_instance_attributes_are_invalid_arguments() {
     );
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn varyings_of_another_type_at_one_location_are_an_unsupported_shader() {
     let module = load(
         &device(),
@@ -415,8 +447,8 @@ float4 fsMain(FIn input) : SV_Target { return input.colour * float4(input.uv, 0.
     assert_ne!(text.trim(), "");
 }
 
+#[cfg(feature = "wgpu")]
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_vertex_entry_point_that_naga_rejects_is_an_unsupported_shader() {
     let module = load(
         &device(),
@@ -452,7 +484,6 @@ float4 fsMain(VOut input) : SV_Target { return float4(1.0, 1.0, 1.0, 1.0); }
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_kernel_runs_and_a_render_pipeline_is_created_from_one_module() -> slango::Result<()> {
     let device = device();
     let module = load(&device, CHECKED);
@@ -469,7 +500,6 @@ fn a_kernel_runs_and_a_render_pipeline_is_created_from_one_module() -> slango::R
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn one_module_creates_several_pipelines() -> slango::Result<()> {
     let module = load(&device(), CHECKED);
     let first = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;

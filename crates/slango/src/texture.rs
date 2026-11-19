@@ -8,9 +8,6 @@ use crate::error::{Error, ErrorKind, Result};
 const CREATE: &str = "create a texture";
 const READ: &str = "read a texture";
 
-/// The size in bytes of one pixel of every [`TextureFormat`].
-const BYTES_PER_PIXEL: u32 = 4;
-
 /// A two-dimensional image on the GPU of a [`Device`], which a shader samples
 /// as a `Texture2D` and a draw draws into.
 ///
@@ -90,9 +87,7 @@ impl Texture {
     /// width or the height is zero or exceeds the largest texture that the
     /// device allows, or when the number of pixels is not the width times the
     /// height, and of kind [`ErrorKind::Backend`] when the backend reports an
-    /// error, such as a lack of memory, while it creates the texture. With the
-    /// feature `rhi`, it returns an [`Error`] of kind
-    /// [`ErrorKind::Unsupported`] after these checks.
+    /// error, such as a lack of memory, while it creates the texture.
     pub fn from_pixels(device: &Device, size: [u32; 2], pixels: &[[u8; 4]]) -> Result<Self> {
         check_size(size, device.backend().max_texture_dimension())?;
         check_pixel_count(size, pixels.len())?;
@@ -130,9 +125,7 @@ impl Texture {
     /// width or the height is zero or exceeds the largest texture that the
     /// device allows, and of kind [`ErrorKind::Backend`] when the backend
     /// reports an error, such as a lack of memory, while it creates the
-    /// texture. With
-    /// the feature `rhi`, it returns an [`Error`] of kind
-    /// [`ErrorKind::Unsupported`] after these checks.
+    /// texture.
     pub fn new(device: &Device, size: [u32; 2], format: TextureFormat) -> Result<Self> {
         check_size(size, device.backend().max_texture_dimension())?;
         let inner = backend::Texture::zeroed(device.backend(), size, format)?;
@@ -195,29 +188,11 @@ impl Texture {
     /// texture has the depth format [`TextureFormat::Depth32Float`], or was
     /// made from a wgpu texture view by `wgpu::texture_from_view` and its
     /// wgpu texture lacks the usage `COPY_SRC`, and of kind
-    /// [`ErrorKind::Backend`] when wgpu reports an error while it copies the
-    /// texture or maps the copy for reading.
+    /// [`ErrorKind::Backend`] when wgpu, or slang-rhi with the feature `rhi`,
+    /// reports an error while it copies the texture or reads the copy.
     pub fn read(&self) -> Result<Vec<[u8; 4]>> {
         check_readable(self.format, self.inner.can_copy_from())?;
-        let [width, height] = self.size;
-        let layout = ReadLayout::new(self.size, backend::ROW_ALIGNMENT).ok_or_else(|| {
-            Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
-                "a texture of {width} by {height} pixels is larger than a copy can hold"
-            ))
-        })?;
-        let bytes = self.inner.read_bytes(
-            self.device.backend(),
-            self.size,
-            layout.bytes_per_row,
-            layout.size,
-        )?;
-        layout.unpad(&bytes).ok_or_else(|| {
-            Error::new(ErrorKind::Backend, READ).with_detail(format!(
-                "wgpu mapped {} bytes, which are not {height} rows of {} bytes",
-                bytes.len(),
-                layout.bytes_per_row
-            ))
-        })
+        self.inner.read_pixels(self.device.backend(), self.size)
     }
 
     /// Returns whether the texture was created on `device` or a clone of it,
@@ -227,14 +202,13 @@ impl Texture {
         self.device.is_same(device)
     }
 
-    /// Returns whether the texture has the usage `TEXTURE_BINDING`, which a
-    /// shader needs to sample it.
+    /// Returns whether a shader can sample the texture.
     pub(crate) fn is_sampleable(&self) -> bool {
         self.inner.is_sampleable()
     }
 
-    /// Returns whether the texture has the usage `RENDER_ATTACHMENT`, which
-    /// a draw needs to draw into it or to test and write its depths.
+    /// Returns whether a draw can draw into the texture or test and write
+    /// its depths.
     pub(crate) fn is_attachable(&self) -> bool {
         self.inner.is_attachable()
     }
@@ -331,7 +305,7 @@ fn check_pixel_count(size: [u32; 2], count: usize) -> Result<()> {
 }
 
 /// Fails with [`ErrorKind::InvalidArgument`] when a texture of `format`,
-/// with or without the usage `COPY_SRC`, cannot be read.
+/// which a copy can or cannot read as `copy_source` says, cannot be read.
 fn check_readable(format: TextureFormat, copy_source: bool) -> Result<()> {
     if format.is_depth() {
         return Err(
@@ -341,52 +315,14 @@ fn check_readable(format: TextureFormat, copy_source: bool) -> Result<()> {
         );
     }
     if !copy_source {
-        return Err(Error::new(ErrorKind::InvalidArgument, READ)
-            .with_detail("the texture lacks the usage COPY_SRC, which a read needs".to_owned()));
+        return Err(
+            Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
+                "the texture lacks the usage {}, which a read needs",
+                backend::COPY_USAGE
+            )),
+        );
     }
     Ok(())
-}
-
-/// The layout of the copy of a texture into a buffer: the backend needs each
-/// row of the copy to start at a multiple of an alignment, so a row of the
-/// copy is the row of the texture padded to that multiple.
-#[derive(Debug, PartialEq, Eq)]
-struct ReadLayout {
-    width: u32,
-    height: u32,
-    bytes_per_row: u32,
-    size: u64,
-}
-
-impl ReadLayout {
-    fn new(size: [u32; 2], alignment: u32) -> Option<Self> {
-        let [width, height] = size;
-        let bytes_per_row = width
-            .checked_mul(BYTES_PER_PIXEL)?
-            .checked_next_multiple_of(alignment)?;
-        Some(Self {
-            width,
-            height,
-            bytes_per_row,
-            size: u64::from(bytes_per_row).checked_mul(u64::from(height))?,
-        })
-    }
-
-    /// Returns the pixels of the rows of a copy, without the padding of each
-    /// row, or `None` when `bytes` does not hold the whole copy.
-    fn unpad(&self, bytes: &[u8]) -> Option<Vec<[u8; 4]>> {
-        if u64::try_from(bytes.len()).ok()? != self.size {
-            return None;
-        }
-        let row = usize::try_from(self.bytes_per_row).ok()?;
-        let used = usize::try_from(self.width.checked_mul(BYTES_PER_PIXEL)?).ok()?;
-        let mut pixels = Vec::with_capacity(bytes.len() / 4);
-        for padded in bytes.chunks_exact(row) {
-            pixels.extend_from_slice(padded.get(..used)?.as_chunks::<4>().0);
-        }
-        let expected = u64::from(self.width) * u64::from(self.height);
-        (u64::try_from(pixels.len()).ok()? == expected).then_some(pixels)
-    }
 }
 
 #[cfg(test)]

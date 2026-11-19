@@ -61,7 +61,10 @@ const TRANSLATION: [[f32; 4]; 4] = [
 ];
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
+#[cfg_attr(
+    all(feature = "rhi", target_os = "windows"),
+    ignore = "slang-rhi fails to create the render pipeline of a shader with a constant buffer and a global uniform on Direct3D 12"
+)]
 fn uniforms_used_by_one_or_both_stages_are_set_by_name_and_unused_ones_may_be_omitted() {
     let device = device_with(AdapterSelection::Default);
     let pipeline = load(&device, UNIFORMS)

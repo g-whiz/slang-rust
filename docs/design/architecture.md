@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -849,7 +849,14 @@ Several milestones replace requirements of this document that the code satisfies
      - The check of the thread group in `create_compute_pipeline` of `slang-rhi` with two more limits of a device (RHI-7 and RHI-29), the parameters of the entry point that are resources or blocks, and the derivation of the features of `doc-site` from `cargo metadata` (TOOL-41). These were not in the first plan of the step.
   4. The macro on the backend `rhi`: the helper macros, the embedded sources with `load_embedded`, the imported modules in the order of their imports, and the packed struct layouts with the check of their field offsets (SLM-24 to SLM-26 of `docs/design/slango-macros.md`), with the rule of the coding standard for the helper macros. It also adds the feature `rhi` of the examples package, the module of `gpu` tests of the generated code in the examples package, and the commands of TOOL-53 for the examples package, whose tests of the scenes skip the backend `rhi`, so that `compute-kernel` and `typed-kernel` run on the backend `rhi`.
   5. The rendering phase of `slang-rhi`: textures, samplers, render pipelines, render passes, and the reading of textures (RHI-23 to RHI-28 of `docs/design/slang-rhi.md`).
-  6. Rendering on the backend `rhi` of `slango`: textures with their zeroed creation, samplers, render pipelines with their checks of semantics and streams, and the draw (SLO-41, SLO-45, and Sections 8.3 and 9.7 of `docs/design/slango.md`). It also changes the shader of `shader-playground` and the shader of the one `gpu` render test, which both read the vertex index, to take their positions from a vertex buffer. It adds the scene of `shader-playground` drawn into a texture of its own on the backend `rhi`, and the removal of the skips of the backend `rhi` from those tests, so that the tests of rendering, of the conventions, and of both scenes run on the backend `rhi`.
+  6. Rendering on the backend `rhi` of `slango`, with these parts:
+     - Textures with their zeroed creation, samplers, render pipelines with their checks of semantics and streams, and the draw (SLO-41, SLO-45, and Sections 8.3 and 9.7 of `docs/design/slango.md`).
+     - A vertex buffer in place of the vertex index for the positions in the shader of `shader-playground` and in the shader of the one `gpu` render test.
+     - The scene of `shader-playground` drawn into a texture of its own on the backend `rhi`, and no skip of the backend `rhi` in the tests of rendering, of the conventions, and of both scenes.
+     - A stream over zeros of stride 0 for each vertex attribute that the shader declares and does not use, with the stride 0 in `slang-rhi` (RHI-26).
+     - A key of the merge of the bindings of the two stages that each backend chooses.
+     - A second compile to SPIR-V on D3D12 that reads which vertex inputs are used.
+     - The refusal of a vertex attribute without a semantic at load (Sections 6.1, 7.6, and 7.7 of `docs/design/slango.md`).
   7. The crate documentation of `slango`, `slango-macros`, `slango-codegen`, `slang-slint`, and `slang-rhi`, with the migration to version 0.2 of Section 17.6 of `docs/design/slango.md`, the crate READMEs, and the documents that the exit criteria name.
 - Replaces: ARCH-15 with Section 8.2, the parts of Sections 3.3, 8.1, 8.5, and 8.6 that assume wgpu is the only backend, and SLO-17 of `docs/design/slango.md`. ARCH-19 then binds the wgpu feature. The design answers Q-36 (Section 17).
 - Depends on: M9.

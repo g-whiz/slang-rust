@@ -140,6 +140,10 @@ impl VertexStream {
 
     /// Returns a copy whose elements are `stride` bytes apart.
     ///
+    /// A stride of 0 gives every vertex, or every instance, the one
+    /// attribute at the start of the buffer, so that a buffer of one
+    /// attribute feeds a draw of any count.
+    ///
     /// # Examples
     ///
     /// See the example of [`RenderPipelineDesc`].
@@ -373,9 +377,18 @@ pub(crate) struct VertexInput {
     pub(crate) ty: InputType,
 }
 
-/// The largest number of vertex streams of a render pipeline, the number of
-/// vertex buffers that the render state of slang-rhi holds.
-const MAX_STREAMS: u32 = 16;
+/// The largest number of vertex streams of a render pipeline on any device,
+/// the number of vertex buffers that the render state of slang-rhi holds.
+///
+/// A device can allow fewer, which
+/// [`DeviceInfo::max_vertex_streams`](crate::DeviceInfo::max_vertex_streams)
+/// reports, and [`Device::create_render_pipeline`] refuses more streams than
+/// the smaller of the two.
+///
+/// # Examples
+///
+/// See the example of [`Device::create_render_pipeline`].
+pub const MAX_VERTEX_STREAMS: u32 = 16;
 
 /// The largest stride of a vertex stream that every device of both graphics
 /// APIs allows, which Vulkan guarantees as the least `maxVertexInputBindingStride`
@@ -441,9 +454,9 @@ fn check_formats(desc: &RenderPipelineDesc) -> Result<()> {
 /// `index`.
 fn check_stream(index: usize, stream: &VertexStream) -> Result<()> {
     let invalid = |detail: String| Err(Error::invalid(Operation::CreateRenderPipeline, detail));
-    if stream.stride == 0 || stream.stride > MAX_STRIDE {
+    if stream.stride > MAX_STRIDE {
         return invalid(format!(
-            "the vertex stream {index} has the stride {}, outside the range from 1 to {MAX_STRIDE}",
+            "the vertex stream {index} has the stride {}, above the largest stride of {MAX_STRIDE}",
             stream.stride
         ));
     }
@@ -480,7 +493,7 @@ fn check_stream(index: usize, stream: &VertexStream) -> Result<()> {
 /// elements out there.
 fn plan_inputs(streams: &[VertexStream], max_streams: u32, max_elements: u32) -> Result<InputPlan> {
     let invalid = |detail: String| Err(Error::invalid(Operation::CreateRenderPipeline, detail));
-    let limit = max_streams.min(MAX_STREAMS);
+    let limit = max_streams.min(MAX_VERTEX_STREAMS);
     if u32::try_from(streams.len()).map_or(true, |count| count > limit) {
         return invalid(format!(
             "the pipeline has {} vertex streams, more than the {limit} that the device and slang-rhi allow",
@@ -832,8 +845,8 @@ impl Device {
     /// point, when the colour format is a depth format or the depth format is
     /// not [`Format::D32Float`], when the vertex streams are more than
     /// [`DeviceInfo::max_vertex_streams`](crate::DeviceInfo::max_vertex_streams)
-    /// or 16, when a stream has a stride of 0, above 2048 bytes, or not a
-    /// multiple of 4 bytes, or no semantic, or a semantic that is empty or
+    /// or [`MAX_VERTEX_STREAMS`], when a stream has a stride above 2048 bytes or not a multiple
+    /// of 4 bytes, or no semantic, or a semantic that is empty or
     /// holds a NUL byte, when two streams have the same location, when the
     /// locations up to the highest one are more than
     /// [`DeviceInfo::max_vertex_input_elements`](crate::DeviceInfo::max_vertex_input_elements),
@@ -1094,6 +1107,7 @@ mod tests {
         plan_inputs(&streams, 16, 16).expect("at the limits");
         plan_inputs(&[stream(31)], 1, 32).expect("the highest location fits");
         plan_inputs(&[stream(0).with_stride(2048)], 1, 1).expect("the largest stride");
+        plan_inputs(&[stream(0).with_stride(0)], 1, 1).expect("the stride 0");
     }
 
     #[test]
@@ -1102,7 +1116,6 @@ mod tests {
         let cases: Vec<(Vec<VertexStream>, u32, u32)> = vec![
             (many, 32, 32),
             (vec![stream(0), stream(1)], 1, 32),
-            (vec![stream(0).with_stride(0)], 32, 32),
             (vec![stream(0).with_stride(2049)], 32, 32),
             (vec![stream(0).with_stride(9)], 32, 32),
             (vec![stream(0).with_stride(10)], 32, 32),

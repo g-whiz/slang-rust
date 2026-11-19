@@ -240,7 +240,7 @@ check-vendored:
     {{ vendored_environment }} cargo doc "${packages[@]}" --features "{{ vendored_features }}" --no-deps
     {{ vendored_environment }} cargo clippy -p slang-slint --features slang-slint/vendored
 
-# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, then the tests of slango with its feature rhi in place of wgpu, which skip the tests of textures, samplers, and render pipelines that need what that build lacks, and its doctests, then the tests of the examples package with its features rhi and vendored, which run compute-kernel, typed-kernel, and the code of slango-macros on that backend and skip the scenes of the windowed examples, in target/vendored, without VULKAN_SDK and without a loader path, on Linux and on x86_64 Windows, where the crates build. On Windows, the tests compile shaders with dxcompiler.dll, which has to be on PATH. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
+# Run the tests of the packages of rhi_packages with the gpu profile, and their doctests, then the tests of slango with its feature rhi in place of wgpu, and its doctests, then the tests of the examples package with its features rhi and vendored, which run compute-kernel, typed-kernel, the code of slango-macros, and the scenes of both windowed examples on that backend, in target/vendored, without VULKAN_SDK and without a loader path, on Linux and on x86_64 Windows, where the crates build. Each command runs all its tests after a failure, so that it reports every failing test, and the recipe runs every command after a failing one and then fails, naming each failed command. On Windows, the tests compile shaders with dxcompiler.dll, which has to be on PATH. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('rust')]
 test-rhi:
     #!/usr/bin/env bash
@@ -257,11 +257,21 @@ test-rhi:
     for name in "${names[@]}"; do
         packages+=(-p "${name}")
     done
-    {{ vendored_environment }} cargo nextest run "${packages[@]}" --profile gpu --no-tests=fail
-    {{ vendored_environment }} cargo test --doc "${packages[@]}"
-    {{ vendored_environment }} cargo nextest run -p slango --no-default-features --features rhi --profile gpu --no-tests=fail
-    {{ vendored_environment }} cargo test --doc -p slango --no-default-features --features rhi
-    {{ vendored_environment }} cargo nextest run -p slang-rust-examples --no-default-features --features rhi,vendored --profile gpu --no-tests=fail
+    failed=()
+    run() {
+        if ! {{ vendored_environment }} cargo "$@"; then
+            failed+=("cargo $*")
+        fi
+    }
+    run nextest run "${packages[@]}" --profile gpu --no-tests=fail --no-fail-fast
+    run test --doc "${packages[@]}" --no-fail-fast
+    run nextest run -p slango --no-default-features --features rhi --profile gpu --no-tests=fail --no-fail-fast
+    run test --doc -p slango --no-default-features --features rhi --no-fail-fast
+    run nextest run -p slang-rust-examples --no-default-features --features rhi,vendored --profile gpu --no-tests=fail --no-fail-fast
+    if ((${#failed[@]} > 0)); then
+        printf 'test-rhi: this command failed: %s\n' "${failed[@]}" >&2
+        exit 1
+    fi
 
 # Run Clippy and build the API documentation of the packages of rhi_packages, then of slango with its feature rhi in place of wgpu, then run Clippy on the examples package with its features rhi and vendored, in target/vendored, without VULKAN_SDK and without a loader path, failing on any warning, on Linux and on x86_64 Windows, where the crates build. Its first run clones the recorded Slang commit, which needs network access, and builds Slang and slang-rhi from source, which takes several minutes
 [group('checks')]

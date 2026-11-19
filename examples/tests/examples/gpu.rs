@@ -1,5 +1,4 @@
 mod generated;
-#[cfg(feature = "wgpu")]
 mod shader_playground;
 mod windowed_renderer;
 

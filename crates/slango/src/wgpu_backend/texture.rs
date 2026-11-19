@@ -11,7 +11,21 @@ const WRAP: &str = "wrap a texture view";
 
 /// The multiple of bytes at which each row of the copy of a texture into a
 /// buffer starts.
-pub(crate) const ROW_ALIGNMENT: u32 = ::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+const ROW_ALIGNMENT: u32 = ::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+
+/// The size in bytes of one pixel of every [`TextureFormat`].
+const BYTES_PER_PIXEL: u32 = 4;
+
+/// The usage that a shader needs to sample a texture, which the errors of
+/// the checks name.
+pub(crate) const SAMPLE_USAGE: &str = "TEXTURE_BINDING";
+
+/// The usage that a draw needs to draw into a texture or to test and write
+/// its depths, which the errors of the checks name.
+pub(crate) const TARGET_USAGE: &str = "RENDER_ATTACHMENT";
+
+/// The usage that a read needs, which the errors of the checks name.
+pub(crate) const COPY_USAGE: &str = "COPY_SRC";
 
 /// A wgpu texture with its view, which holds the pixels of a
 /// [`crate::Texture`].
@@ -84,9 +98,28 @@ impl Texture {
         Ok((wrapped, [texture.width(), texture.height()], format))
     }
 
+    /// Copies the pixels of the texture, of `size` pixels, back from the
+    /// GPU, in rows from the top, each row without the padding of the copy.
+    pub(crate) fn read_pixels(&self, device: &Device, size: [u32; 2]) -> Result<Vec<[u8; 4]>> {
+        let [width, height] = size;
+        let layout = ReadLayout::new(size, ROW_ALIGNMENT).ok_or_else(|| {
+            Error::new(ErrorKind::InvalidArgument, READ).with_detail(format!(
+                "a texture of {width} by {height} pixels is larger than a copy can hold"
+            ))
+        })?;
+        let bytes = self.read_bytes(device, size, layout.bytes_per_row, layout.size)?;
+        layout.unpad(&bytes).ok_or_else(|| {
+            Error::new(ErrorKind::Backend, READ).with_detail(format!(
+                "wgpu mapped {} bytes, which are not {height} rows of {} bytes",
+                bytes.len(),
+                layout.bytes_per_row
+            ))
+        })
+    }
+
     /// Copies the bytes of the texture back from the GPU, in rows of
     /// `bytes_per_row` bytes, `size` in all.
-    pub(crate) fn read_bytes(
+    fn read_bytes(
         &self,
         device: &Device,
         extent: [u32; 2],
@@ -232,6 +265,48 @@ fn check_wrappable(
         return Ok(());
     };
     Err(Error::new(ErrorKind::InvalidArgument, WRAP).with_detail(detail))
+}
+
+/// The layout of the copy of a texture into a buffer: the backend needs each
+/// row of the copy to start at a multiple of an alignment, so a row of the
+/// copy is the row of the texture padded to that multiple.
+#[derive(Debug, PartialEq, Eq)]
+struct ReadLayout {
+    width: u32,
+    height: u32,
+    bytes_per_row: u32,
+    size: u64,
+}
+
+impl ReadLayout {
+    fn new(size: [u32; 2], alignment: u32) -> Option<Self> {
+        let [width, height] = size;
+        let bytes_per_row = width
+            .checked_mul(BYTES_PER_PIXEL)?
+            .checked_next_multiple_of(alignment)?;
+        Some(Self {
+            width,
+            height,
+            bytes_per_row,
+            size: u64::from(bytes_per_row).checked_mul(u64::from(height))?,
+        })
+    }
+
+    /// Returns the pixels of the rows of a copy, without the padding of each
+    /// row, or `None` when `bytes` does not hold the whole copy.
+    fn unpad(&self, bytes: &[u8]) -> Option<Vec<[u8; 4]>> {
+        if u64::try_from(bytes.len()).ok()? != self.size {
+            return None;
+        }
+        let row = usize::try_from(self.bytes_per_row).ok()?;
+        let used = usize::try_from(self.width.checked_mul(BYTES_PER_PIXEL)?).ok()?;
+        let mut pixels = Vec::with_capacity(bytes.len() / 4);
+        for padded in bytes.chunks_exact(row) {
+            pixels.extend_from_slice(padded.get(..used)?.as_chunks::<4>().0);
+        }
+        let expected = u64::from(self.width) * u64::from(self.height);
+        (u64::try_from(pixels.len()).ok()? == expected).then_some(pixels)
+    }
 }
 
 #[cfg(test)]

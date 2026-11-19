@@ -66,6 +66,7 @@ impl RenderPipeline {
     /// pipeline on the device.
     pub(crate) fn create(
         device: &Device,
+        module: &backend::Module,
         records: &[CompiledRender],
         vertex: &str,
         fragment: &str,
@@ -73,13 +74,17 @@ impl RenderPipeline {
     ) -> Result<Self> {
         let names = Names { vertex, fragment };
         let (vertex_record, fragment_record) = select(records, names)?;
-        let snapshot = snapshot(vertex_record, fragment_record, names, options)?;
+        let keys =
+            backend::RenderPipeline::binding_keys(module, vertex_record, fragment_record, names)?;
+        let (snapshot, keys) = snapshot(vertex_record, fragment_record, keys, names, options)?;
         let inner = backend::RenderPipeline::create(
             device.backend(),
+            module,
             vertex_record,
             fragment_record,
             names,
             &snapshot,
+            &keys,
         )?;
         Ok(Self {
             snapshot: Arc::new(snapshot),
@@ -204,7 +209,8 @@ pub enum CullMode {
 pub(crate) struct PipelineSnapshot {
     pub(crate) vertex: String,
     pub(crate) fragment: String,
-    /// The bindings of both entry points, ordered by set and binding.
+    /// The bindings of both entry points, ordered by the keys of the
+    /// backend, which order them by set and binding.
     pub(crate) bindings: Vec<PipelineBinding>,
     /// The vertex attributes of the vertex entry point, ordered by location.
     pub(crate) inputs: Vec<VertexInput>,
@@ -284,6 +290,38 @@ pub(crate) struct VertexInput {
     pub(crate) slot: Option<u32>,
 }
 
+/// The key of each binding of the vertex and of the fragment entry point, in
+/// the order of the bindings of each, by which the bindings of the two
+/// entry points merge into the bindings of a render pipeline.
+pub(crate) struct BindingKeys<K> {
+    pub(crate) vertex: Vec<K>,
+    pub(crate) fragment: Vec<K>,
+}
+
+/// The key of a binding by its set and binding, which identifies the
+/// binding on a target that places every binding in a descriptor set, such
+/// as SPIR-V, and with which one binding of a set holds one parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SlotKey {
+    pub(crate) set: u32,
+    pub(crate) index: u32,
+}
+
+impl SlotKey {
+    pub(crate) fn of(binding: &Binding) -> Self {
+        Self {
+            set: binding.set,
+            index: binding.index,
+        }
+    }
+}
+
+impl fmt::Display for SlotKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "at set {}, binding {}", self.set, self.index)
+    }
+}
+
 /// The names of the two entry points of a render pipeline, which every error
 /// of its creation names.
 #[derive(Clone, Copy)]
@@ -344,13 +382,15 @@ fn select<'a>(
 }
 
 /// Checks the parameters of both entry points and the options, and returns
-/// the snapshot of the pipeline, all before any call of wgpu.
-fn snapshot(
+/// the snapshot of the pipeline with the key of each of its bindings, in the
+/// order of its bindings, all before the backend creates anything.
+fn snapshot<K: Ord + fmt::Display>(
     vertex: &UsableRender,
     fragment: &UsableRender,
+    keys: BindingKeys<K>,
     names: Names<'_>,
     options: &RenderPipelineOptions,
-) -> Result<PipelineSnapshot> {
+) -> Result<(PipelineSnapshot, Vec<K>)> {
     for (record, stage, name) in [
         (vertex, RenderStage::Vertex, names.vertex),
         (fragment, RenderStage::Fragment, names.fragment),
@@ -385,37 +425,48 @@ fn snapshot(
         ));
     }
     let inputs = vertex_inputs(&vertex.layout.attributes, names, options)?;
-    let bindings = merge_bindings(&vertex.layout.bindings, &fragment.layout.bindings, names)?;
-    Ok(PipelineSnapshot {
+    let (bindings, keys) = merge_bindings(
+        &vertex.layout.bindings,
+        &fragment.layout.bindings,
+        keys,
+        names,
+    )?;
+    let snapshot = PipelineSnapshot {
         vertex: names.vertex.to_owned(),
         fragment: names.fragment.to_owned(),
         bindings,
         inputs,
         options: options.clone(),
-    })
+    };
+    Ok((snapshot, keys))
 }
 
 /// Merges the bindings of the two entry points into one binding for each
-/// set and binding, visible to the stages whose metadata reports it used.
+/// key, visible to the stages whose metadata reports it used, and returns
+/// the merged bindings in the order of their keys, each with its key.
 ///
-/// Both entry points come from one program, so a set and binding that both
-/// report holds one parameter with one layout. When it does not, Slang's
-/// reflection is inconsistent, and the merge fails with
+/// Both entry points come from one program, so a key that both report holds
+/// one parameter with one layout. When it does not, Slang's reflection is
+/// inconsistent, and the merge fails with
 /// [`ErrorKind::UnsupportedParameter`], as a layout that cannot be used does.
-fn merge_bindings(
+pub(crate) fn merge_bindings<K: Ord + fmt::Display>(
     vertex: &[Binding],
     fragment: &[Binding],
+    keys: BindingKeys<K>,
     names: Names<'_>,
-) -> Result<Vec<PipelineBinding>> {
-    let mut merged: BTreeMap<(u32, u32), PipelineBinding> = BTreeMap::new();
-    for (bindings, stage) in [(vertex, Stages::VERTEX), (fragment, Stages::FRAGMENT)] {
-        for binding in bindings {
+) -> Result<(Vec<PipelineBinding>, Vec<K>)> {
+    let mut merged: BTreeMap<K, PipelineBinding> = BTreeMap::new();
+    for (bindings, keys, stage) in [
+        (vertex, keys.vertex, Stages::VERTEX),
+        (fragment, keys.fragment, Stages::FRAGMENT),
+    ] {
+        for (binding, key) in bindings.iter().zip(keys) {
             let visibility = if binding.usage == Usage::Used {
                 stage
             } else {
                 Stages::NONE
             };
-            match merged.get_mut(&(binding.set, binding.index)) {
+            match merged.get_mut(&key) {
                 Some(existing) => {
                     if existing.binding.path != binding.path
                         || existing.binding.resource != binding.resource
@@ -423,8 +474,8 @@ fn merge_bindings(
                         return Err(names.error(
                             ErrorKind::UnsupportedParameter,
                             &format!(
-                                "Slang reports the parameters `{}` and `{}` at set {}, binding {} with different layouts",
-                                existing.binding.path, binding.path, binding.set, binding.index
+                                "Slang reports the parameters `{}` and `{}` {key} with different layouts",
+                                existing.binding.path, binding.path
                             ),
                         ));
                     }
@@ -432,7 +483,7 @@ fn merge_bindings(
                 }
                 None => {
                     merged.insert(
-                        (binding.set, binding.index),
+                        key,
                         PipelineBinding {
                             binding: binding.clone(),
                             visibility,
@@ -443,16 +494,16 @@ fn merge_bindings(
         }
     }
     Ok(merged
-        .into_values()
-        .map(|mut merged| {
+        .into_iter()
+        .map(|(key, mut merged)| {
             merged.binding.usage = if merged.visibility.is_empty() {
                 Usage::Unused
             } else {
                 Usage::Used
             };
-            merged
+            (merged, key)
         })
-        .collect())
+        .unzip())
 }
 
 /// Returns the vertex attributes ordered by location, each with its format,

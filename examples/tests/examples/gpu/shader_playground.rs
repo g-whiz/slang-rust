@@ -1,6 +1,6 @@
 use std::fs;
 
-use slango::ErrorKind;
+use slango::{ErrorKind, Texture};
 
 #[path = "../../../src/bin/shader-playground/scene.rs"]
 mod scene;
@@ -20,9 +20,19 @@ fn uniforms(time: f32, brightness: f32, scale: f32) -> Uniforms {
     }
 }
 
+/// Returns the texture that the scene draws into, the texture of its view
+/// with the backend `wgpu`.
+fn scene_texture(scene: &Scene) -> &Texture {
+    #[cfg(feature = "wgpu")]
+    let texture = scene.view().texture();
+    #[cfg(feature = "rhi")]
+    let texture = scene.texture();
+    texture
+}
+
 fn draw(scene: &Scene, uniforms: Uniforms) -> Vec<[u8; 4]> {
     scene.draw(uniforms).expect("the scene draws");
-    scene.view().texture().read().expect("the view is read")
+    scene_texture(scene).read().expect("the view is read")
 }
 
 fn pixel(pixels: &[[u8; 4]], width: u32, x: u32, y: u32) -> [u8; 4] {
@@ -138,6 +148,7 @@ fn keeps_its_view_when_a_reload_fails() {
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(!scene.reload_if_changed().expect("an unchanged file loads"));
     let before = draw(&scene, uniforms(0.0, 1.0, 1.0));
+    #[cfg(feature = "wgpu")]
     let texture = slango::wgpu::texture(scene.view().texture())
         .expect("the wgpu texture of a texture")
         .clone();
@@ -150,6 +161,7 @@ fn keeps_its_view_when_a_reload_fails() {
         .downcast_ref::<slango::Error>()
         .expect("the error of slango");
     assert_eq!(error.kind(), ErrorKind::Compile, "{error}");
+    #[cfg(feature = "wgpu")]
     assert_eq!(
         slango::wgpu::texture(scene.view().texture()),
         Some(&texture)
@@ -168,6 +180,7 @@ fn replaces_its_view_when_a_reload_succeeds() {
     let path = scratch_copy("shader-playground", SHADER, "reload-succeeds");
     let mut scene = Scene::new(&device, &path, SIZE).expect("the scene is created");
     assert!(scene.resize([16, 8]).expect("the view is resized"));
+    #[cfg(feature = "wgpu")]
     let texture = slango::wgpu::texture(scene.view().texture())
         .expect("the wgpu texture of a texture")
         .clone();
@@ -180,7 +193,8 @@ fn replaces_its_view_when_a_reload_succeeds() {
 
     rewrite(&path, &red);
     assert!(scene.reload_if_changed().expect("the changed file loads"));
-    assert_eq!(scene.view().size(), [16, 8]);
+    assert_eq!(scene_texture(&scene).size(), [16, 8]);
+    #[cfg(feature = "wgpu")]
     assert_ne!(
         slango::wgpu::texture(scene.view().texture()).expect("the wgpu texture of a texture"),
         &texture

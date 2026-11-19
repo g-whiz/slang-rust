@@ -917,8 +917,10 @@ fn a_texture_without_texture_binding_is_an_invalid_argument() {
         textured_rejected(&textured_replaced("image", &unsampleable)),
         (
             ErrorKind::InvalidArgument,
-            "cannot call a kernel: the texture bound to the parameter `image` of the kernel `sample` lacks the usage TEXTURE_BINDING, which a kernel needs to sample it"
-                .to_owned()
+            format!(
+                "cannot call a kernel: the texture bound to the parameter `image` of the kernel `sample` lacks the usage {}, which a kernel needs to sample it",
+                crate::backend::SAMPLE_USAGE
+            )
         )
     );
 }

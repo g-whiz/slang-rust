@@ -74,7 +74,6 @@ impl Setup {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_vertex_buffers_and_counts_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -171,7 +170,6 @@ fn mistakes_of_vertex_buffers_and_counts_are_rejected_before_any_work() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_index_buffers_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -208,7 +206,6 @@ fn mistakes_of_index_buffers_are_rejected_before_any_work() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_targets_are_rejected_before_any_work() {
     let setup = Setup::new();
     let Setup {
@@ -302,7 +299,6 @@ fn mistakes_of_targets_are_rejected_before_any_work() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn mistakes_of_parameters_are_rejected_as_for_a_call() {
     let setup = Setup::new();
     let Setup {
@@ -414,7 +410,6 @@ fn a_texture_both_sampled_and_the_target_of_one_draw_is_rejected_by_wgpu_as_a_ba
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_depth_clear_value_outside_zero_to_one_is_rejected_before_any_work() {
     let setup = Setup::new();
     let depth = texture(&setup.device, [SIZE, SIZE], TextureFormat::Depth32Float);
@@ -455,7 +450,6 @@ float4 fsMain() : SV_Target
 "#;
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_vertex_or_index_buffer_also_written_by_a_parameter_is_rejected_and_also_read_is_drawn() {
     let setup = Setup::new();
     let Setup { device, target, .. } = &setup;
@@ -506,4 +500,50 @@ fn a_vertex_or_index_buffer_also_written_by_a_parameter_is_rejected_and_also_rea
         [[-1.0, -1.0, 0.5, 1.0]]
     );
     assert_eq!(marks.read().expect("the marks"), [0]);
+}
+
+#[test]
+fn one_buffer_bound_to_two_read_write_parameters_of_a_draw_is_written_through_both()
+-> slango::Result<()> {
+    let setup = Setup::new();
+    let Setup { device, target, .. } = &setup;
+    let pipeline = render_pipeline(
+        device,
+        r#"
+RWStructuredBuffer<uint> first;
+RWStructuredBuffer<uint> second;
+
+[shader("vertex")]
+float4 vsMain(float4 position : POSITION) : SV_Position { return position; }
+
+[shader("fragment")]
+float4 fsMain() : SV_Target
+{
+    first[0] = 7;
+    second[1] = 9;
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+"#,
+        &RenderPipelineOptions::default(),
+    );
+    let corners = Buffer::from_slice(
+        device,
+        &[
+            [-1.0_f32, -1.0, 0.5, 1.0],
+            [3.0, -1.0, 0.5, 1.0],
+            [-1.0, 3.0, 0.5, 1.0],
+        ],
+    )?;
+    let shared = Buffer::<u32>::zeroed(device, 2)?;
+    pipeline
+        .draw()
+        .bind("first", &shared)
+        .bind("second", &shared)
+        .vertex("position", &corners)
+        .target(target)
+        .clear(RED)
+        .submit(3, 1)?;
+    assert_eq!(read(target), [GREEN_PIXEL; 16]);
+    assert_eq!(shared.read()?, [7, 9]);
+    Ok(())
 }

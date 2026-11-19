@@ -217,7 +217,7 @@ pub(crate) enum Shape {
 }
 
 /// The stage of a vertex or fragment entry point.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum RenderStage {
     Vertex,
     Fragment,
@@ -351,7 +351,8 @@ pub(crate) struct CompiledRender {
 }
 
 /// The layout snapshot of a vertex or fragment entry point and its SPIR-V,
-/// whose entry point keeps the Slang name.
+/// whose entry point keeps the Slang name. The SPIR-V is empty on the
+/// backend rhi, which creates its pipelines from the linked program.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UsableRender {
     pub(crate) layout: RenderLayout,
@@ -459,13 +460,7 @@ pub(crate) fn compile(source: &Source<'_>) -> Result<Compilation> {
             let spirv = spirv(at.program, at.index, at.target, &layout.name)?;
             Ok(CompiledKernel { layout, spirv })
         },
-        |at, name, stage| {
-            let role = match stage {
-                RenderStage::Vertex => Role::Vertex,
-                RenderStage::Fragment => Role::Fragment,
-            };
-            render_entry(at, name, role)
-        },
+        |at, name, stage| render_entry(at, name, stage, None, entry_point_spirv).0,
     )?;
     Ok(Compilation {
         compiled: Compiled { kernels, render },
@@ -726,18 +721,98 @@ pub(crate) fn walk_program<K, R>(
     Ok((kernels, records))
 }
 
+/// The semantic name and index of a vertex attribute, such as `POSITION`
+/// and 0 for `float3 position : POSITION`, by which Direct3D 12 matches the
+/// attribute to its vertex stream.
+pub(crate) type Semantic = (String, u32);
+
+/// What the walk of a vertex or fragment entry point yields: its record,
+/// the place of each binding of the record, in the order of the bindings,
+/// and the semantic of each vertex attribute of the record, in the order of
+/// the attributes, or `None` for one without a semantic. Both lists are
+/// empty when the record holds a rejection.
+pub(crate) type RenderEntry = (CompiledRender, Vec<Place>, Vec<Option<Semantic>>);
+
 /// Returns the record of the vertex or fragment entry point `at`, whose
-/// name is `name`, with the first failure as its rejection.
-fn render_entry(at: &LinkedEntryPoint<'_>, name: String, role: Role) -> CompiledRender {
-    let layout = metadata(at).and_then(|metadata| {
-        walk(at.layout, at.entry_point, Some(&metadata), &name, role).map(|walk| RenderLayout {
-            bindings: walk.bindings,
-            immediates: walk.immediates,
-            attributes: walk.attributes,
+/// name is `name`, with the code that `code` generates for it and the first
+/// failure as its rejection, and the facts of [`RenderEntry`].
+///
+/// With `without_semantic`, the record of a vertex entry point with an
+/// attribute that has no semantic holds a rejection of kind
+/// [`ErrorKind::UnsupportedParameter`] whose detail `without_semantic`
+/// returns for the path of the first such attribute. That check reads
+/// reflection alone and runs before the metadata, which generates the code
+/// of the entry point for the target and can fail on such an attribute
+/// first.
+pub(crate) fn render_entry(
+    at: &LinkedEntryPoint<'_>,
+    name: String,
+    stage: RenderStage,
+    without_semantic: Option<fn(&str) -> String>,
+    code: impl FnOnce(&LinkedEntryPoint<'_>, &str) -> Result<Vec<u32>>,
+) -> RenderEntry {
+    let role = match stage {
+        RenderStage::Vertex => Role::Vertex,
+        RenderStage::Fragment => Role::Fragment,
+    };
+    if let (Role::Vertex, Some(problem)) = (role, without_semantic)
+        && let Some(path) = attribute_without_semantic(at, &name)
+    {
+        let rejection = Rejection {
+            kind: ErrorKind::UnsupportedParameter,
+            detail: problem(&path),
+            source: None,
+        };
+        let record = CompiledRender {
+            name,
+            stage,
+            usable: Err(rejection),
+        };
+        return (record, Vec::new(), Vec::new());
+    }
+    let walked = metadata(at).and_then(|metadata| {
+        walk(at.layout, at.entry_point, Some(&metadata), &name, role).map(|walk| {
+            let layout = RenderLayout {
+                bindings: walk.bindings,
+                immediates: walk.immediates,
+                attributes: walk.attributes,
+            };
+            (layout, walk.places, walk.semantics)
         })
     });
-    let spirv = spirv(at.program, at.index, at.target, &name);
-    render_record(name, role, layout, spirv)
+    let code = code(at, &name);
+    match walked {
+        Ok((layout, places, semantics)) => {
+            let record = render_record(name, role, Ok(layout), code);
+            if record.usable.is_ok() {
+                (record, places, semantics)
+            } else {
+                (record, Vec::new(), Vec::new())
+            }
+        }
+        Err(error) => (
+            render_record(name, role, Err(error), code),
+            Vec::new(),
+            Vec::new(),
+        ),
+    }
+}
+
+/// Returns the path of the first attribute of the vertex entry point `at`
+/// that has no semantic, from a walk without metadata, or `None` when every
+/// attribute has one or that walk fails, in which case the walk with the
+/// metadata reports the failure.
+fn attribute_without_semantic(at: &LinkedEntryPoint<'_>, name: &str) -> Option<String> {
+    let walk = walk(at.layout, at.entry_point, None, name, Role::Vertex).ok()?;
+    walk.attributes
+        .into_iter()
+        .zip(walk.semantics)
+        .find_map(|(attribute, semantic)| semantic.is_none().then_some(attribute.path))
+}
+
+/// Returns the SPIR-V of the entry point `at`, whose name is `name`.
+fn entry_point_spirv(at: &LinkedEntryPoint<'_>, name: &str) -> Result<Vec<u32>> {
+    spirv(at.program, at.index, at.target, name)
 }
 
 /// Returns the paths of the files that Slang read to compile `module`.
@@ -810,6 +885,7 @@ fn walk<'a>(
         places: Vec::new(),
         immediates: None,
         attributes: Vec::new(),
+        semantics: Vec::new(),
         structures: Vec::new(),
         in_entry_point: false,
         structure_depth: 0,
@@ -885,6 +961,8 @@ struct Walk<'a> {
     places: Vec<Place>,
     immediates: Option<UniformBlock>,
     attributes: Vec<Attribute>,
+    /// The semantic of each attribute, in the order of `attributes`.
+    semantics: Vec<Option<Semantic>>,
     structures: Vec<UniformStructure>,
     /// Whether the walk is at the parameters of the entry point, whose
     /// outermost block holds its `uniform` parameters, which become the
@@ -1245,6 +1323,13 @@ impl Walk<'_> {
             components,
             usage: if used { Usage::Used } else { Usage::Unused },
         });
+        let semantic = variable.semantic_name().ok().flatten().and_then(|name| {
+            Some((
+                name.to_owned(),
+                u32::try_from(variable.semantic_index()).ok()?,
+            ))
+        });
+        self.semantics.push(semantic);
         Ok(())
     }
 

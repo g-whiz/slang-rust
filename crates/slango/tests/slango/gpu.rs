@@ -11,8 +11,6 @@ mod precompiled;
 mod render;
 mod sample;
 mod texture;
-#[cfg(feature = "rhi")]
-mod unsupported;
 
 #[test]
 fn default_device_reports_its_adapter() {

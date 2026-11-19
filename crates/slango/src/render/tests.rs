@@ -1,9 +1,9 @@
 use std::error::Error as StdError;
 
 use super::{
-    Blend, CullMode, Names, PipelineBinding, RenderPipeline, RenderPipelineOptions, Stages,
-    StepMode, VertexInput, merge_bindings, select, snapshot, vertex_format_supported,
-    vertex_inputs,
+    BindingKeys, Blend, CullMode, Names, PipelineBinding, PipelineSnapshot, RenderPipeline,
+    RenderPipelineOptions, SlotKey, Stages, StepMode, VertexInput, merge_bindings, select,
+    snapshot, vertex_format_supported, vertex_inputs,
 };
 use crate::error::{Error, ErrorKind};
 use crate::layout::{
@@ -25,6 +25,30 @@ fn binding(set: u32, index: u32, usage: Usage, resource: Resource) -> Binding {
         usage,
         resource,
     }
+}
+
+fn slot_keys(vertex: &[Binding], fragment: &[Binding]) -> BindingKeys<SlotKey> {
+    BindingKeys {
+        vertex: vertex.iter().map(SlotKey::of).collect(),
+        fragment: fragment.iter().map(SlotKey::of).collect(),
+    }
+}
+
+/// Merges the bindings by their sets and bindings.
+fn merge(vertex: &[Binding], fragment: &[Binding]) -> Result<Vec<PipelineBinding>, Error> {
+    merge_bindings(vertex, fragment, slot_keys(vertex, fragment), NAMES)
+        .map(|(bindings, _)| bindings)
+}
+
+/// Returns the snapshot of a pipeline whose bindings merge by their sets and
+/// bindings.
+fn snapshot_of(
+    vertex: &UsableRender,
+    fragment: &UsableRender,
+    options: &RenderPipelineOptions,
+) -> Result<PipelineSnapshot, Error> {
+    let keys = slot_keys(&vertex.layout.bindings, &fragment.layout.bindings);
+    snapshot(vertex, fragment, keys, NAMES, options).map(|(snapshot, _)| snapshot)
 }
 
 fn uniform(size: u64) -> Resource {
@@ -215,7 +239,7 @@ fn snapshot_error(
     fragment: &UsableRender,
     options: &RenderPipelineOptions,
 ) -> Error {
-    snapshot(vertex, fragment, NAMES, options).expect_err("the snapshot fails")
+    snapshot_of(vertex, fragment, options).expect_err("the snapshot fails")
 }
 
 #[test]
@@ -277,8 +301,7 @@ fn every_colour_format_with_and_without_the_depth_format_is_accepted() {
                 depth_format,
                 ..RenderPipelineOptions::default()
             };
-            let snapshot =
-                snapshot(&plain, &plain, NAMES, &options).expect("the options are valid");
+            let snapshot = snapshot_of(&plain, &plain, &options).expect("the options are valid");
             assert_eq!(snapshot.options, options);
             assert_eq!(snapshot.vertex, "vsMain");
             assert_eq!(snapshot.fragment, "fsMain");
@@ -354,7 +377,7 @@ fn a_binding_is_visible_to_exactly_the_stages_that_use_it() {
         binding(0, 2, Usage::Used, Resource::SampledTexture),
         binding(0, 3, Usage::Unused, Resource::Sampler),
     ];
-    let merged_bindings = merge_bindings(&vertex, &fragment, NAMES).expect("the bindings agree");
+    let merged_bindings = merge(&vertex, &fragment).expect("the bindings agree");
     assert_eq!(
         merged_bindings,
         [
@@ -382,7 +405,7 @@ fn bindings_of_one_stage_only_are_merged_in_the_order_of_sets_and_bindings() {
         binding(0, 1, Usage::Used, Resource::Sampler),
         binding(2, 0, Usage::Unused, Resource::SampledTexture),
     ];
-    let merged_bindings = merge_bindings(&vertex, &fragment, NAMES).expect("the bindings agree");
+    let merged_bindings = merge(&vertex, &fragment).expect("the bindings agree");
     assert_eq!(
         merged_bindings,
         [
@@ -404,14 +427,14 @@ fn two_layouts_at_one_binding_are_an_unsupported_parameter() {
     let vertex = [binding(0, 0, Usage::Used, uniform(16))];
     let fragment = [binding(0, 0, Usage::Used, uniform(32))];
     assert_error(
-        &merge_bindings(&vertex, &fragment, NAMES).expect_err("the layouts differ"),
+        &merge(&vertex, &fragment).expect_err("the layouts differ"),
         ErrorKind::UnsupportedParameter,
         "cannot create a render pipeline: for `vsMain` and `fsMain`, Slang reports the parameters `parameter_0_0` and `parameter_0_0` at set 0, binding 0 with different layouts",
     );
     let mut renamed = binding(0, 0, Usage::Used, uniform(16));
     renamed.path = "other".to_owned();
     assert_error(
-        &merge_bindings(&vertex, &[renamed], NAMES).expect_err("the paths differ"),
+        &merge(&vertex, &[renamed]).expect_err("the paths differ"),
         ErrorKind::UnsupportedParameter,
         "cannot create a render pipeline: for `vsMain` and `fsMain`, Slang reports the parameters `parameter_0_0` and `other` at set 0, binding 0 with different layouts",
     );

@@ -52,7 +52,7 @@ pub struct Module {
     device: Device,
     kernels: Arc<[Kernel]>,
     render: Arc<[CompiledRender]>,
-    _inner: backend::Module,
+    inner: backend::Module,
     thread_bound: PhantomData<*const ()>,
 }
 
@@ -181,15 +181,32 @@ impl Module {
     ///   text.
     /// - [`ErrorKind::Backend`] when the backend reports another error while
     ///   it creates the pipeline.
-    /// - [`ErrorKind::Unsupported`] with the feature `rhi`, which creates no
-    ///   render pipeline, for every pair of entry points of the module.
+    ///
+    /// With the feature `rhi`, it also returns an [`Error`] of these kinds:
+    ///
+    /// - [`ErrorKind::UnsupportedParameter`] when a vertex attribute has no
+    ///   semantic, which Direct3D 12 matches attributes by, or when a used
+    ///   resource is a parameter of an entry point or sits inside a
+    ///   structure that is not the element of a constant buffer or a
+    ///   parameter block.
+    /// - [`ErrorKind::InvalidArgument`] when the vertex attributes need more
+    ///   vertex streams or input elements than the device allows.
+    /// - [`ErrorKind::Compile`] when slang-rhi cannot compile the two entry
+    ///   points together or create the pipeline from them.
     pub fn render_pipeline(
         &self,
         vertex: &str,
         fragment: &str,
         options: &RenderPipelineOptions,
     ) -> Result<RenderPipeline> {
-        RenderPipeline::create(&self.device, &self.render, vertex, fragment, options)
+        RenderPipeline::create(
+            &self.device,
+            &self.inner,
+            &self.render,
+            vertex,
+            fragment,
+            options,
+        )
     }
 }
 
@@ -205,9 +222,15 @@ impl Device {
     /// Loads the Slang module in a file and prepares each of its compute
     /// entry points as a [`Kernel`] of this device.
     ///
-    /// The load compiles the module to SPIR-V on the calling thread. Slang
-    /// resolves an `import` relative to the file, and the load also gives
-    /// Slang the directory of the file as a search path. It then creates on
+    /// The load compiles the module on the calling thread, to SPIR-V with
+    /// the feature `wgpu`. With the feature `rhi`, it compiles the module for
+    /// the device, SPIR-V on Vulkan and DXIL on Direct3D 12, and on Direct3D
+    /// 12 it also compiles the vertex entry points to SPIR-V to learn which
+    /// vertex attributes they read, because the metadata of DXIL reports
+    /// every declared attribute as read.
+    ///
+    /// Slang resolves an `import` relative to the file, and the load also
+    /// gives Slang the directory of the file as a search path. It then creates on
     /// the device everything that a dispatch of each kernel needs, so every
     /// error of the module surfaces here. Each load starts the Slang compiler
     /// afresh, which takes about a tenth of a second, so load a module once
@@ -317,7 +340,7 @@ impl Device {
             device: self.clone(),
             kernels: kernels.into(),
             render: render.into(),
-            _inner: module,
+            inner: module,
             thread_bound: PhantomData,
         }
     }

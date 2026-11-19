@@ -22,13 +22,19 @@ pub(crate) struct Kernel {
 struct Objects {
     pipeline: ComputePipeline,
     _program: ShaderProgram,
-    /// The place of each binding of the layout snapshot of the kernel, in
+    /// The scope of each binding of the layout snapshot of the kernel, in
     /// the order of the bindings.
-    places: Vec<Place>,
+    scopes: Vec<Scope>,
 }
 
-/// Why the backend wrote no argument into the shader objects of a dispatch.
-enum Failure {
+/// Where a binding sits in the shader objects of a pipeline: among the
+/// global parameters, which the root object holds, or among the parameters
+/// of the entry point at this position of the program.
+pub(super) type Scope = Option<usize>;
+
+/// Why the backend wrote no argument into the shader objects of a dispatch
+/// or a draw.
+pub(super) enum Failure {
     /// slang-rhi failed.
     Rhi(slang_rhi::Error),
     /// The shader objects hold no parameter at the path, although the layout
@@ -56,9 +62,9 @@ impl Kernel {
         module: &slang_compiler::Module,
         entry_point: &EntryPoint,
         layout: &KernelLayout,
-        places: Vec<Place>,
+        places: &[Place],
     ) -> Result<Self> {
-        check_addressable(layout, &places)?;
+        check_addressable(layout, places)?;
         let name = layout.name.as_str();
         let linked = compile
             .session()
@@ -81,11 +87,15 @@ impl Kernel {
             .rhi_device()
             .create_compute_pipeline(&program)
             .map_err(failed)?;
+        let scopes = places
+            .iter()
+            .map(|place| place.in_entry_point.then_some(0))
+            .collect();
         Ok(Self {
             objects: Rc::new(Objects {
                 pipeline,
                 _program: program,
-                places,
+                scopes,
             }),
         })
     }
@@ -111,7 +121,15 @@ impl Kernel {
         let unwritten = encoder
             .compute_pass(|pass| {
                 let mut root = pass.bind_pipeline(&self.objects.pipeline)?;
-                match write(&mut root, layout, &self.objects.places, plan, arguments) {
+                let written = write(
+                    &mut root,
+                    &layout.bindings,
+                    &self.objects.scopes,
+                    plan,
+                    arguments,
+                    layout.immediates.as_ref(),
+                );
+                match written {
                     Ok(()) => {}
                     Err(Failure::Rhi(error)) => return Err(error),
                     Err(failure) => return Ok(Some(failure)),
@@ -137,22 +155,32 @@ impl Kernel {
 }
 
 /// Refuses a kernel of `layout`, whose bindings sit at `places`, that uses a
-/// parameter that the shader objects of slang-rhi cannot address by name:
-/// a resource or block inside a structure that is a plain parameter, and a
-/// constant buffer whose element is not a structure.
+/// parameter that the shader objects of slang-rhi cannot address by name, as
+/// [`unaddressable`] finds it.
 fn check_addressable(layout: &KernelLayout, places: &[Place]) -> Result<()> {
     let name = layout.name.as_str();
-    let refuse = |path: &str, what: &str| {
-        Error::new(ErrorKind::UnsupportedParameter, LOAD).with_detail(format!(
-            "the parameter `{path}` of the kernel `{name}` is {what}, which slango with the feature `rhi` does not support"
-        ))
-    };
-    for (binding, place) in layout.bindings.iter().zip(places) {
+    match unaddressable(layout.bindings.iter().zip(places)) {
+        Some((path, what)) => Err(Error::new(ErrorKind::UnsupportedParameter, LOAD)
+            .with_detail(format!(
+                "the parameter `{path}` of the kernel `{name}` is {what}, which slango with the feature `rhi` does not support"
+            ))),
+        None => Ok(()),
+    }
+}
+
+/// Returns the path of the first used binding of `placed`, each binding with
+/// its place, that the shader objects of slang-rhi cannot address by name,
+/// with what it is: a resource or block inside a structure that is a plain
+/// parameter, or a constant buffer whose element is not a structure.
+pub(super) fn unaddressable<'b>(
+    placed: impl IntoIterator<Item = (&'b Binding, &'b Place)>,
+) -> Option<(&'b str, &'static str)> {
+    for (binding, place) in placed {
         if binding.usage == Usage::Unused {
             continue;
         }
         if place.in_structure {
-            return Err(refuse(
+            return Some((
                 &binding.path,
                 "a resource inside a structure that is not the element of a constant buffer or a parameter block",
             ));
@@ -161,45 +189,47 @@ fn check_addressable(layout: &KernelLayout, places: &[Place]) -> Result<()> {
             && !binding.path.is_empty()
             && top_level_fields(&binding.path, block).is_err()
         {
-            return Err(refuse(
+            return Some((
                 &binding.path,
                 "a constant buffer whose element is not a structure",
             ));
         }
     }
-    Ok(())
+    None
 }
 
-/// Writes each used binding of `plan` into the root object `root` of the
-/// pipeline of the kernel of `layout`, or into the object of its entry point
-/// for a binding whose place in `places` is among the parameters of the
-/// entry point, and the immediates into the object of its entry point.
-fn write(
+/// Writes each used binding of `plan` into the root object `root` of a
+/// pipeline whose bindings are `bindings`, or into the object of an entry
+/// point for a binding whose scope in `scopes` is that entry point, and the
+/// immediates of the block `immediates` into the object of the first entry
+/// point.
+pub(super) fn write<P: AsRef<Binding>>(
     root: &mut ShaderObject<'_>,
-    layout: &KernelLayout,
-    places: &[Place],
+    bindings: &[P],
+    scopes: &[Scope],
     plan: &Plan,
     arguments: &[(&str, CallArgument<'_>)],
+    immediates: Option<&UniformBlock>,
 ) -> std::result::Result<(), Failure> {
     for entry in &plan.entries {
-        let (Some(binding), Some(place)) = (
-            layout.bindings.get(entry.binding),
-            places.get(entry.binding),
-        ) else {
+        let (Some(binding), Some(scope)) = (bindings.get(entry.binding), scopes.get(entry.binding))
+        else {
             return Err(Failure::Mismatch(format!(
                 "the call names the binding {}, past the {} bindings",
                 entry.binding,
-                layout.bindings.len().min(places.len())
+                bindings.len().min(scopes.len())
             )));
         };
-        if place.in_entry_point {
-            let mut entry_point = root.entry_point(0)?;
-            write_entry(&mut entry_point, binding, &entry.source, arguments)?;
-        } else {
-            write_entry(root, binding, &entry.source, arguments)?;
+        let binding = binding.as_ref();
+        match scope {
+            Some(index) => {
+                let mut entry_point = root.entry_point(*index)?;
+                write_entry(&mut entry_point, binding, &entry.source, arguments)?;
+            }
+            None => write_entry(root, binding, &entry.source, arguments)?,
         }
     }
-    if let Some(block) = &layout.immediates
+    if let Some(block) = immediates
         && !plan.immediates.is_empty()
     {
         let mut entry_point = root.entry_point(0)?;
@@ -264,8 +294,8 @@ fn bind(
                 })?;
                 object.set_buffer(offset, buffer)?;
             }
-            Argument::Texture(bound) => bound.handle.unreachable(),
-            Argument::Sampler(bound) => bound.handle.unreachable(),
+            Argument::Texture(bound) => object.set_texture(offset, bound.handle.rhi_texture())?,
+            Argument::Sampler(bound) => object.set_sampler(offset, bound.handle.rhi_sampler())?,
             Argument::Value(_) => {}
         }
         Ok(())

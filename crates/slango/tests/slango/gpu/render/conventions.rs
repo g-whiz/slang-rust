@@ -29,7 +29,6 @@ fn corners(pixels: &[[u8; 4]]) -> [[u8; 4]; 4] {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_triangle_in_the_upper_left_of_clip_space_lands_in_the_upper_left_rows_of_the_target() {
     let device = device();
     let module = load(&device, FLAT);
@@ -56,7 +55,6 @@ fn a_triangle_in_the_upper_left_of_clip_space_lands_in_the_upper_left_rows_of_th
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn back_face_culling_keeps_the_counter_clockwise_triangle_and_discards_its_clockwise_twin() {
     let device = device();
     let module = load(&device, FLAT);
@@ -90,7 +88,6 @@ fn back_face_culling_keeps_the_counter_clockwise_triangle_and_discards_its_clock
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn the_nearer_triangle_hides_the_farther_one_in_either_order_within_one_draw() {
     let device = device();
     let module = load(&device, FLAT);
@@ -132,7 +129,6 @@ fn the_nearer_triangle_hides_the_farther_one_in_either_order_within_one_draw() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_depth_target_that_is_not_cleared_keeps_the_depths_of_the_last_draw() {
     let device = device();
     let module = load(&device, FLAT);
@@ -173,38 +169,39 @@ fn a_depth_target_that_is_not_cleared_keeps_the_depths_of_the_last_draw() {
     assert_eq!(corners(&target.read().expect("the pixels")), [RED_PIXEL; 4]);
 }
 
-#[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
-fn depths_outside_zero_to_one_are_clipped_and_depths_inside_are_drawn() {
+/// Draws a red triangle over the whole target at the depth of each case,
+/// into a target cleared to blue, and checks the colour of its corners.
+fn assert_depths(cases: &[(f32, [u8; 4])]) -> slango::Result<()> {
     let device = device();
     let module = load(&device, FLAT);
-    let pipeline = module
-        .render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())
-        .expect("the pipeline");
-    for (z, expected) in [
-        (-0.5, BLUE_PIXEL),
-        (1.5, BLUE_PIXEL),
-        (0.01, RED_PIXEL),
-        (0.99, RED_PIXEL),
-    ] {
+    let pipeline = module.render_pipeline("vsMain", "fsMain", &RenderPipelineOptions::default())?;
+    for &(z, expected) in cases {
         let triangle = Triangles::new(
             &device,
             &[([[-1.0, -1.0, z], [3.0, -1.0, z], [-1.0, 3.0, z]], RED)],
         );
-        let target = target(&device).expect("a target");
-        triangle
-            .draw(&pipeline, &target, Some(BLUE))
-            .expect("the draw");
-        assert_eq!(
-            corners(&target.read().expect("the pixels")),
-            [expected; 4],
-            "a depth of {z}"
-        );
+        let target = target(&device)?;
+        triangle.draw(&pipeline, &target, Some(BLUE))?;
+        assert_eq!(corners(&target.read()?), [expected; 4], "a depth of {z}");
     }
+    Ok(())
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
+fn depths_inside_zero_to_one_are_drawn() -> slango::Result<()> {
+    assert_depths(&[(0.01, RED_PIXEL), (0.99, RED_PIXEL)])
+}
+
+#[test]
+#[cfg_attr(
+    all(feature = "rhi", not(target_os = "windows")),
+    ignore = "slang-rhi clamps the depth of a primitive outside the range 0 to 1 on Vulkan instead of clipping the primitive"
+)]
+fn depths_outside_zero_to_one_are_clipped() -> slango::Result<()> {
+    assert_depths(&[(-0.5, BLUE_PIXEL), (1.5, BLUE_PIXEL)])
+}
+
+#[test]
 fn the_fragment_position_has_pixel_centres_at_one_half_and_rows_from_the_top() {
     let device = device();
     let module = load(

@@ -537,7 +537,7 @@ impl fmt::Display for Subject<'_> {
 }
 
 /// The parameters of a kernel or a render pipeline that the checks of a call
-/// or draw read: the bindings, ordered by set and binding, each with its
+/// or draw read: the bindings, in the order of the snapshot, each with its
 /// usage, and the block of immediates, when there is one.
 pub(crate) struct Parameters<'l, P> {
     pub(crate) subject: Subject<'l>,
@@ -909,7 +909,8 @@ fn check_texture<V>(subject: Subject<'_>, path: &str, bound: &BoundTexture<V>) -
     }
     if !bound.sampleable {
         return Err(subject.invalid(format!(
-            "the texture bound to the parameter `{path}` of {subject} lacks the usage TEXTURE_BINDING, which {runner} needs to sample it"
+            "the texture bound to the parameter `{path}` of {subject} lacks the usage {}, which {runner} needs to sample it",
+            backend::SAMPLE_USAGE
         )));
     }
     Ok(())

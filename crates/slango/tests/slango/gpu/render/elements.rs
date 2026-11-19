@@ -15,7 +15,6 @@ float4 fsMain() : SV_Target { return colours[0]; }
 "#;
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_draw_rejects_a_buffer_of_another_scalar_type_and_draws_with_the_same_one() {
     let device = device_with(AdapterSelection::Default);
     let pipeline = render_pipeline(&device, COLOURED, &RenderPipelineOptions::default());

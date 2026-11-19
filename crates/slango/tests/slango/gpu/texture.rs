@@ -57,10 +57,6 @@ pub(crate) fn write_pixels(device: &Device, texture: &Texture, pixels: &[[u8; 4]
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_texture_from_pixels_reads_back_its_pixels() -> slango::Result<()> {
     let device = device();
     for size in [[1, 1], [3, 2], [5, 3], [64, 2], [65, 3]] {
@@ -93,10 +89,6 @@ fn a_texture_of_each_colour_format_reads_back_the_bytes_written_into_it() -> sla
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn an_empty_texture_of_each_colour_format_reads_back_zeros() -> slango::Result<()> {
     let device = device();
     for format in COLOUR_FORMATS {
@@ -108,10 +100,6 @@ fn an_empty_texture_of_each_colour_format_reads_back_zeros() -> slango::Result<(
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_depth_texture_is_created_and_cannot_be_read() -> slango::Result<()> {
     let device = device();
     let depth = Texture::new(&device, [4, 4], TextureFormat::Depth32Float)?;
@@ -363,10 +351,6 @@ fn a_view_of_a_texture_with_several_mip_levels_layers_or_samples_is_an_invalid_a
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_sampler_is_created_with_every_combination_of_options() -> slango::Result<()> {
     let device = device();
     for filter in [FilterMode::Nearest, FilterMode::Linear] {

@@ -85,7 +85,7 @@ pub struct Draw<'a> {
 /// and the arguments, vertex buffers, and targets that it binds.
 pub(crate) struct Recording<'r, 'a> {
     pub(crate) label: &'r str,
-    /// The bindings of the pipeline, ordered by set and binding, which the
+    /// The bindings of the pipeline, in the order of the snapshot, which the
     /// entries of the plan index.
     pub(crate) bindings: &'r [PipelineBinding],
     pub(crate) plan: &'r DrawPlan,
@@ -161,8 +161,8 @@ pub(crate) struct Targets<'t, V> {
     pub(crate) clear_depth: Option<f32>,
 }
 
-/// What a draw binds: the bind groups of [`Plan`], and the vertex buffer of
-/// each slot, as the index of its argument among the vertex buffers.
+/// What a draw binds: the [`Plan`] of its parameters, and the vertex buffer
+/// of each slot, as the index of its argument among the vertex buffers.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DrawPlan {
     pub(crate) plan: Plan,
@@ -493,9 +493,10 @@ impl<'a> Draw<'a> {
     ///   buffers.
     /// - [`ErrorKind::UnsupportedParameter`](crate::ErrorKind::UnsupportedParameter)
     ///   when the reflected layout of a plain value does not hold the value.
-    /// - [`ErrorKind::Backend`](crate::ErrorKind::Backend) when wgpu reports
-    ///   an error while it prepares or submits the work, such as when one
-    ///   texture is both sampled and a target of the draw.
+    /// - [`ErrorKind::Backend`](crate::ErrorKind::Backend) when wgpu, or
+    ///   slang-rhi with the feature `rhi`, reports an error while it prepares
+    ///   or submits the work, such as when one texture is both sampled and a
+    ///   target of the draw.
     pub fn submit(&self, vertices: u32, instances: u32) -> Result<()> {
         self.run(Count::Vertices(vertices), instances, None)
     }
@@ -506,7 +507,8 @@ impl<'a> Draw<'a> {
     ///
     /// It works as [`Draw::submit`] does. The draw does not read the
     /// indices, so an index past the end of the vertex buffers reaches the
-    /// GPU, whose handling of it rests on wgpu and the driver.
+    /// GPU, whose handling of it rests on wgpu, or slang-rhi with the feature
+    /// `rhi`, and on the driver.
     ///
     /// # Examples
     ///
@@ -619,7 +621,7 @@ pub(crate) fn element_type<T: VertexElement>() -> Option<(Scalar, u32)> {
 }
 
 /// Checks a draw against the snapshot of its pipeline, before any call of
-/// wgpu, and returns what the draw binds.
+/// the backend, and returns what the draw binds.
 ///
 /// It fails with [`ErrorKind::InvalidArgument`](crate::ErrorKind::InvalidArgument)
 /// on the first failure of these checks, in this order:
@@ -834,7 +836,8 @@ fn check_target<V>(
     }
     if !target.attachable {
         return Err(subject.invalid(format!(
-            "the {what} target of the draw with {subject} lacks the usage RENDER_ATTACHMENT, which a draw needs to draw into it"
+            "the {what} target of the draw with {subject} lacks the usage {}, which a draw needs to draw into it",
+            backend::TARGET_USAGE
         )));
     }
     Ok(())

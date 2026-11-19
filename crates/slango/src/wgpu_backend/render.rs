@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::device::{Device, scoped};
 use super::kernel::{layout_entries, pipeline_error_kind};
+use super::module::Module;
 use super::submit::{bind_groups, rejected};
 use super::texture::to_wgpu;
 use crate::call::Subject;
@@ -10,8 +11,8 @@ use crate::draw::Recording;
 use crate::error::{ErrorKind, Result};
 use crate::layout::{Binding, RenderStage, Scalar, UsableRender};
 use crate::render::{
-    Blend, CullMode, Names, PipelineSnapshot, RenderPipelineOptions, Stages, StepMode, VertexInput,
-    stage_word,
+    BindingKeys, Blend, CullMode, Names, PipelineSnapshot, RenderPipelineOptions, SlotKey, Stages,
+    StepMode, VertexInput, stage_word,
 };
 use crate::texture::TextureFormat;
 
@@ -30,15 +31,40 @@ struct VertexBuffer {
     step_mode: ::wgpu::VertexStepMode,
 }
 
+/// The key by which the bindings of the two entry points of a render
+/// pipeline merge: the set and the binding, by which wgpu groups the
+/// bindings into bind groups.
+pub(crate) type BindingKey = SlotKey;
+
 impl RenderPipeline {
+    /// Returns the key of each binding of both entry points.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "both backends share one signature, and the backend rhi fails when its load kept no entry point of a name"
+    )]
+    pub(crate) fn binding_keys(
+        _module: &Module,
+        vertex_record: &UsableRender,
+        fragment_record: &UsableRender,
+        _names: Names<'_>,
+    ) -> Result<BindingKeys<BindingKey>> {
+        let keys = |record: &UsableRender| record.layout.bindings.iter().map(SlotKey::of).collect();
+        Ok(BindingKeys {
+            vertex: keys(vertex_record),
+            fragment: keys(fragment_record),
+        })
+    }
+
     /// Creates both shader modules, the layouts, and the render pipeline on
     /// the device.
     pub(crate) fn create(
         device: &Device,
+        _module: &Module,
         vertex_record: &UsableRender,
         fragment_record: &UsableRender,
         names: Names<'_>,
         snapshot: &PipelineSnapshot,
+        _keys: &[BindingKey],
     ) -> Result<Self> {
         let wgpu_device = device.wgpu_device();
         let vertex_module = shader_module(wgpu_device, vertex_record, names, RenderStage::Vertex)?;

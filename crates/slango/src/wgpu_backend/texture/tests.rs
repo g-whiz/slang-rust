@@ -1,4 +1,4 @@
-use super::{check_wrappable, from_wgpu, to_wgpu, usages};
+use super::{ReadLayout, check_wrappable, from_wgpu, to_wgpu, usages};
 use crate::error::ErrorKind;
 use crate::texture::TextureFormat;
 
@@ -82,4 +82,42 @@ fn colour_formats_get_every_usage_and_the_depth_format_only_render_attachment() 
         };
         assert_eq!(usages(format), expected, "{format:?}");
     }
+}
+
+#[test]
+fn each_row_of_a_read_is_padded_to_a_multiple_of_256_bytes() {
+    let cases = [
+        ([1, 1], 256, 256),
+        ([3, 2], 256, 512),
+        ([64, 3], 256, 768),
+        ([65, 2], 512, 1024),
+        ([8192, 8192], 32768, 32768 * 8192),
+    ];
+    for (size, bytes_per_row, total) in cases {
+        let layout = ReadLayout::new(size, 256).expect("the layout of a valid size");
+        assert_eq!(layout.bytes_per_row, bytes_per_row, "{size:?}");
+        assert_eq!(layout.size, total, "{size:?}");
+    }
+    assert_eq!(ReadLayout::new([u32::MAX, 1], 256), None);
+}
+
+#[test]
+fn unpad_drops_the_padding_of_each_row_and_keeps_the_rows_in_order() {
+    let layout = ReadLayout::new([3, 2], 256).expect("the layout of three by two");
+    let mut bytes = vec![0xee_u8; 512];
+    let pixels: [[u8; 4]; 6] = [
+        [1, 2, 3, 4],
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+        [13, 14, 15, 16],
+        [17, 18, 19, 20],
+        [21, 22, 23, 24],
+    ];
+    for (index, pixel) in pixels.iter().enumerate() {
+        let start = (index / 3) * 256 + (index % 3) * 4;
+        bytes[start..start + 4].copy_from_slice(pixel);
+    }
+    assert_eq!(layout.unpad(&bytes), Some(pixels.to_vec()));
+    assert_eq!(layout.unpad(&bytes[..511]), None);
+    assert_eq!(layout.unpad(&[0; 768]), None);
 }

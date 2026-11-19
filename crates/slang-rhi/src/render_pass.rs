@@ -1167,6 +1167,8 @@ mod tests {
         assert!(!holds(11, 3, 4, 4));
         assert!(holds(20, 2, 12, 8));
         assert!(!holds(19, 2, 12, 8));
+        assert!(holds(16, u32::MAX, 0, 16));
+        assert!(!holds(15, 1, 0, 16));
         assert!(holds(u64::MAX, u32::MAX, u32::MAX, u32::MAX));
         assert!(!holds(1 << 40, u32::MAX, u32::MAX, u32::MAX));
     }

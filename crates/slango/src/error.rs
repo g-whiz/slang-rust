@@ -12,9 +12,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// Every operation that can fail returns this one type. Match on
 /// [`Error::kind`] to decide what to do. When another library caused the
-/// failure, such as wgpu, the graphics library on which this crate runs, or
-/// `slang-compiler`, the Slang shader compiler, [`source`](StdError::source)
-/// returns its error.
+/// failure, such as wgpu or slang-rhi, the graphics libraries on which the
+/// two backends of this crate run, or `slang-compiler`, the Slang shader
+/// compiler, [`source`](StdError::source) returns its error.
 ///
 /// The text that [`Display`](fmt::Display) prints is a lowercase phrase that
 /// begins with `cannot` and names the failed operation, followed by a colon
@@ -174,20 +174,16 @@ pub enum ErrorKind {
     /// not allow, a texture that cannot be read, or a wgpu texture view that
     /// cannot serve as a texture. Correct the call.
     InvalidArgument,
-    /// wgpu reported an error, such as a validation error or a lack of
-    /// memory, while this crate created a kernel, a render pipeline, a
-    /// buffer, a texture, or a sampler, read a buffer or a texture, or
-    /// submitted a dispatch or a draw. Some validation errors come from
+    /// wgpu, or slang-rhi with the feature `rhi`, reported an error, such as
+    /// a validation error or a lack of memory, while this crate created a
+    /// kernel, a render pipeline, a buffer, a texture, or a sampler, read a
+    /// buffer or a texture, or submitted a dispatch or a draw. The source
+    /// error is the error of that library. Some validation errors come from
     /// arguments that no check of this crate rejects, such as one texture
     /// that a draw both samples and draws into. Report any other validation
     /// error as a defect of this crate.
-    ///
-    /// With the feature `rhi`, slang-rhi reported such an error. The source
-    /// error is the error of slang-rhi.
     Backend,
-    /// The backend of the build does not offer the operation. With the
-    /// feature `rhi`, this crate creates no texture, sampler, or render
-    /// pipeline.
+    /// The backend of the build does not offer the operation.
     Unsupported,
 }
 

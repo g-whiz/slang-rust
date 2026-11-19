@@ -9,9 +9,8 @@ struct VOut
 };
 
 [shader("vertex")]
-VOut vsMain(uint vertex : SV_VulkanVertexID)
+VOut vsMain(float2 corner : POSITION)
 {
-    float2 corner = float2(float((vertex << 1) & 2), float(vertex & 2));
     VOut output;
     output.position = float4(corner * 2.0 - 1.0, 0.0, 1.0);
     output.uv = float2(corner.x, 1.0 - corner.y);

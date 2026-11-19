@@ -690,6 +690,40 @@ fn a_stream_that_steps_for_each_instance_moves_each_instance() {
 }
 
 #[test]
+fn a_stream_of_stride_0_gives_every_vertex_and_instance_its_one_attribute() {
+    let (options, messages) = options(Toggle::On);
+    let device = open(&options);
+    let linked = link_render(device.slang_session(), "flat", FLAT);
+    let reflected = vertex_inputs(device.slang_session(), &linked);
+    let program = device
+        .create_shader_program(&linked)
+        .expect("slang-rhi creates the shader program");
+    let desc = RenderPipelineDesc::new(Format::Rgba8Unorm).with_vertex_streams([
+        stream(&reflected, "position", VertexFormat::Float32x3),
+        stream(&reflected, "colour", VertexFormat::Float32x4).with_stride(0),
+    ]);
+    let pipeline = device
+        .create_render_pipeline(&program, &desc)
+        .expect("slang-rhi creates the render pipeline");
+    let target = colour_target(&device, TextureUsage::empty());
+    let positions: Vec<f32> = FULL
+        .iter()
+        .chain(&UPPER_LEFT)
+        .flat_map(|[x, y]| [*x, *y, 0.0])
+        .collect();
+    let positions = vertex_buffer(&device, &positions);
+    let colour = vertex_buffer(&device, &GREEN);
+    let pass = slang_rhi::RenderPassDesc::new().with_colour_target(&target, BLACK);
+    render(&device, &pass, |pass| {
+        drop(pass.bind_pipeline(&pipeline)?);
+        pass.set_vertex_buffers(&[&positions, &colour])?;
+        pass.draw(6, 3)
+    });
+    assert_eq!(rows(&device, &target), ["GGGG"; 4]);
+    assert_no_error(&messages);
+}
+
+#[test]
 fn alpha_blending_mixes_the_colour_over_the_target_by_its_alpha() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
@@ -1037,7 +1071,7 @@ fn render_pipelines_that_break_a_rule_are_refused_before_slang_rhi_compiles_them
         valid.clone().with_depth_format(Format::Rgba8Unorm),
         RenderPipelineDesc::new(Format::Rgba8Unorm).with_vertex_streams(too_many),
         RenderPipelineDesc::new(Format::Rgba8Unorm)
-            .with_vertex_streams([position.clone().with_stride(0), colour.clone()]),
+            .with_vertex_streams([position.clone().with_stride(2052), colour.clone()]),
         RenderPipelineDesc::new(Format::Rgba8Unorm).with_vertex_streams([
             VertexStream::new(VertexFormat::Float32x3, 0),
             colour.clone(),

@@ -223,20 +223,22 @@
 //!
 //! - It runs the compute, vertex, and fragment entry points that a module
 //!   declares, and generates no shader of its own.
-//! - It compiles every entry point to SPIR-V and loads it through wgpu's
-//!   validated path, so it rejects what naga, the shader translator inside
-//!   wgpu, rejects, with [`ErrorKind::UnsupportedShader`]. naga rejects,
-//!   among other constructs, an array of buffers or of textures, a call of
-//!   `frexp`, and `SV_VertexID` and `SV_InstanceID`, in place of which a
-//!   vertex entry point reads `SV_VulkanVertexID` and `SV_VulkanInstanceID`.
+//! - With the feature `wgpu`, it compiles every entry point to SPIR-V and
+//!   loads it through wgpu's validated path, so it rejects what naga, the
+//!   shader translator inside wgpu, rejects, with
+//!   [`ErrorKind::UnsupportedShader`]. naga rejects, among other constructs,
+//!   an array of buffers or of textures, a call of `frexp`, and
+//!   `SV_VertexID` and `SV_InstanceID`, in place of which a vertex entry
+//!   point reads `SV_VulkanVertexID` and `SV_VulkanInstanceID`.
 //! - One draw is one render pass with one draw command and one colour
 //!   target, a [`Texture`] of a colour format of [`TextureFormat`], and at
 //!   most one depth target of the format [`TextureFormat::Depth32Float`]. The
 //!   draw clears the targets first or keeps their contents.
 //! - Each vertex attribute takes its own vertex buffer, at offset 0 with
 //!   the size of one element as its stride, so the device's limit on vertex
-//!   buffers, 8 by default, bounds the attributes that a vertex entry point
-//!   uses.
+//!   buffers bounds the attributes of a vertex entry point: with the
+//!   feature `wgpu`, those that it uses, 8 by default, and with the feature
+//!   `rhi`, all that it declares.
 //! - Every pipeline draws a list of triangles with one sample per pixel. The
 //!   crate offers no multisampling, no storage textures, and no texture
 //!   arrays.
@@ -275,15 +277,16 @@ wgpu. The example `windowed-renderer` does this with winit.
 //!
 //! - `wgpu`, on by default: runs every kernel and every draw on wgpu 30, and
 //!   provides the module `wgpu`, the boundary to wgpu code of your own.
-//! - `rhi`, off by default: runs every kernel on slang-rhi, with Vulkan on
+//! - `rhi`, off by default: runs every kernel and every draw on slang-rhi, with Vulkan on
 //!   Linux and Direct3D 12 on Windows on x86-64. It excludes `wgpu`, so a
 //!   program turns the default features off to enable it, and it implies
 //!   `vendored`. It builds Slang and slang-rhi from source, with the tools
 //!   that the crate slang-rhi-sys names, and the build stops on every
 //!   other target. A program on Windows needs `dxcompiler.dll` on its `PATH`
-//!   at run time. The module `wgpu` does not exist in this build, which
-//!   creates no texture, sampler, or render pipeline, and returns an error
-//!   of kind [`ErrorKind::Unsupported`] for each. It runs some kernels that wgpu
+//!   at run time. The module `wgpu` does not exist in this build. It needs
+//!   a semantic on every vertex attribute, and on Vulkan it draws the part of
+//!   a triangle outside the depth range 0 to 1 with its depth clamped where
+//!   wgpu clips it. It runs some kernels that wgpu
 //!   rejects, such as kernels that use 64-bit integers or half-precision
 //!   floats, because it hands the code that Slang generates to the driver
 //!   without the validation of wgpu.

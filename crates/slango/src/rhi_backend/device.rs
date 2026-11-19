@@ -1,7 +1,8 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use slang_compiler::GlobalSession;
-use slang_rhi::{Adapter, AdapterType, DeviceInfo, DeviceType, Queue};
+use slang_rhi::{Adapter, AdapterType, BufferDesc, BufferUsage, DeviceInfo, DeviceType, Queue};
 
 use super::error::{Call, from_rhi};
 use crate::device::{AdapterSelection, DeviceOptions};
@@ -28,8 +29,16 @@ struct Shared {
     queue: Queue,
     device: slang_rhi::Device,
     info: DeviceInfo,
-    _global_session: GlobalSession,
+    /// The buffer of zeros that feeds the vertex attributes that a vertex
+    /// entry point declares and does not use, whether or not a draw gives a
+    /// buffer for them, once a draw has needed it.
+    zeros: RefCell<Option<Rc<slang_rhi::Buffer>>>,
+    global_session: GlobalSession,
 }
+
+/// The size in bytes of the buffer of zeros, one attribute of the largest
+/// vertex format, four 32-bit numbers.
+const ZEROS_SIZE: u64 = 16;
 
 impl Device {
     pub(crate) fn new(options: &DeviceOptions) -> Result<Self> {
@@ -55,7 +64,8 @@ impl Device {
                 queue,
                 device,
                 info,
-                _global_session: global_session,
+                zeros: RefCell::new(None),
+                global_session,
             }),
         })
     }
@@ -80,6 +90,29 @@ impl Device {
     /// each axis that the device allows.
     pub(crate) fn max_workgroups(&self) -> [u32; 3] {
         self.shared.info.max_compute_dispatch_thread_groups()
+    }
+
+    /// Returns the limits of the device that slang-rhi reports.
+    pub(super) fn info(&self) -> &DeviceInfo {
+        &self.shared.info
+    }
+
+    /// Returns the buffer of 16 zero bytes of the device, which holds one
+    /// attribute of every vertex format and which the device creates when
+    /// a draw first needs it.
+    pub(super) fn zeros(&self) -> std::result::Result<Rc<slang_rhi::Buffer>, slang_rhi::Error> {
+        if let Some(zeros) = self.shared.zeros.borrow().as_ref() {
+            return Ok(Rc::clone(zeros));
+        }
+        let desc = BufferDesc::new(ZEROS_SIZE, BufferUsage::VERTEX_BUFFER);
+        let zeros = Rc::new(self.shared.device.create_buffer(&desc, Some(&[0; 16]))?);
+        *self.shared.zeros.borrow_mut() = Some(Rc::clone(&zeros));
+        Ok(zeros)
+    }
+
+    /// Returns the global session of Slang with which the device compiles.
+    pub(super) fn global_session(&self) -> &GlobalSession {
+        &self.shared.global_session
     }
 
     pub(super) fn rhi_device(&self) -> &slang_rhi::Device {

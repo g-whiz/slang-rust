@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-19 |
 | Applies to | `crates/slang-slint` and the Slint example |
 
 ## Abstract
@@ -370,7 +370,7 @@ Example 4 of the architecture design is the binary target `shader-playground` of
 - `scene.rs`, which holds the view, the reload, and the draw, and which the examples' test binary also compiles (TEST-1).
 - The shared modules `frames.rs`, `report.rs`, and `watched.rs` of `examples/src/shared/`, which it includes with a `#[path]` attribute.
 
-Its shader is `examples/shaders/playground.slang`, which draws a full-screen triangle with no vertex buffer and colours it from the global uniforms `time`, `brightness`, and `scale`. The vertex entry point numbers the vertices with `SV_VulkanVertexID`, because naga rejects `SV_VertexID` (Section 3.9 of `docs/design/slango.md`). The parameters are global uniforms, because `slango` rejects `uniform` parameters of a render entry point (SLO-23).
+Its shader is `examples/shaders/playground.slang`, which draws a full-screen triangle and colours it from the global uniforms `time`, `brightness`, and `scale`. The vertex entry point `vsMain(float2 corner : POSITION)` takes the three corners (0, 0), (2, 0), and (0, 2) from a vertex buffer that the scene creates, because no shader that reads the vertex index runs on both backends of `slango` on Direct3D 12 (Section 6.5 of `docs/design/slango.md`). The parameters are global uniforms, because `slango` rejects `uniform` parameters of a render entry point (SLO-23).
 
 The window has an `Image` element that fills a `Rectangle` that the layout sizes, and two sliders, "Brightness" from 0 to 1 and "Scale" from 0 to 4, both at 1 by default. In each draw, the example sets `brightness` and `scale` by name from the sliders, and `time` to the seconds since it started.
 
@@ -396,7 +396,7 @@ The `gpu` tests in the module `gpu::shader_playground` of the examples' test bin
 
 These `gpu` tests run on the build's backend of the examples package, through the helper of SLO-43 of `docs/design/slango.md`, so `test-rhi` runs the scene on the backend `rhi` on lavapipe and on WARP (TOOL-53 of `docs/design/tooling.md`).
 
-This crate cannot be built with the backend `rhi`. In that build, the scene draws into a `slango::Texture` of its own instead of a `View`, and the tests check the pixels and the reloads through that texture and compare no wgpu texture (Section 13.7 of `docs/design/slango.md`). In the build with `wgpu`, the scene keeps its `View` and the tests stay as they are. The window of the example stays on wgpu, through `wgpu_configuration` and `device`.
+This crate cannot be built with the backend `rhi`. In that build, the scene holds its own render pipeline and a `slango::Texture` of `Rgba8Unorm` instead of a `View`, replaces the texture on a resize to another size and together with the pipeline on a reload, and the tests check the pixels and the reloads through that texture, through the helper `scene_texture`, and compare no wgpu texture (Section 13.7 of `docs/design/slango.md`). In the build with `wgpu`, the scene keeps its `View` and the tests stay as they are. The window of the example stays on wgpu, through `wgpu_configuration` and `device`.
 
 The tests in the module `ffi::shader_playground` start the binary to check `--help` and the argument errors, which need no window.
 

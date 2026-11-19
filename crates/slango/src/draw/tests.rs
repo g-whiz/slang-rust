@@ -621,9 +621,10 @@ fn a_colour_target_of_another_device_format_or_without_render_attachment_is_an_i
     case.target = Some(unattachable);
     assert_eq!(
         case.rejected(),
-        invalid(
-            "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` lacks the usage RENDER_ATTACHMENT, which a draw needs to draw into it"
-        )
+        invalid(&format!(
+            "the colour target of the draw with the render pipeline of `vsMain` and `fsMain` lacks the usage {}, which a draw needs to draw into it",
+            crate::backend::TARGET_USAGE
+        ))
     );
 }
 
@@ -674,7 +675,7 @@ fn a_depth_target_of_another_device_format_or_size_or_without_render_attachment_
     assert!(
         case.rejected()
             .1
-            .contains("lacks the usage RENDER_ATTACHMENT")
+            .contains(&format!("lacks the usage {}", crate::backend::TARGET_USAGE))
     );
     for size in [[8, 4], [4, 8], [16, 16]] {
         case.depth = Some(target(TextureFormat::Depth32Float, size));

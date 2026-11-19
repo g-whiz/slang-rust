@@ -12,7 +12,7 @@
 //! creates a `slang_slint::View` of the size of the window's `Image`
 //! element, whose image it sets on that element. Before each frame that
 //! Slint renders, it resizes the view to the element and draws one triangle
-//! that covers the view, with no vertex buffer, and with the global
+//! that covers the view, from a vertex buffer of its three corners, with the global
 //! uniforms `time`, `brightness`, and `scale` set by name, the last two from
 //! the sliders. After each frame, it requests the next one.
 //!

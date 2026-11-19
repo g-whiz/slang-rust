@@ -282,7 +282,8 @@ pub use error::{Error, ErrorKind, Operation, Result};
 pub use program::{ComputePipeline, ShaderProgram};
 pub use render_pass::{ColourLoad, DepthLoad, RenderPass, RenderPassDesc};
 pub use render_pipeline::{
-    BlendMode, CullMode, RenderPipeline, RenderPipelineDesc, StepMode, VertexFormat, VertexStream,
+    BlendMode, CullMode, MAX_VERTEX_STREAMS, RenderPipeline, RenderPipelineDesc, StepMode,
+    VertexFormat, VertexStream,
 };
 pub use sampler::{AddressMode, FilterMode, Sampler, SamplerDesc};
 pub use shader_object::{ShaderObject, ShaderOffset};

@@ -75,10 +75,6 @@ const ASYMMETRIC: [[u8; 4]; 6] = [
 ];
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_kernel_samples_each_pixel_of_a_texture_from_pixels_at_its_centre() -> slango::Result<()> {
     let device = device();
     let image = Texture::from_pixels(&device, [3, 2], &ASYMMETRIC)?;
@@ -199,10 +195,6 @@ void centre() { output[0] = image.SampleLevel(pick, float2(0.5, 0.5), 0); }
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_linear_sampler_blends_two_pixels_by_their_distance() -> slango::Result<()> {
     let device = device();
     let blend = kernel(
@@ -250,10 +242,6 @@ const LEFT: [u8; 4] = [255, 0, 0, 255];
 const RIGHT: [u8; 4] = [0, 0, 255, 255];
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn each_address_mode_reads_its_own_pixels_outside_the_unit_square() -> slango::Result<()> {
     let device = device();
     let edges = kernel(
@@ -299,10 +287,6 @@ void edges(uint3 id : SV_DispatchThreadID)
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn two_textures_and_two_samplers_reach_their_own_parameters() -> slango::Result<()> {
     let device = device();
     let pairs = kernel(
@@ -352,10 +336,6 @@ void pairs()
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_kernel_loads_a_pixel_of_a_texture_without_a_sampler() -> slango::Result<()> {
     let device = device();
     let load = kernel(
@@ -444,10 +424,6 @@ impl Fixture {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn the_complete_call_of_the_fixture_runs() -> slango::Result<()> {
     let fixture = fixture()?;
     fixture.call_without("").dispatch([6, 1, 1])?;
@@ -456,10 +432,6 @@ fn the_complete_call_of_the_fixture_runs() -> slango::Result<()> {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_missing_texture_or_sampler_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     fixture.assert_rejected(
@@ -473,10 +445,6 @@ fn a_missing_texture_or_sampler_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn an_unknown_path_of_a_texture_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let mut call = fixture.call_without("");
@@ -488,10 +456,6 @@ fn an_unknown_path_of_a_texture_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_texture_or_sampler_for_a_parameter_of_another_kind_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let mut call = fixture.call_without("image");
@@ -521,10 +485,6 @@ fn a_texture_or_sampler_for_a_parameter_of_another_kind_is_rejected() -> slango:
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_texture_or_sampler_of_another_device_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let other = device();
@@ -545,10 +505,6 @@ fn a_texture_or_sampler_of_another_device_is_rejected() -> slango::Result<()> {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "rhi",
-    ignore = "the backend rhi creates no texture or sampler"
-)]
 fn a_depth_texture_is_rejected() -> slango::Result<()> {
     let fixture = fixture()?;
     let depth = Texture::new(&fixture.device, [3, 2], TextureFormat::Depth32Float)?;

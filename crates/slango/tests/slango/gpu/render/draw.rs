@@ -62,7 +62,6 @@ fn illustration() -> slango::Result<()> {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn the_usage_illustration_draws_the_texture_with_its_top_left_pixel_at_the_top_left() {
     illustration().expect("the illustration runs");
 }
@@ -121,7 +120,6 @@ impl Quad {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_texture_is_sampled_with_nearest_and_with_linear_filtering() {
     let device = device();
     let pipeline = quad_pipeline(&device);
@@ -157,7 +155,6 @@ fn a_texture_is_sampled_with_nearest_and_with_linear_filtering() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_texture_drawn_into_by_one_draw_is_sampled_by_the_next() {
     let device = device();
     let pipeline = quad_pipeline(&device);
@@ -199,7 +196,6 @@ fn flat_pipeline(device: &Device, options: &RenderPipelineOptions) -> RenderPipe
 const WHOLE: [[f32; 3]; 3] = [[-1.0, -1.0, 0.5], [3.0, -1.0, 0.5], [-1.0, 3.0, 0.5]];
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn alpha_blending_mixes_over_the_target_and_replace_does_not() {
     let device = device();
     let half_red = Triangles::new(&device, &[(WHOLE, [1.0, 0.0, 0.0, 0.5])]);
@@ -224,7 +220,6 @@ fn alpha_blending_mixes_over_the_target_and_replace_does_not() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_draw_without_a_clear_keeps_the_pixels_of_the_previous_draw() {
     let device = device();
     let pipeline = flat_pipeline(&device, &RenderPipelineOptions::default());
@@ -253,7 +248,6 @@ fn a_draw_without_a_clear_keeps_the_pixels_of_the_previous_draw() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_draw_of_zero_vertices_or_instances_clears_the_target_and_draws_nothing() {
     let device = device();
     let pipeline = flat_pipeline(&device, &RenderPipelineOptions::default());
@@ -307,7 +301,6 @@ const FORMATS: [(TextureFormat, [f32; 4], [u8; 4], u8); 4] = [
 ];
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn each_colour_format_is_a_target_and_reads_back_in_its_byte_order_and_encoding() {
     let device = device();
     let module = load(&device, FLAT);
@@ -359,7 +352,6 @@ fn a_texture_wrapped_from_a_wgpu_view_is_a_target() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_later_set_or_texture_for_a_path_replaces_the_earlier_one() {
     let device = device();
     let pipeline = quad_pipeline(&device);
@@ -399,7 +391,6 @@ fn a_later_set_or_texture_for_a_path_replaces_the_earlier_one() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_later_vertex_buffer_for_an_attribute_replaces_the_earlier_one() {
     let device = device();
     let pipeline = flat_pipeline(&device, &RenderPipelineOptions::default());
@@ -430,7 +421,6 @@ fn a_later_vertex_buffer_for_an_attribute_replaces_the_earlier_one() {
 }
 
 #[test]
-#[cfg_attr(feature = "rhi", ignore = "the backend rhi creates no render pipeline")]
 fn a_kernel_fills_a_vertex_buffer_and_another_reads_the_target_of_a_draw() {
     let device = device_with(AdapterSelection::Default);
     let module = load(
