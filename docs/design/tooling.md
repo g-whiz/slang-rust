@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | The repository's configuration, recipes, hooks, and continuous integration |
 
 ## Abstract
@@ -457,11 +457,11 @@ The allow list of `.claude/settings.json` lets Claude Code run these commands wi
 
 - `just --list` and `just check`.
 - `check-rust` and each recipe that it runs, except `check-slang-call-guard`.
-- Each custom checker and its self-test, except `check-slang-call-guard`, `check-slang-call-guard-self-test`, `check-miri-packages`, and `check-miri-packages-self-test`.
+- Each custom checker and its self-test, except `check-slang-call-guard` and `check-slang-call-guard-self-test`.
 - `check-shell`, `check-commit-message` and its self-test, `check-typos`, `check-toml`, `check-workflows`, `check-features`, `check-vulkan-sdk`, `recorded-slang`, `test`, `test-gpu`, and `test-hw-gpu`.
 - `shellcheck` and `git status`.
 
-Claude Code asks before it runs any other recipe, such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `check-slang-call-guard`, `check-slang-call-guard-self-test`, `check-miri-packages`, `check-miri-packages-self-test`, or `release-scripts-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
+Claude Code asks before it runs any other recipe, such as `fmt`, `merge`, `check-msrv`, `coverage`, `test-vendored`, `check-vendored`, `check-vendored-shared-folder`, `check-slang-call-guard`, `check-slang-call-guard-self-test`, or `release-scripts-self-test`. `just check` and `just check-rust` still run those that they include without asking, because the allow list holds those two commands.
 
 TOOL-47. The allow list MUST NOT hold a recipe that publishes, tags, deploys, or yanks, which are `publish`, `tag-release`, and `yank`, or any command that runs one of them, such as `cargo publish` or `gh release`. Each of them acts in public and needs the owner's go-ahead (Section 9.6), and an entry in the allow list would let an agent run it without asking.
 
