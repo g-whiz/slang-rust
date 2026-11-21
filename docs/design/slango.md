@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -589,7 +589,7 @@ On the backend `wgpu`, `Device::new` searches the primary backends of wgpu, whic
 
 `DeviceOptions` and `AdapterSelection` are non-exhaustive, so both can grow without a breaking change. `Device::adapter_name` returns the name of the adapter.
 
-wgpu's types are already reference counted clones (Section 3.2), so `slango` wraps no wgpu object in an `Arc` of its own. The backend `rhi` shares the objects of `slang-rhi` that are not `Clone` through `Rc`, because they are neither `Send` nor `Sync` (Section 6.1). It shares its own owned data, such as a layout snapshot, through `Arc`. This follows the vulkano pattern of children that hold their parents (Section 3.7) and adopts nothing of `GpuFuture` (ARCH-16): every wait is a blocking call (CONC-6).
+wgpu's types are already reference counted clones (Section 3.2), so `slango` wraps no wgpu object in an `Arc` of its own. The handles of `slang-rhi` are reference-counted clones as well (Section 6.4 of `docs/design/slang-rhi.md`), so the backend `rhi` holds them directly. It shares its own state of a device, a module, a kernel, and a render pipeline through `Rc`, because that state holds objects that are neither `Send` nor `Sync` (Section 6.1). It shares its own owned data, such as a layout snapshot, through `Arc`. This follows the vulkano pattern of children that hold their parents (Section 3.7) and adopts nothing of `GpuFuture` (ARCH-16): every wait is a blocking call (CONC-6).
 
 ### 5.2. Usage Illustration
 
@@ -808,12 +808,12 @@ Each public type holds these objects of the build's backend:
 
 | Type | Backend `wgpu` | Backend `rhi` |
 | --- | --- | --- |
-| `Device` | `wgpu::Device` and `wgpu::Queue` | `slang_rhi::Device`, its `slang_rhi::Queue`, the `slang_compiler::GlobalSession` of SLO-37, and the buffer of 16 zero bytes of Section 7.7, which the first draw that needs it creates, in an `Rc` |
+| `Device` | `wgpu::Device` and `wgpu::Queue` | `slang_rhi::Device`, its `slang_rhi::Queue`, the `slang_compiler::GlobalSession` of SLO-37, and the buffer of 16 zero bytes of Section 7.7, which the first draw that needs it creates, together in one `Rc` that the clones of the device share |
 | `Module` | The kernels and the render records of the snapshot, and the unit struct `backend::Module` | The kernels, the render records, and a `backend::Module` that keeps the `slang_rhi::CompileSession` of its load, the `slang_compiler::Module` of that session, and a render entry point for each usable vertex and fragment record, with its name, stage, `slang_compiler::EntryPoint`, places, and semantics (SLO-37) |
 | `Kernel` | Its layout snapshot, bind group layouts, and compute pipeline | Its layout snapshot and its `slang_rhi::ComputePipeline` |
 | `Buffer<T>` | `wgpu::Buffer` | `slang_rhi::Buffer`, or none for a buffer of length zero (SLO-40) |
-| `Texture` | `wgpu::Texture` and its view | A `slang_rhi::Texture` in an `Rc`, whose default view slang-rhi keeps (Section 8.3) |
-| `Sampler` | `wgpu::Sampler` | A `slang_rhi::Sampler` in an `Rc` |
+| `Texture` | `wgpu::Texture` and its view | A `slang_rhi::Texture`, whose default view slang-rhi keeps (Section 8.3) |
+| `Sampler` | `wgpu::Sampler` | A `slang_rhi::Sampler` |
 | `RenderPipeline` | Its merged snapshot, bind group layouts, and render pipeline | Its merged snapshot, its shader program and `slang_rhi::RenderPipeline`, the source of each vertex stream, and the scope of each binding (Section 7.7) |
 
 Every type also keeps the identity of its device, which its clones share (Section 9.3), on both backends. A `Buffer<T>` also keeps an identity of its own, which its clones share, for the check of SLO-44.
@@ -1451,7 +1451,7 @@ SLO-16. `slango` MUST have one public error type as ERR-1 defines, with these ki
 | `MissingFeature` | A kernel needs a device feature that the device lacks |
 | `InvalidArgument` | A check of Section 9.3 or of SLO-26, including a value that does not match its parameter (Section 9.2), an unknown kernel or entry point name, a wrong option of a render pipeline, a file that cannot be read as text, a buffer larger than the device's limit, whose size overflows, or whose elements have 0 bytes, or a texture whose size or pixels Section 8.1 rejects, or, on the backend `rhi`, a vertex entry point with more attributes or locations than the device's vertex streams or input elements (Section 7.7) |
 | `Backend` | wgpu reported a validation or out-of-memory error in an error scope at load or at the creation of a render pipeline, as the text after this table states, any error while a buffer, texture, or sampler is created or read, or any error that wgpu reports during a dispatch or a draw (SLO-15). On the backend `rhi`, `slang-rhi` failed as SLO-42 states |
-| `Unsupported` | The backend of the build does not offer the operation, such as a pipeline kind that the backend lacks (SLO-42) |
+| `Unsupported` | slang-rhi or the device does not support what a call asked, such as a load on a Direct3D 12 device below shader model 6.0, for which `create_slang_session` of `slang-rhi` fails. Only a build with `rhi` returns it, and no check of `slango` returns it (SLO-42) |
 
 The load creates every shader module, bind group layout, pipeline layout, and compute pipeline inside error scopes for validation, internal, and out-of-memory errors, so that no error reaches wgpu's uncaptured-error handler. It maps each error that a scope returns to a kind:
 
@@ -1471,7 +1471,7 @@ The message names both entry points, and the backend's text is returned unchange
 
 `NoAdapter` answers Q-22 of the architecture design.
 
-SLO-42. `ErrorKind` MUST gain the kind `Unsupported` for every operation that the backend of the build does not offer. On the backend `rhi`, `slango` MUST map each error of `slang-rhi` to a kind by this table, in one crate-private function, with the error of `slang-rhi` as the source error:
+SLO-42. `ErrorKind` MUST gain the kind `Unsupported` for a call that slang-rhi or the device does not support. On the backend `rhi`, `slango` MUST map each error of `slang-rhi` to a kind by this table, in one crate-private function, with the error of `slang-rhi` as the source error:
 
 | Kind of `slang-rhi` | Where | Kind of `slango` |
 | --- | --- | --- |
@@ -1497,7 +1497,7 @@ The mappings from the kinds `Compile`, `Unsupported`, and `NoDevice` of `slang-r
 - An error of the kind `Unsupported` of `slang-rhi`, which the table maps to it on the backend `rhi`, such as a device or graphics API that does not support an operation. No test produces one.
 - M12 to M14 and M18 add pipeline kinds on the backend `rhi` only and report them with this kind on the backend `wgpu` (Section 15.13 of the architecture design).
 
-The documentation of `ErrorKind::Unsupported` says only that the backend of the build does not offer the operation, and names no operation.
+The documentation of `ErrorKind::Unsupported` states the first case with the example of a Direct3D 12 device below shader model 6.0, says that only a build with `rhi` returns the kind and that no check of `slango` returns it, and advises another adapter or avoiding what the call asked for. The bullet of the kind in the section "Changes from 0.1.0-alpha.1" of the crate-level documentation says the same. A later milestone that adds the second case changes both.
 
 `slango` returns no warning of Slang on success, on either backend, so the backend `rhi` needs none from `slang-rhi` (RHQ-4 of `docs/design/slang-rhi.md`, which Section 6.5 of that design answers).
 

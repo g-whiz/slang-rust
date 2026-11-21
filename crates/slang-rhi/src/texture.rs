@@ -331,6 +331,9 @@ fn copy_rows(
 /// read it back with [`Device::read_texture`]. A texture holds its
 /// [`Device`], so the device lives at least as long as the texture.
 ///
+/// [`Clone`] returns another handle to the same texture, which adds a
+/// reference to it in slang-rhi.
+///
 /// A texture is neither [`Send`] nor [`Sync`], because slang-rhi documents no
 /// rule for the use of its objects from several threads.
 ///
@@ -353,7 +356,7 @@ fn copy_rows(
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::Texture>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Texture {
     view: Owned<ITextureView>,
     raw: Owned<ITexture>,
@@ -457,11 +460,11 @@ impl Device {
     /// not 4 bytes for each texel. Returns the error that slang-rhi reports
     /// for the creation.
     pub fn create_texture(&self, desc: &TextureDesc, initial: Option<&[u8]>) -> Result<Texture> {
-        check_desc(desc, self.info_ref().max_texture_dimension_2d())?;
+        check_desc(desc, self.info().max_texture_dimension_2d())?;
         if let Some(initial) = initial {
             check_initial(desc, initial.len())?;
         }
-        if desc.format.is_depth() && self.info_ref().device_type() == DeviceType::Vulkan {
+        if desc.format.is_depth() && self.info().device_type() == DeviceType::Vulkan {
             let support = self.format_support(desc.format, Operation::CreateTexture)?;
             check_support(desc.format, desc.usage, support)?;
         }

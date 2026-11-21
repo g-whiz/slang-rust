@@ -186,7 +186,7 @@ impl VertexStream {
 /// See the example of [`RenderPipelineDesc`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum BlendMode {
+pub enum Blend {
     /// The drawn colour replaces the colour of the target.
     Replace,
     /// The drawn colour is blended over the target by its alpha: the colour
@@ -235,12 +235,12 @@ pub enum CullMode {
 ///
 /// ```
 /// use slang_rhi::{
-///     BlendMode, CullMode, Format, RenderPipelineDesc, StepMode, VertexFormat, VertexStream,
+///     Blend, CullMode, Format, RenderPipelineDesc, StepMode, VertexFormat, VertexStream,
 /// };
 ///
 /// let desc = RenderPipelineDesc::new(Format::Rgba8Unorm)
 ///     .with_depth_format(Format::D32Float)
-///     .with_blend(BlendMode::Alpha)
+///     .with_blend(Blend::Alpha)
 ///     .with_cull_mode(CullMode::Back)
 ///     .with_vertex_streams([
 ///         VertexStream::new(VertexFormat::Float32x2, 0).with_semantic("POSITION", 0),
@@ -255,7 +255,7 @@ pub enum CullMode {
 pub struct RenderPipelineDesc {
     colour_format: Format,
     depth_format: Option<Format>,
-    blend: BlendMode,
+    blend: Blend,
     cull_mode: CullMode,
     vertex_streams: Vec<VertexStream>,
 }
@@ -273,7 +273,7 @@ impl RenderPipelineDesc {
         Self {
             colour_format,
             depth_format: None,
-            blend: BlendMode::Replace,
+            blend: Blend::Replace,
             cull_mode: CullMode::None,
             vertex_streams: Vec::new(),
         }
@@ -299,7 +299,7 @@ impl RenderPipelineDesc {
     ///
     /// See the example of [`RenderPipelineDesc`].
     #[must_use]
-    pub fn with_blend(self, blend: BlendMode) -> Self {
+    pub fn with_blend(self, blend: Blend) -> Self {
         Self { blend, ..self }
     }
 
@@ -677,12 +677,12 @@ fn raw_streams(plan: &InputPlan) -> Vec<slang_rhi_sys::VertexStreamDesc> {
 /// Returns the raw colour target of a description.
 fn colour_target(desc: &RenderPipelineDesc) -> slang_rhi_sys::ColorTargetDesc {
     let (color, alpha, enable) = match desc.blend {
-        BlendMode::Replace => (
+        Blend::Replace => (
             slang_rhi_sys::AspectBlendDesc::default(),
             slang_rhi_sys::AspectBlendDesc::default(),
             false,
         ),
-        BlendMode::Alpha => (
+        Blend::Alpha => (
             slang_rhi_sys::AspectBlendDesc {
                 srcFactor: slang_rhi_sys::BlendFactor::SrcAlpha,
                 dstFactor: slang_rhi_sys::BlendFactor::InvSrcAlpha,
@@ -750,6 +750,9 @@ fn rasterizer(desc: &RenderPipelineDesc) -> slang_rhi_sys::RasterizerDesc {
 /// pipeline holds its [`Device`], so the device lives at least as long as the
 /// pipeline.
 ///
+/// [`Clone`] returns another handle to the same render pipeline, which adds a
+/// reference to it in slang-rhi.
+///
 /// A render pipeline is neither [`Send`] nor [`Sync`], because slang-rhi
 /// documents no rule for the use of its objects from several threads.
 ///
@@ -772,7 +775,7 @@ fn rasterizer(desc: &RenderPipelineDesc) -> slang_rhi_sys::RasterizerDesc {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::RenderPipeline>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RenderPipeline {
     raw: Owned<IRenderPipeline>,
     _input_layout: Option<Owned<IInputLayout>>,
@@ -876,7 +879,7 @@ impl Device {
             ));
         }
         check_formats(desc)?;
-        let info = self.info_ref();
+        let info = self.info();
         let plan = plan_inputs(
             &desc.vertex_streams,
             info.max_vertex_streams(),
@@ -970,9 +973,9 @@ mod tests {
     use std::ffi::CStr;
 
     use super::{
-        BlendMode, CullMode, InputPlan, InputType, Numbers, RenderPipelineDesc, StepMode,
-        StreamLayout, VertexFormat, VertexInput, VertexStream, check_formats, check_inputs,
-        colour_target, depth_state, for_device, plan_inputs, rasterizer, raw_elements, raw_streams,
+        Blend, CullMode, InputPlan, InputType, Numbers, RenderPipelineDesc, StepMode, StreamLayout,
+        VertexFormat, VertexInput, VertexStream, check_formats, check_inputs, colour_target,
+        depth_state, for_device, plan_inputs, rasterizer, raw_elements, raw_streams,
     };
     use crate::ErrorKind;
     use crate::device::DeviceType;
@@ -986,7 +989,7 @@ mod tests {
         assert_send_sync::<VertexFormat>();
         assert_send_sync::<StepMode>();
         assert_send_sync::<VertexStream>();
-        assert_send_sync::<BlendMode>();
+        assert_send_sync::<Blend>();
         assert_send_sync::<CullMode>();
         assert_send_sync::<RenderPipelineDesc>();
     }
@@ -1276,9 +1279,8 @@ mod tests {
         assert!(!replace.enableBlend);
         assert_eq!(replace.format, slang_rhi_sys::Format::RGBA8Unorm);
         assert_eq!(replace.writeMask, slang_rhi_sys::RenderTargetWriteMask::All);
-        let alpha = colour_target(
-            &RenderPipelineDesc::new(Format::Rgba8Unorm).with_blend(BlendMode::Alpha),
-        );
+        let alpha =
+            colour_target(&RenderPipelineDesc::new(Format::Rgba8Unorm).with_blend(Blend::Alpha));
         assert!(alpha.enableBlend);
         assert_eq!(
             (alpha.color.srcFactor, alpha.color.dstFactor, alpha.color.op),

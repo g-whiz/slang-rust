@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use slang_compiler::Component;
 use slang_rhi::{
-    BlendMode, ColourLoad, DepthLoad, RenderPassDesc, RenderPipelineDesc, ShaderProgram,
-    VertexFormat, VertexStream,
+    ColourLoad, DepthLoad, RenderPassDesc, RenderPipelineDesc, ShaderProgram, VertexFormat,
+    VertexStream,
 };
 
 use super::device::Device;
@@ -161,8 +161,8 @@ impl RenderPipeline {
         let options = &snapshot.options;
         let mut desc = RenderPipelineDesc::new(to_rhi(options.colour_format))
             .with_blend(match options.blend {
-                Blend::Replace => BlendMode::Replace,
-                Blend::Alpha => BlendMode::Alpha,
+                Blend::Replace => slang_rhi::Blend::Replace,
+                Blend::Alpha => slang_rhi::Blend::Alpha,
             })
             .with_cull_mode(match options.cull_mode {
                 CullMode::None => slang_rhi::CullMode::None,
@@ -234,7 +234,7 @@ impl RenderPipeline {
             None
         };
         let buffers = self
-            .stream_buffers(plan, vertices, zeros.as_deref())
+            .stream_buffers(plan, vertices, zeros.as_ref())
             .map_err(|stream| {
                 mismatch(format!(
                     "the draw holds no buffer of slang-rhi for the vertex stream {stream}"

@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 
 use slang_compiler::{
@@ -26,8 +26,10 @@ use crate::program::ShaderProgram;
 /// programs, and their shader programs releases the modules that it loaded.
 ///
 /// A compile session holds its [`Device`], so the device lives at least as
-/// long as the compile session. It is neither [`Send`] nor [`Sync`], because
-/// it holds a session of `slang-compiler` and a device, which are neither.
+/// long as the compile session. [`Clone`] returns another handle to the
+/// same compile session, with the same Slang session. A compile session is
+/// neither [`Send`] nor [`Sync`], because it holds a session of
+/// `slang-compiler` and a device, which are neither.
 ///
 /// # Examples
 ///
@@ -48,7 +50,7 @@ use crate::program::ShaderProgram;
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::CompileSession>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompileSession {
     session: Session,
     device: Device,
@@ -261,6 +263,11 @@ impl Device {
     /// session of this device, and with the search paths `search_paths`, for
     /// the modules that a program loads by name or imports.
     ///
+    /// `search_paths` is any sequence of paths, such as an array of `&str` or
+    /// a `Vec<PathBuf>`. A program without search paths passes an empty
+    /// sequence whose type names a path type, such as
+    /// `std::iter::empty::<&Path>()`.
+    ///
     /// The session gets the format, the profile, and the capabilities that
     /// the device reports, and the settings with which slang-rhi creates the
     /// session of the device: the row-major matrix layout, the scalar layout
@@ -287,7 +294,7 @@ impl Device {
     /// use slang_rhi::{Device, DeviceOptions};
     ///
     /// let device = Device::new(&DeviceOptions::new(GlobalSession::new()?))?;
-    /// let compile = device.create_slang_session(&[Path::new("shaders")])?;
+    /// let compile = device.create_slang_session([Path::new("shaders")])?;
     /// let session = compile.session();
     /// let module = session.load_module("double")?.into_value();
     /// let entry_point = module.entry_point("main")?;
@@ -317,7 +324,18 @@ impl Device {
     /// Panics when it is called from the debug callback of a device while a
     /// call of this crate into slang-rhi is in progress on the same thread.
     /// The panic aborts the process at the boundary of the callback.
-    pub fn create_slang_session(&self, search_paths: &[&Path]) -> Result<CompileSession> {
+    pub fn create_slang_session(
+        &self,
+        search_paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Result<CompileSession> {
+        let search_paths: Vec<PathBuf> = search_paths
+            .into_iter()
+            .map(|path| path.as_ref().to_path_buf())
+            .collect();
+        self.slang_session_with(&search_paths)
+    }
+
+    fn slang_session_with(&self, search_paths: &[PathBuf]) -> Result<CompileSession> {
         let slang = |error| Error::slang(Operation::CreateSlangSession, error);
         let device = self.as_non_null();
         let target = session_target(self.info().device_type(), |feature| {

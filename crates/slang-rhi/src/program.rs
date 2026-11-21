@@ -22,6 +22,9 @@ use crate::render_pipeline::{InputType, Numbers, VertexInput};
 /// [`CompileSession`](crate::CompileSession) also holds the Slang session of
 /// that compile session.
 ///
+/// [`Clone`] returns another handle to the same shader program, which adds a
+/// reference to it in slang-rhi.
+///
 /// A shader program is neither [`Send`] nor [`Sync`], because slang-rhi
 /// documents no rule for the use of its objects from several threads.
 ///
@@ -44,7 +47,7 @@ use crate::render_pipeline::{InputType, Numbers, VertexInput};
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::ShaderProgram>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ShaderProgram {
     raw: Owned<IShaderProgram>,
     _session: Option<Session>,
@@ -96,6 +99,9 @@ impl ShaderProgram {
 /// compute pipeline holds its [`Device`], so the device lives at least as long
 /// as the pipeline.
 ///
+/// [`Clone`] returns another handle to the same compute pipeline, which adds a
+/// reference to it in slang-rhi.
+///
 /// A compute pipeline is neither [`Send`] nor [`Sync`], because slang-rhi
 /// documents no rule for the use of its objects from several threads.
 ///
@@ -118,7 +124,7 @@ impl ShaderProgram {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::ComputePipeline>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ComputePipeline {
     raw: Owned<IComputePipeline>,
     device: Device,

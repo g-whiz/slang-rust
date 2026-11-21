@@ -568,6 +568,10 @@ A program that ships a binary built with the crate carries the notices of the co
 
 The documentation also states the shape of the bindings: the structs without `Default` and why, `kInvalidCUDAStream`, the order of the overloads on each ABI, and the declarations that have no binding.
 
+The bindings name items of `slang-compiler-sys` in public signatures and fields, such as `Result`, which is `SlangResult`, and the trait `slang_compiler_sys::Interface`, which the interfaces implement, and the crate does not re-export them (RSYS-2). `slang-compiler-sys` is therefore a public dependency (DEP-3 of the coding standard), and the crate documentation states it after the paragraph on those items.
+
+A program that names one of them depends on `slang-compiler-sys` itself, with a requirement that selects the exact version that this crate requires, which is this crate's version. Cargo then builds one copy with `vendored`. Another version stops the build, because both copies declare `links = "slang-compiler"`. The section `Installation` of the crate README gives the dependency line after the line of the crate (RDM-13 of `docs/writing-readmes.md`). Whether the crate re-exports `slang-compiler-sys` instead is RSQ-6.
+
 ## 11. Security Considerations
 
 The threat model has four parts:
@@ -656,9 +660,13 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused. Section 6.2 answers RSQ-2 and RSQ-3, and Section 10 answers RSQ-4, whether the statement of the third-party code in the crate documentation is enough: it is, and the package ships no licence text of that code.
 
+RSQ-6 and RSQ-7 come from the review of the public API before the second release (Section 9.10.1 of `docs/design/tooling.md`). Each is a finding that waits for the decision of the owner of the project. By the owner's decision 4 of that section, they do not block the second release, an alpha, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
+
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | RSQ-5 | Should the entry keys of the native crates on Windows hold the version of the Windows SDK, so that an upgrade of the SDK alone no longer reuses libraries built against older headers (Section 5.5)? The keys of Slang and of slang-glslang have the same limit | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | Not assigned |
+| RSQ-6 | Should the crate re-export `slang-compiler-sys` at its root, so that a program names `slang_rhi_sys::slang_compiler_sys::ISlangUnknown` without a second dependency that must match the exact version of this crate (Section 10)? The options are the re-export, or the documentation of the public dependency alone, which the crate documentation and the crate README hold now | The owner of the project, by a decision | Before the first release that is not an alpha |
+| RSQ-7 | `pub use bindings::*;` exports the aliases `Result`, which is `SlangResult`, `Size`, and `Offset` of the headers at the crate root (RSYS-2). A program that writes `use slang_rhi_sys::*;`, which is common with raw bindings, shadows `std::result::Result`, and every `Result<T, E>` in that module then fails to compile with an error that does not name the cause. The finding is minor. The options are a rule of `SLANG_RHI` that renames the three aliases, such as `RhiResult`, or the names of the headers with a sentence in the crate documentation that advises against a glob import | The owner of the project, by a decision | Before the first release that is not an alpha |
 
 ## 15. References
 

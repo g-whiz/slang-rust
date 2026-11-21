@@ -139,10 +139,12 @@ impl<T: RhiInterface> fmt::Debug for Owned<T> {
 
 #[cfg(test)]
 mod tests {
-    use slang_rhi_sys::{IBuffer, IShaderObject};
+    use std::ptr::NonNull;
 
-    use super::Owned;
-    use crate::fake::{Event, FakeBuffer, FakeShaderObject, Log};
+    use slang_rhi_sys::{IBuffer, ICommandQueue, IRenderPipeline, IShaderObject};
+
+    use super::{Owned, RhiInterface};
+    use crate::fake::{Event, FakeBuffer, FakeQueue, FakeRenderPipeline, FakeShaderObject, Log};
 
     #[test]
     fn adopt_of_null_is_none_and_counts_nothing() {
@@ -183,6 +185,59 @@ mod tests {
                 Event::release("object", 0),
                 Event::freed("object"),
             ]
+        );
+    }
+
+    /// Adopts the one reference of `raw`, clones the owning pointer, drops
+    /// the original first, and checks through `log` that the object lives
+    /// until the clone is dropped.
+    fn check_clone_outlives_the_original<T: RhiInterface>(
+        log: &Log,
+        name: &'static str,
+        raw: NonNull<T>,
+    ) {
+        // SAFETY: the new fake object carries one reference, which `adopt`
+        // takes.
+        let original = unsafe { Owned::<T>::adopt(raw.as_ptr()) }.expect("non-null");
+        let clone = original.clone();
+        drop(original);
+        assert_eq!(
+            log.events(),
+            [Event::add_ref(name, 2), Event::release(name, 1)],
+            "{name}"
+        );
+        drop(clone);
+        assert_eq!(
+            log.events(),
+            [
+                Event::add_ref(name, 2),
+                Event::release(name, 1),
+                Event::release(name, 0),
+                Event::freed(name),
+            ],
+            "{name}"
+        );
+    }
+
+    #[test]
+    fn a_clone_of_a_buffer_queue_or_render_pipeline_keeps_the_object_after_the_original() {
+        let log = Log::new();
+        check_clone_outlives_the_original::<IBuffer>(
+            &log,
+            "buffer",
+            FakeBuffer::create(&log, "buffer"),
+        );
+        let log = Log::new();
+        check_clone_outlives_the_original::<ICommandQueue>(
+            &log,
+            "queue",
+            FakeQueue::create(&log, "queue"),
+        );
+        let log = Log::new();
+        check_clone_outlives_the_original::<IRenderPipeline>(
+            &log,
+            "pipeline",
+            FakeRenderPipeline::create(&log, "pipeline"),
         );
     }
 }

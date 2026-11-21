@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use slang_rhi::{DepthLoad, Format, RenderPassDesc, TextureDesc, TextureUsage};
 
 use super::device::Device;
@@ -25,7 +23,7 @@ pub(crate) const COPY_USAGE: &str = "COPY_SOURCE";
 /// of a [`crate::Texture`].
 #[derive(Clone)]
 pub(crate) struct Texture {
-    inner: Rc<slang_rhi::Texture>,
+    inner: slang_rhi::Texture,
 }
 
 impl Texture {
@@ -61,9 +59,7 @@ impl Texture {
             .rhi_device()
             .create_texture(&desc, initial)
             .map_err(|error| from_rhi(CREATE, Call::Other, error))?;
-        Ok(Self {
-            inner: Rc::new(inner),
-        })
+        Ok(Self { inner })
     }
 
     /// Records and submits one render pass that clears the depth texture to

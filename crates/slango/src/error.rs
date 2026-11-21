@@ -196,7 +196,12 @@ pub enum ErrorKind {
     /// that a draw both samples and draws into. Report any other validation
     /// error as a defect of this crate.
     Backend,
-    /// The backend of the build does not offer the operation.
+    /// slang-rhi or the device reported that it does not support what the
+    /// call asked, such as a load of a module on a Direct3D 12 device below
+    /// shader model 6.0, for which slang-rhi creates no Slang session. Only a
+    /// build with the feature `rhi` returns this kind, and no check of this
+    /// crate returns it. The source error is the error of slang-rhi. Use
+    /// another adapter, or avoid what the call asked for.
     Unsupported,
 }
 

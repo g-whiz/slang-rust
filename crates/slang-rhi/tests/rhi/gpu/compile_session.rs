@@ -116,7 +116,7 @@ fn a_compile_session_gives_the_layouts_and_code_of_the_session_of_the_device() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
     let compile_session = device
-        .create_slang_session(&[])
+        .create_slang_session(std::iter::empty::<&Path>())
         .expect("the crate creates a compile session");
     for modules in shaders() {
         let name = modules.last().map(|(name, _, _)| *name);
@@ -179,7 +179,7 @@ fn a_shader_program_of_a_compile_session_runs_after_the_compile_session_is_dropp
     let device = open(&options);
     let shaders = slango_shaders();
     let compile_session: CompileSession = device
-        .create_slang_session(&[shaders.as_path()])
+        .create_slang_session([shaders.as_path()])
         .expect("the crate creates a compile session");
     let linked = link_from_search_path(compile_session.session(), "two_kernels", "double_each");
     let program = compile_session
@@ -218,7 +218,7 @@ fn a_program_of_a_compile_session_sees_the_macro_of_the_backend_when_it_runs() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
     let compile_session = device
-        .create_slang_session(&[])
+        .create_slang_session(std::iter::empty::<&Path>())
         .expect("the crate creates a compile session");
     let linked = link(compile_session.session(), "settings", SETTINGS);
     let program = compile_session
@@ -252,10 +252,10 @@ fn each_create_shader_program_refuses_a_program_of_another_session() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
     let first = device
-        .create_slang_session(&[])
+        .create_slang_session(std::iter::empty::<&Path>())
         .expect("the crate creates a compile session");
     let second = device
-        .create_slang_session(&[])
+        .create_slang_session(std::iter::empty::<&Path>())
         .expect("the crate creates a compile session");
     let of_device = link(device.slang_session(), "double", DOUBLE);
     let of_first = link(first.session(), "double", DOUBLE);
@@ -281,7 +281,7 @@ fn a_search_path_with_a_nul_byte_fails_with_the_error_of_slang_compiler() {
     let (options, _) = options(Toggle::Off);
     let device: Device = open(&options);
     let error = device
-        .create_slang_session(&[Path::new("bad\0path")])
+        .create_slang_session([Path::new("bad\0path")])
         .expect_err("a NUL byte is refused");
     assert_eq!(error.kind(), ErrorKind::Slang);
     assert_eq!(error.operation(), Operation::CreateSlangSession);

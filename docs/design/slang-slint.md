@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | `crates/slang-slint` and the Slint example |
 
 ## Abstract
@@ -168,6 +168,14 @@ Slint 1.18 does not compile without the first two features (Section 3.2), and th
 SLS-2. An agent that admits a newer minor version of Slint MUST run every test of `slang-slint` and of example 4. It MUST also check ARCH-19 for the wgpu version of `slango`.
 
 The unstable API and the wgpu versions that Slint supports can change in that release.
+
+The public API of the crate names Slint's types `WGPUConfiguration`, `GraphicsAPI`, and `Image`, so `slint` is a public dependency (DEP-3 of the coding standard). A program whose own requirement on `slint` selects a later minor version gets two copies of Slint and type errors that do not name the version. The section "The version of Slint" of the crate-level documentation therefore states three things:
+
+- The requirement `~1.18` of SLS-1.
+- That a program depends on `slint` with a requirement that selects a 1.18 release, such as `slint = "~1.18"`.
+- That the wgpu items come from `unstable-wgpu-30`, outside Slint's promise of compatibility, so a move to another minor version of Slint is a breaking change of this crate.
+
+The section `Installation` of the crate README states the requirement of the program in one sentence. Whether the crate re-exports `slango` and `slint` instead is SLSQ-1.
 
 SLS-3. `slang-slint` SHOULD NOT enable a windowing backend or a renderer of Slint. Cargo features are additive, so an application could not remove a backend or renderer that the library enables.
 
@@ -419,7 +427,14 @@ Section 3.3 confirms A-14 of the architecture design in part: external GPU conte
 
 ## 12. Open Questions
 
-No question is open.
+Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused.
+
+SLSQ-1 and SLSQ-2 come from the review of the public API before the second release (Section 9.10.1 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. By the owner's decision 4 of that section, they do not block the second release, an alpha, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
+
+| Identifier | Question | Owner | Milestone |
+| --- | --- | --- | --- |
+| SLSQ-1 | The public API names types of `slango`, in `View::new(slango::Device, slango::RenderPipeline, ..)`, `View::draw`, which returns a `slango::Draw`, `View::texture`, which returns a `&slango::Texture`, and `device`, which returns a `slango::Device`, and types of `slint` (Section 4.1), and the crate re-exports neither crate. Every user therefore also depends on `slango` and `slint` with requirements that unify with the exact requirement and the requirement `~1.18` of this crate, against DEP-3. The options are to re-export both crates, to re-export `slango` only, or to keep the dependencies with their documentation (Section 4.1) | The owner of the project, by a decision | Before the first release that is not an alpha |
+| SLSQ-2 | `View::new` takes the device apart from a pipeline that already belongs to a device (SLS-9), so a pipeline of another device is accepted and fails only at the first draw, which the documentation of `View` states, against TYPE-1 and TYPE-3. A view also cannot change its pipeline, so a reload of the shader creates a new view and texture, as the example `shader-playground` does, which then sets a new image on its element. The options are to check the device in `View::new`, which needs a public comparison of devices in `slango`, as SOQ-8 of `docs/design/slango.md` raises, to take the device from the pipeline, to add `View::set_pipeline(&mut self, RenderPipeline)` that keeps the texture, or to keep the shape | The owner of the project, by a decision | Before the first release that is not an alpha |
 
 ## 13. Security Considerations
 

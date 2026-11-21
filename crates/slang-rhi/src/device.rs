@@ -867,8 +867,8 @@ impl Device {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn info(&self) -> DeviceInfo {
-        self.info.clone()
+    pub fn info(&self) -> &DeviceInfo {
+        &self.info
     }
 
     /// Returns the session of `slang-compiler` of the device, through which a
@@ -892,10 +892,6 @@ impl Device {
 
     pub(crate) fn as_non_null(&self) -> NonNull<IDevice> {
         self.raw.as_non_null()
-    }
-
-    pub(crate) fn info_ref(&self) -> &DeviceInfo {
-        &self.info
     }
 
     pub(crate) fn thread_group_limits(&self) -> ([u32; 3], u32) {

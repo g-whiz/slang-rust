@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-18 |
+| Date | 2026-11-21 |
 | Applies to | `crates/slang-compiler` and the compile-and-reflect example |
 
 ## Abstract
@@ -2165,9 +2165,11 @@ An identifier is never reused, and the next assumption takes CA-20.
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-15.
+Each row is a question that this document leaves open. The owner in the third column answers it in the milestone of the last column, and the change that answers it removes the row. An identifier is never reused, and the next question takes CQ-16.
 
 CQ-8 to CQ-12 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. The owner let the first release, an alpha, ship without deciding them, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
+
+CQ-15 comes from the review of the public API before the second release, which covered the additions of M9 (Section 9.10.1 of `docs/design/tooling.md`). It waits for the decision of the owner in the same way, and by the owner's decision 4 of that section it does not block the second release, an alpha.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
@@ -2181,6 +2183,7 @@ CQ-8 to CQ-12 come from the review of the public API before the first release (S
 | CQ-12 | `ProgramLayout::global_constant_buffer_binding` returns the number that Slang reports, which is 0 when the program has no global constant buffer and, observed on SPIR-V, 0 for a buffer at binding 2 (KB-7 of Section 3.12), so a caller cannot tell a buffer at binding 0 from no buffer. The options are to keep the method with its documented defect, or to remove it before the release and leave the binding to the call that KB-7 observed to give 2 on SPIR-V, `offset(ParameterCategory::DescriptorTableSlot)` of `global_params_var_layout()`, which Slang does not document as the binding | The owner of the project, by a decision | Before the first release that is not an alpha |
 | CQ-13 | A parameter of type `CoopVec` reflects as `TypeKind::Struct` with the name `CoopVec`, and no function of the recorded Slang returns its element type or count (Section 3.9). Does M17 need a kind, or the element type and count, of such a type? | The design of M17 | M17 |
 | CQ-14 | The panic message of rule 2 of SLC-28 ends with "so a FileSystem implementation must not use the objects of this crate". Since SLC-41, the reentrant caller can also be the closure of `with_slang_call_guard` or a callback of another native library, such as slang-rhi, which the message does not name. The options are to reword the message so that it names any code that runs while the guard is raised, or to keep it. The message is published behaviour of the Slang call guard, which this document does not change without the owner | The owner of the project, by a decision | Not assigned |
+| CQ-15 | The methods of `CooperativeTypes`, `cooperative_matrix_types`, `cooperative_matrix_combinations`, `cooperative_vector_types`, and `cooperative_vector_combinations` (SLC-39), repeat the name of their type, so a call reads `metadata.cooperative_types()?.cooperative_vector_types()`, against the word choice of C-CASE. They also return `Result<Vec<_>>`, while every other list of the crate is an iterator over positions, against API-2. The finding is minor. The options are the names `matrix_types`, `matrix_combinations`, `vector_types`, and `vector_combinations`, Slang's names as they are, which API-3 supports, or iterators that yield `Result<_>` items, as `Categories` does | The owner of the project, by a decision | Before the first release that is not an alpha |
 
 ## 17. Security Considerations
 

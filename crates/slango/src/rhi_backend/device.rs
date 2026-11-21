@@ -28,11 +28,10 @@ pub(crate) struct Device {
 struct Shared {
     queue: Queue,
     device: slang_rhi::Device,
-    info: DeviceInfo,
     /// The buffer of zeros that feeds the vertex attributes that a vertex
     /// entry point declares and does not use, whether or not a draw gives a
     /// buffer for them, once a draw has needed it.
-    zeros: RefCell<Option<Rc<slang_rhi::Buffer>>>,
+    zeros: RefCell<Option<slang_rhi::Buffer>>,
     global_session: GlobalSession,
 }
 
@@ -58,12 +57,10 @@ impl Device {
         let queue = device
             .queue()
             .map_err(|error| from_rhi(REQUEST, Call::NewDevice, error))?;
-        let info = device.info();
         Ok(Self {
             shared: Rc::new(Shared {
                 queue,
                 device,
-                info,
                 zeros: RefCell::new(None),
                 global_session,
             }),
@@ -71,42 +68,42 @@ impl Device {
     }
 
     pub(crate) fn adapter_name(&self) -> String {
-        self.shared.info.adapter_name().to_owned()
+        self.info().adapter_name().to_owned()
     }
 
     /// Returns the size in bytes of the largest buffer that the device
     /// allows, which is the size that slang-rhi assumes.
     pub(crate) fn max_buffer_size(&self) -> u64 {
-        self.shared.info.max_buffer_size()
+        self.info().max_buffer_size()
     }
 
     /// Returns the largest width or height of a two-dimensional texture that
     /// the device allows.
     pub(crate) fn max_texture_dimension(&self) -> u32 {
-        self.shared.info.max_texture_dimension_2d()
+        self.info().max_texture_dimension_2d()
     }
 
     /// Returns the largest number of thread groups of one dispatch along
     /// each axis that the device allows.
     pub(crate) fn max_workgroups(&self) -> [u32; 3] {
-        self.shared.info.max_compute_dispatch_thread_groups()
+        self.info().max_compute_dispatch_thread_groups()
     }
 
     /// Returns the limits of the device that slang-rhi reports.
     pub(super) fn info(&self) -> &DeviceInfo {
-        &self.shared.info
+        self.shared.device.info()
     }
 
     /// Returns the buffer of 16 zero bytes of the device, which holds one
     /// attribute of every vertex format and which the device creates when
     /// a draw first needs it.
-    pub(super) fn zeros(&self) -> std::result::Result<Rc<slang_rhi::Buffer>, slang_rhi::Error> {
+    pub(super) fn zeros(&self) -> std::result::Result<slang_rhi::Buffer, slang_rhi::Error> {
         if let Some(zeros) = self.shared.zeros.borrow().as_ref() {
-            return Ok(Rc::clone(zeros));
+            return Ok(zeros.clone());
         }
         let desc = BufferDesc::new(ZEROS_SIZE, BufferUsage::VERTEX_BUFFER);
-        let zeros = Rc::new(self.shared.device.create_buffer(&desc, Some(&[0; 16]))?);
-        *self.shared.zeros.borrow_mut() = Some(Rc::clone(&zeros));
+        let zeros = self.shared.device.create_buffer(&desc, Some(&[0; 16]))?;
+        *self.shared.zeros.borrow_mut() = Some(zeros.clone());
         Ok(zeros)
     }
 

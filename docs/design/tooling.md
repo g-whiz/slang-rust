@@ -1788,6 +1788,17 @@ The owner decided these points for the second release, and this section is their
 
 Decision 4 names neither `slang-compiler` nor `slang-bindgen`, and this design extends the review to their additions of M9, which no review has covered. These are the additive reflection, `Metadata::cooperative_types`, and `with_slang_call_guard` of `slang-compiler`, and `generate_slang_rhi` and `Generated::abi_probe` of `slang-bindgen`. TOOL-43 requires a review of each crate of `release_packages` before every release, and both crates are in this release. This answers the former question TQ-20.
 
+The review of decision 4 with these additions has 27 findings. Eleven need no decision of the owner: step 1 of Section 9.10.7 fixes ten of them, and the eleventh, the release metadata of the six crates that set `publish = false`, is part of step 2 (Section 9.10.2). The 16 others are open questions in the design document of each crate, each decided before the first release that is not an alpha:
+
+| Crate | Open questions |
+| --- | --- |
+| `slang-rhi` | RHQ-13 to RHQ-20 of `docs/design/slang-rhi.md` |
+| `slang-rhi-sys` | RSQ-6 and RSQ-7 of `docs/design/slang-rhi-sys.md` |
+| `slang-slint` | SLSQ-1 and SLSQ-2 of `docs/design/slang-slint.md` |
+| `slango-macros` | SLMQ-6 of `docs/design/slango-macros.md` |
+| `slang-compiler` | CQ-15 of `docs/design/slang-compiler.md` |
+| `slang-bindgen` | SQ-8 and SQ-9 of `docs/design/slang-compiler-sys.md` |
+
 The reading of decision 2 that this design takes, which the owner was told on 2026-11-19 and did not object to, is that the workspace keeps one version for every member (TOOL-36). All eleven crates are therefore published at `0.2.0-alpha.1`, including those whose own API did not break, such as `slang-bindgen`. `slang-src` takes `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`, the form of SRC-13 of `docs/design/slang-src.md`, while its recorded commit stays that of the build tag `2026.17-25-gc7954ebd1`.
 
 The alternative is a version for each crate, with `0.2.0-alpha.1` for the crates whose API broke and `0.1.0-alpha.2` for the others. The design does not take it, because every requirement between members is exact (TOOL-36), so a crate that did not change still needs a release of its own whenever a crate that it requires changes. Per-crate versions would also break the one version that `tag-release` reads and names in the tag.

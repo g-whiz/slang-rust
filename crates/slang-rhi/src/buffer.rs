@@ -269,6 +269,9 @@ fn check_read(offset: u64, len: usize, size: u64) -> Result<(usize, usize)> {
 /// back with [`Device::read_buffer`]. A buffer holds its [`Device`], so the
 /// device lives at least as long as the buffer.
 ///
+/// [`Clone`] returns another handle to the same buffer, which adds a
+/// reference to it in slang-rhi.
+///
 /// A buffer is neither [`Send`] nor [`Sync`], because slang-rhi documents no
 /// rule for the use of its objects from several threads.
 ///
@@ -290,7 +293,7 @@ fn check_read(offset: u64, len: usize, size: u64) -> Result<(usize, usize)> {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::Buffer>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Buffer {
     raw: Owned<IBuffer>,
     device: Device,
@@ -309,6 +312,16 @@ impl Buffer {
         self.size
     }
 
+    /// Returns the uses of the buffer.
+    ///
+    /// # Examples
+    ///
+    /// See the example of [`Device::create_buffer`].
+    #[must_use]
+    pub fn usage(&self) -> BufferUsage {
+        self.usage
+    }
+
     pub(crate) fn as_non_null(&self) -> NonNull<IBuffer> {
         self.raw.as_non_null()
     }
@@ -319,10 +332,6 @@ impl Buffer {
 
     pub(crate) fn device_ptr(&self) -> NonNull<IDevice> {
         self.device.as_non_null()
-    }
-
-    pub(crate) fn usage(&self) -> BufferUsage {
-        self.usage
     }
 }
 
@@ -351,6 +360,7 @@ impl Device {
     /// device.read_buffer(&buffer, 0, &mut output)?;
     /// assert_eq!(output, input);
     /// assert_eq!(buffer.size(), 16);
+    /// assert!(buffer.usage().contains(BufferUsage::COPY_SOURCE));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///

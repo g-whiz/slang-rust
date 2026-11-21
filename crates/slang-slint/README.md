@@ -12,6 +12,8 @@ slang-slint shows what a [Slang](https://shader-slang.org) render pipeline of [s
 slang-slint = { git = "https://github.com/g-whiz/slang-rust", version = "0.1.0-alpha.2" }
 ```
 
+The program depends on slint with a requirement that selects a 1.18 release, such as `slint = "~1.18"`, because the API of this crate names Slint's types, and a later minor version of Slint gives type errors that do not name the version.
+
 ## Example
 
 This program makes Slint create a wgpu device that suits slango, opens a Slint window, and turns Slint's device into a `slango::Device` when Slint sets up rendering, then prints the name of its adapter. It also depends on slint with a windowing backend and a wgpu renderer enabled. It needs a GPU driver or a software driver and a display when it runs, so its doctest is compiled but not run:

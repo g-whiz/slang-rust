@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -1352,18 +1352,21 @@ Reason: Miri finds undefined behaviour only in unsafe code, and the workspace de
 
 ## 15. Dependencies and Cargo Features
 
-**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other, except the feature `vendored`, which SYS-7 governs: it selects how Slang is linked and removes no item of the API. Section 7.8 of the writing guide defines how features are documented.
+**DEP-1.** Make every Cargo feature additive, so that every combination compiles, and name it after what it enables. A feature never removes behaviour or selects between options that exclude each other, except the feature `vendored`, which SYS-7 governs: it selects how Slang is linked and removes no item of the API. Backend features that exclude each other are the second exception, which the paragraphs after the reason define. Section 7.8 of the writing guide defines how features are documented.
 
 Reason: Cargo unifies the features that different dependents request, so a subtractive or exclusive feature breaks a build that combines them. [IR-8] [S-10] [S-4]
 
-A second exception covers a crate whose only backend sits behind a default feature, such as the feature `wgpu` of `slango` (SLO-28 and SLO-29 of `docs/design/slango.md`). Such a crate MAY stop its build without that feature with exactly one `compile_error!` whose message names the feature to enable. The exception holds only within these bounds:
+The second exception covers a crate whose backend Cargo features select, such as `slango`, whose default feature `wgpu` and feature `rhi` each select one backend and exclude each other by the owner's decision 5 of Section 4.6 of `docs/design/slango.md` (SLO-28 and SLO-29 of that design). Such a crate MAY stop its build with exactly one `compile_error!` when no backend feature is on or when more than one is, and the message names the features and says that exactly one is needed. The exception holds only within these bounds:
 
-- The feature is on by default, and enabling it removes no item and no behaviour.
-- Its absence is the only combination of features that stops the build, and every combination that contains it compiles.
-- The stop is the one error of the build, so the crate gates every other item on the feature.
-- `check-features` leaves out exactly that combination, as TOOL-48 of `docs/design/tooling.md` states, and checks every other.
+- One backend feature is on by default, and every build with exactly one backend feature has the same public items, apart from items that name a type of that backend, such as the module `slango::wgpu`.
+- The combinations with no backend feature and with more than one are the only combinations that stop the build, and every combination with exactly one compiles.
+- The stop is the one error of the build, so the crate gates every other item on its backend features.
+- `check-features` leaves out the combinations that stop the build, as TOOL-48 of `docs/design/tooling.md` states, and a recipe checks the build with each backend feature, as TOOL-48 and TOOL-53 of that design state.
+- The crate documentation tells a library that depends on the crate to turn the default features off and to leave the choice of the backend to the program.
 
-Reason: without a backend, the crate has no API to offer, so no build without the feature can be useful. One error that names the feature tells the user what to enable, while the build would otherwise fail with hundreds of unresolved names that do not. Cargo's unification can only add the feature, never remove it, so the stop cannot break a build in which any dependent enables the default features. The sources of the reference list on features ([IR-8], [S-10], [S-4]) state the additive rule and do not address a crate without a backend, so the exception rests on this reasoning.
+Reason: without a backend, the crate has no API to offer, so no build without a backend feature can be useful. One error that names the features tells the user what to change, while the build would otherwise fail with hundreds of unresolved names, or with conflicting definitions when two backends are on, neither of which says what to change.
+
+Cargo's unification can only add features, so a library that keeps the default features of such a crate stops the build of every program that enables another backend, which is why the crate documentation advises libraries to turn them off. The owner accepted that cost for `slango` in place of a choice of backend for each device at run time. The sources of the reference list on features ([IR-8], [S-10], [S-4]) state the additive rule and do not address a crate with exclusive backends, so the exception rests on this reasoning and on that decision.
 
 **DEP-2.** Add a dependency only when it replaces code or risk that outweighs its own cost, prefer the standard library, such as `std::sync::LazyLock`, and widely used crates, and declare every version once in `[workspace.dependencies]`. Reason: each dependency adds build time, licence obligations, and supply-chain risk, and two versions of one crate in a build have incompatible types. [IR-5] [IR-1] [S-10] [IR-3]
 
@@ -1629,7 +1632,7 @@ This appendix lists every judgement rule with a one-line summary. A review agent
 | TEST-10 | One integration-test binary per crate, `tests/<suite>/main.rs`, with sibling modules and a `#[cfg(test)] mod common;`. |
 | TEST-11 | In a package that Miri runs, a test of safe code that is slow under Miri may skip Miri with `#[cfg_attr(miri, ignore = "...")]`, with its reason in the attribute, and still runs natively. |
 | TEST-12 | Miri runs the members with unsafe code that it can execute and no other. A member that opts out of `unsafe_code` for code its tests reach joins a Miri recipe in the same change, and a member with only foreign declarations or generated bindings is exempted by name in the checker. |
-| DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs, and a default feature of the only backend, without which the crate stops with one `compile_error!` that names it. |
+| DEP-1 | Cargo features are additive and named after what they enable, except `vendored`, which SYS-7 governs, and backend features that exclude each other, one of them on by default, with which a build without exactly one backend stops with one `compile_error!` that names them. |
 | DEP-2 | Dependencies are few, preferably standard, and declared once in the workspace, except another version requirement on a member, and a dependency used only for its `links` metadata is named with `use <crate> as _;`. |
 | DEP-3 | wgpu types stay out of the compiler crates, and wgpu upgrades are breaking releases of the crates that expose them. |
 | DEP-4 | The MSRV is declared and respected, and nightly serves checkers only. |

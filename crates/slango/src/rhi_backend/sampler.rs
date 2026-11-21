@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use slang_rhi::SamplerDesc;
 
 use super::device::Device;
@@ -10,7 +8,7 @@ use crate::sampler::{AddressMode, FilterMode, SamplerOptions};
 /// The sampler of slang-rhi that a [`crate::Sampler`] holds.
 #[derive(Clone)]
 pub(crate) struct Sampler {
-    inner: Rc<slang_rhi::Sampler>,
+    inner: slang_rhi::Sampler,
 }
 
 impl Sampler {
@@ -29,9 +27,7 @@ impl Sampler {
             .rhi_device()
             .create_sampler(&desc)
             .map_err(|error| from_rhi("create a sampler", Call::Other, error))?;
-        Ok(Self {
-            inner: Rc::new(inner),
-        })
+        Ok(Self { inner })
     }
 
     pub(super) fn rhi_sampler(&self) -> &slang_rhi::Sampler {

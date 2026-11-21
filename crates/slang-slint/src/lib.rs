@@ -142,6 +142,25 @@
 //! window with two sliders whose values it sets on the shader by name, and
 //! loads the shader again whenever its file changes.
 //!
+//! # The version of Slint
+//!
+//! The API of this crate names types of Slint: [`wgpu_configuration`]
+//! returns a [`WGPUConfiguration`](slint::wgpu_30::WGPUConfiguration),
+//! [`device`] takes a [`slint::GraphicsAPI`], and [`View::to_image`] returns
+//! a [`slint::Image`]. The program therefore uses the same Slint as this
+//! crate, which requires Slint 1.18 with the requirement `~1.18`, so the
+//! program depends on `slint` with a requirement that selects a 1.18
+//! release, such as `slint = "~1.18"`. With a requirement that selects a
+//! later minor version, Cargo builds a second Slint for the program, whose
+//! types differ from those of this crate, and the build fails with type
+//! errors that do not name the version.
+//!
+//! The wgpu items of Slint that this crate uses come from its feature
+//! `unstable-wgpu-30`, which this crate enables and Slint keeps outside its
+//! promise of compatibility between minor versions. A version of this crate
+//! that moves to another minor version of Slint is therefore a breaking
+//! change.
+//!
 //! # Driving frames
 //!
 //! Slint renders a frame only when something requests one. A program draws

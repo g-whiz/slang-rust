@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use slang_rhi::{BufferDesc, BufferUsage};
 
 use super::device::Device;
@@ -15,7 +13,7 @@ const READ: &str = "read a buffer";
 /// call binds.
 #[derive(Clone)]
 pub(crate) struct Buffer {
-    inner: Option<Rc<slang_rhi::Buffer>>,
+    inner: Option<slang_rhi::Buffer>,
 }
 
 impl Buffer {
@@ -60,9 +58,7 @@ impl Buffer {
             .rhi_device()
             .create_buffer(&desc, Some(bytes))
             .map_err(|error| from_rhi(CREATE, Call::Other, error))?;
-        Ok(Self {
-            inner: Some(Rc::new(inner)),
-        })
+        Ok(Self { inner: Some(inner) })
     }
 
     /// Copies the bytes of the buffer back from the GPU, after the device has
@@ -93,7 +89,7 @@ impl Buffer {
 
     /// Returns the buffer of slang-rhi, which a buffer of length zero lacks.
     pub(super) fn rhi_buffer(&self) -> Option<&slang_rhi::Buffer> {
-        self.inner.as_deref()
+        self.inner.as_ref()
     }
 }
 

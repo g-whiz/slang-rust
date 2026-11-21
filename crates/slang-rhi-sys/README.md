@@ -12,6 +12,13 @@ slang-rhi-sys provides the raw, unsafe Rust bindings to [slang-rhi](https://gith
 slang-rhi-sys = { git = "https://github.com/g-whiz/slang-rust", version = "0.1.0-alpha.2" }
 ```
 
+A program that names an item of the Slang headers in the bindings, such as `ISlangUnknown` or a global session, also depends on slang-compiler-sys at the same version as this crate:
+
+```toml
+[dependencies]
+slang-compiler-sys = { git = "https://github.com/g-whiz/slang-rust", version = "0.1.0-alpha.2" }
+```
+
 ## Requirements
 
 The crate always builds Slang and slang-rhi from one Slang source tree, which slang-src clones, and never uses the Slang of a Vulkan SDK. Building it needs the tools that the [slang-src documentation](https://g-whiz.github.io/slang-rust/slang_src/#what-a-vendored-build-needs) lists, and on Linux also the development headers of Xlib, as the [crate documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-rhi-sys/src/lib.rs) describes.

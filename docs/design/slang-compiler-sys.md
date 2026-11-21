@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -1656,14 +1656,18 @@ Assumption A-6 of the architecture design, that a dependency's build script cann
 
 ## 16. Open Questions
 
-Each row is a question that this document leaves open, and the change that answers it removes the row. The next question takes SQ-8.
+Each row is a question that this document leaves open, and the change that answers it removes the row. The next question takes SQ-10.
 
 SQ-6 and SQ-7 come from the review of the public API before the first release (Section 9.5 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. The owner let the first release, an alpha, ship without deciding them, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
+
+SQ-8 and SQ-9 come from the review of the public API before the second release, which covered the additions of M9 to `slang-bindgen` (Section 9.10.1 of `docs/design/tooling.md`). They wait for the decision of the owner in the same way, and by the owner's decision 4 of that section they do not block the second release, an alpha.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
 | SQ-6 | `BuildInfo` encodes one fact, the route, in three fields: `linkage`, `slang_commit`, which is `Some` exactly for `Static`, and the suffix of `version`. `tested_target` is a `bool` that is `true` for `x86_64-apple-darwin`, which is only type-checked, so it merges two of three states (Section 8.1). Both break TYPE-3, and `tested_target` also TYPE-2, and the public field types lock in at the release. The options are to make the route one value, such as `Linkage::Static { commit }` and `Linkage::Dynamic`, drop or derive `slang_commit`, and replace `tested_target` with a `#[non_exhaustive]` enumeration such as `TargetSupport { Tested, TypeChecked, Untested }` before the release, or to keep the shape and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
 | SQ-7 | `slang_bindgen::ErrorKind::Libclang` covers a missing libclang, which the user fixes by installing it, and a libclang instance that the process already holds, which the caller fixes by calling from one thread at a time (Section 7.7). Callers match on the kind, so one kind for both breaks ERR-1, and moving the second case to its own kind later changes what an existing caller sees. The options are to add a kind such as `LibclangInUse` before the release, or to keep one kind and record why | The owner of the project, by a decision | Before the first release that is not an alpha |
+| SQ-8 | `slang_bindgen::generate_slang_rhi` takes three directories of the same type as positional `impl AsRef<Path>` arguments, the slang-rhi headers, the configured header, and the Slang headers, before the target (Section 7.8). Two swapped directories compile and fail with an error of kind `Io` or `Diagnostic` that names a directory but not the mix-up, against the type safety items of the API Guidelines, such as C-CUSTOM-TYPE, and API-6. The options are a small struct such as `SlangRhiHeaders { rhi, config, slang }`, or the current arguments, because the one caller is a build script of the workspace | The owner of the project, by a decision | Before the first release that is not an alpha |
+| SQ-9 | `Generated::abi_probe` is an `Option<String>` that `generate` always leaves `None` and `generate_slang_rhi` always sets to `Some` (Section 7.8), so the `Option` encodes which function ran, and every caller of `generate_slang_rhi` unwraps it, against TYPE-3. The options are a type of its own for the result of `generate_slang_rhi`, with `abi_probe: String`, or the current field, because `Generated` is `#[non_exhaustive]` and the field was an addition that broke nothing | The owner of the project, by a decision | Before the first release that is not an alpha |
 
 ## 17. Security Considerations
 

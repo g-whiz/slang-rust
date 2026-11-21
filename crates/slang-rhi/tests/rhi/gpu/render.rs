@@ -8,9 +8,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use slang_compiler::reflection::LayoutSize;
 use slang_compiler::{Component, LinkedProgram, ParameterCategory, Session, Stage, Toggle};
 use slang_rhi::{
-    AddressMode, BlendMode, Buffer, BufferDesc, BufferUsage, ColourLoad, CullMode, DepthLoad,
-    Device, ErrorKind, Format, Operation, RenderPass, RenderPipeline, RenderPipelineDesc,
-    SamplerDesc, StepMode, Texture, TextureDesc, TextureUsage, VertexFormat, VertexStream,
+    AddressMode, Blend, Buffer, BufferDesc, BufferUsage, ColourLoad, CullMode, DepthLoad, Device,
+    ErrorKind, Format, Operation, RenderPass, RenderPipeline, RenderPipelineDesc, SamplerDesc,
+    StepMode, Texture, TextureDesc, TextureUsage, VertexFormat, VertexStream,
 };
 
 use crate::common::{Messages, bytes, open, options};
@@ -583,6 +583,68 @@ fn a_sampled_texture_with_point_filters_gives_each_texel_its_quarter_of_the_targ
 }
 
 #[test]
+fn clones_of_textures_samplers_and_render_pipelines_draw_after_the_originals_are_dropped() {
+    let (options, messages) = options(Toggle::Off);
+    let device = open(&options);
+    let pipeline = render_pipeline(
+        &device,
+        ("textured", TEXTURED),
+        Format::Rgba8Unorm,
+        &TEXTURED_INPUTS,
+        |desc| desc,
+    );
+    let texels_data: Vec<u8> = [
+        [255, 0, 0, 255],
+        [0, 255, 0, 255],
+        [0, 0, 255, 255],
+        [255, 255, 255, 255],
+    ]
+    .concat();
+    let source = device
+        .create_texture(
+            &TextureDesc::new([2, 2], Format::Rgba8Unorm, TextureUsage::SHADER_RESOURCE),
+            Some(&texels_data),
+        )
+        .expect("slang-rhi creates the texture");
+    let sampler = device
+        .create_sampler(&SamplerDesc::new().with_address_modes([AddressMode::ClampToEdge; 3]))
+        .expect("slang-rhi creates the sampler");
+    let target = colour_target(&device, TextureUsage::empty());
+    let corners = vertex_buffer(&device, FULL.as_flattened());
+    let (pipeline_clone, source_clone, sampler_clone, target_clone, corners_clone) = (
+        pipeline.clone(),
+        source.clone(),
+        sampler.clone(),
+        target.clone(),
+        corners.clone(),
+    );
+    assert_eq!(source_clone.size(), source.size());
+    assert_eq!(source_clone.format(), source.format());
+    assert_eq!(source_clone.usage(), source.usage());
+    drop((pipeline, source, sampler, target, corners));
+    let desc = slang_rhi::RenderPassDesc::new().with_colour_target(&target_clone, BLACK);
+    render(&device, &desc, |pass| {
+        let mut root = pass.bind_pipeline(&pipeline_clone)?;
+        let colours = root
+            .offset_of("colours")?
+            .expect("the shader declares colours");
+        root.set_texture(colours, &source_clone)?;
+        let nearest = root
+            .offset_of("nearest")?
+            .expect("the shader declares nearest");
+        root.set_sampler(nearest, &sampler_clone)?;
+        drop(root);
+        pass.set_vertex_buffers(&[&corners_clone])?;
+        pass.draw(3, 1)
+    });
+    assert_eq!(
+        rows(&device, &target_clone),
+        ["RRGG", "RRGG", "BBWW", "BBWW"]
+    );
+    assert_no_error(&messages);
+}
+
+#[test]
 fn a_depth_target_keeps_the_nearest_fragment_with_the_test_less() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
@@ -727,7 +789,7 @@ fn a_stream_of_stride_0_gives_every_vertex_and_instance_its_one_attribute() {
 fn alpha_blending_mixes_the_colour_over_the_target_by_its_alpha() {
     let (options, messages) = options(Toggle::Off);
     let device = open(&options);
-    let pipeline = flat_pipeline(&device, |desc| desc.with_blend(BlendMode::Alpha));
+    let pipeline = flat_pipeline(&device, |desc| desc.with_blend(Blend::Alpha));
     let target = colour_target(&device, TextureUsage::empty());
     let [positions, colours] = triangle(&device, &FULL, 0.0, [1.0, 0.0, 0.0, 0.6]);
     let desc =

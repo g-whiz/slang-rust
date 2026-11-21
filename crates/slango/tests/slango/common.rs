@@ -53,6 +53,7 @@ pub(crate) fn rhi_device_info() -> slang_rhi::DeviceInfo {
     slang_rhi::Device::new(&options)
         .expect("a device of slang-rhi")
         .info()
+        .clone()
 }
 
 #[cfg(feature = "wgpu")]

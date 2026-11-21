@@ -451,10 +451,11 @@ wgpu. The example `windowed-renderer` does this with winit.
 //!   with [`ErrorKind::InvalidArgument`] before any work reaches the GPU,
 //!   where it failed with [`ErrorKind::Backend`] before. Separate buffers
 //!   avoid it.
-//! - [`ErrorKind`] has the new kind [`ErrorKind::Unsupported`], for an
-//!   operation that the backend of the build does not offer. A `match` with
-//!   a wildcard arm, which the non-exhaustive enumeration already requires,
-//!   needs no change.
+//! - [`ErrorKind`] has the new kind [`ErrorKind::Unsupported`], which only
+//!   a build with the feature `rhi` returns, when slang-rhi or the device
+//!   does not support what a call asked. A `match` with a wildcard arm,
+//!   which the non-exhaustive enumeration already requires, needs no
+//!   change.
 //! - The text of the error of a buffer read whose bytes do not fit its
 //!   elements begins with "the backend read" where it began with "wgpu
 //!   mapped". Code that matches on the kind needs no change.

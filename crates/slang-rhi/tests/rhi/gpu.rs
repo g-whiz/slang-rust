@@ -49,7 +49,8 @@ fn a_device_of_the_default_type_opens_on_the_api_of_the_platform() {
 #[test]
 fn the_information_of_a_device_holds_limits_within_the_minimums_of_both_apis() {
     let (options, messages) = options(Toggle::Off);
-    let info = open(&options).info();
+    let device = open(&options);
+    let info = device.info();
     assert!(
         info.max_compute_dispatch_thread_groups()
             .iter()
@@ -464,6 +465,56 @@ fn the_objects_of_a_device_keep_it_alive_after_every_device_handle_is_dropped() 
         .expect("the queue receives the work");
     queue.wait_on_host().expect("the queue finishes the work");
     drop((queue, values, pipeline));
+    assert_eq!(messages.errors(), []);
+}
+
+#[test]
+fn clones_of_the_handles_of_the_compute_path_run_it_after_the_originals_are_dropped() {
+    let (options, messages) = options(Toggle::On);
+    let device = open(&options);
+    let compile = device
+        .create_slang_session([std::env::temp_dir()])
+        .expect("slang-rhi creates a compile session");
+    let compile_clone = compile.clone();
+    drop(compile);
+    let linked = link(compile_clone.session(), "double", DOUBLE);
+    let program = compile_clone
+        .create_shader_program(&linked)
+        .expect("the clone of the compile session takes its own programs");
+    let program_clone = program.clone();
+    drop(program);
+    let pipeline = device
+        .create_compute_pipeline(&program_clone)
+        .expect("slang-rhi creates the compute pipeline from the clone of the program");
+    let pipeline_clone = pipeline.clone();
+    drop(pipeline);
+    let values = float_buffer(&device, &[1.0, 2.0, 3.0, 4.0]);
+    let values_clone = values.clone();
+    assert_eq!(values_clone.size(), values.size());
+    assert_eq!(values_clone.usage(), values.usage());
+    drop(values);
+    let queue = device.queue().expect("the device has a queue");
+    let queue_clone = queue.clone();
+    drop(queue);
+    let mut encoder = queue_clone.encoder().expect("slang-rhi creates an encoder");
+    encoder
+        .compute_pass(|pass| {
+            let mut root = pass.bind_pipeline(&pipeline_clone)?;
+            let factor = root.offset_of("factor")?.expect("factor");
+            root.set_data(factor, &2.0_f32.to_le_bytes())?;
+            let target = root.offset_of("values")?.expect("values");
+            root.set_buffer(target, &values_clone)?;
+            drop(root);
+            pass.dispatch([1, 1, 1])
+        })
+        .expect("the pass records with the clones");
+    queue_clone
+        .submit([encoder.finish().expect("the encoder finishes")])
+        .expect("the queue receives the work");
+    queue_clone
+        .wait_on_host()
+        .expect("the queue finishes the work");
+    assert_eq!(read(&device, &values_clone), [2.0, 4.0, 6.0, 8.0]);
     assert_eq!(messages.errors(), []);
 }
 

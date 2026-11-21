@@ -278,7 +278,7 @@ pub enum Operation {
     BeginComputePass,
     /// The binding of a compute pipeline, by
     /// [`ComputePass::bind_pipeline`](crate::ComputePass::bind_pipeline).
-    BindPipeline,
+    BindComputePipeline,
     /// A dispatch, by [`ComputePass::dispatch`](crate::ComputePass::dispatch).
     Dispatch,
     /// The end of the encoding, by
@@ -356,7 +356,7 @@ impl Operation {
             Self::GetQueue => "get the queue of a device",
             Self::CreateCommandEncoder => "create a command encoder",
             Self::BeginComputePass => "begin a compute pass",
-            Self::BindPipeline => "bind a compute pipeline",
+            Self::BindComputePipeline => "bind a compute pipeline",
             Self::Dispatch => "dispatch a compute kernel",
             Self::FinishEncoder => "finish a command encoder",
             Self::Submit => "submit command buffers",
@@ -542,7 +542,7 @@ mod tests {
             invalid.to_string(),
             "cannot read a buffer: the range ends past the buffer"
         );
-        let null = Error::null(Operation::BindPipeline);
+        let null = Error::null(Operation::BindComputePipeline);
         assert_eq!(null.kind(), ErrorKind::Failed);
         assert_eq!(
             null.to_string(),

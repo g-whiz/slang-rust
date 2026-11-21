@@ -37,6 +37,16 @@
 //! global session, is the item of `slang-compiler-sys`, so a pointer passes
 //! between the two crates without a cast.
 //!
+//! This crate does not re-export those items, so `slang-compiler-sys` is a
+//! public dependency of it. A program that names one of them, such as to
+//! implement an interface, to call a method of `ISlangUnknown`, or to pass a
+//! global session, depends on `slang-compiler-sys` itself, with a requirement
+//! that selects the version that this crate requires exactly, which is the
+//! version of this crate. Cargo then builds one `slang-compiler-sys` for both
+//! crates, with the feature `vendored` that this crate enables, and its items
+//! are the items of the bindings. With another version, Cargo stops the build,
+//! because both versions declare `links = "slang-compiler"`.
+//!
 //! The bindings differ from the headers in these places:
 //!
 //! - Virtual methods that share a name get one Rust name each. The first

@@ -18,6 +18,9 @@ use crate::shader_object::ShaderObject;
 /// Get it from [`Device::queue`]. A queue holds its [`Device`], so the device
 /// lives at least as long as the queue.
 ///
+/// [`Clone`] returns another handle to the same queue, which adds a
+/// reference to it in slang-rhi.
+///
 /// A queue is neither [`Send`] nor [`Sync`], because slang-rhi documents no
 /// rule for the use of its objects from several threads.
 ///
@@ -39,7 +42,7 @@ use crate::shader_object::ShaderObject;
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::Queue>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Queue {
     raw: Owned<ICommandQueue>,
     device: Device,
@@ -479,7 +482,7 @@ impl ComputePass<'_> {
     pub fn bind_pipeline(&mut self, pipeline: &ComputePipeline) -> Result<ShaderObject<'_>> {
         if pipeline.device_ptr() != self.device {
             return Err(Error::invalid(
-                Operation::BindPipeline,
+                Operation::BindComputePipeline,
                 "the pipeline belongs to another device",
             ));
         }
@@ -497,7 +500,7 @@ impl ComputePass<'_> {
             // keeps its own reference to the pipeline.
             unsafe { IComputePassEncoder::bindPipeline(pass, pipeline) }
         });
-        let root = NonNull::new(root).ok_or_else(|| Error::null(Operation::BindPipeline))?;
+        let root = NonNull::new(root).ok_or_else(|| Error::null(Operation::BindComputePipeline))?;
         self.bound = true;
         // SAFETY: the pass holds the root object until its next
         // `bindPipeline` or until the encoder is freed, and the returned value

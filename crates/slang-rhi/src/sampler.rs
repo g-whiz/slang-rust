@@ -205,6 +205,9 @@ impl SamplerDesc {
 /// sampler holds its [`Device`], so the device lives at least as long as the
 /// sampler.
 ///
+/// [`Clone`] returns another handle to the same sampler, which adds a
+/// reference to it in slang-rhi.
+///
 /// A sampler is neither [`Send`] nor [`Sync`], because slang-rhi documents no
 /// rule for the use of its objects from several threads.
 ///
@@ -227,7 +230,7 @@ impl SamplerDesc {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<slang_rhi::Sampler>();
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sampler {
     raw: Owned<ISampler>,
     device: Device,
