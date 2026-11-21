@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -524,11 +524,11 @@ The workspace is published on crates.io in two releases. The first is published,
 | Release | Milestone | Crates | Condition |
 | --- | --- | --- | --- |
 | First | M8 | `slang-bindgen`, `slang-src`, `slang-glslang-sys`, `slang-compiler-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros` | The rework of M7, the forward-compatibility pass of `slango`, and the publishing prerequisites of M8 are done |
-| Second | M11 | `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi` | M10 has added the opt-in `rhi` backend to `slango` |
+| Second | M11 | The eight crates of the first release, with the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, and the new `slang-rhi-sys`, `slang-rhi`, and `slang-slint`, all at `0.2.0-alpha.1` (Section 9.10 of `docs/design/tooling.md`) | M10 has added the opt-in `rhi` backend to `slango` |
 
 The first release holds the crates whose shape the rework of M7 settles, together with `slango` and its two macro crates, whose default backend stays wgpu. `slang-slint` is not in it. A published version locks in its public API and its build behaviour, so every change that would break them comes before the release that publishes them (Section 15.23).
 
-The owner accepts one exception to that order, a breaking version 0.2 of `slango` if the `rhi` backend of M10 needs one (Section 15.11).
+The owner accepts one exception to that order, a breaking version 0.2 of `slango` if the `rhi` backend of M10 needs one (Section 15.11). M10 breaks the API of `slango`, so the second release raises the minor number of every crate, as TOOL-37 of `docs/design/tooling.md` requires.
 
 On 2026-11-15, every planned crate name above was free on crates.io in both its hyphen and its underscore form.
 
@@ -865,11 +865,16 @@ Several milestones replace requirements of this document that the code satisfies
 
 ### 15.14. M11: The Second Release
 
-- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, with their hosted documentation and the check for breaking changes extended to the new crates, after the owner's go-ahead (ARCH-24). The release returns `slango`, `slango-codegen`, and `slango-macros` to `release_packages` and removes their `publish = false`, which M10 sets (TOOL-54 of `docs/design/tooling.md`).
-- Owner decisions that bind it: the second release follows once M10 has added the opt-in `rhi` backend to `slango`, and nothing is published without the owner's explicit go-ahead.
+- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, together with new versions of the other five crates of the first release, with their hosted documentation and the check for breaking changes extended to `slang-slint`, after the owner's go-ahead (ARCH-24). The release returns `slango`, `slango-codegen`, and `slango-macros` to `release_packages` and removes their `publish = false`, which M10 sets (TOOL-54 of `docs/design/tooling.md`). `slang-rhi-sys` and `slang-rhi` stay outside the check for breaking changes, because they build only on the vendored route (Section 9.10.5 of that design).
+- Owner decisions that bind it: the second release follows once M10 has added the opt-in `rhi` backend to `slango`, and nothing is published without the owner's explicit go-ahead. On 2026-11-19, the owner decided four more points, which Section 9.10.1 of `docs/design/tooling.md` records: the release holds all eleven crates, its version reflects the breaking changes of M10 by Semantic Versioning, the crate documentation of `slang-rhi-sys` states its third-party code with no licence text added, and the review of the public API covers the new crates and the changes of M10.
+- Code steps, in this order, each on its own branch with its own CI run, which Section 9.10.7 of `docs/design/tooling.md` specifies with who performs each:
+  1. The review of the public API of the new crates, of the changes of M10, and of the additions of M9 to `slang-compiler` and `slang-bindgen`, with its fixes.
+  2. The preparation of the release: the crates, manifests, and versions, the workflow change for the hosted documentation with its test on a branch that does not reach `main`, the exclusion of `slang-slint` from the check for breaking changes until it is published, and the statement of the third-party code of `slang-rhi-sys` with the verified licence of CMakeRC.
+  3. The release, by the procedure of Section 9.6 of that design, with the publish by the owner.
+  4. The change that follows the release.
 - Depends on: M10.
-- Design document, which exists before any code of the milestone: the release procedure in `docs/design/tooling.md`, extended to these crates.
-- Exit criteria: every check passes, the documentation link of each released crate leads to its hosted documentation, and the owner has approved the release. `AGENTS.md`, `README.md`, and this document are updated.
+- Design document, which exists before any code of the milestone: the release procedure in `docs/design/tooling.md`, extended to these crates in its Section 9.10.
+- Exit criteria: every check passes, including the check for breaking changes with `slang-slint` after the change that follows the release. The documentation link of each released crate leads to its hosted documentation, and the owner has approved the release. `AGENTS.md`, `README.md`, and this document are updated.
 
 ### 15.15. M12: Hull, Domain, and Geometry Stages
 

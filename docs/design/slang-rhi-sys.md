@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-19 |
+| Date | 2026-11-21 |
 | Applies to | `crates/slang-rhi-sys` |
 
 ## Abstract
@@ -226,7 +226,7 @@ The table of the target keeps the dependencies out of every build that RSYS-13 r
 
 The crate takes the version of the workspace and sets its own `license` field to `Apache-2.0 WITH LLVM-exception`, the licence of Slang and of slang-rhi (ARCH-36 of the architecture design, Section 3.1). Its package directory holds the symbolic link `LICENSE` to `LICENSE-APACHE-LLVM` (TOOL-33 of `docs/design/tooling.md`). The package holds no code of slang-rhi or of its third-party files, because the build reads them from the clone, so the licence of the crate covers the whole package.
 
-The crate sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`, Section 13 of the architecture design). The workspace leaves it out of `default-members`, and every recipe that passes `--workspace` excludes it, as for `slang-glslang-sys` (TOOL-32), because its build clones and builds native code.
+The crate sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`, Section 13 of the architecture design), which removes it and publishes the crate at the version of Section 9.10.3 of `docs/design/tooling.md`. The workspace leaves it out of `default-members`, and every recipe that passes `--workspace` excludes it, as for `slang-glslang-sys` (TOOL-32), because its build clones and builds native code.
 
 `find-msvc-tools` serves the lookup of the Microsoft compiler, which only the build for Windows uses (Section 7.3). It is declared for every target, as in `slang-glslang-sys`, because the build logic and its tests compile on every host.
 
@@ -562,9 +562,9 @@ The device of the second `gpu` test creates its own global session, because the 
 
 ## 10. Crate Documentation
 
-RSYS-16. The crate-level documentation MUST state what the crate builds and links, that it always builds Slang from source through the vendored `slang-compiler-sys`, the build requirements of Sections 7.1 and 7.3 and of a vendored build, the platform rule of RSYS-13, the need of a program on Windows for `dxcompiler.dll` at run time, the safety contract of RSYS-12, and that it has no Cargo features, in a `# Features` section and a `# Platform support` section. It MUST state the third-party code that a program built with the crate contains, which is VMA on Linux or the D3D12 Memory Allocator on Windows, both under the MIT licence, and the runtime of CMakeRC (Section 3.5), and MUST name the shared folder as SRC-20 of the `slang-src` design lists it.
+RSYS-16. The crate-level documentation MUST state what the crate builds and links, that it always builds Slang from source through the vendored `slang-compiler-sys`, the build requirements of Sections 7.1 and 7.3 and of a vendored build, the platform rule of RSYS-13, the need of a program on Windows for `dxcompiler.dll` at run time, the safety contract of RSYS-12, and that it has no Cargo features, in a `# Features` section and a `# Platform support` section. It MUST state the third-party code that a program built with the crate contains, which is VMA on Linux or the D3D12 Memory Allocator on Windows, both under the MIT licence, and the runtime of CMakeRC under the licence that RSA-8 establishes (Section 3.5). For each of them, it MUST name the licence and state what a distributor of a binary built with the crate carries, which for code under the MIT licence is its copyright notice and the permission notice of the licence. It MUST also name the shared folder as SRC-20 of the `slang-src` design lists it.
 
-A program that ships a binary built with the crate carries the notices of the code in it, and the package of the crate holds none of that code, so the documentation is where a user learns of it (RSA-8, RSQ-4).
+A program that ships a binary built with the crate carries the notices of the code in it, and the package of the crate holds none of that code, so the documentation is where a user learns of it. By the owner's decision of 2026-11-19, the statement in the documentation is enough, and the package gains no licence text of that code (decision 3 of Section 9.10.1 of `docs/design/tooling.md`). That decision answers the former question RSQ-4. The release that first publishes the crate requires RSA-8 to be confirmed before it (Section 9.10.7 of `docs/design/tooling.md`).
 
 The documentation also states the shape of the bindings: the structs without `Default` and why, `kInvalidCUDAStream`, the order of the overloads on each ABI, and the declarations that have no binding.
 
@@ -650,15 +650,14 @@ Each row is a fact that this design relies on and that is not verified. A sectio
 
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
-| RSA-8 | `cmake/CMakeRC.cmake` is under the MIT licence of its upstream project, while the file in the tree carries no licence text | RSYS-16 | A reading of the upstream repository of CMakeRC, by the owner or an agent with network access |
+| RSA-8 | `cmake/CMakeRC.cmake` is under the MIT licence of its upstream project, while the file in the tree carries no licence text | RSYS-16 | A reading of the upstream repository of CMakeRC, by the owner or an agent with network access, in the preparation step of M11, before the release that first publishes the crate (Section 9.10.7 of `docs/design/tooling.md`). The result is stated in Section 3.5 |
 
 ## 14. Open Questions
 
-Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused. Section 6.2 answers RSQ-2 and RSQ-3.
+Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused. Section 6.2 answers RSQ-2 and RSQ-3, and Section 10 answers RSQ-4, whether the statement of the third-party code in the crate documentation is enough: it is, and the package ships no licence text of that code.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |
-| RSQ-4 | Is the statement of the third-party code in the crate documentation enough, or does the project ship the licence texts of VMA, the D3D12 Memory Allocator, and CMakeRC for the programs that users build? | The owner of the project, by a decision | Before the second release |
 | RSQ-5 | Should the entry keys of the native crates on Windows hold the version of the Windows SDK, so that an upgrade of the SDK alone no longer reuses libraries built against older headers (Section 5.5)? The keys of Slang and of slang-glslang have the same limit | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | Not assigned |
 
 ## 15. References
@@ -689,6 +688,6 @@ This table lists every labelled requirement of this document with a one-line sum
 | RSYS-13 | 7.1 | Linux with the GNU C library and x86_64 Windows with the Microsoft toolchain only, no cross-compilation, and a clear stop on every other target, checked before the metadata of the dependencies is read. |
 | RSYS-14 | 7.2 | A test of Windows and macOS with downloads off, whose result goes to the owner before any design of those builds. |
 | RSYS-15 | 8 | The logic behind `Host`, every exit status checked, and the failures of the table. |
-| RSYS-16 | 10 | The crate documentation states the build, the requirements, the platforms with `dxcompiler.dll` on Windows, the contract, the features, and the third-party code in a program. |
+| RSYS-16 | 10 | The crate documentation states the build, the requirements, the platforms with `dxcompiler.dll` on Windows, the contract, the features, and the third-party code in a program with its licences and the notices that a distributor of a binary carries. |
 | RSYS-17 | 5.2 | Outside Windows, the wrapper project checks that the compiler finds `X11/Xlib.h` before it adds slang-rhi, stops the configure step with a message that names the header and `libx11-dev` otherwise, and bundles no stub. |
 | RSYS-18 | 7.3 | On Windows, the configure step redirects WinPixEventRuntime to an empty directory and downloads nothing. |

@@ -153,7 +153,7 @@ No command tests `slango-macros` with the backend `rhi`. When `slango-macros` is
 
 These commands are a departure of TOOL-7 of the kind that TOOL-52 takes. Each selects one package with its own features instead of joining `rhi_packages`, because Cargo unifies the features of the packages of one command, so `slango` would be built with `wgpu` beside a package that names it, which SLO-29 stops. The commands run on Linux and on x86_64 Windows only, as the commands of TOOL-52 do, and `just check`, `test-gpu`, and every other recipe keep the default features, so they build no slang-rhi.
 
-TOOL-54. From the code step of M10 that gives `slango` its optional dependency on `slang-rhi` until the release of M11 publishes `slang-rhi`, `slango`, `slango-codegen`, and `slango-macros` MUST set `publish = false`, and `release_packages` MUST leave them out. M11 removes both, in the order of `release_packages`, after `slang-rhi`.
+TOOL-54. From the code step of M10 that gives `slango` its optional dependency on `slang-rhi` until the preparation step of M11, which is code step 2 of Section 9.10.7, `slango`, `slango-codegen`, and `slango-macros` MUST set `publish = false`, and `release_packages` MUST leave them out. That step removes both, puts the three crates into `release_packages` after `slang-rhi` (Section 9.10.2), and removes this rule with the paragraphs of this section that state the interim state of five crates.
 
 TOOL-55. The `justfile` MUST hold the packages that `check-miri` runs once, in the variable `miri_packages`, and `check-miri` MUST select each of them with `-p` and pass `--no-tests=fail`. The packages are the members of `default-members` that hold unsafe code that a test can execute under Miri, as TEST-12 of the coding standard defines them. `miri_packages` holds `slang-compiler`. `slang-rhi` holds such code too and runs in `check-miri-rhi` instead (TOOL-52).
 
@@ -167,11 +167,11 @@ On 2026-11-18, `check-package` packaged the five crates with `slango` set to `pu
 
 `doc-site` builds the crates of `release_packages`, so it leaves the three out as well. It passes `cargo doc` the feature `vendored` of each selected package that declares one, which it reads from `cargo metadata`, because a fixed list of features failed once `slango-macros` left `release_packages`: Cargo refuses a feature of a package that the command does not select (Section 9.4).
 
-The workflow of Section 7.5 deploys the site that `doc-site` builds as a whole, so a release before M11 would replace the hosted site with one that holds the five crates only, and the pages of `slango`, `slango-codegen`, and `slango-macros` of `0.1.0-alpha.1`, which their `documentation` fields and READMEs name, would no longer answer. `check-release` would then fail for no crate of that release, because it checks the crates of `release_packages` only. TQ-19 asks how a release before M11 keeps those pages.
+The workflow of Section 7.5 deploys the site that `doc-site` builds as a whole, so a release before M11 would replace the hosted site with one that holds the five crates only, and the pages of `slango`, `slango-codegen`, and `slango-macros` of `0.1.0-alpha.1`, which their `documentation` fields and READMEs name, would no longer answer. `check-release` would then fail for no crate of that release, because it checks the crates of `release_packages` only. The project therefore makes no release before M11, and the second release documents all eleven crates of `release_packages` in one site (Section 9.10.4), which answers the former question TQ-19.
 
 `check-semver` passes `--workspace` with `--default-features` (TOOL-38), so it never enables `rhi`. cargo-semver-checks skips the members with `publish = false` by itself in that mode: on 2026-11-18, `check-semver` checked only `slang-bindgen`, `slang-compiler`, and `slang-compiler-sys`, so the recipe needs no `--exclude` for the three crates. This confirmed the former assumption TA-26.
 
-The check was meaningless for them anyway while every release is an alpha (Section 9.3), and version 0.2 of `slango` breaks its API on purpose (Section 17.6 of `docs/design/slango.md`). The release of M11 decides how the crates of the second release are checked (Section 15.14 of the architecture design).
+The check was meaningless for them anyway while every release is an alpha (Section 9.3), and version 0.2 of `slango` breaks its API on purpose (Section 17.6 of `docs/design/slango.md`). Section 9.10.5 states how the check covers the crates of the second release.
 
 `check-msrv` keeps the default features of every package, so it builds no slang-rhi. `check-deny` and `check-unused-deps` need no change:
 
@@ -882,7 +882,7 @@ Every job except `vendored` runs its steps in the same order. It checks out the 
 - The `test` job runs `just check-clippy`, `just check-doctest`, and `just test-gpu`.
 - The `ci-only` job installs fontconfig and runs the recipe of its matrix entry.
 - The `coverage` job installs lavapipe and fontconfig, runs `just coverage`, and uploads the report.
-- The `semver` job runs `just check-semver`. It installs no adapter and no fontconfig, because the check builds only the libraries of the crates of the release, and none of them depends on Slint.
+- The `semver` job runs `just check-semver`. It installs no adapter, because the check builds only the libraries of the crates of the release. It installs no fontconfig while `check-semver` checks no crate that depends on Slint. Once the check covers `slang-slint`, from the change that follows the second release, the job installs fontconfig with the shared step, because the build of Slint links it on Linux (Section 9.10.5).
 
 The workflow defines the steps that check out the repository, install libclang, install and check the SDK, install lavapipe, and install fontconfig once, with YAML anchors. It reuses them in the other jobs, so each of these steps is the same in every job that runs it.
 
@@ -1070,7 +1070,7 @@ The workflow has two jobs on `ubuntu-latest`, each with the timeout of 60 minute
 
 | Job | Name | Permissions | Steps |
 | --- | --- | --- | --- |
-| `build` | Build the documentation site | The top-level `contents: read` | Checks out the tag with `persist-credentials: false`, installs the stable toolchain with the minimal profile, installs `just` through the installer action of Section 7.1, makes libclang available, installs and prints the vendored tools as steps 5 to 7 of Section 7.4 do on Linux, runs `just doc-site`, and uploads `target/vendored/doc` with `actions/upload-pages-artifact` |
+| `build` | Build the documentation site | The top-level `contents: read` | Checks out the tag with `persist-credentials: false`, installs the stable toolchain with the minimal profile, installs `just` through the installer action of Section 7.1, makes libclang available, installs and prints the vendored tools as steps 5 to 7 of Section 7.4 do on Linux, installs the packages of step 8 of Section 7.4 that are missing (TOOL-56), runs `just doc-site`, and uploads `target/vendored/doc` with `actions/upload-pages-artifact` |
 | `deploy` | Deploy the documentation site | `pages: write` and `id-token: write`, and no other | Needs `build`. Runs in the environment `github-pages` with the address `${{ steps.deployment.outputs.page_url }}`, and runs `actions/deploy-pages` in the step with the identifier `deployment` |
 
 Besides the checkout and installer actions that `ci.yml` pins, the workflow uses these actions, each pinned to the commit of its release (TOOL-20):
@@ -1088,7 +1088,13 @@ GitHub Pages limits a published site to 1 GB and a deployment to 10 minutes [GH-
 
 The workflow cannot share the YAML anchors of `ci.yml`, so its steps that install libclang and the vendored tools are copies of those of `ci.yml`. A change to one of these steps changes both workflows in the same change, which is a judgement rule.
 
-The copies are verbatim, by a choice of the design, so that a diff of the two workflows shows any drift. They keep the branches for Windows and macOS and the condition `runner.os == 'Linux'`, which never apply on `ubuntu-latest`, and the installation of the development files of fontconfig, which `doc-site` does not need.
+The copies are verbatim, by a choice of the design, so that a diff of the two workflows shows any drift. They keep the branches for Windows and macOS and the condition `runner.os == 'Linux'`, which never apply on `ubuntu-latest`. They also keep the installation of the development files of fontconfig, which `doc-site` needs from the second release on, because the documentation build of `slang-slint` runs the build scripts of Slint, which link fontconfig on Linux.
+
+TOOL-56. From the preparation step of the second release, the job `build` MUST install the packages of step 8 of Section 7.4 that are missing, with a verbatim copy of that step of `ci.yml`, before it runs `doc-site`. `doc-site` then documents `slang-rhi-sys`, whose build compiles slang-rhi, and the Vulkan backend of slang-rhi includes `X11/Xlib.h` on Linux, so without the headers the configure step stops with the message of RSYS-17 of `docs/design/slang-rhi-sys.md`.
+
+The copy also installs lavapipe and the Vulkan loader, which `doc-site` does not need. The design keeps the step verbatim, by a choice of the design, for the reason of the other copies, and the two packages cost the job a few seconds of apt.
+
+The workflow runs only on the push of a tag, so a change to its job `build` would otherwise first run in the release that it serves. Before the tag of a release whose site needs a tool that an earlier tag did not, an agent MUST run the steps of the job `build` on a branch that does not reach `main`, on the commit that is to be tagged or on its tree, and read the result of that run. Section 9.10.4 gives the branch for the second release.
 
 The job `build` runs on a fresh checkout, so `doc-site` writes the site into an empty `target/vendored/doc`, and the artifact holds only the pages of that build (Section 9.4).
 
@@ -1289,13 +1295,15 @@ The repository has no `NOTICE` file.
 
 ### 9.2. The Crates of a Release and Their Versions
 
-TOOL-35. The `justfile` MUST hold the packages of the next release once, in the variable `release_packages`, in the order in which they depend on each other, and every recipe of the release procedure MUST read them from there. Every other member MUST set `publish = false` in its manifest. A second list can diverge from the first. Cargo refuses to publish a member with `publish = false` even when a command names it, so the manifest and not care keeps a member out of a release.
+TOOL-35. The `justfile` MUST hold the packages of the next release once, in the variable `release_packages`, in the order in which they depend on each other, and every recipe of the release procedure MUST read them from there. Every other member MUST set `publish = false` in its manifest. A second list can diverge from the first. Cargo refuses to publish a member with `publish = false` even when a command names it, so the manifest, not care, keeps a member out of a release.
 
 For the first release, `release_packages` holds `slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slango slango-codegen slango-macros`, the crates that Section 13 of the architecture design assigns to it. These members set `publish = false`:
 
 - The examples package, which is never published.
 - `slang-slint`, which belongs to the second release. The change that prepares the second release removes the field and adds the crate to `release_packages`.
 - `slang-rhi-sys` and `slang-rhi`, which M9 adds and which belong to the second release in the same way (Section 13 of the architecture design).
+
+For the second release, `release_packages` holds every member except the examples package, in the order of Section 9.10.2, and the examples package is the only member that sets `publish = false`.
 
 `check-package` fails when the members without `publish = false` differ from `release_packages` (Section 9.6).
 
@@ -1314,11 +1322,19 @@ A crate that requires another exactly cannot move to a new version of it without
 
 Every crate stays below version 1.0 (Section 13 of the architecture design). Below 1.0, Cargo treats a change of the minor number as breaking and a change of the patch number as compatible [CARGO-SEMVER].
 
-TOOL-37. Every release MUST be an alpha release, with the version `0.1.0-alpha.<N>`, until the owner decides otherwise. `<N>` starts at 1 and rises by one with each release of the whole set of crates. The public API of an alpha is unstable and may change in any release, so a later version can break a dependent, as the section `Status` of the root `README.md` tells users.
+TOOL-37. Every release MUST be an alpha release, with the version `0.<M>.0-alpha.<N>`, until the owner decides otherwise. A release whose public API breaks a dependent of the previous release, in any of its crates, MUST raise `<M>` by one and set `<N>` to 1. Any other release MUST keep `<M>` and raise `<N>` by one. The public API of an alpha is unstable and may change in any release, as the section `Status` of the root `README.md` tells users, and the minor number tells a dependent which releases break its build.
+
+The owner decided this rule on 2026-11-19, for the second release (decision 2 of Section 9.10.1). The first release was `0.1.0-alpha.1`, and the second is `0.2.0-alpha.1`, because M10 breaks the public API of `slango` (Section 17.6 of `docs/design/slango.md`).
+
+A caret requirement on a pre-release matches only later pre-releases of the same major, minor, and patch numbers (Section 3.1 of `docs/design/slang-src.md`, TA-29). A dependent that requires `"0.1.0-alpha.1"` therefore never receives `0.2.0-alpha.1` from `cargo update`, while it would have received a breaking `0.1.0-alpha.2`.
+
+The patch number stays 0 while every release is an alpha, by a choice of the design, because the pre-release identifier already orders the releases of one minor number, and a third number would add a choice without a use.
 
 These rules carry out the policy:
 
-- The change that follows a release MUST raise `<N>` by one in the version of `[workspace.package]`, in every requirement between members, and in the version of `slang-src`, whose release identifiers come first and whose Slang identifiers stay last (SRC-13 of `docs/design/slang-src.md`). It also raises each version that the API documentation and each crate README name, as step 1 of Section 9.6 requires. The root README is raised by the change that follows a publication (RDM-33 of `docs/writing-readmes.md`).
+- The change that follows a release MUST raise `<N>` by one in the version of `[workspace.package]`, in every requirement between members, and in the version of `slang-src`, whose release identifiers come first and whose Slang identifiers stay last (SRC-13 of `docs/design/slang-src.md`). It also raises each version that the API documentation and each crate README name, as step 1 of Section 9.6 requires. The root README is raised by the change that follows a publication (RDM-33 of `docs/writing-readmes.md`). This version is provisional, because the change that follows a release cannot know whether the next release breaks.
+- The change that prepares a release MUST decide whether the release breaks the public API of a crate against the previous release, and MUST raise `<M>` and set `<N>` to 1 in the same places when it does. cargo-semver-checks runs no check between two alphas (Section 9.3), so the decision is a judgement of the agent, which reads the migration sections of the design documents and MAY run cargo-semver-checks with `--release-type minor` by hand, as TQ-17 describes, as evidence. The agent states the decision and its reasons in its report to the owner, and the release notes of step 2 of Section 9.6 list the breaking changes.
+- A provisional version that a raise of `<M>` replaces is skipped. It is never published, and no later release uses it. The second release skips `0.1.0-alpha.2`, which the change that followed the first release set.
 - Every requirement of one member on another MUST be exact, written with `=`, such as `"=0.1.0-alpha.1"`. An alpha makes no promise of compatibility, and a caret requirement on a pre-release also accepts every later pre-release of the same version (Section 3.1 of `docs/design/slang-src.md`), which could pair a crate with an incompatible alpha of another.
 - A release that fails or turns out wrong is followed by the next alpha. No version is published twice, as Sections 9.7 and 9.8 apply.
 
@@ -1335,6 +1351,8 @@ The recipe runs this command, which Section 4.8 of the coding standard, the owne
 ```sh
 cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --default-features
 ```
+
+The recipe MUST also exclude each crate of `release_packages` of which crates.io holds no version, with one `--exclude` for each, from the change that adds the crate to `release_packages` until the change that follows its first publication. The tool fails such a crate with "not found in registry" and exit status 101 and has no option to skip it (TOOL-39), so without the exclusion the CI job `semver` fails on every commit between the two changes, and Hard Rule 11 of `AGENTS.md` then blocks the merge. Section 9.10.5 names the crate that this applies to in the second release.
 
 The command selects the crates in this way:
 
@@ -1378,7 +1396,7 @@ The tool builds each checked crate and each baseline in a target directory of it
 
 TOOL-40. The manifest of each crate of `release_packages` MUST set the `documentation` field to the address of its documentation on the hosted site, `https://g-whiz.github.io/slang-rust/<crate>/`, in which `<crate>` is the crate name with each hyphen replaced by an underscore. Without the field, crates.io links each crate to docs.rs [CARGO-MANIFEST], which cannot build these crates.
 
-The addresses for the first release are these:
+The addresses are these. The first eight rows are those of the first release, and the second release adds the last three:
 
 | Crate | `documentation` |
 | --- | --- |
@@ -1390,6 +1408,9 @@ The addresses for the first release are these:
 | `slango` | `https://g-whiz.github.io/slang-rust/slango/` |
 | `slango-codegen` | `https://g-whiz.github.io/slang-rust/slango_codegen/` |
 | `slango-macros` | `https://g-whiz.github.io/slang-rust/slango_macros/` |
+| `slang-rhi-sys` | `https://g-whiz.github.io/slang-rust/slang_rhi_sys/` |
+| `slang-rhi` | `https://g-whiz.github.io/slang-rust/slang_rhi/` |
+| `slang-slint` | `https://g-whiz.github.io/slang-rust/slang_slint/` |
 
 The host is the default address of GitHub Pages for the project site of the repository `g-whiz/slang-rust`. A custom domain would change every field and is not part of this design. `check-package` checks each field before the publish, and `check-release` checks the field that crates.io shows after it (Section 9.6).
 
@@ -1406,6 +1427,8 @@ For the first release, the command was this:
 ```sh
 env -u VULKAN_SDK -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH CARGO_TARGET_DIR=target/vendored CARGO_BUILD_WARNINGS=deny cargo doc --no-deps -p slang-bindgen -p slang-src -p slang-compiler-sys -p slang-glslang-sys -p slang-compiler -p slango -p slango-codegen -p slango-macros --features slang-compiler/vendored,slango-macros/vendored
 ```
+
+For the second release, the command selects the eleven crates of Section 9.10.2 and passes the feature `vendored` of the six of them that declare it: `slang-compiler-sys`, `slang-compiler`, `slango`, `slango-codegen`, `slango-macros`, and `slang-slint`. `slang-rhi-sys` and `slang-rhi` declare no feature, and the recipe derives the list as before. Section 9.10.4 states what the site shows of the backends of `slango`.
 
 The site is built on the vendored route, by a choice of the design, for these reasons:
 
@@ -1520,7 +1543,7 @@ The preconditions of step 1 are these:
 - The CI run of the last commit of `main` concluded `success` with every job, as the commands of Section 14.7 show.
 - The release steps run in the main checkout at that commit, with no uncommitted change, on Linux or macOS (TOOL-33). The development container meets this.
 
-The raise of TOOL-37 already sets these versions for the next release.
+The raise of TOOL-37 already sets a provisional version for the next release, which the change that prepares the release replaces with the next minor number when the release breaks a public API (TOOL-37).
 
 Cargo refuses to package a crate whose packaged files hold an uncommitted change, and no recipe passes `--allow-dirty` (TOOL-45). `check-package` and `publish-dry-run` therefore run only on a committed tree, and fail on a branch before the commit of a change to a manifest or another packaged file. A change that prepares a release, or a fix of path 2 of Section 9.7, is committed before an agent runs them on it, and steps 3 to 5 run on the commit of `main` that the owner publishes.
 
@@ -1606,9 +1629,9 @@ unset token
 
 The token stays in the environment of `publish` while it waits for the rate limits of TOOL-51, up to 600 s before each new crate past the burst and up to 1205 s before each retry, and no build script runs during the waits. Every program that the script starts inherits its environment, but only Cargo reads the token. The requests that the script sends to the crates.io API carry no token, and the script prints the token nowhere and runs without shell tracing.
 
-Trusted Publishing from a workflow is deferred, with no change for the first release. It would need a workflow that publishes, which TOOL-22 forbids, a trusted publisher configured on crates.io for each crate, and the action `rust-lang/crates-io-auth-action` [CRATES-AUTH-ACTION] with `id-token: write`. TQ-11 asks whether the second release moves to it.
+Trusted Publishing from a workflow is deferred, with no change for the first or the second release. It would need a workflow that publishes, which TOOL-22 forbids, a trusted publisher configured on crates.io for each crate, and the action `rust-lang/crates-io-auth-action` [CRATES-AUTH-ACTION] with `id-token: write`. The second release keeps the token, because three of its crates are new and need a token for their first publish (Section 9.10.3). TQ-11 asks whether a later release moves to it.
 
-`publish` runs Cargo once for each crate that it publishes, in the order of its arguments, which by default is that of `release_packages`. For the first release, that order is `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`.
+`publish` runs Cargo once for each crate that it publishes, in the order of its arguments, which by default is that of `release_packages`. For the first release, that order is `slang-bindgen`, `slang-src`, `slang-compiler-sys`, `slang-glslang-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slango-macros`. Section 9.10.2 gives the order of the second release.
 
 Each run of `cargo publish` waits for its crate to appear in the index before it returns [CARGO-PUBLISH, RUST-1.90] (TA-17), so the next run finds it. `publish` does not reorder its arguments, so a list given by hand keeps the order of `release_packages`. Only `publish-dry-run` passes every crate to one run of Cargo, which orders them by their dependencies.
 
@@ -1750,6 +1773,115 @@ The script reports each failed case after "FAIL", exits with status 1 when a cas
 
 The recipe is not a checker's self-test under TOOL-15. The real documentation command of `doc-site` and the recipes `check-package`, `check-release`, and `yank` themselves are not covered.
 
+### 9.10. The Second Release
+
+Milestone M11 publishes the second release (Section 15.14 of the architecture design) through the procedure of Sections 9.2 to 9.9. This section records the owner's decisions for that release and the design that follows from them: the crates and their order, the versions, the hosted documentation, the check for breaking changes, the licences, the preconditions, and the code steps.
+
+#### 9.10.1. Owner Decisions
+
+The owner decided these points for the second release, and this section is their one record:
+
+1. On 2026-11-19, in the owner's words: "all 11. but also bump version number to reflect breaking changes. determine which number should be bumped, according to semver semantics". The second release publishes eleven crates: the eight of the first release and the new `slang-rhi-sys`, `slang-rhi`, and `slang-slint`.
+2. The second part of decision 1 sets the version. Below version 1.0, Cargo applies Semantic Versioning with a breaking change in the minor number, so it treats `0.1` and `0.2` as incompatible [CARGO-SEMVER]. M10 breaks the public API of `slango` (Section 17.6 of `docs/design/slango.md`), so the release is `0.2.0-alpha.1`, not `0.1.0-alpha.2`. It stays an alpha, by the owner's standing decision of 2026-11-17 that every published release is an alpha until the owner decides otherwise. TOOL-37 states the rule that follows.
+3. On 2026-11-19, the owner decided that the crate documentation of `slang-rhi-sys` states the third-party code that it compiles into a program, which is the Vulkan Memory Allocator on Linux, the D3D12 Memory Allocator on Windows, and the runtime of CMakeRC, with the licence of each and what a distributor of a binary must carry. No licence text of that code is added to the package. The licence of CMakeRC is verified first (RSA-8 of `docs/design/slang-rhi-sys.md`), as a precondition of the release (Section 9.10.7). This answers the former question RSQ-4 of that design, and RSYS-16 of that design states the requirement.
+4. On 2026-11-19, the owner decided that the review of the public API of Section 9.5 runs before this release on `slang-rhi-sys`, `slang-rhi`, and `slang-slint`, and on the changes of M10 to `slango`, `slango-codegen`, and `slango-macros`. The agent fixes the findings that need no decision of the owner, and records each other finding as an open question in the design document of its crate, which waits for the first release that is not an alpha (TOOL-37).
+
+Decision 4 names neither `slang-compiler` nor `slang-bindgen`, and this design extends the review to their additions of M9, which no review has covered. These are the additive reflection, `Metadata::cooperative_types`, and `with_slang_call_guard` of `slang-compiler`, and `generate_slang_rhi` and `Generated::abi_probe` of `slang-bindgen`. TOOL-43 requires a review of each crate of `release_packages` before every release, and both crates are in this release. This answers the former question TQ-20.
+
+The reading of decision 2 that this design takes, which the owner was told on 2026-11-19 and did not object to, is that the workspace keeps one version for every member (TOOL-36). All eleven crates are therefore published at `0.2.0-alpha.1`, including those whose own API did not break, such as `slang-bindgen`. `slang-src` takes `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`, the form of SRC-13 of `docs/design/slang-src.md`, while its recorded commit stays that of the build tag `2026.17-25-gc7954ebd1`.
+
+The alternative is a version for each crate, with `0.2.0-alpha.1` for the crates whose API broke and `0.1.0-alpha.2` for the others. The design does not take it, because every requirement between members is exact (TOOL-36), so a crate that did not change still needs a release of its own whenever a crate that it requires changes. Per-crate versions would also break the one version that `tag-release` reads and names in the tag.
+
+The cost of the shared version is that a crate whose API did not break signals a breaking change, which an alpha, with no promise of compatibility, can carry.
+
+#### 9.10.2. The Crates, Their Order, and Their Manifests
+
+`release_packages` holds the eleven crates in this order, in which each crate follows every crate that it requires:
+
+```text
+slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slang-rhi-sys slang-rhi slango slango-codegen slango-macros slang-slint
+```
+
+`slang-rhi-sys` requires `slang-bindgen`, `slang-src`, and `slang-compiler-sys`, and `slang-rhi` requires `slang-rhi-sys`, `slang-compiler`, and `slang-compiler-sys`. `slango` requires `slang-compiler` and, through its optional dependency of the feature `rhi`, `slang-rhi`. `slango-codegen` requires `slango`, `slango-macros` requires `slango-codegen` and `slango`, and `slang-slint` requires `slango`, so `slang-slint` comes last.
+
+The preparation step removes `publish = false` from the six crates that set it, which are `slang-rhi-sys`, `slang-rhi`, `slango`, `slango-codegen`, `slango-macros`, and `slang-slint`, and the examples package then is the only member that sets it (TOOL-35). It adds the `documentation` field of TOOL-40 to `slang-rhi-sys`, `slang-rhi`, and `slang-slint`, and removes TOOL-54.
+
+Cargo refuses to package `slango` alone while crates.io lacks `slang-rhi` (TOOL-54), and the same holds for `slang-rhi` without `slang-rhi-sys`. `publish-dry-run` packages the eleven crates against a local registry of their own packages, so it resolves these requirements before any crate is published (TA-30). The real publish resolves them on crates.io, because `publish` follows the order of `release_packages` and each run of Cargo waits for the index (TA-17).
+
+crates.io holds no version `0.2.0-alpha.1` before the release, so `check-package` compares no package with a published `.crate` file in this release. It still checks that `release_packages` equals the set of members without `publish = false`, each `documentation` field, and each package against TOOL-45.
+
+#### 9.10.3. Versions, Publishing, and Rate Limits
+
+The preparation step sets `0.2.0-alpha.1` in these places, and `0.1.0-alpha.2`, which the change that followed the first release set, is skipped and never published (TOOL-37):
+
+- The version of `[workspace.package]`, which ten crates inherit, and the version of `slang-src`, `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`.
+- Every requirement between members, each exact with `=`, in `[workspace.dependencies]` and in the manifest of `slango-codegen`, which declares its requirement on `slango` itself (SLM-2 of `docs/design/slango-macros.md`).
+- `Cargo.lock`, whose entries of the members Cargo rewrites on the next build, and which the step commits.
+- Each example of the API documentation that names a version of the crates, such as the dependencies in the crate-level documentation of `slango` and `slango-macros`, the version of `slang-src` in its crate documentation, and the version in the documentation of `BUILD_INFO` of `slang-compiler-sys`.
+- Each crate README, which names the version of its package (RDM-33 of `docs/writing-readmes.md`). The READMEs of the six crates that set `publish = false` also lose the statement that the crate is not published and their dependencies from git, and take the form of a published crate (RDM-12 of that guide).
+- Each illustration in a design document that names `0.1.0-alpha.2` as the version of the crates, such as those of `docs/design/slang-src.md`, `docs/design/slang-compiler-sys.md`, and `docs/design/slango-macros.md`.
+
+The root `README.md` names the latest published version, so it keeps `0.1.0-alpha.1` until the change that follows the publication raises it to `0.2.0-alpha.1` (RDM-33). Until then, its table of crates keeps linking the three new crates to their source directories, because their hosted pages exist only after the tag, although their manifests no longer set `publish = false`.
+
+The section "Changes from 0.1.0-alpha.1" of the crate-level documentation of `slango` keeps its name and content, because it compares with the published release (Section 4.7 of `docs/design/slango.md`). The tag of the release is `v0.2.0-alpha.1`, and `tag-release` marks its GitHub release as a pre-release.
+
+The change that follows the publication sets the provisional version `0.2.0-alpha.2` in the same places, and the change that prepares the third release raises it to `0.3.0-alpha.1` when that release breaks a public API (TOOL-37).
+
+The release publishes three new crates and eight new versions of existing crates. Both counts stay within the bursts of TOOL-51, five new crates and 30 new versions, so `publish` is expected to wait only when crates.io refuses for the rate limit on its own count, which `publish` handles.
+
+The owner publishes with an API token, as TOOL-46 requires. The token has to allow publishing new crates, for the three new names, and new versions, for the eight others. TA-18 states what the design assumes about limiting it to the eleven names.
+
+#### 9.10.4. Hosted Documentation
+
+The site of the second release holds the eleven crates of `release_packages`, which `doc-site` documents in one command (Section 9.4). It replaces the site of the first release, so the `documentation` links of the published `0.1.0-alpha.1` versions then show the documentation of `0.2.0-alpha.1`, which TQ-12 leaves open.
+
+The site documents `slango` with its default features, so it shows the backend `wgpu` and the module `slango::wgpu`, by a choice of the design. The crate-level documentation of `slango` describes the backend `rhi` in prose, in its section on the choice of a backend (Section 4.7 of `docs/design/slango.md`), and the pages of `slang-rhi` and `slang-rhi-sys` document the crates below that backend.
+
+One site cannot show both backends of `slango` on the pages of one crate. The features `wgpu` and `rhi` exclude each other (SLO-29 of `docs/design/slango.md`), and rustdoc writes one build of a crate into one directory. A build with `rhi` has the public items of a build with `wgpu` without the module `slango::wgpu` (Section 6.3 of that design), so a second build in a directory of its own would show no item that the site lacks, and it would add a second command and a second index page to `doc-site`.
+
+Section 7.5 states the change of the documentation workflow for this release (TOOL-56). The verification that TOOL-56 requires runs on the branch `feature/m11-documentation-test`, created from the last commit of the preparation step. Its `ci.yml` is replaced by one job with the steps of the job `build` of `.github/workflows/documentation.yml` up to `just doc-site`, without the upload, with the same runner and timeout. The branch never reaches `main`, as the branch of the test of Windows and macOS of M9 did not.
+
+The agent reads the conclusion and the duration of that run before step 2 of Section 9.10.7 merges. A run that concludes `success` within the timeout confirms TA-28. A failure blocks the merge until the step fixes the workflow and runs the branch again.
+
+#### 9.10.5. The Check for Breaking Changes
+
+From the preparation step, `check-semver` selects the crates of `release_packages` with a library target, except those of TOOL-32, which are `slang-bindgen`, `slang-compiler-sys`, `slang-compiler`, `slango`, `slango-codegen`, and `slang-slint`. crates.io holds no version of `slang-slint` until the release, so the recipe passes `--exclude slang-slint` from the preparation step until the change that follows the publication (TOOL-38). Section 4.8 of the coding standard records the command with the option in the same change, as TOOL-7 requires.
+
+`slango-macros` stays unchecked, because it has no library target (Section 9.3). `slang-rhi-sys` and `slang-rhi` stay excluded under TOOL-32, by a choice of the design. Checking them would build Slang and slang-rhi on the vendored route for each crate and for each baseline, in a job that has none of the tools of a vendored build, while their API is checked by no rule that the alpha releases enforce (Section 9.3). The check for breaking changes therefore extends to `slang-slint` alone among the new crates, and to no build of `slango` with `rhi`, because the recipe passes the default features (TOOL-38).
+
+Between `0.1.0-alpha.1` and `0.2.0-alpha.1`, cargo-semver-checks is expected to take the raise of the minor number of a version below 1.0 as a major change, to run none of its checks, and to exit with status 0 for each crate, as it did between two alphas of one minor number (TA-27). The preparation step confirms it with `check-semver` in the development container and in the CI job `semver`. A report of a breaking change, with exit status 100, would stop the step, and the agent brings the result to the owner, because TQ-17, whether such a report fails the job, is undecided.
+
+The change that follows the publication removes `--exclude slang-slint`, so `check-semver` then compares `slang-slint` with `0.2.0-alpha.1`. That change also makes the CI job `semver` install fontconfig, because the build of `slang-slint` builds Slint, which links fontconfig on Linux (Section 7.1).
+
+#### 9.10.6. Licences in the Second Release
+
+`slang-slint` is published under `GPL-3.0-or-later`, which its manifest sets in place of the licence of the workspace (TOOL-4, ARCH-36 of the architecture design), with the symbolic link `LICENSE` to `LICENSE-GPL` (TOOL-33). Its crate README states in its section `Licence` that a program that combines it with Slint is under version 3 of the GNU General Public License only, and its crate documentation and the root README point there (SLS-5 of `docs/design/slang-slint.md`). The preparation step keeps that section and changes only the published form of the README.
+
+`deny.toml` keeps its exception for `slang-slint` unchanged (TOOL-34), and no crate under a permissive licence depends on `slang-slint` or Slint, which a reviewer checks. The dependency on Slint with `~1.18` and the feature `unstable-wgpu-30` is published as it is (SLS-1 of `docs/design/slang-slint.md`).
+
+`slang-rhi-sys` is published under `Apache-2.0 WITH LLVM-exception`, and its package holds no code of slang-rhi or of its third-party files (Section 4.2 of `docs/design/slang-rhi-sys.md`). By decision 3, its crate documentation states the third-party code that a program built with it contains, with each licence and the notices that a distributor of a binary carries (RSYS-16 of that design), and the package gains no licence text.
+
+#### 9.10.7. Preconditions and Code Steps
+
+These preconditions of step 1 of Section 9.6 apply to the second release, besides those of Section 9.6:
+
+- RSA-8 of `docs/design/slang-rhi-sys.md` is confirmed or corrected, its result is stated in Section 3.5 of that design, and the crate documentation of `slang-rhi-sys` names the licence of CMakeRC that the result gives.
+- The review of decision 4, with the additions of M9 that Section 9.10.1 adds to it, is complete.
+- The crates.io API answers `https://crates.io/api/v1/crates/<crate>` with status 404 for `slang-rhi-sys`, `slang-rhi`, and `slang-slint`, so that no other account holds the three names.
+- The development container holds the development headers of Xlib (Section 10), which `doc-site` and `publish-dry-run` need for `slang-rhi-sys`.
+- The run of TOOL-56 on the branch of Section 9.10.4 concluded `success`, and the CI job `semver` of the last commit of `main` passed (Section 9.10.5).
+
+M11 has four code steps, in this order, each on its own branch with its own CI run, as Section 15.14 of the architecture design lists them:
+
+| Step | Work | Performed by |
+| --- | --- | --- |
+| 1 | The review of the public API of decision 4, with the additions of M9 to `slang-compiler` and `slang-bindgen` (Section 9.10.1), on the branch `feature/m11-api-review`. It fixes the findings that need no decision, records the others as open questions in the design document of each crate, and changes no version | An agent. The owner decides which findings are deferred |
+| 2 | The preparation on the branch `feature/m11-release-prep`: the crates and manifests of Section 9.10.2, the versions of Section 9.10.3, the workflow change of TOOL-56 with its run on the branch of Section 9.10.4, the exclusion of Section 9.10.5, the crate documentation of decision 3 with RSA-8, and the removal of TOOL-54. After its commit, the agent runs `check-package`, `doc-site`, and `publish-dry-run` on the committed branch. The step confirms or corrects TA-27 to TA-30 | An agent. RSA-8 needs a reading of the upstream repository of CMakeRC by the owner or an agent with network access |
+| 3 | The release, steps 1 to 10 of Section 9.6 on the commit of `main` that holds step 2. The release notes of step 2 of Section 9.6 list the new crates and the breaking changes of Section 17.6 of `docs/design/slango.md`. Step 6 does not apply | An agent for steps 1 to 5 and 10. The owner for the go-ahead of step 7 and the publish of step 8, and the owner, or an agent after the owner's explicit go-ahead in the session, for the tag of step 9 |
+| 4 | The change that follows the release, step 11 of Section 9.6: the provisional version `0.2.0-alpha.2`, the root README at `0.2.0-alpha.1` with the hosted pages of the three new crates, the removal of `--exclude slang-slint` with fontconfig in the job `semver` (Section 9.10.5), and the documents that the exit criteria of M11 name | An agent |
+
+An agent never runs `publish` or `yank` (TOOL-46), and runs `tag-release` only with the owner's explicit go-ahead in the current session (TOOL-44).
+
 ## 10. Container Image Requirements
 
 The repository slang-rs-env defines the container image, so the changes of this section are made there and not in this repository.
@@ -1788,7 +1920,7 @@ The gap does not affect the recipes, because each recipe that runs compiled code
 
 Each row is a fact that this document relies on and that has not been checked. A section that relies on one of them cites its identifier. The change that confirms or corrects an assumption states the result in the section that relies on it and removes the row.
 
-An identifier is never reused, so the next assumption takes TA-27.
+An identifier is never reused, so the next assumption takes TA-31.
 
 TA-24, that Cargo accepts `--features slango/rhi` for `slango-macros`, whose dependency on `slango` is a development dependency, is confirmed by a check of a scratch workspace with Cargo 1.99.1, in which `cargo tree -e features` showed the feature enabled. TOOL-53 no longer uses it, because such a build gives one copy of `slango` both backend features.
 
@@ -1817,29 +1949,31 @@ The part of TA-20 that the manifest of the installer action could show is confir
 | Identifier | Assumption | What depends on it | Where it is confirmed |
 | --- | --- | --- | --- |
 | TA-17 | A run of `cargo publish` for one crate returns only after the crate appears in the index of crates.io, so the next run of `publish` resolves it as a dependency | Section 9.7 | The next run of `publish` that publishes a crate and then a crate that depends on it |
-| TA-18 | crates.io lets an API token be limited to publishing new crates and new versions, to named crates, and to an expiry date | TOOL-46 | The owner, when creating the token of the first release |
+| TA-18 | crates.io lets an API token be limited to publishing new crates and new versions, to named crates, and to an expiry date, also when some of the named crates do not exist yet, as `slang-rhi-sys`, `slang-rhi`, and `slang-slint` in the second release | TOOL-46, Section 9.10.3 | The owner, when creating the token of a release |
 | TA-20 | `taiki-e/install-action` installs cargo-semver-checks on the hosted Linux runner from its manifest, verified against its checksum, as TOOL-21 requires | Section 7.1 | The first run of the CI job `semver` on GitHub |
 | TA-21 | The deployment branch and tag rules of the environment `github-pages` refuse a deployment from a run that a tag started, unless a rule allows tags that match `v*` | Sections 7.5 and 9.6 | A run that a tag starts while the environment has no rule for `v*`, which no step of the release procedure makes, because step 6 adds the rule before the first tag |
 | TA-22 | Cargo prints a refusal of the crates.io API for its rate limit as "the remote server responded with an error (status 429 Too Many Requests):" followed by the detail text of Section 9.7, which holds "try again after `<date>`", so that the pattern `responded with an error \(status 429` of `publish` matches it and the script reads the time. A reviewer read that form in the source of Cargo on its main branch, and read the detail text in the sources of crates.io. The source of the installed Cargo 1.99.1 was not read, and no real refusal was observed through Cargo | TOOL-51 | The first real refusal for the rate limit. If Cargo prints it otherwise, `publish` stops with Cargo's status instead of waiting, and the owner runs it again later |
 | TA-23 | On macOS, `date -u -j -f '%a, %d %b %Y %T GMT'` reads the named time, and `publish` runs on the bash that `/usr/bin/env bash` finds there, which can be bash 3.2. Neither was run, because the development container has only GNU `date` and bash 5.2. When the time cannot be read, `publish` waits the interval of the kind, which is slower but within the limits | TOOL-51 | The first run of `publish` on macOS |
-
+| TA-27 | cargo-semver-checks takes the step from `0.1.0-alpha.1` to `0.2.0-alpha.1`, a raise of the minor number of a version below 1.0, as a major change, runs none of its checks, and exits with status 0 for each crate that `check-semver` selects. It did so between `0.1.0-alpha.1` and `0.1.0-alpha.2` (Section 9.3), but no run compared two minor numbers | Section 9.10.5 | `check-semver` in the preparation step of M11, in the development container and in the CI job `semver` |
+| TA-28 | The job `build` of the documentation workflow, with the step of TOOL-56, runs `doc-site` for the eleven crates of the second release on a hosted Linux runner within its timeout of 60 minutes. TA-13 confirmed the timeout for eight crates, and the second release adds the build of slang-rhi and of Slint | TOOL-56, Section 9.10.4 | The run on the branch `feature/m11-documentation-test` of Section 9.10.4 |
+| TA-29 | Cargo matches a pre-release version only with a requirement that names a pre-release of the same major, minor, and patch numbers, so the caret requirement `"0.1.0-alpha.1"` does not match `0.2.0-alpha.1`. Section 3.1 of `docs/design/slang-src.md` states the rule for later alphas of one version, and no run checked it across two minor numbers | TOOL-37 | A resolution in a scratch project against a local registry, or a reading of the matching code of the `semver` crate that Cargo uses, in the preparation step of M11 |
+| TA-30 | `publish-dry-run` packages and verifies the eleven crates of the second release against its local registry, including `slango` with its optional dependency on `slang-rhi`, and `slang-rhi-sys` and `slang-rhi` with the dependencies that their manifests declare for a target only | Section 9.10.2 | `publish-dry-run` on the committed branch of the preparation step of M11 |
 ## 12. Open Questions
 
 Each row is a question that this document leaves open. The design document in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row.
 
 | Identifier | Question | Owning design document | Milestone |
 | --- | --- | --- | --- |
-| TQ-11 | Do the releases after the first move from an API token to Trusted Publishing from a workflow, which needs a change of TOOL-22, a trusted publisher on crates.io for each crate, and the action `rust-lang/crates-io-auth-action`, of which v1.0.6 is commit `3268eb413133e2960fa4ae0e963ca76380c54cd9` (Section 9.7)? | This document | M11 |
-| TQ-12 | Does the hosted site keep the documentation of each released version in a directory of its own, so that the link of an older version shows that version? The deployment replaces the whole site, so it would need to rebuild or keep every earlier version, and no official guidance on such directories was found (Section 9.4) | This document | M11 |
-| TQ-13 | Is there a stable way to keep the absolute build path out of the hosted site, such as an option of rustdoc or Cargo, a short path for the generated bindings, or a pass over the site in `doc-site` (Section 9.4)? A stable option of a later toolchain answers it when a `doc-site` run with it leaves no file of the site naming the build directory, and the source pages and "Source" links of the hand-written crates stay | This document | M11 |
-| TQ-14 | Should `publish-dry-run` build with `CARGO_TARGET_DIR=target/vendored`, without the rest of `vendored_environment`, so that it always finds a tagged target directory and reuses the clone and, when the compiler, the variables of CMake, and the commit match, the native builds of the vendored recipes (Section 9.6)? The cost: `target/vendored` would also hold builds on the dynamic route and the packages under `target/vendored/package`, so `check-package` would have to read the same directory, and TOOL-7 and Section 9.6 would gain a departure with its reason. The reuse of the native builds is not measured | This document | M11 |
+| TQ-11 | Do the releases after the second move from an API token to Trusted Publishing from a workflow, which needs a change of TOOL-22, a trusted publisher on crates.io for each crate, and the action `rust-lang/crates-io-auth-action`, of which v1.0.6 is commit `3268eb413133e2960fa4ae0e963ca76380c54cd9` (Section 9.7)? The second release keeps the token (Section 9.10.3) | This document | Not assigned |
+| TQ-12 | Does the hosted site keep the documentation of each released version in a directory of its own, so that the link of an older version shows that version? The deployment replaces the whole site, so it would need to rebuild or keep every earlier version, and no official guidance on such directories was found (Section 9.4). The second release keeps the site of the latest release only (Section 9.10.4) | This document | Not assigned |
+| TQ-13 | Is there a stable way to keep the absolute build path out of the hosted site, such as an option of rustdoc or Cargo, a short path for the generated bindings, or a pass over the site in `doc-site` (Section 9.4)? A stable option of a later toolchain answers it when a `doc-site` run with it leaves no file of the site naming the build directory, and the source pages and "Source" links of the hand-written crates stay. The second release accepts the path, as TOOL-49 does | This document | Not assigned |
+| TQ-14 | Should `publish-dry-run` build with `CARGO_TARGET_DIR=target/vendored`, without the rest of `vendored_environment`, so that it always finds a tagged target directory and reuses the clone and, when the compiler, the variables of CMake, and the commit match, the native builds of the vendored recipes (Section 9.6)? The cost: `target/vendored` would also hold builds on the dynamic route and the packages under `target/vendored/package`, so `check-package` would have to read the same directory, and TOOL-7 and Section 9.6 would gain a departure with its reason. The reuse of the native builds is not measured. The second release keeps the dry run in `target/` | This document | Not assigned |
 | TQ-17 | While every release is an alpha (TOOL-37), should `check-semver` pass `--release-type minor`, so that cargo-semver-checks runs its checks between two alphas, together with a rule that a reported breaking change, exit status 100, does not fail the job? Without the option, the check reports no change of the API until the first release that is not an alpha. An alpha may break its API, so a report that failed the job would block an intended change (Section 9.3) | This document, by a decision of the owner of the project | Not assigned |
 | TQ-18 | Should `check-package` check that each example of a README and of the API documentation that names a version of the crates names the version that step 1 of Section 9.6 and RDM-33 of `docs/writing-readmes.md` require, which no tool checks? | This document | Not assigned |
-| TQ-19 | The documentation workflow deploys the site of `doc-site` as a whole, and until M11 that site holds the five crates of `release_packages` only (TOOL-54). A release before M11 would therefore remove the hosted pages of `slango`, `slango-codegen`, and `slango-macros` at `0.1.0-alpha.1`, which their `documentation` fields, their crate READMEs, and the root `README.md` link. Should such a release also document the three crates from their published versions, keep the older site beside the new one, or make no release before M11? | The owner of the project, by a decision | Before the next release |
 
-TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.9. TQ-15, whether the owner keeps the `authors` field of `[workspace.package]`, is answered in Section 9.6. TQ-16, whether cargo-semver-checks fails a breaking change between two alphas, is answered in Section 9.3, and it does not.
+TQ-4, how a release is carried out, is answered by Sections 9.2 to 9.9. TQ-15, whether the owner keeps the `authors` field of `[workspace.package]`, is answered in Section 9.6. TQ-16, whether cargo-semver-checks fails a breaking change between two alphas, is answered in Section 9.3, and it does not. TQ-19, how a release before M11 keeps the hosted pages of `slango`, `slango-codegen`, and `slango-macros`, is answered in Section 3.1: no release comes before M11, and the second release documents every crate of `release_packages` (Section 9.10.4). TQ-20, whether the review of the public API before the second release also covers the additions of M9 to `slang-compiler` and `slang-bindgen`, is answered in Section 9.10.1, and it does.
 
-An identifier is never reused, so the next question takes TQ-20.
+An identifier is never reused, so the next question takes TQ-21.
 
 ## 13. Security Considerations
 
@@ -2118,8 +2252,8 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-34 | 8 | A GPL licence is accepted only for `slang-slint`, the examples package, and the Slint crates that they use. cargo-deny enforces `GPL-3.0-or-later` for `slang-slint` alone, and a reviewer checks that no permissive crate depends on a `GPL-3.0-only` crate. |
 | TOOL-35 | 9.2 | The `justfile` holds the crates of the next release once, in `release_packages`, and every other member sets `publish = false`. |
 | TOOL-36 | 9.2 | Every release publishes every crate of `release_packages`, all but `slang-src` at the shared workspace version, and `slang-src` at the version that SRC-13 derives from it. |
-| TOOL-37 | 9.2 | Every release is `0.1.0-alpha.<N>` until the owner decides otherwise, `<N>` rises by one after each release, members require each other exactly, and a failed or wrong release is followed by the next alpha. |
-| TOOL-38 | 9.3 | `check-semver` checks the crates of the release with a library target, except `slang-src` and `slang-glslang-sys`, against crates.io, with the default features only. |
+| TOOL-37 | 9.2 | Every release is `0.<M>.0-alpha.<N>` until the owner decides otherwise, a release that breaks a public API raises `<M>` and restarts `<N>` at 1, any other raises `<N>`, members require each other exactly, a replaced provisional version is never published, and a failed or wrong release is followed by the next alpha. |
+| TOOL-38 | 9.3 | `check-semver` checks the crates of the release with a library target, except `slang-src` and `slang-glslang-sys`, against crates.io, with the default features only, and excludes a crate that crates.io does not hold yet. |
 | TOOL-39 | 9.3 | The CI job `semver` runs `check-semver` in every run of the workflow, outside `check`. |
 | TOOL-40 | 9.4 | The `documentation` field of each released crate is its address on the hosted site. |
 | TOOL-41 | 9.4 | `doc-site` builds the site on the vendored route for every crate of the release, checks the page of each crate, writes the index page, and checks for links and the size limit. |
@@ -2135,5 +2269,6 @@ This table lists every labelled requirement of this document with a one-line sum
 | TOOL-51 | 9.7 | `publish` stays within the publishing rate limits of crates.io, skips every version that crates.io holds, and publishes nothing when it cannot learn which versions crates.io holds. |
 | TOOL-52 | 3.1 | `rhi_packages` and the recipes `check-rhi`, `test-rhi`, and `check-miri-rhi` lint, document, and test the crates that build slang-rhi on the vendored route, the first two on Linux and on x86_64 Windows and the third on Linux, outside `just check`. |
 | TOOL-53 | 3.1 | `check-rhi` and `test-rhi` also lint and test `slango` and the examples with the feature `rhi` and without `wgpu`, one package in each command, each command arriving in the code step that makes it pass, with no filter, and `test-rhi` runs every command and every test after a failure. |
-| TOOL-54 | 3.1 | Until M11 publishes `slang-rhi`, `slango`, `slango-codegen`, and `slango-macros` set `publish = false` and stay out of `release_packages`. |
+| TOOL-54 | 3.1 | Until the preparation step of M11, `slango`, `slango-codegen`, and `slango-macros` set `publish = false` and stay out of `release_packages`, and that step removes the rule. |
 | TOOL-55 | 3.1 | `miri_packages` holds the members of `default-members` with unsafe code that Miri can execute, and `check-miri` runs them alone, with `--no-tests=fail`. |
+| TOOL-56 | 7.5 | The job `build` of the documentation workflow installs the packages of step 8 of Section 7.4, and a change to the job that a release needs runs on a branch that does not reach `main` before the tag. |

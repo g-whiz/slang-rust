@@ -88,7 +88,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Project Status
 
-As of 2026-11-19, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
+As of 2026-11-21, the repository is at a very early stage. The agent updates this section, and its date, in the same change that alters what exists. Section 15 of `docs/design/architecture.md` defines each milestone and its exit criteria.
 
 - M0, tooling and skeleton, is complete.
 - M1, the binding generator and `slang-compiler-sys`, is complete. It delivered the pin file, the binding generator, the checked-in bindings, the build script with its dynamic and static routes, the installation of the pinned Vulkan SDK in every CI job, and the CI job `coverage`. What stays open after M1 is in the rows of Sections 15 and 16 of `docs/design/slang-compiler-sys.md`.
@@ -733,6 +733,16 @@ On 2026-11-19, the owner decided that Miri runs only on the crates that hold uns
 
 On 2026-11-19 in the development container, `just check` passed in 4 min 47 s, against 7 min 22 s after the fourth code step of M10. It printed "check-miri-packages self-test passed: 5 cases", "release self-test passed: 80 cases", "1110 tests run: 1110 passed, 0 skipped", and, under Miri, "203 tests run: 203 passed, 95 skipped", all of them tests of `slang-compiler`, in about 39 s. Before the change, Miri ran 589 of the 1110 tests and skipped 521. `check-miri-rhi` printed "116 tests run: 116 passed, 59 skipped", and `test-gpu`, `check-shell`, and `check-clippy` with Rust 1.100.0 passed. The decision answers SRCQ-3 of `docs/design/slang-src.md`, which asked which recipe runs the pure tests of `slang-src` and `slang-glslang-sys` under Miri, with none. When this was written, the change had no CI run, and Hard Rule 11 lets it reach `main` only after its CI run succeeds.
 
+The design of M11, the second release (Section 15.14 of `docs/design/architecture.md`), exists since 2026-11-21, and none of its four code steps is done. It consists of these parts, within the owner's decisions of 2026-11-19, which Section 9.10.1 of `docs/design/tooling.md` records:
+
+- `docs/design/tooling.md`, Section 9.10, with the changed TOOL-35, TOOL-37, TOOL-38, and TOOL-54, and the new TOOL-56. The release publishes eleven crates at `0.2.0-alpha.1`, with `slang-src` at `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`, and `0.1.0-alpha.2` is skipped and never published.
+- `docs/design/slang-rhi-sys.md`, the changed RSYS-16, for the statement of the third-party code of the crate with its licences.
+- `docs/design/architecture.md`, Sections 13 and 15.14.
+
+Section 9.10.7 of `docs/design/tooling.md` orders the four code steps and says who performs each. The design answers TQ-19 of `docs/design/tooling.md` and RSQ-4 of `docs/design/slang-rhi-sys.md`. It extends the review of the public API to the additions of M9 to `slang-compiler` and `slang-bindgen`, which answers TQ-20 of `docs/design/tooling.md`, and raises the assumptions TA-27 to TA-30 of that design. TQ-11 to TQ-14 of that design no longer have a milestone.
+
+None of the design is implemented yet. Every member is still at `0.1.0-alpha.2`, `release_packages` still holds five crates, six crates still set `publish = false`, and the documentation workflow does not install the Xlib headers.
+
 On 2026-11-17, the advisory database gained RUSTSEC-2026-0543, which reports `chrono` as unmaintained, with no upgrade available. In CI run 44090478850, on a branch that changed no dependency, `check-deny` failed with it in the job "Run every check on Linux", and `check-deny` failed the same way on `main`. The owner decided that day to ignore the advisory in `deny.toml`, and Section 8 of `docs/design/tooling.md` records the reason.
 
 What exists and works:
@@ -1334,7 +1344,7 @@ CI runs on GitHub Actions on hosted runners for Linux, Windows, and macOS, insta
 
 Tests that need a GPU adapter sit in a module named `gpu`, which runs on any adapter including lavapipe and WARP, or in a module named `hw_gpu`, which needs a hardware GPU and runs locally only. A test that finds no adapter fails and never skips silently.
 
-The published crates reach crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). The first release, of eight alpha crates, is on crates.io, and the second, which adds `slang-slint`, `slang-rhi-sys`, and `slang-rhi`, is planned. Until M11, `slango`, `slango-codegen`, and `slango-macros` set `publish = false`, so an alpha release before M11 holds only the five other crates of the first release (TOOL-54 of `docs/design/tooling.md`). Nothing is published without the owner's explicit go-ahead.
+The published crates reach crates.io in two releases, in M8 and M11 (Section 13 of `docs/design/architecture.md`). The first release, of eight alpha crates, is on crates.io, and the second, which adds `slang-slint`, `slang-rhi-sys`, and `slang-rhi` and publishes all eleven crates at `0.2.0-alpha.1`, is designed and not published yet (Section 9.10 of `docs/design/tooling.md`). Until M11, `slango`, `slango-codegen`, and `slango-macros` set `publish = false`, so an alpha release before M11 holds only the five other crates of the first release (TOOL-54 of `docs/design/tooling.md`). Nothing is published without the owner's explicit go-ahead.
 
 docs.rs is not supported, because it builds without network access and the crates need libclang and either a Vulkan SDK or a clone of Slang. The workflow `.github/workflows/documentation.yml` builds the documentation of each release from its tag on the vendored route and hosts it on GitHub Pages, and the `documentation` field of each crate points there. Only that workflow deploys the site, because a site built elsewhere names the absolute build path of its machine (TOOL-49 of `docs/design/tooling.md`). Section 9 of that design defines the release procedure, in which only the owner publishes, with a token that never enters the repository, CI, or an agent's environment.
 
