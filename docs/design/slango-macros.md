@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | `crates/slango-macros`, `crates/slango-codegen`, and the hidden module `__private` of `crates/slango` |
 
 ## Abstract
@@ -205,13 +205,13 @@ Only the tests format the tokens with `prettyplease`.
 
 `slango-macros` depends on `slango-codegen` and on `syn` with the features `parsing`, `printing`, and `proc-macro`. For its tests only, it depends on `slango`, with its feature `wgpu` named, and on `trybuild`. It needs no `proc-macro2` of its own.
 
-Both crates are published, because a published crate cannot depend on an unpublished one. For the same reason, both set `publish = false` until M11, while `slango` depends on the unpublished `slang-rhi` (TOOL-54 of `docs/design/tooling.md`), and their versions `0.1.0-alpha.1` stay the published ones.
+Both crates are published, because a published crate cannot depend on an unpublished one. For the same reason, they are published after `slango`, in the order of `release_packages` (Section 9.10.2 of `docs/design/tooling.md`).
 
 SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, and `slango-macros` MUST require `slango-codegen` with an exact version, because the encoded snapshot and the hidden module of `slango` have no stability across versions (SLM-6). A mismatch would fail at load or not compile.
 
 Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it.
 
-The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.1.0-alpha.2", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
+The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.2.0-alpha.1", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
 
 With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node of `slango` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 
@@ -237,8 +237,8 @@ This illustration shows the dependencies of such a program:
 
 ```toml
 [dependencies]
-slango = { version = "0.1.0-alpha.2", features = ["vendored"] }
-slango-macros = { version = "0.1.0-alpha.2", features = ["vendored"] }
+slango = { version = "0.2.0-alpha.1", features = ["vendored"] }
+slango-macros = { version = "0.2.0-alpha.1", features = ["vendored"] }
 ```
 
 The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.

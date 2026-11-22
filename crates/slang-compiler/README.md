@@ -9,7 +9,7 @@ slang-compiler provides safe Rust wrappers over the [Slang](https://shader-slang
 
 ```toml
 [dependencies]
-slang-compiler = "0.1.0-alpha.2"
+slang-compiler = "0.2.0-alpha.1"
 ```
 
 ## Example

@@ -183,10 +183,27 @@
 //! # Third-party code in a program
 //!
 //! A program built with this crate contains, besides slang-rhi and Slang,
-//! the Vulkan Memory Allocator on Linux or the Direct3D 12 Memory Allocator
-//! on Windows, each under the MIT licence, and the runtime of
-//! the `cmake` module `CMakeRC`, which embeds files in slang-rhi. A program
-//! that ships a binary carries their notices.
+//! code of these projects, which the build compiles from the source tree of
+//! Slang:
+//!
+//! - On Linux, the Vulkan Memory Allocator, and on Windows, the Direct3D 12
+//!   Memory Allocator. Each is under the MIT licence, with the copyright
+//!   notice of Advanced Micro Devices, Inc. at the top of its header.
+//! - The runtime of `CMakeRC`, the `cmake` module that embeds files in
+//!   slang-rhi, which the build generates from that module. The copy of the
+//!   module in slang-rhi holds no licence text. Its upstream project,
+//!   `vector-of-bool/cmrc`, is under the MIT licence, with the copyright
+//!   notice "Copyright (c) 2017 vector-of-bool".
+//! - `OffsetAllocator` of Sebastian Aaltonen, which slang-rhi includes in its
+//!   own sources, under the MIT licence, with the copyright notice
+//!   "(C) Sebastian Aaltonen 2023".
+//!
+//! The MIT licence requires that its copyright notice and its permission
+//! notice be included in all copies or substantial portions of the software.
+//! A program that ships a binary built with this crate carries, for each of
+//! these projects, its copyright notice and the permission notice of the MIT
+//! licence. The package of this crate holds none of this code and none of
+//! these texts.
 //!
 //! # Safety
 //!

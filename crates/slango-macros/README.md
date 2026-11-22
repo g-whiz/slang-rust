@@ -3,13 +3,13 @@
 slango-macros provides the procedural macro `shader!`, which compiles a [Slang](https://shader-slang.org) file while a crate builds and generates typed Rust bindings to its compute kernels for [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md), on whichever backend of slango the program uses. Use it when the Slang file is part of the crate, and the runtime API of slango when a program chooses its shaders while it runs.
 
 > [!WARNING]
-> This version of the crate is an alpha that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
+> This crate is an alpha release, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
 
 ## Installation
 
 ```toml
 [dependencies]
-slango-macros = "0.1.0-alpha.2"
+slango-macros = "0.2.0-alpha.1"
 ```
 
 ## Example

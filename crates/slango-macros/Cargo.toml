@@ -4,7 +4,6 @@ description = "The procedural macro shader!, which compiles a Slang file while a
 keywords = ["slang", "shader", "gpu", "macro", "compute"]
 categories = ["graphics", "development-tools::procedural-macro-helpers"]
 documentation = "https://g-whiz.github.io/slang-rust/slango_macros/"
-publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

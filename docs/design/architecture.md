@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | The whole workspace |
 
 ## Abstract
@@ -141,14 +141,14 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-compiler-sys` | `crates/slang-compiler-sys/` | Raw bindings that its build script generates, the build information, and the linking of Slang (Section 6) | Yes | M1, M7 |
 | `slang-compiler` | `crates/slang-compiler/` | Safe wrappers over the compile and reflection API (Section 7) | Yes | M2 |
 | `slango` | `crates/slango/` | High-level library for calling Slang code on the GPU (Section 8) | Yes | M3, M4 |
-| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Planned for the second release, with `publish = false` until then (Section 13) | M5 |
+| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Planned for the second release (Section 13) | M5 |
 | `slango-macros` | `crates/slango-macros/` | Typed Rust bindings to Slang code, generated at build time (Section 8.4) | Yes | M6 |
 | `slango-codegen` | `crates/slango-codegen/` | The generator of `slango-macros`, as a library (Section 4.2 of `docs/design/slango-macros.md`) | Yes | M6 |
 | `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Yes | M7 |
 | `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Yes | M7 |
 | `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Yes | M1, M7 |
-| `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
-| `slang-rhi` | `crates/slang-rhi/` | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release, with `publish = false` until then (Section 13) | M9 |
+| `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release (Section 13) | M9 |
+| `slang-rhi` | `crates/slang-rhi/` | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release (Section 13) | M9 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
 
 ### 3.2. Dependency Direction
@@ -865,7 +865,7 @@ Several milestones replace requirements of this document that the code satisfies
 
 ### 15.14. M11: The Second Release
 
-- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, together with new versions of the other five crates of the first release, with their hosted documentation and the check for breaking changes extended to `slang-slint`, after the owner's go-ahead (ARCH-24). The release returns `slango`, `slango-codegen`, and `slango-macros` to `release_packages` and removes their `publish = false`, which M10 sets (TOOL-54 of `docs/design/tooling.md`). `slang-rhi-sys` and `slang-rhi` stay outside the check for breaking changes, because they build only on the vendored route (Section 9.10.5 of that design).
+- Deliverables: the second release, of `slang-rhi-sys`, `slang-rhi`, `slang-slint`, and the versions of `slango`, `slango-codegen`, and `slango-macros` that carry the feature `rhi`, together with new versions of the other five crates of the first release, with their hosted documentation and the check for breaking changes extended to `slang-slint`, after the owner's go-ahead (ARCH-24). The release returns `slango`, `slango-codegen`, and `slango-macros` to `release_packages` and removes their `publish = false`, which M10 set (Section 9.10.2 of `docs/design/tooling.md`). `slang-rhi-sys` and `slang-rhi` stay outside the check for breaking changes, because they build only on the vendored route (Section 9.10.5 of that design).
 - Owner decisions that bind it: the second release follows once M10 has added the opt-in `rhi` backend to `slango`, and nothing is published without the owner's explicit go-ahead. On 2026-11-19, the owner decided four more points, which Section 9.10.1 of `docs/design/tooling.md` records: the release holds all eleven crates, its version reflects the breaking changes of M10 by Semantic Versioning, the crate documentation of `slang-rhi-sys` states its third-party code with no licence text added, and the review of the public API covers the new crates and the changes of M10.
 - Code steps, in this order, each on its own branch with its own CI run, which Section 9.10.7 of `docs/design/tooling.md` specifies with who performs each:
   1. The review of the public API of the new crates, of the changes of M10, and of the additions of M9 to `slang-compiler` and `slang-bindgen`, with its fixes.

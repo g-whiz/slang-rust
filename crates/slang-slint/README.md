@@ -3,13 +3,13 @@
 slang-slint shows what a [Slang](https://shader-slang.org) render pipeline of [slango](https://github.com/g-whiz/slang-rust/blob/main/crates/slango/README.md) draws inside a [Slint](https://slint.dev) user interface, by sharing one wgpu device between Slint and slango. A program without a Slint user interface uses slango alone. The crate uses the default backend of slango, wgpu, so a program that uses the feature `rhi` of slango cannot use this crate.
 
 > [!WARNING]
-> This crate is an alpha release that is not published on crates.io, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
+> This crate is an alpha release, and its API can change in any release. Read the [project status](https://github.com/g-whiz/slang-rust#status) before you depend on it.
 
 ## Installation
 
 ```toml
 [dependencies]
-slang-slint = { git = "https://github.com/g-whiz/slang-rust", version = "0.1.0-alpha.2" }
+slang-slint = "0.2.0-alpha.1"
 ```
 
 The program depends on slint with a requirement that selects a 1.18 release, such as `slint = "~1.18"`, because the API of this crate names Slint's types, and a later minor version of Slint gives type errors that do not name the version.
@@ -50,11 +50,11 @@ The example program [shader-playground](https://github.com/g-whiz/slang-rust/tre
 
 ## Requirements
 
-Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. On Linux, building Slint also needs the development files of fontconfig. The [crate documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/src/lib.rs) says which features of Slint a program enables and what its feature `vendored` does.
+Building needs Slang, from an installed Vulkan SDK or built from source with the feature `vendored`, and libclang, as the [slang-compiler-sys documentation](https://g-whiz.github.io/slang-rust/slang_compiler_sys/) describes. On Linux, building Slint also needs the development files of fontconfig. The [crate documentation](https://g-whiz.github.io/slang-rust/slang_slint/) says which features of Slint a program enables and what its feature `vendored` does.
 
 ## Documentation
 
-The crate is not on the hosted API documentation. Its [crate documentation](https://github.com/g-whiz/slang-rust/blob/main/crates/slang-slint/src/lib.rs) describes every item and how a program drives frames. The [project README](https://github.com/g-whiz/slang-rust) lists the other crates and the [examples](https://github.com/g-whiz/slang-rust#examples).
+The [API documentation](https://g-whiz.github.io/slang-rust/slang_slint/) describes every item and how a program drives frames. The [project README](https://github.com/g-whiz/slang-rust) lists the other crates and the [examples](https://github.com/g-whiz/slang-rust#examples).
 
 ## Licence
 

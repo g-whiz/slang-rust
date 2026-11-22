@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | `crates/slango`, the compute kernel example, and the windowed renderer example |
 
 ## Abstract
@@ -531,7 +531,7 @@ SLO-33. The manifest of `slango` MUST declare `rhi = ["dep:slang-rhi", "vendored
 
 `slang-rhi-sys` always enables `vendored` on `slang-compiler-sys`, so the feature `rhi` builds the vendored Slang in any case (Section 4.1 of `docs/design/slang-rhi-sys.md`). Naming `vendored` in the feature also makes `slang-compiler` install the loader of `slang-glslang-sys` on the global sessions of the backend `wgpu`, which Cargo would otherwise do only through the unification of the features of `slang-rhi`.
 
-The exact version and the path let M11 publish `slango` after `slang-rhi`, in the order of `release_packages` (TOOL-35 of `docs/design/tooling.md`). `slang-rhi` sets `publish = false` until then, so `slango` with this dependency is not published in M10, and `slango` sets `publish = false` itself until M11 (TOOL-54 of `docs/design/tooling.md`).
+The exact version and the path let M11 publish `slango` after `slang-rhi`, in the order of `release_packages` (TOOL-35 of `docs/design/tooling.md`). Cargo packages `slango` only once `slang-rhi` is on crates.io or in the local registry of `publish-dry-run` (Section 9.10.2 of `docs/design/tooling.md`).
 
 The build script of `slang-rhi-sys` stops the build on every target other than Linux with the GNU C library and x86_64 Windows with the Microsoft toolchain, with a message that names the supported targets (RSYS-13 of `docs/design/slang-rhi-sys.md`). A second check in `slango` would repeat that message in a second place that can diverge, so the crate adds none, by a choice of the design. A program on macOS that enables `rhi` therefore gets the error of `slang-rhi-sys`.
 
@@ -857,7 +857,7 @@ A failure of `slang_rhi::Device::new` of the kind `NoDevice` gives `ErrorKind::N
 
 SLO-36. `slango` MUST NOT add a public module that returns the objects of `slang-rhi`, or any other public item that exists only with the feature `rhi`, in M10. The module `slango::wgpu` MUST keep its five functions, their signatures, and the exceptions to `clippy::unnecessary_wraps` of SLO-31 unchanged.
 
-A module `slango::rhi` would put `slang-rhi`, which sets `publish = false` until M11, into the public API, and no program needs its objects in M10: no window and no Slint view runs on the backend `rhi` (Section 4.6). It can be added later without a breaking change, so the design leaves it out (SIMP-1). A build with `rhi` therefore has exactly the public items of a build with `wgpu`, without the module `slango::wgpu`.
+A module `slango::rhi` would put `slang-rhi` into the public API of `slango`, and no program needs its objects in M10: no window and no Slint view runs on the backend `rhi` (Section 4.6). It can be added later without a breaking change, so the design leaves it out (SIMP-1). A build with `rhi` therefore has exactly the public items of a build with `wgpu`, without the module `slango::wgpu`.
 
 The module `slango::wgpu` exists only in a build whose one backend is wgpu (SLO-28), so every object that its accessors receive holds a wgpu object, every accessor still returns `Some`, and the lint still fires. The exceptions therefore stay, with their reason, and `texture_from_view` never meets a device of another backend. The documentation of each accessor changes only where it speaks of another backend, to say that every object of a build with the feature `wgpu` has a wgpu object.
 

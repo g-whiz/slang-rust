@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | `crates/slang-rhi-sys` |
 
 ## Abstract
@@ -193,7 +193,22 @@ The build produces the static libraries `slang-rhi` (`CMakeLists.txt:314`), `sla
 
 The INTERFACE target `slang-rhi-warnings-as-errors` adds `-Werror`, or `/WX` with the Microsoft compiler, to the sources of `slang-rhi`, with no option to turn it off (`CMakeLists.txt:774-781`).
 
-The compiled third-party code of a Linux build with Vulkan only is VMA, under the MIT licence (`external/vma/vk_mem_alloc.h:2-18`), and the runtime of CMakeRC, whose file `cmake/CMakeRC.cmake` carries no licence text. A Windows build with D3D12 only compiles the D3D12 Memory Allocator in place of VMA, also under the MIT licence (`external/d3d12ma/D3D12MemAlloc.h:2-20`). The Vulkan headers are compiled in only as declarations, under `Apache-2.0 OR MIT` (Slang's `external/vulkan/LICENSE.md`). stb, doctest, and renderdoc serve only the tests (`CMakeLists.txt:1034-1047`).
+The compiled third-party code of a build is in this table, read at the commit `d6d31411a3ab5417945daa6b1d8811cfc340cb66` of `external/slang-rhi` in the recorded tree. Each file is tracked in the repository of slang-rhi itself, not in a submodule, so slang-rhi obtains it offline and the recorded commit fixes its content.
+
+| Code | File in slang-rhi | Version | Licence and copyright notice | Linked |
+| --- | --- | --- | --- | --- |
+| Vulkan Memory Allocator | `external/vma/vk_mem_alloc.h` | 3.3.0 | MIT, in the header (`:2-18`), "Copyright (c) 2017-2025 Advanced Micro Devices, Inc. All rights reserved." | On Linux, as `slang-rhi-vma` |
+| D3D12 Memory Allocator | `external/d3d12ma/D3D12MemAlloc.h` | "3.1.0-development (2025-XX-XX)" | MIT, in the header (`:2-20`), "Copyright (c) 2019-2025 Advanced Micro Devices, Inc." | On Windows only, as `slang-rhi-d3d12ma` |
+| Runtime of CMakeRC | `cmake/CMakeRC.cmake` | 2.0.0, by its `set(_version 2.0.0)` | No licence text in the file. Upstream, MIT, with "Copyright (c) 2017 vector-of-bool <vectorofbool@gmail.com>" | On both platforms, as `slang-rhi-resources`, which holds the runtime and which slang-rhi builds whatever the backends (`CMakeLists.txt:678-686`) |
+| OffsetAllocator | `src/core/offset-allocator.cpp` | None stated | MIT, in the header, which says "Based on https://github.com/sebbbi/OffsetAllocator" and "(C) Sebastian Aaltonen 2023" | On both platforms, compiled into `slang-rhi` itself (`CMakeLists.txt:815`) |
+
+The file `cmake/CMakeRC.cmake` of the tree is byte for byte the file `CMakeRC.cmake` on the branch `master` of the upstream repository `vector-of-bool/cmrc`, whose `LICENSE.txt`, read on 2026-11-21, is the MIT licence with the notice above. `CMakeRC.cmake` states no licence for the code that it generates. On Linux, `libslang-rhi-resources.a` holds the runtime, with 49 symbols in the namespace `cmrc`, and `libslang-rhi.a` defines the symbols of `rhi::OffsetAllocator`. This confirmed the former assumption RSA-8, and RSYS-16 covers OffsetAllocator as well.
+
+The REUSE file `.reuse/dep5` of slang-rhi assigns `Files: *` to `Apache-2.0 WITH LLVM-exception` and has an entry for `src/core/offset-allocator.cpp`, under MIT with "Copyright: Sebastian Aaltonen 2023". It has no entry for VMA, the D3D12 Memory Allocator, or CMakeRC, so by its wildcard it labels those three files with the licence of slang-rhi, which their headers or their upstream project contradict. The crate takes the licences of the table, not those of `.reuse/dep5`.
+
+`src/core/stable_vector.h`, which `d3d12-pipeline.cpp` uses on Windows, says that it is "based on https://github.com/david-grs/stable_vector" and carries no licence notice, and `.reuse/dep5` gives it the licence of slang-rhi by its wildcard. Whether a distributor carries a notice for it is RSQ-8.
+
+The Vulkan headers are compiled in only as declarations, under `Apache-2.0 OR MIT` (Slang's `external/vulkan/LICENSE.md`). stb, doctest, and renderdoc serve only the tests (`CMakeLists.txt:1034-1047`).
 
 ## 4. Crate and Dependencies
 
@@ -226,7 +241,7 @@ The table of the target keeps the dependencies out of every build that RSYS-13 r
 
 The crate takes the version of the workspace and sets its own `license` field to `Apache-2.0 WITH LLVM-exception`, the licence of Slang and of slang-rhi (ARCH-36 of the architecture design, Section 3.1). Its package directory holds the symbolic link `LICENSE` to `LICENSE-APACHE-LLVM` (TOOL-33 of `docs/design/tooling.md`). The package holds no code of slang-rhi or of its third-party files, because the build reads them from the clone, so the licence of the crate covers the whole package.
 
-The crate sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`, Section 13 of the architecture design), which removes it and publishes the crate at the version of Section 9.10.3 of `docs/design/tooling.md`. The workspace leaves it out of `default-members`, and every recipe that passes `--workspace` excludes it, as for `slang-glslang-sys` (TOOL-32), because its build clones and builds native code.
+The crate belongs to the second release (Section 13 of the architecture design), so it is in `release_packages` and sets no `publish = false` (TOOL-35 of `docs/design/tooling.md`), and it has the `documentation` field of TOOL-40 of that design. The workspace leaves it out of `default-members`, and every recipe that passes `--workspace` excludes it, as for `slang-glslang-sys` (TOOL-32), because its build clones and builds native code.
 
 `find-msvc-tools` serves the lookup of the Microsoft compiler, which only the build for Windows uses (Section 7.3). It is declared for every target, as in `slang-glslang-sys`, because the build logic and its tests compile on every host.
 
@@ -562,9 +577,11 @@ The device of the second `gpu` test creates its own global session, because the 
 
 ## 10. Crate Documentation
 
-RSYS-16. The crate-level documentation MUST state what the crate builds and links, that it always builds Slang from source through the vendored `slang-compiler-sys`, the build requirements of Sections 7.1 and 7.3 and of a vendored build, the platform rule of RSYS-13, the need of a program on Windows for `dxcompiler.dll` at run time, the safety contract of RSYS-12, and that it has no Cargo features, in a `# Features` section and a `# Platform support` section. It MUST state the third-party code that a program built with the crate contains, which is VMA on Linux or the D3D12 Memory Allocator on Windows, both under the MIT licence, and the runtime of CMakeRC under the licence that RSA-8 establishes (Section 3.5). For each of them, it MUST name the licence and state what a distributor of a binary built with the crate carries, which for code under the MIT licence is its copyright notice and the permission notice of the licence. It MUST also name the shared folder as SRC-20 of the `slang-src` design lists it.
+RSYS-16. The crate-level documentation MUST state what the crate builds and links, that it always builds Slang from source through the vendored `slang-compiler-sys`, the build requirements of Sections 7.1 and 7.3 and of a vendored build, the platform rule of RSYS-13, the need of a program on Windows for `dxcompiler.dll` at run time, the safety contract of RSYS-12, and that it has no Cargo features, in a `# Features` section and a `# Platform support` section. It MUST state the third-party code that a program built with the crate contains, which is VMA on Linux or the D3D12 Memory Allocator on Windows, and on both platforms the runtime of CMakeRC and OffsetAllocator, all four under the MIT licence (Section 3.5). For each of them, it MUST name the licence and state what a distributor of a binary built with the crate carries, which for code under the MIT licence is its copyright notice and the permission notice of the licence. It MUST also name the shared folder as SRC-20 of the `slang-src` design lists it.
 
-A program that ships a binary built with the crate carries the notices of the code in it, and the package of the crate holds none of that code, so the documentation is where a user learns of it. By the owner's decision of 2026-11-19, the statement in the documentation is enough, and the package gains no licence text of that code (decision 3 of Section 9.10.1 of `docs/design/tooling.md`). That decision answers the former question RSQ-4. The release that first publishes the crate requires RSA-8 to be confirmed before it (Section 9.10.7 of `docs/design/tooling.md`).
+A program that ships a binary built with the crate carries the notices of the code in it, and the package of the crate holds none of that code, so the documentation is where a user learns of it. By the owner's decision of 2026-11-19, the statement in the documentation is enough, and the package gains no licence text of that code (decision 3 of Section 9.10.1 of `docs/design/tooling.md`). That decision answers the former question RSQ-4.
+
+The documentation names, for each of the four, its licence, its copyright notice, and what a distributor carries, and states that the package holds none of that code or of those texts. It takes the notice of CMakeRC from the upstream project, because the copy in the tree has no licence text. It states no version of the four, because a version goes stale when the recorded commit moves, and Section 3.5 records the versions. It does not name `src/core/stable_vector.h`, which waits for RSQ-8.
 
 The documentation also states the shape of the bindings: the structs without `Default` and why, `kInvalidCUDAStream`, the order of the overloads on each ABI, and the declarations that have no binding.
 
@@ -650,11 +667,9 @@ The build script writes the output of every CMake step to `OUT_DIR/build.log` an
 
 ## 13. Assumptions to Confirm
 
-Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in the section that relies on it, and removes the row. An identifier is never reused.
+Each row is a fact that this design relies on and that is not verified. A section that relies on one cites its identifier. The change in the last column confirms or corrects it, states the result in the section that relies on it, and removes the row. An identifier is never reused, so the next assumption takes RSA-10.
 
-| Identifier | Assumption | What depends on it | Where it is confirmed |
-| --- | --- | --- | --- |
-| RSA-8 | `cmake/CMakeRC.cmake` is under the MIT licence of its upstream project, while the file in the tree carries no licence text | RSYS-16 | A reading of the upstream repository of CMakeRC, by the owner or an agent with network access, in the preparation step of M11, before the release that first publishes the crate (Section 9.10.7 of `docs/design/tooling.md`). The result is stated in Section 3.5 |
+No assumption is open. The last one, RSA-8, on the licence of CMakeRC, is confirmed in Section 3.5.
 
 ## 14. Open Questions
 
@@ -667,6 +682,7 @@ RSQ-6 and RSQ-7 come from the review of the public API before the second release
 | RSQ-5 | Should the entry keys of the native crates on Windows hold the version of the Windows SDK, so that an upgrade of the SDK alone no longer reuses libraries built against older headers (Section 5.5)? The keys of Slang and of slang-glslang have the same limit | This document, with `docs/design/slang-compiler-sys.md` and `docs/design/slang-glslang-sys.md` | Not assigned |
 | RSQ-6 | Should the crate re-export `slang-compiler-sys` at its root, so that a program names `slang_rhi_sys::slang_compiler_sys::ISlangUnknown` without a second dependency that must match the exact version of this crate (Section 10)? The options are the re-export, or the documentation of the public dependency alone, which the crate documentation and the crate README hold now | The owner of the project, by a decision | Before the first release that is not an alpha |
 | RSQ-7 | `pub use bindings::*;` exports the aliases `Result`, which is `SlangResult`, `Size`, and `Offset` of the headers at the crate root (RSYS-2). A program that writes `use slang_rhi_sys::*;`, which is common with raw bindings, shadows `std::result::Result`, and every `Result<T, E>` in that module then fails to compile with an error that does not name the cause. The finding is minor. The options are a rule of `SLANG_RHI` that renames the three aliases, such as `RhiResult`, or the names of the headers with a sentence in the crate documentation that advises against a glob import | The owner of the project, by a decision | Before the first release that is not an alpha |
+| RSQ-8 | Does a distributor of a binary built for Windows carry a notice for `src/core/stable_vector.h` of slang-rhi, which says that it is "based on https://github.com/david-grs/stable_vector", carries no licence notice, and is compiled on Windows only (Section 3.5)? The crate documentation does not name it. The answer needs a reading of the licence of the upstream project and of how much of it the file holds, and then either a line in the crate documentation or a decision that none is needed | The owner of the project | Not assigned |
 
 ## 15. References
 
@@ -696,6 +712,6 @@ This table lists every labelled requirement of this document with a one-line sum
 | RSYS-13 | 7.1 | Linux with the GNU C library and x86_64 Windows with the Microsoft toolchain only, no cross-compilation, and a clear stop on every other target, checked before the metadata of the dependencies is read. |
 | RSYS-14 | 7.2 | A test of Windows and macOS with downloads off, whose result goes to the owner before any design of those builds. |
 | RSYS-15 | 8 | The logic behind `Host`, every exit status checked, and the failures of the table. |
-| RSYS-16 | 10 | The crate documentation states the build, the requirements, the platforms with `dxcompiler.dll` on Windows, the contract, the features, and the third-party code in a program with its licences and the notices that a distributor of a binary carries. |
+| RSYS-16 | 10 | The crate documentation states the build, the requirements, the platforms with `dxcompiler.dll` on Windows, the contract, the features, and the third-party code in a program, VMA or the D3D12 Memory Allocator, CMakeRC, and OffsetAllocator, with its licences and the notices that a distributor of a binary carries. |
 | RSYS-17 | 5.2 | Outside Windows, the wrapper project checks that the compiler finds `X11/Xlib.h` before it adds slang-rhi, stops the configure step with a message that names the header and `libx11-dev` otherwise, and bundles no stub. |
 | RSYS-18 | 7.3 | On Windows, the configure step redirects WinPixEventRuntime to an empty directory and downloads nothing. |

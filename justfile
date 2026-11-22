@@ -23,7 +23,7 @@ rhi_packages := "slang-rhi-sys slang-rhi"
 miri_packages := "slang-compiler"
 
 # The packages of the next release, separated by spaces, in the order in which they depend on each other, which every recipe of the release reads. Every other member sets publish = false
-release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler"
+release_packages := "slang-bindgen slang-src slang-compiler-sys slang-glslang-sys slang-compiler slang-rhi-sys slang-rhi slango slango-codegen slango-macros slang-slint"
 
 # The address of the hosted documentation, which holds the documentation of each released crate in a directory named after the crate with each hyphen replaced by an underscore
 documentation_site := "https://g-whiz.github.io/slang-rust"
@@ -595,10 +595,10 @@ check-features:
 check-msrv:
     CARGO_BUILD_WARNINGS=deny cargo hack check --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --all-targets --rust-version
 
-# Check the release packages with a library target, other than slang-src and slang-glslang-sys, for breaking changes against their last release on crates.io, with the default features of each, run by CI only. It fetches each baseline from crates.io, which needs network access, and builds each crate twice
+# Check the release packages with a library target, other than slang-src, slang-glslang-sys, slang-rhi-sys, slang-rhi, and the packages that crates.io does not hold yet, for breaking changes against their last release on crates.io, with the default features of each, run by CI only. It fetches each baseline from crates.io, which needs network access, and builds each crate twice
 [group('checks')]
 check-semver:
-    cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --default-features
+    cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slang-slint --default-features
 
 # Write a test coverage report to target/lcov.info, run by CI only
 [group('rust')]

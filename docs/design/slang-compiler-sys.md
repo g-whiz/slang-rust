@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | `crates/slang-compiler-sys` and `crates/slang-bindgen` |
 
 ## Abstract
@@ -967,13 +967,13 @@ SCS-53. `slang-compiler-sys` MUST expose the constant `BUILD_INFO` of the type `
 
 `version` is a Semantic Versioning 2.0.0 version made of the version of `slang-compiler-sys`, a plus sign, and build metadata that names the Slang and the route: `slang`, the Slang identifiers of the build tag, and `dynamic` or `vendored`. The Slang identifiers are the numbers that SRC-13 of the `slang-src` design derives from a build tag, with a missing patch or count written as `0`, followed by `g` and the hash that the build tag carries.
 
-A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.1.0-alpha.2+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
+A build tag without a count and a hash, such as `2026.17`, gives the identifiers `2026.17.0.0` with no hash identifier, as in `0.2.0-alpha.1+slang.2026.17.0.0.dynamic`. SRC-13 takes the hash from the recorded commit in that case, but the dynamic route has no commit to take it from.
 
-These are the values for the recorded Slang on each route, with `0.1.0-alpha.2` as the crate version:
+These are the values for the recorded Slang on each route, with `0.2.0-alpha.1` as the crate version:
 
 ```text
-0.1.0-alpha.2+slang.2026.17.0.25.gc7954ebd1.dynamic
-0.1.0-alpha.2+slang.2026.17.0.25.gc7954ebd1.vendored
+0.2.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.dynamic
+0.2.0-alpha.1+slang.2026.17.0.25.gc7954ebd1.vendored
 ```
 
 A build tag of an installed SDK that does not have the form of SRC-12 of the `slang-src` design, including one whose hash has fewer than nine digits, such as `2026.17-25-gc7954eb`, gives the build metadata `slang`, the build tag with every character other than an ASCII letter, a digit, or a hyphen replaced by a hyphen, and the route. The build tag itself is in `slang_build_tag` unchanged.
@@ -1012,7 +1012,7 @@ This illustration shows a dependency of a user's crate on `slang-compiler` with 
 
 ```toml
 [dependencies]
-slang-compiler = { version = "0.1.0-alpha.2", features = ["vendored"] }
+slang-compiler = { version = "0.2.0-alpha.1", features = ["vendored"] }
 ```
 
 ### 9.2. Dynamic Route

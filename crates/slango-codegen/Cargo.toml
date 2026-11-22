@@ -4,7 +4,6 @@ description = "The generator of slango-macros: typed Rust bindings to the comput
 keywords = ["slang", "shader", "gpu", "codegen", "compute"]
 categories = ["graphics", "development-tools::procedural-macro-helpers"]
 documentation = "https://g-whiz.github.io/slang-rust/slango_codegen/"
-publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -21,7 +20,7 @@ proc-macro2.workspace = true
 quote.workspace = true
 # The exact version keeps the hidden module and the encoded snapshot of slango
 # that the generated code uses in step with this crate.
-slango = { path = "../slango", version = "=0.1.0-alpha.2", features = ["wgpu"] }
+slango = { path = "../slango", version = "=0.2.0-alpha.1", features = ["wgpu"] }
 
 [dev-dependencies]
 insta.workspace = true

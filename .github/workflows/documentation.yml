@@ -96,6 +96,19 @@ jobs:
           done
           printf '::error::The runner image provides no Python 3 as python3 or python on PATH, which the build of slang-glslang needs, because SPIRV-Tools generates some of its sources with a Python script\n'
           exit 1
+      - name: Install the development headers of Xlib, which the build of slang-rhi includes, and lavapipe and the Vulkan loader, which the tests on slang-rhi use, where the runner image lacks them
+        if: runner.os == 'Linux'
+        run: |
+          missing=()
+          for package in libx11-dev mesa-vulkan-drivers libvulkan1; do
+            if ! dpkg-query --show --showformat='${db:Status-Status}' "${package}" 2>/dev/null | grep -qx installed; then
+              missing+=("${package}")
+            fi
+          done
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends "${missing[@]}"
+          fi
       - name: Build the documentation site
         run: just doc-site
       - name: Upload the documentation site

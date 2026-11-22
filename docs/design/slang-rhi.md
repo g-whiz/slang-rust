@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Draft |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | `crates/slang-rhi` |
 
 ## Abstract
@@ -189,7 +189,7 @@ The crate calls the reflection functions of `slang-compiler-sys` for the lookup 
 
 The manifest declares `slang-rhi-sys` and `bitflags` for every target, and `slang-compiler` and `slang-compiler-sys` for Linux with the GNU C library and x86_64 Windows with the Microsoft toolchain only, with the condition of the target table of `slang-rhi-sys` (RSYS-1 of the sys design). On another target, the build script of `slang-rhi-sys` stops the build at once, before anything is cloned, so the crate root carries no `cfg` of its own.
 
-The crate takes the licence `MIT OR Apache-2.0` of the workspace (ARCH-36 of the architecture design), sets `publish = false` until the change that prepares the second release (TOOL-35 of `docs/design/tooling.md`), and stays out of `default-members` and of every recipe that passes `--workspace`, because building it builds Slang and slang-rhi from source (TOOL-32).
+The crate takes the licence `MIT OR Apache-2.0` of the workspace (ARCH-36 of the architecture design). It belongs to the second release, so it sets no `publish = false` and has the `documentation` field of TOOL-40 of `docs/design/tooling.md` (TOOL-35 of that design). It stays out of `default-members` and of every recipe that passes `--workspace`, because building it builds Slang and slang-rhi from source (TOOL-32).
 
 ### 4.2. Unsafe Code
 

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-21 |
+| Date | 2026-11-22 |
 | Applies to | All Rust code in this repository, and the agents that write or review it |
 
 ## Abstract
@@ -572,10 +572,10 @@ taplo fmt --check
 actionlint
 ```
 
-This command runs the check of `cargo semver-checks`, which compares each crate of the release with a library target, except `slang-src` and `slang-glslang-sys`, with its last release on crates.io, with the default features of each crate (TOOL-38 of `docs/design/tooling.md`):
+This command runs the check of `cargo semver-checks`, which compares each crate of the release with a library target, except `slang-src` and `slang-glslang-sys`, with its last release on crates.io, with the default features of each crate (TOOL-38 of `docs/design/tooling.md`). It excludes `slang-slint` until crates.io holds a version of it (Section 9.10.5 of that design):
 
 ```sh
-cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --default-features
+cargo semver-checks --workspace --exclude slang-src --exclude slang-glslang-sys --exclude slang-rhi-sys --exclude slang-rhi --exclude slang-slint --default-features
 ```
 
 The `coverage` recipe adds `--profile gpu --lcov --output-path target/lcov.info` to the `cargo llvm-cov` command, so that it writes an LCOV report to `target/lcov.info`. With these options, the command prints no coverage summary.

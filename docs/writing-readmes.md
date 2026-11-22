@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Living document |
-| Date | 2026-11-19 |
+| Date | 2026-11-22 |
 | Applies to | The root `README.md` and the `README.md` of every library crate in this repository |
 
 ## Abstract
@@ -125,7 +125,7 @@ RDM-7. The section `Status` MUST hold one alert of type `WARNING` that states th
 
 ### 5.4. Crates
 
-RDM-8. The section `Crates` MUST hold one table with one row for each library crate and the columns Crate, Use it to, and API documentation. The Crate column links the crate name to its crate README on GitHub, the Use it to column has one sentence, and the API documentation column links to the page of the crate on the hosted API documentation, or, for a crate with `publish = false`, to its source directory on GitHub.
+RDM-8. The section `Crates` MUST hold one table with one row for each library crate and the columns Crate, Use it to, and API documentation. The Crate column links the crate name to its crate README on GitHub, the Use it to column has one sentence, and the API documentation column links to the page of the crate on the hosted API documentation, or, for a crate whose page the hosted API documentation does not hold yet, to its source directory on GitHub. The hosted pages of a crate appear with the first release that publishes it, so the change that follows that publication replaces the link (Section 9.10.3 of `docs/design/tooling.md`).
 
 The rows start with the crates that a user depends on directly, which are `slango`, `slango-macros`, `slang-compiler`, `slang-slint`, and `slang-rhi`, followed by the crates they build on, which are `slango-codegen`, `slang-compiler-sys`, `slang-rhi-sys`, `slang-glslang-sys`, `slang-src`, and `slang-bindgen`. A visitor scans the table top down for the crate that fits. The tracing README uses such a table [TRACING].
 
