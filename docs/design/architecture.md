@@ -464,7 +464,7 @@ The examples are complete programs that also serve as the integration testbed, a
 | 4 | `shader-playground`, a Slint application with a `slang-slint` view and sliders bound to shader parameters | Slang, a display, and an adapter | M5 | Built in CI and run locally, with its scene drawn offscreen by tests (Section 10 of `docs/design/slang-slint.md`), on the backend `rhi` too from M10, while its window stays on wgpu |
 | 5 | `typed-kernel`, a headless compute kernel called through the typed bindings of `slango-macros`, with a generated struct for a Slang structure | Slang at build time and any adapter | M6 | Runs headless in the GPU tier on a software adapter (Section 10 of `docs/design/slango-macros.md`), on the backend `rhi` too from M10 |
 | 6 | A path-tracing renderer demo, which shows the ray tracing of `slango` | Not designed | M14 | Not designed |
-| 7 | A renderer with hull, domain, and geometry stages | Not designed | M12 | Not designed |
+| 7 | A renderer with hull, domain, and geometry stages | Not designed | M12, deferred (Section 15.15) | Not designed |
 | 8 | A renderer with a mesh shading pipeline | Not designed | M13 | Not designed |
 | 9 | A training example built on the neural primitives of `slango` | Not designed | M17 | Not designed |
 
@@ -658,7 +658,7 @@ Several milestones replace requirements of this document that the code satisfies
 | M9 | `slang-rhi-sys`, `slang-rhi`, and additive reflection in `slang-compiler` | M7 | `docs/design/slang-rhi-sys.md` and `docs/design/slang-rhi.md`, new, and `docs/design/slang-compiler-sys.md`, `docs/design/slang-compiler.md`, and `docs/design/slang-src.md`, revised |
 | M10 | The opt-in `rhi` backend of `slango`, with wgpu kept as the default backend | M9 | `docs/design/slango.md`, `docs/design/slango-macros.md`, `docs/design/slang-slint.md`, `docs/design/slang-rhi.md`, `docs/design/slang-rhi-sys.md`, and `docs/design/tooling.md`, revised |
 | M11 | The second release | M10 | The release procedure in `docs/design/tooling.md` |
-| M12 | Render pipelines with hull, domain, and geometry stages, and example 7 | M10 | A design in `docs/design/slango.md` |
+| M12 | Render pipelines with hull, domain, and geometry stages, and example 7, deferred on 2026-11-22 (Section 15.15) | M10, and slang-rhi with tessellation on Vulkan and D3D12 | A design in `docs/design/slango.md` |
 | M13 | Mesh shading pipelines and example 8 | M10 | A design in `docs/design/slango.md` |
 | M14 | Ray tracing and example 6 | M9, M10 | A design in `docs/design/slango.md` |
 | M15 | The opt-in slang-rhi backends CUDA with OptiX, and CPU | M14 | Designs in `docs/design/slang-rhi-sys.md` and `docs/design/slango.md` |
@@ -880,7 +880,14 @@ Several milestones replace requirements of this document that the code satisfies
 
 - Deliverables: render pipelines with hull, domain, and geometry stages on the slang-rhi backend, and example 7.
 - Owner decisions that bind it: the new stages exist on the slang-rhi backend only, and the wgpu backend reports them as unsupported. A Slint view does not show them.
-- Depends on: M10. The roadmap places M12 after M11.
+- Deferral: on 2026-11-22, the owner deferred all of M12 until slang-rhi supports tessellation on Vulkan and D3D12. A probe of that day found that slang-rhi cannot create a render pipeline with a hull and a domain stage on Vulkan, through two defects, and that its D3D12 backend does not translate the topology of patches, by a third (RKB-10 to RKB-12 of `docs/design/slang-rhi.md`). The owner chose the deferral over two other options, to deliver the geometry stage now and defer tessellation, or to patch slang-rhi in the project's build.
+
+  The design round of M12, when it resumes, starts from these facts of the probe:
+  - A pipeline of a vertex, a geometry, and a fragment stage works on Vulkan through the raw bindings of `slang-rhi-sys`, and slang-rhi reports no capability or feature for the new stages (Section 3 of `docs/design/slang-rhi.md`).
+  - The recorded Slang compiles vertex, hull, domain, geometry, and fragment entry points, linked into one program, to SPIR-V with correct execution modes. DXIL was not tested, because the probe ran on Linux.
+  - Slang's reflection reports the stages `Hull`, `Domain`, and `Geometry` and their varying parameters. It does not report the number of control points, the patch constant function, the partitioning, the output topology, or `maxvertexcount`, and `slang.h` has no function of entry point reflection for them. `InputPatch` and `OutputPatch` reflect with no type kind.
+  - Slang's tree holds a test of a known defect, `tests/current-bugs/spirv-hull-sv_tessfactor-float4-cast-crash.slang`, in which an `SV_TessFactor` of a vector type crashes the emission of SPIR-V. The probe did not reproduce it.
+- Depends on: M10, and slang-rhi with tessellation on Vulkan and D3D12. The roadmap placed M12 after M11 until the deferral.
 - Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`.
 - Exit criteria: every check passes, including the tests of the new stages on the adapters that the design names and the automated check of example 7 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
 
@@ -888,7 +895,7 @@ Several milestones replace requirements of this document that the code satisfies
 
 - Deliverables: mesh shading pipelines on the slang-rhi backend, and example 8.
 - Owner decisions that bind it: mesh shading exists on the slang-rhi backend only, and the wgpu backend reports it as unsupported. A Slint view does not show it.
-- Depends on: M10. The roadmap places M13 after M12.
+- Depends on: M10. The roadmap places M13 after M11, while M12 is deferred (Section 15.15).
 - Design document, which exists before any code of the milestone: a design in `docs/design/slango.md`.
 - Exit criteria: every check passes, including the tests of mesh shading on the adapters that the design names and the automated check of example 8 (ARCH-21). `AGENTS.md`, `README.md`, and this document are updated.
 
@@ -932,7 +939,7 @@ Several milestones replace requirements of this document that the code satisfies
 
 - Deliverables: typed bindings of `slango-macros` for render pipelines with hull, domain, and geometry stages, for mesh shading pipelines, and for ray tracing pipelines.
 - Owner decisions that bind it: the new pipeline kinds exist on the slang-rhi backend only, so their typed bindings do too.
-- Depends on: M12, M13, and M14.
+- Depends on: M12, M13, and M14. While M12 is deferred (Section 15.15), whether M18 waits for it is Q-40 (Section 17).
 - Design document, which exists before any code of the milestone: `docs/design/slango-macros.md`, revised.
 - Exit criteria: every check passes, including the tests that the design names for each pipeline kind. `AGENTS.md`, `README.md`, and this document are updated.
 
@@ -962,6 +969,8 @@ M9 and M10 add slang-rhi and the feature `rhi` of `slango` and its macro crates,
 
 M12 to M18 add pipeline kinds, backends, and features without breaking the released API. M15 follows M14 because OptiX runs the ray tracing interface of M14, and comes before M16 because training workloads commonly run on CUDA. M18 comes last, because its typed bindings wrap the pipeline kinds of M12 to M14.
 
+On 2026-11-22, the owner deferred M12 until slang-rhi supports tessellation, so M13 follows M11 (Section 15.15).
+
 ## 16. Assumptions to Confirm
 
 Each row is a fact that comes from research that was not independently confirmed. A section that relies on one of them cites its identifier.
@@ -979,7 +988,7 @@ The design document or milestone in the last column confirms or corrects it, and
 | A-24 | Slang offers no API that returns a derivative, so a derivative comes from compiling `bwd_diff(f)` or `fwd_diff(f)` in Slang source | Section 15.19 | The design of M16 |
 | A-26 | The recorded Slang holds the module `slang.neural` under `source/standard-modules/neural`, marks it experimental, and needs the experimental feature flag to use it | Section 15.20 | The design of M17 |
 | A-28 | On Windows and macOS, the build script of `slang-src` also finds the shared folder under `--target` and with a separate build directory, and every host and target unit of a project share one native build | Section 4.3 | A vendored build on Windows and macOS with `--target` and with a native build (SRCA-9 of `docs/design/slang-src.md`) |
-| A-29 | slang-rhi offers hull, domain, and geometry stages on Vulkan and D3D12, although its headers name no such stage or feature, and its cooperative vectors on D3D12 need no NVAPI, which the tree does not settle | Section 14.4 | The designs of M12 and M17 |
+| A-29 | slang-rhi offers a geometry stage on D3D12, although its headers name no such stage or feature, and its cooperative vectors on D3D12 need no NVAPI, which the tree does not settle. A probe of 2026-11-22 found the geometry stage working on Vulkan and the hull and domain stages broken on Vulkan and, by a reading, on D3D12 (Section 15.15) | Section 14.4 | The designs of M12 and M17 |
 
 A-25, that docs.rs builds crates without network access, is confirmed by the documentation of docs.rs (Section 9.4 of `docs/design/tooling.md`).
 
@@ -997,6 +1006,7 @@ Each row is a question that this document leaves open. The design document in th
 | Q-24 | Can the windows of examples 3 and 4 be checked headless, and how? | A design document, written when a CI runner can show a window | Not scheduled |
 | Q-29 | What is the design of the path-tracing demo? | The design of M14 | M14 |
 | Q-37 | Which backends of `slango` offer generated kernels, automatic differentiation, tensors, and the neural primitives? | `docs/design/slango.md` | M16 and M17 |
+| Q-40 | While M12 is deferred (Section 15.15), does M18 wait for it, or does M18 deliver the typed bindings of mesh shading and ray tracing first and those of hull, domain, and geometry stages after M12? The owner decides | This document | M18 |
 
 SLO-37 of `docs/design/slango.md` answers Q-36: the slang-rhi backend of `slango` compiles to the target that slang-rhi chooses for each device backend, SPIR-V on Vulkan and DXIL on D3D12, because each load compiles in a session that reproduces the device's own session (RHI-30 of `docs/design/slang-rhi.md`). The answer does not settle Q-23, which concerns the backend `wgpu`.
 
