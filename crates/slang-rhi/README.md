@@ -13,8 +13,8 @@ A program also depends on slang-compiler at the same version, because a device t
 
 ```toml
 [dependencies]
-slang-rhi = "0.2.0-alpha.1"
-slang-compiler = "0.2.0-alpha.1"
+slang-rhi = "0.2.0-alpha.2"
+slang-compiler = "0.2.0-alpha.2"
 ```
 
 ## Example

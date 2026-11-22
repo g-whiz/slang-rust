@@ -137,8 +137,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! slango = { version = "0.2.0-alpha.1", features = ["vendored"] }
-//! slango-macros = { version = "0.2.0-alpha.1", features = ["vendored"] }
+//! slango = { version = "0.2.0-alpha.2", features = ["vendored"] }
+//! slango-macros = { version = "0.2.0-alpha.2", features = ["vendored"] }
 //! ```
 //!
 //! Both copies of Slang are built once from one source tree, because the
@@ -176,8 +176,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! slango = { version = "0.2.0-alpha.1", default-features = false, features = ["rhi"] }
-//! slango-macros = { version = "0.2.0-alpha.1", features = ["vendored"] }
+//! slango = { version = "0.2.0-alpha.2", default-features = false, features = ["rhi"] }
+//! slango-macros = { version = "0.2.0-alpha.2", features = ["vendored"] }
 //! ```
 //!
 //! The macro's copy of `slango` keeps the backend `wgpu`, because it only

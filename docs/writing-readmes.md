@@ -121,7 +121,7 @@ slang-rust is a set of Rust crates for the Slang shader language. They compile a
 
 ### 5.3. Status
 
-RDM-7. The section `Status` MUST hold one alert of type `WARNING` that states that the crates are alpha releases, that the API can change in any release, and that a dependent names the full pre-release version, such as `"0.1.0-alpha.1"`. Cargo matches a pre-release only from a requirement that names a pre-release, so a dependent who writes `"0.1"` gets a resolution error.
+RDM-7. The section `Status` MUST hold one alert of type `WARNING` that states that the crates are alpha releases, that the API can change in any release, and that a dependent names the full pre-release version, such as `"0.2.0-alpha.1"`. Cargo matches a pre-release only from a requirement that names a pre-release, so a dependent who writes `"0.2"` gets a resolution error.
 
 ### 5.4. Crates
 
@@ -136,7 +136,7 @@ RDM-9. The section `Getting Started` MUST show, as a command in a `sh` block, ho
 This illustration shows the command:
 
 ```sh
-cargo add slango@0.1.0-alpha.1
+cargo add slango@0.2.0-alpha.1
 ```
 
 Checked by: judgement, for Sections 5.1 to 5.5. A tool could check the headings and their order, but no configured tool does.

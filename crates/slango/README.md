@@ -9,7 +9,7 @@ slango runs [Slang](https://shader-slang.org) compute kernels and draws with Sla
 
 ```toml
 [dependencies]
-slango = "0.2.0-alpha.1"
+slango = "0.2.0-alpha.2"
 ```
 
 ## Example

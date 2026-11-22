@@ -9,7 +9,7 @@ slang-slint shows what a [Slang](https://shader-slang.org) render pipeline of [s
 
 ```toml
 [dependencies]
-slang-slint = "0.2.0-alpha.1"
+slang-slint = "0.2.0-alpha.2"
 ```
 
 The program depends on slint with a requirement that selects a 1.18 release, such as `slint = "~1.18"`, because the API of this crate names Slint's types, and a later minor version of Slint gives type errors that do not name the version.

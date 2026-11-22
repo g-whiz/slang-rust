@@ -9,7 +9,7 @@ slang-compiler-sys provides the raw, unsafe Rust bindings to the [Slang](https:/
 
 ```toml
 [dependencies]
-slang-compiler-sys = "0.2.0-alpha.1"
+slang-compiler-sys = "0.2.0-alpha.2"
 ```
 
 ## Requirements

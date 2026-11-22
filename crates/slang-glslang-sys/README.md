@@ -11,7 +11,7 @@ A program that uses the raw bindings of [slang-compiler-sys](https://github.com/
 
 ```toml
 [dependencies]
-slang-glslang-sys = "0.2.0-alpha.1"
+slang-glslang-sys = "0.2.0-alpha.2"
 ```
 
 ## Requirements

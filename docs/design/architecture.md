@@ -141,14 +141,14 @@ This table lists the members of the workspace. The examples form one workspace m
 | `slang-compiler-sys` | `crates/slang-compiler-sys/` | Raw bindings that its build script generates, the build information, and the linking of Slang (Section 6) | Yes | M1, M7 |
 | `slang-compiler` | `crates/slang-compiler/` | Safe wrappers over the compile and reflection API (Section 7) | Yes | M2 |
 | `slango` | `crates/slango/` | High-level library for calling Slang code on the GPU (Section 8) | Yes | M3, M4 |
-| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Planned for the second release (Section 13) | M5 |
+| `slang-slint` | `crates/slang-slint/` | A Slint view backed by a Slang render pipeline (Section 9) | Yes, from the second release (Section 13) | M5 |
 | `slango-macros` | `crates/slango-macros/` | Typed Rust bindings to Slang code, generated at build time (Section 8.4) | Yes | M6 |
 | `slango-codegen` | `crates/slango-codegen/` | The generator of `slango-macros`, as a library (Section 4.2 of `docs/design/slango-macros.md`) | Yes | M6 |
 | `slang-src` | `crates/slang-src/` | Obtains the Slang source tree and exports its path to the build scripts of the crates that build Slang (`docs/design/slang-src.md`) | Yes | M7 |
 | `slang-glslang-sys` | `crates/slang-glslang-sys/` | Builds slang-glslang and holds the in-process loader that hands it to a statically linked Slang (`docs/design/slang-glslang-sys.md`) | Yes | M7 |
 | `slang-bindgen` | `crates/slang-bindgen/` | The binding generator, which the build script of `slang-compiler-sys` runs to generate the raw bindings (Section 6.2) | Yes | M1, M7 |
-| `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Planned for the second release (Section 13) | M9 |
-| `slang-rhi` | `crates/slang-rhi/` | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Planned for the second release (Section 13) | M9 |
+| `slang-rhi-sys` | `crates/slang-rhi-sys/` | Raw bindings of slang-rhi that its build script generates, and the build of slang-rhi from the tree of `slang-src` (`docs/design/slang-rhi-sys.md`) | Yes, from the second release (Section 13) | M9 |
+| `slang-rhi` | `crates/slang-rhi/` | Safe wrappers over `slang-rhi-sys`, for the compute path in M9 (`docs/design/slang-rhi.md`) | Yes, from the second release (Section 13) | M9 |
 | Examples | `examples/` | Example programs that also serve as the integration testbed (Section 10) | No, `publish = false` | M2 to M6 |
 
 ### 3.2. Dependency Direction
@@ -519,7 +519,7 @@ ARCH-37. A build MUST NOT stop because its target is not one of the tested targe
 
 ## 13. Publishing
 
-The workspace is published on crates.io in two releases. The first is published, and the second is planned. The examples set `publish = false` and are never published. Every other member that a release does not publish also sets `publish = false` until the release that publishes it, so Cargo refuses to publish it (TOOL-35 of `docs/design/tooling.md`).
+The workspace is published on crates.io in two releases, both of which are published. The examples set `publish = false` and are never published. Every other member that a release does not publish also sets `publish = false` until the release that publishes it, so Cargo refuses to publish it (TOOL-35 of `docs/design/tooling.md`).
 
 | Release | Milestone | Crates | Condition |
 | --- | --- | --- | --- |

@@ -185,6 +185,7 @@ jobs:
       - *install-libclang
       - *install-vulkan-sdk
       - *check-vulkan-sdk
+      - *install-fontconfig
       - name: Check for breaking changes against the last release
         run: just check-semver
 

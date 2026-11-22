@@ -9,7 +9,7 @@ slango-macros provides the procedural macro `shader!`, which compiles a [Slang](
 
 ```toml
 [dependencies]
-slango-macros = "0.2.0-alpha.1"
+slango-macros = "0.2.0-alpha.2"
 ```
 
 ## Example

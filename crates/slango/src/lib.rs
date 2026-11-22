@@ -309,7 +309,7 @@ wgpu. The example `windowed-renderer` does this with winit.
 //!
 //! ```toml
 //! [dependencies]
-//! slango = { version = "0.2.0-alpha.1", default-features = false, features = ["rhi"] }
+//! slango = { version = "0.2.0-alpha.2", default-features = false, features = ["rhi"] }
 //! ```
 //!
 //! With `rhi`, the build clones the Slang source tree and builds Slang and

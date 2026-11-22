@@ -9,7 +9,7 @@ slango-codegen is the generator of [slango-macros](https://github.com/g-whiz/sla
 
 ```toml
 [dependencies]
-slango-codegen = "0.2.0-alpha.1"
+slango-codegen = "0.2.0-alpha.2"
 ```
 
 ## Example

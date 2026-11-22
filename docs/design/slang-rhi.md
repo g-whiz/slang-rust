@@ -871,7 +871,7 @@ No assumption of this document is open.
 
 Each row is a question that this document leaves open. The owner in the third column answers it before or during the milestone in the last column, and the change that answers it removes the row. An identifier is never reused.
 
-RHQ-13 to RHQ-20 come from the review of the public API before the second release (Section 9.10.1 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. By the owner's decision 4 of that section, they do not block the second release, an alpha, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`).
+RHQ-13 to RHQ-20 come from the review of the public API before the second release (Section 9.10.1 of `docs/design/tooling.md`). Each is a finding of a broken rule that waits for the decision of the owner of the project. By the owner's decision 4 of that section, they do not block the second release, an alpha, and each is decided before the first release that is not an alpha (TOOL-37 of `docs/design/tooling.md`). RHQ-13 and RHQ-14 were put to the owner on their own, and on 2026-11-22 the owner deferred both with the others to that release.
 
 | Identifier | Question | Owner | Milestone |
 | --- | --- | --- | --- |

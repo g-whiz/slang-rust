@@ -312,7 +312,7 @@ SRC-12. A build tag that `slang-src` exports MUST have the form `<major>.<minor>
 
 SRC-13. The manifest version of `slang-src` MUST be the version of the release that it belongs to, with the Slang identifiers `slang.<major>.<minor>.<patch>.<count>.g<hash>` added as the last pre-release identifiers. The Slang identifiers are made from `RECORDED_BUILD_TAG` with a missing patch written as `0`, a missing count written as `0`, and the hash abbreviated to nine digits, taken from `RECORDED_COMMIT` when the build tag has none. The version of the release follows TOOL-37 of `docs/design/tooling.md`, so a new recorded commit and a change of only the crate both come with the next release of the whole set of crates.
 
-The release `0.2.0-alpha.1` and the recorded build tag `2026.17-25-gc7954ebd1` give the version `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`. A release version without a pre-release, such as `0.1.0`, would give `0.1.0-slang.2026.17.0.25.gc7954ebd1`. The test of the version requires the pre-release to end with the Slang identifiers, after nothing or after identifiers that end with a dot, so it needs no change for the next release (Section 12).
+The release `0.2.0-alpha.2` and the recorded build tag `2026.17-25-gc7954ebd1` give the version `0.2.0-alpha.2.slang.2026.17.0.25.gc7954ebd1`. A release version without a pre-release, such as `0.1.0`, would give `0.1.0-slang.2026.17.0.25.gc7954ebd1`. The test of the version requires the pre-release to end with the Slang identifiers, after nothing or after identifiers that end with a dot, so it needs no change for the next release (Section 12).
 
 The release identifiers make the version a pre-release in the meaning of SemVer. The Slang identifiers are a deliberate abuse of the notation, because they mark no further stage of the release. In a release, they name the Slang that the crate clones. In a fork that is patched in, they do not (SRC-22).
 
@@ -326,7 +326,7 @@ This illustration shows the requirement in the manifest of a dependent:
 
 ```toml
 [dependencies]
-slang-src = { version = "=0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1", path = "../slang-src" }
+slang-src = { version = "=0.2.0-alpha.2.slang.2026.17.0.25.gc7954ebd1", path = "../slang-src" }
 ```
 
 ### 7.3. Another Slang Commit
@@ -673,7 +673,7 @@ This table lists every labelled requirement of this document with a one-line sum
 | SRC-9 | 6.2 | No network access with `CARGO_NET_OFFLINE=true`, and a failed or impossible clone stops the build with the offline advice and never falls back. |
 | SRC-11 | 7.1 | The recorded commit and build tag live in `recorded.rs`, the manifest version, and the crate documentation, tests compare them, and scripts read them and the name of the clone entry through `recorded-slang`. |
 | SRC-12 | 7.2 | A build tag has the form `<major>.<minor>[.<patch>][-<count>-g<hash>]`, or the build stops. |
-| SRC-13 | 7.2 | The version is the version of the release with `slang.<major>.<minor>.<patch>.<count>.g<hash>` as its last pre-release identifiers, such as `0.2.0-alpha.1.slang.2026.17.0.25.gc7954ebd1`. |
+| SRC-13 | 7.2 | The version is the version of the release with `slang.<major>.<minor>.<patch>.<count>.g<hash>` as its last pre-release identifiers, such as `0.2.0-alpha.2.slang.2026.17.0.25.gc7954ebd1`. |
 | SRC-14 | 7.2 | Every dependent requires the exact version with `=`. |
 | SRC-16 | 9.2 | Every entry is built under an exclusive lock in a temporary directory, gets a stamp file with an old time, is renamed into place when complete, and is watched through its stamp file. |
 | SRC-17 | 9.4 | An entry of libraries is named by the FNV-1a hash of its listed inputs, which the entry holds and a hit compares in full. |

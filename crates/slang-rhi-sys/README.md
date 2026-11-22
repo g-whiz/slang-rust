@@ -9,14 +9,14 @@ slang-rhi-sys provides the raw, unsafe Rust bindings to [slang-rhi](https://gith
 
 ```toml
 [dependencies]
-slang-rhi-sys = "0.2.0-alpha.1"
+slang-rhi-sys = "0.2.0-alpha.2"
 ```
 
 A program that names an item of the Slang headers in the bindings, such as `ISlangUnknown` or a global session, also depends on slang-compiler-sys at the same version as this crate:
 
 ```toml
 [dependencies]
-slang-compiler-sys = "0.2.0-alpha.1"
+slang-compiler-sys = "0.2.0-alpha.2"
 ```
 
 ## Requirements

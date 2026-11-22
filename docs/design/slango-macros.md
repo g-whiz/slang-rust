@@ -211,7 +211,7 @@ SLM-2. `slango-codegen` MUST require `slango` with an exact version, `=x.y.z`, a
 
 Each requirement also carries the path, as TOOL-25 of `docs/design/tooling.md` requires. The exact requirement on `slango-codegen` is its entry in `[workspace.dependencies]`, because only `slango-macros` inherits it.
 
-The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.2.0-alpha.1", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
+The requirement on `slango` does not come from `[workspace.dependencies]`, because `slang-slint` and the examples package inherit that entry, which is exact only while every release is an alpha (TOOL-37 of `docs/design/tooling.md`), while SLM-2 needs an exact requirement in every release. So `slango-codegen` declares `slango = { path = "../slango", version = "=0.2.0-alpha.2", features = ["wgpu"] }` in its own manifest, with a comment that gives the reason. This is the exception to DEP-2 that the coding standard states.
 
 With an exact requirement, Cargo resolves the `slango` of the user's crate to the same version, because two semver-compatible versions of a crate cannot coexist in one build graph (inferred, SLMA-3). In the workspace, `cargo tree -i slango -e normal,dev` shows one node of `slango` that serves every member (run). That covers path dependencies with one version only, so the case of a registry with several versions stays open.
 
@@ -237,8 +237,8 @@ This illustration shows the dependencies of such a program:
 
 ```toml
 [dependencies]
-slango = { version = "0.2.0-alpha.1", features = ["vendored"] }
-slango-macros = { version = "0.2.0-alpha.1", features = ["vendored"] }
+slango = { version = "0.2.0-alpha.2", features = ["vendored"] }
+slango-macros = { version = "0.2.0-alpha.2", features = ["vendored"] }
 ```
 
 The vendored recipes check part of this. `test-vendored` runs the tests of the modules `bindings` and `structs` of `slango-macros` with only the feature `vendored` of `slango-macros` and without a Vulkan SDK (TOOL-7 of `docs/design/tooling.md`). They pass only when the feature reaches `slang-compiler` through `slango-codegen` and `slango`, and they show that the macro expands with a statically linked Slang.

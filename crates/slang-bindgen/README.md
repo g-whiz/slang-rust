@@ -9,7 +9,7 @@ slang-bindgen generates the raw Rust bindings of slang-compiler-sys from the hea
 
 ```toml
 [build-dependencies]
-slang-bindgen = "0.2.0-alpha.1"
+slang-bindgen = "0.2.0-alpha.2"
 ```
 
 ## Example
